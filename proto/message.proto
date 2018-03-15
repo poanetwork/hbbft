@@ -1,0 +1,49 @@
+syntax = "proto3";
+
+message MessageProto {
+  oneof payload {
+    BroadcastProto broadcast = 1;
+    AgreementProto agreement = 2;
+  }
+}
+
+message BroadcastProto {
+  oneof payload {
+    ValueProto value = 1;
+    EchoProto echo = 2;
+    ReadyProto ready = 3;
+  }
+}
+
+message ValueProto {
+  ProofProto proof = 1;
+}
+
+message EchoProto {
+  ProofProto proof = 1;
+}
+
+message ReadyProto {
+  bytes root_hash = 1;
+}
+
+message ProofProto {
+  bytes root_hash = 1;
+  LemmaProto lemma = 2;
+  bytes value = 3;
+}
+
+message LemmaProto {
+  bytes node_hash = 1;
+  LemmaProto sub_lemma = 2;
+
+  oneof sibling_hash {
+    bytes left_sibling_hash = 3;
+    bytes right_sibling_hash = 4;
+  }
+
+}
+
+message AgreementProto {
+  // TODO
+}
