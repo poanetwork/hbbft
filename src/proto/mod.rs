@@ -3,12 +3,13 @@ pub mod message;
 
 use ring::digest::Algorithm;
 use merkle::proof::{Proof, Lemma, Positioned};
-//use protobuf::Message;
-use self::message::*;
-use protobuf::error::ProtobufResult;
+use protobuf::Message as ProtobufMessage;
+use proto::message::*;
+use protobuf::error::{ProtobufResult, ProtobufError, WireError};
 use protobuf::core::parse_from_bytes;
 
 /// Kinds of message sent by nodes participating in consensus.
+#[derive (Clone, Debug, PartialEq)]
 pub enum Message<T> {
     Broadcast(BroadcastMessage<T>),
     Agreement(AgreementMessage)
@@ -16,6 +17,7 @@ pub enum Message<T> {
 
 /// The three kinds of message sent during the reliable broadcast stage of the
 /// consensus algorithm.
+#[derive (Clone, Debug, PartialEq)]
 pub enum BroadcastMessage<T> {
     Value(Proof<T>),
     Echo(Proof<T>),
@@ -23,18 +25,24 @@ pub enum BroadcastMessage<T> {
 }
 
 /// Messages sent during the binary Byzantine agreement stage.
+#[derive (Clone, Debug, PartialEq)]
 pub enum AgreementMessage {
     // TODO
 }
 
 impl<T> Message<T> {
     /// Translation from protobuf to the regular type.
-    pub fn from_proto(algorithm: &'static Algorithm,
-                      mut proto: message::MessageProto) -> Option<Self>
+    ///
+    /// TODO: add an `Algorithm` field to `MessageProto`.
+    pub fn from_proto(mut proto: message::MessageProto)
+                      -> Option<Self>
     where T: From<Vec<u8>>
     {
         if proto.has_broadcast() {
-            BroadcastMessage::from_proto(proto.take_broadcast(), algorithm)
+            BroadcastMessage::from_proto(proto.take_broadcast(),
+                                         // TODO, possibly move Algorithm inside
+                                         // BroadcastMessage
+                                         &::ring::digest::SHA256)
                 .map(|b| Message::Broadcast(b))
         }
         else if proto.has_agreement() {
@@ -59,6 +67,30 @@ impl<T> Message<T> {
             }
         }
         m
+    }
+
+    /// Parse a `Message` from its protobuf binary representation.
+    ///
+    /// TODO: pass custom errors from down the chain of nested parsers as
+    /// opposed to returning `WireError::Other`.
+    pub fn parse_from_bytes(bytes: &[u8]) -> ProtobufResult<Self>
+    where T: From<Vec<u8>>
+    {
+        let r = parse_from_bytes::<MessageProto>(bytes)
+            .map(|proto| Self::from_proto(proto));
+
+        match r {
+            Ok(Some(m)) => Ok(m),
+            Ok(None) => Err(ProtobufError::WireError(WireError::Other)),
+            Err(e) => Err(e)
+        }
+    }
+
+    /// Produce a protobuf representation of this `Message`.
+    pub fn write_to_bytes(self) -> ProtobufResult<Vec<u8>>
+    where T: Into<Vec<u8>>
+    {
+        self.into_proto().write_to_bytes()
     }
 }
 
@@ -115,7 +147,7 @@ impl AgreementMessage {
         unimplemented!();
     }
 
-    pub fn from_proto(mut mp: AgreementProto) -> Option<Self>
+    pub fn from_proto(_mp: AgreementProto) -> Option<Self>
     {
         unimplemented!();
     }

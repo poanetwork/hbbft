@@ -1,9 +1,10 @@
 //! Reliable broadcast algorithm.
+use std::fmt::Debug;
 use std::collections::{HashMap, HashSet};
 use std::net::{TcpStream, TcpListener, SocketAddr};
-use errors::ResultExt;
+//use errors::ResultExt;
 use task::{Error, MessageLoop, Task};
-use proto::message::{MessageProto, ValueProto, EchoProto, ReadyProto};
+use proto::Message;
 use merkle::*;
 
 /// A broadcast task is an instance of `Task`, a message-handling task with a
@@ -22,7 +23,7 @@ pub struct BroadcastTask<T> {
     readys: HashSet<Vec<u8>>
 }
 
-impl<T> BroadcastTask<T> {
+impl<T: Debug> BroadcastTask<T> {
     pub fn new(stream: TcpStream) -> Self {
         BroadcastTask {
             task: Task::new(stream),
@@ -31,9 +32,20 @@ impl<T> BroadcastTask<T> {
             readys: Default::default()
         }
     }
+
+    fn on_message_received(&mut self, message: Message<T>)
+                           -> Result<(), Error>
+    {
+        info!("Message received: {:?}", message);
+        Ok(())
+        // else {
+        //     warn!("Unexpected message type");
+        //     return Err(Error::ProtocolError);
+        // }
+    }
 }
 
-impl<T> MessageLoop for BroadcastTask<T> {
+impl<T: Debug + From<Vec<u8>>> MessageLoop for BroadcastTask<T> {
     fn run(&mut self) {
         loop {
             match self.task.receive_message() {
@@ -44,26 +56,6 @@ impl<T> MessageLoop for BroadcastTask<T> {
                     break;
                 }
             }
-        }
-    }
-
-    fn on_message_received(&mut self, message: MessageProto) -> Result<(), Error> {
-        if message.has_broadcast() {
-            let broadcast = message.get_broadcast();
-            if broadcast.has_value() {
-                let value = broadcast.get_value();
-            }
-            else if broadcast.has_echo() {
-                let echo = broadcast.get_echo();
-            }
-            else if broadcast.has_ready() {
-                let ready = broadcast.get_ready();
-            }
-            return Ok(());
-        }
-        else {
-            warn!("Unexpected message type");
-            return Err(Error::ProtocolError);
         }
     }
 }
