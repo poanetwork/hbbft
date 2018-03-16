@@ -1,6 +1,8 @@
 //! Construction of messages from protobuf buffers.
+#![feature(optin_builtin_traits)]
 pub mod message;
 
+use std::marker::{Send, Sync};
 use ring::digest::Algorithm;
 use merkle::proof::{Proof, Lemma, Positioned};
 use protobuf::Message as ProtobufMessage;
@@ -10,15 +12,18 @@ use protobuf::core::parse_from_bytes;
 
 /// Kinds of message sent by nodes participating in consensus.
 #[derive (Clone, Debug, PartialEq)]
-pub enum Message<T> {
+pub enum Message<T: Send + Sync> {
     Broadcast(BroadcastMessage<T>),
     Agreement(AgreementMessage)
 }
 
+//unsafe impl<T: Send + Sync> Send for Message<T> { }
+//impl<T: Send + Sync> !Sync for Message<T> { }
+
 /// The three kinds of message sent during the reliable broadcast stage of the
 /// consensus algorithm.
 #[derive (Clone, Debug, PartialEq)]
-pub enum BroadcastMessage<T> {
+pub enum BroadcastMessage<T: Send + Sync> {
     Value(Proof<T>),
     Echo(Proof<T>),
     Ready(Vec<u8>)
@@ -30,10 +35,13 @@ pub enum AgreementMessage {
     // TODO
 }
 
-impl<T> Message<T> {
+impl<T: Send + Sync> Message<T> {
     /// Translation from protobuf to the regular type.
     ///
-    /// TODO: add an `Algorithm` field to `MessageProto`.
+    /// TODO: add an `Algorithm` field to `MessageProto`. Either `Algorithm` has
+    /// to be fully serialised and sent as a whole, or it can be passed over
+    /// using an ID and the `Eq` instance to discriminate the finite set of
+    /// algorithms in `ring::digest`.
     pub fn from_proto(mut proto: message::MessageProto)
                       -> Option<Self>
     where T: From<Vec<u8>>
@@ -94,7 +102,7 @@ impl<T> Message<T> {
     }
 }
 
-impl<T> BroadcastMessage<T> {
+impl<T: Send + Sync> BroadcastMessage<T> {
     pub fn into_proto(self) -> BroadcastProto
     where T: Into<Vec<u8>>
     {
@@ -165,10 +173,10 @@ impl ProofProto {
 
         match proof {
             Proof {
+                algorithm, // TODO: use
                 root_hash,
                 lemma,
                 value,
-                ..
             } => {
                 proto.set_root_hash(root_hash);
                 proto.set_lemma(LemmaProto::into_proto(lemma));

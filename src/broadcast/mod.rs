@@ -2,51 +2,84 @@
 use std::fmt::Debug;
 use std::collections::{HashMap, HashSet};
 use std::net::{TcpStream, TcpListener, SocketAddr};
+use std::sync::mpsc::{channel, Receiver};
 //use errors::ResultExt;
 use task::{Error, MessageLoop, Task};
-use proto::Message;
-use merkle::*;
+use proto::*;
+use std::marker::{Send, Sync};
+
+mod stage;
+
+use self::stage::*;
 
 /// A broadcast task is an instance of `Task`, a message-handling task with a
 /// main loop.
 pub struct BroadcastTask<T> {
     /// The underlying task that handles sending and receiving messages.
     task: Task,
-    /// Messages of type Value received so far, keyed with the root hash for
-    /// easy access.
-    values: HashMap<Vec<u8>, Proof<T>>,
-    /// Messages of type Echo received so far, keyed with the root hash for
-    /// easy access.
-    echos: HashMap<Vec<u8>, Proof<T>>,
-    /// Messages of type Ready received so far. That is, the root hashes in
-    /// those messages.
-    readys: HashSet<Vec<u8>>
+    /// The receive end of the comms channel. The transmit end is stored in
+    /// `stage`.
+    receiver: Receiver<Message<T>>,
+    /// Shared state of the broadcast stage.
+    stage: Stage<T>
 }
 
-impl<T: Debug> BroadcastTask<T> {
-    pub fn new(stream: TcpStream) -> Self {
+impl<T: Clone + Debug + Send + Sync + 'static> BroadcastTask<T> {
+    pub fn new(stream: TcpStream,
+               receiver: Receiver<Message<T>>,
+               stage: Stage<T>) -> Self {
         BroadcastTask {
             task: Task::new(stream),
-            values: Default::default(),
-            echos: Default::default(),
-            readys: Default::default()
+            receiver: receiver,
+            stage: stage
         }
     }
 
     fn on_message_received(&mut self, message: Message<T>)
                            -> Result<(), Error>
     {
-        info!("Message received: {:?}", message);
-        Ok(())
-        // else {
-        //     warn!("Unexpected message type");
-        //     return Err(Error::ProtocolError);
-        // }
+//        info!("Message received: {:?}", message);
+        if let Message::Broadcast(b) = message {
+            match b {
+                BroadcastMessage::Value(proof) => {
+                    self.stage.values.insert(proof.root_hash.clone(), proof.clone());
+                    Ok(())
+                },
+                BroadcastMessage::Echo(proof) => {
+                    self.echos.insert(proof.root_hash.clone(), proof.clone());
+                    Ok(())
+                },
+                BroadcastMessage::Ready(root_hash) => {
+                    self.readys.insert(root_hash);
+                    Ok(())
+                }
+            }
+        }
+        else {
+            warn!("Unexpected message type");
+            return Err(Error::ProtocolError);
+        }
+    }
+
+    /// Receiver of messages from other broadcast tasks.
+    ///
+    /// TODO: This is only a placeholder.
+    pub fn receiver_thread(&self) {
+        ::std::thread::spawn(move || {
+            loop {
+                let message = self.receiver.recv().unwrap();
+                info!("Task {:?} received message {:?}",
+                      self.task.stream.peer_addr().unwrap(),
+                      message);
+            }
+        });
     }
 }
 
-impl<T: Debug + From<Vec<u8>>> MessageLoop for BroadcastTask<T> {
+impl<T: Clone + Debug + From<Vec<u8>> + Send + Sync + 'static>
+    MessageLoop for BroadcastTask<T> {
     fn run(&mut self) {
+        self.receiver_thread();
         loop {
             match self.task.receive_message() {
                 Ok(message) => self.on_message_received(message).unwrap(),
@@ -57,5 +90,6 @@ impl<T: Debug + From<Vec<u8>>> MessageLoop for BroadcastTask<T> {
                 }
             }
         }
+        //interthread_receiver.join().unwrap();
     }
 }

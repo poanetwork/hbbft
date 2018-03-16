@@ -13,5 +13,6 @@ mod errors;
 mod proto;
 mod task;
 
+pub mod node;
 pub mod broadcast;
 pub mod agreement;

@@ -65,7 +65,7 @@ pub trait MessageLoop {
 }
 
 pub struct Task {
-    stream: TcpStream,
+    pub stream: TcpStream,
     buffer: [u8; 1024],
 }
 
