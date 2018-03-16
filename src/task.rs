@@ -86,7 +86,7 @@ impl Task where Self: MessageLoop {
     }
 
     pub fn receive_message<T>(&mut self) -> Result<Message<T>, Error>
-    where T: From<Vec<u8>>
+    where T: From<Vec<u8>> + Send + Sync
     {
         self.stream.read_exact(&mut self.buffer[0..4])?;
         let frame_start = decode_u32_from_be(&self.buffer[0..4])?;
@@ -112,7 +112,7 @@ impl Task where Self: MessageLoop {
 
     pub fn send_message<T>(&mut self, message: Message<T>)
                            -> Result<(), Error>
-    where T: Into<Vec<u8>>
+    where T: Into<Vec<u8>> + Send + Sync
     {
         let mut buffer: [u8; 4] = [0; 4];
         // Wrap stream

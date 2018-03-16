@@ -2,32 +2,33 @@
 use std::fmt::Debug;
 use std::collections::{HashMap, HashSet};
 use std::net::{TcpStream, TcpListener, SocketAddr};
+use std::sync::{Arc, Mutex};
 use std::sync::mpsc::{channel, Receiver};
 //use errors::ResultExt;
 use task::{Error, MessageLoop, Task};
 use proto::*;
 use std::marker::{Send, Sync};
 
-mod stage;
+pub mod stage;
 
 use self::stage::*;
 
 /// A broadcast task is an instance of `Task`, a message-handling task with a
 /// main loop.
-pub struct BroadcastTask<T> {
+pub struct BroadcastTask<T: Send + Sync> {
     /// The underlying task that handles sending and receiving messages.
     task: Task,
     /// The receive end of the comms channel. The transmit end is stored in
     /// `stage`.
     receiver: Receiver<Message<T>>,
     /// Shared state of the broadcast stage.
-    stage: Stage<T>
+    stage: Arc<Mutex<Stage<T>>>
 }
 
 impl<T: Clone + Debug + Send + Sync + 'static> BroadcastTask<T> {
     pub fn new(stream: TcpStream,
                receiver: Receiver<Message<T>>,
-               stage: Stage<T>) -> Self {
+               stage: Arc<Mutex<Stage<T>>>) -> Self {
         BroadcastTask {
             task: Task::new(stream),
             receiver: receiver,
@@ -40,6 +41,8 @@ impl<T: Clone + Debug + Send + Sync + 'static> BroadcastTask<T> {
     {
 //        info!("Message received: {:?}", message);
         if let Message::Broadcast(b) = message {
+            Ok(())
+/*
             match b {
                 BroadcastMessage::Value(proof) => {
                     self.stage.values.insert(proof.root_hash.clone(), proof.clone());
@@ -54,6 +57,7 @@ impl<T: Clone + Debug + Send + Sync + 'static> BroadcastTask<T> {
                     Ok(())
                 }
             }
+*/
         }
         else {
             warn!("Unexpected message type");
@@ -67,10 +71,10 @@ impl<T: Clone + Debug + Send + Sync + 'static> BroadcastTask<T> {
     pub fn receiver_thread(&self) {
         ::std::thread::spawn(move || {
             loop {
-                let message = self.receiver.recv().unwrap();
-                info!("Task {:?} received message {:?}",
-                      self.task.stream.peer_addr().unwrap(),
-                      message);
+                // let message = self.receiver.recv().unwrap();
+                // info!("Task {:?} received message {:?}",
+                //       self.task.stream.peer_addr().unwrap(),
+                //       message);
             }
         });
     }
