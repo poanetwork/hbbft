@@ -14,7 +14,7 @@ use proto::Message;
 pub struct Node {
     /// Incoming connection socket.
     addr: SocketAddr,
-    /// Connection sockets of remote nodes. TODO.
+    /// Sockets of remote nodes. TODO.
     remotes: Vec<SocketAddr>
 }
 
@@ -36,6 +36,7 @@ impl Node {
                           stream.peer_addr().unwrap());
                     let (tx, rx): (Sender<Message<T>>, Receiver<Message<T>>) =
                         channel();
+                    let rx = Arc::new(Mutex::new(rx));
                     let stage = Arc::clone(&broadcast_stage);
                     // Insert the transmit handle connected to this task into
                     // the shared list of senders.
