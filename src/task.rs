@@ -59,25 +59,13 @@ fn decode_u32_from_be(buffer: &[u8]) -> Result<u32, Error> {
     Ok(result)
 }
 
-/// A trait allowing custom definitions of the main loop.
-pub trait MessageLoop {
-    fn run(&mut self);
-}
-
 pub struct Task {
     pub stream: TcpStream,
     buffer: [u8; 1024],
 }
 
-/// Placeholder `MessageLoop` definition for a generic `Task`.
-///
-/// TODO: not needed? remove?
-impl MessageLoop for Task {
-    fn run(&mut self) {}
-}
-
 /// A message handling task.
-impl Task where Self: MessageLoop {
+impl Task where {
     pub fn new(stream: TcpStream) -> Task {
         Task {
             stream,

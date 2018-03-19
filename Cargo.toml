@@ -16,6 +16,7 @@ ring = "^0.12"
 rand = "*"
 error-chain = "0.11"
 protobuf = "1.4.4"
+spmc = "0.2.2"
 
 [build-dependencies]
 protoc-rust = "1.4.4"

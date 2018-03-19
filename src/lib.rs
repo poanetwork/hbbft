@@ -7,11 +7,13 @@ extern crate log;
 extern crate protobuf;
 extern crate ring;
 extern crate merkle;
-extern crate futures;
+//extern crate futures;
+extern crate spmc;
 
 mod errors;
 mod proto;
 mod task;
+mod commst;
 
 pub mod node;
 pub mod broadcast;

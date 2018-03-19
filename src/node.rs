@@ -1,14 +1,16 @@
 //! Networking controls of the consensus node.
-use std::sync::mpsc;
 use std::fmt::Debug;
 use std::collections::{HashMap, HashSet};
 use std::marker::{Send, Sync};
-use std::net::{TcpStream, TcpListener, SocketAddr};
+use std::net::{TcpListener, SocketAddr};
 use std::sync::{Arc, Mutex};
-use std::sync::mpsc::{Sender, Receiver, channel};
-use broadcast::*;
-use broadcast::stage::Stage as BroadcastStage;
+use std::sync::mpsc;
+use std::thread;
+use spmc;
+use broadcast;
+//use broadcast::Stage as BroadcastStage;
 use proto::Message;
+use commst;
 
 /// This is a structure to start a consensus node.
 pub struct Node {
@@ -23,32 +25,52 @@ impl Node {
         Node {addr, remotes}
     }
 
-    pub fn run<T: Clone + Debug + Send + Sync + 'static>(&self) {
+    pub fn run<T: Clone + Debug + Send + Sync + From<Vec<u8>>>(&self)
+    where Vec<u8>: From<T>
+    {
         // Listen for incoming connections on a given TCP port.
         let listener = TcpListener::bind(&self.addr).unwrap();
-        let broadcast_stage: Arc<Mutex<BroadcastStage<T>>> =
-            Arc::new(Mutex::new(BroadcastStage::new(Vec::new())));
+        // Multicast channel from the manager task to comms tasks.
+        let (stx, srx): (spmc::Sender<Message<T>>,
+                         spmc::Receiver<Message<T>>) = spmc::channel();
+        // Unicast channel from comms tasks to the manager task.
+        let (mtx, mrx): (mpsc::Sender<Message<T>>,
+                         mpsc::Receiver<Message<T>>) = mpsc::channel();
+        let comms_threads = Vec::new();
 
+        // Listen for incoming socket connections and start a comms task for
+        // each new connection.
         for stream in listener.incoming() {
             match stream {
                 Ok(stream) => {
                     info!("New connection from {:?}",
                           stream.peer_addr().unwrap());
-                    let (tx, rx): (Sender<Message<T>>, Receiver<Message<T>>) =
-                        channel();
-                    let rx = Arc::new(Mutex::new(rx));
-                    let stage = Arc::clone(&broadcast_stage);
-                    // Insert the transmit handle connected to this task into
-                    // the shared list of senders.
-                    stage.lock().unwrap().senders.push(tx);
-                    let task = BroadcastTask::new(stream, rx, stage);
+                    let comms_task = commst::CommsTask::new(mtx, srx, stream);
+                    comms_threads.push(thread::spawn(move || {
+                        comms_task.run();
+                    }));
 
-                    // TODO: spawn a thread for the connected socket
+                    // TODO: break when all the consensus participants have
+                    // joined
                 }
                 Err(e) => {
                     warn!("Failed to connect: {}", e);
                 }
             }
+        }
+
+        // broadcast stage
+        let stage = broadcast::Stage::new(Arc::new(Mutex::new(stx)),
+                                          Arc::new(Mutex::new(mrx)));
+        let broadcast_result = stage.run();
+        match broadcast_result {
+            Ok(v) => unimplemented!(),
+            Err(e) => error!("Broadcast stage failed")
+        }
+
+        // wait for all threads to finish
+        for t in comms_threads {
+            t.join().unwrap();
         }
     }
 }

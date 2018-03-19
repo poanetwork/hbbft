@@ -1,98 +1,59 @@
 //! Reliable broadcast algorithm.
-use std::fmt::Debug;
 use std::collections::{HashMap, HashSet};
-use std::net::{TcpStream, TcpListener, SocketAddr};
 use std::sync::{Arc, Mutex};
-use std::sync::mpsc::{channel, Receiver};
-//use errors::ResultExt;
-use task::{Error, MessageLoop, Task};
+use std::sync::mpsc;
+use spmc;
+use std::thread;
 use proto::*;
 use std::marker::{Send, Sync};
+use merkle::*;
 
-pub mod stage;
-
-use self::stage::*;
-
-/// A broadcast task is an instance of `Task`, a message-handling task with a
-/// main loop.
-pub struct BroadcastTask<T: Send + Sync + 'static> {
-    /// The underlying task that handles sending and receiving messages.
-    task: Task,
-    /// The receive end of the comms channel. The transmit end is stored in
-    /// `stage`.
-    receiver: Arc<Mutex<Receiver<Message<T>>>>,
-    /// Shared state of the broadcast stage.
-    stage: Arc<Mutex<Stage<T>>>
+pub struct Stage<T: Send + Sync> {
+    /// The transmit side of the multiple consumer channel to comms threads.
+    pub tx: Arc<Mutex<spmc::Sender<Message<T>>>>,
+    /// The receive side of the multiple producer channel from comms threads.
+    pub rx: Arc<Mutex<mpsc::Receiver<Message<T>>>>,
+    /// Messages of type Value received so far, keyed with the root hash for
+    /// easy access.
+    pub values: HashMap<Vec<u8>, Proof<T>>,
+    /// Messages of type Echo received so far, keyed with the root hash for
+    /// easy access.
+    pub echos: HashMap<Vec<u8>, Proof<T>>,
+    /// Messages of type Ready received so far. That is, the root hashes in
+    /// those messages.
+    pub readys: HashSet<Vec<u8>>
 }
 
-impl<T: Clone + Debug + Send + Sync + 'static> BroadcastTask<T> {
-    pub fn new(stream: TcpStream,
-               receiver: Arc<Mutex<Receiver<Message<T>>>>,
-               stage: Arc<Mutex<Stage<T>>>) -> Self {
-        BroadcastTask {
-            task: Task::new(stream),
-            receiver: receiver,
-            stage: stage
+impl<T: Send + Sync> Stage<T> {
+    pub fn new(tx: Arc<Mutex<spmc::Sender<Message<T>>>>,
+               rx: Arc<Mutex<mpsc::Receiver<Message<T>>>>) -> Self {
+        Stage {
+            tx: tx,
+            rx: rx,
+            values: Default::default(),
+            echos: Default::default(),
+            readys: Default::default()
         }
     }
 
-    fn on_message_received(&mut self, message: Message<T>)
-                           -> Result<(), Error>
-    {
-//        info!("Message received: {:?}", message);
-        if let Message::Broadcast(b) = message {
-            Ok(())
-/*
-            match b {
-                BroadcastMessage::Value(proof) => {
-                    self.stage.values.insert(proof.root_hash.clone(), proof.clone());
-                    Ok(())
-                },
-                BroadcastMessage::Echo(proof) => {
-                    self.echos.insert(proof.root_hash.clone(), proof.clone());
-                    Ok(())
-                },
-                BroadcastMessage::Ready(root_hash) => {
-                    self.readys.insert(root_hash);
-                    Ok(())
-                }
-            }
-*/
-        }
-        else {
-            warn!("Unexpected message type");
-            return Err(Error::ProtocolError);
-        }
-    }
+    /// Broadcast stage main loop returning the computed values in case of
+    /// success, and an error in case of failure.
+    pub fn run(&self) -> Result<Vec<T>, ()> {
+        let mut aborted = false;
+        let mut decoded = false;
 
-}
-
-impl<T: Clone + Debug + From<Vec<u8>> + Send + Sync + 'static>
-    MessageLoop for BroadcastTask<T>
-{
-    fn run(&mut self) {
-        let rx = self.receiver.clone();
-        // receiver_thread(rx.lock().unwrap());
-
-        ::std::thread::spawn(move || {
-            loop {
-                let message = rx.lock().unwrap().recv().unwrap();
-                info!("Received message {:?}",
-                      // self.task.stream.peer_addr().unwrap(),
-                      message);
+        // Manager thread. rx cannot be cloned due to its type constraint but
+        // can be used inside a thread with the help of an `Arc` (`Rc` wouldn't
+        // work for the same reason).
+        let rx = Arc::new(Mutex::new(self.rx));
+        let manager = thread::spawn(move || {
+            while !aborted && !decoded {
+                // TODO
             }
         });
 
-        loop {
-            match self.task.receive_message() {
-                Ok(message) => self.on_message_received(message).unwrap(),
-                Err(Error::ProtobufError(e)) => warn!("Protobuf error {}", e),
-                Err(e) => {
-                    warn!("Critical error {:?}", e);
-                    break;
-                }
-            }
-        }
-        //interthread_receiver.join().unwrap();
+        manager.join().unwrap();
+        // TODO
+        Err(())
     }
 }
