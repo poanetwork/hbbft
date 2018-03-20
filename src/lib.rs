@@ -9,6 +9,7 @@ extern crate ring;
 extern crate merkle;
 //extern crate futures;
 extern crate spmc;
+extern crate crossbeam;
 
 mod errors;
 mod proto;

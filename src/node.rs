@@ -5,10 +5,10 @@ use std::marker::{Send, Sync};
 use std::net::{TcpListener, SocketAddr};
 use std::sync::{Arc, Mutex};
 use std::sync::mpsc;
-use std::thread;
 use spmc;
+use crossbeam;
+
 use broadcast;
-//use broadcast::Stage as BroadcastStage;
 use proto::Message;
 use commst;
 
@@ -36,41 +36,43 @@ impl Node {
         // Unicast channel from comms tasks to the manager task.
         let (mtx, mrx): (mpsc::Sender<Message<T>>,
                          mpsc::Receiver<Message<T>>) = mpsc::channel();
-        let comms_threads = Vec::new();
 
-        // Listen for incoming socket connections and start a comms task for
-        // each new connection.
-        for stream in listener.incoming() {
-            match stream {
-                Ok(stream) => {
-                    info!("New connection from {:?}",
-                          stream.peer_addr().unwrap());
-                    let comms_task = commst::CommsTask::new(mtx, srx, stream);
-                    comms_threads.push(thread::spawn(move || {
-                        comms_task.run();
-                    }));
+        // All spawned threads will have exited by the end of the scope.
+        crossbeam::scope(|scope| {
 
-                    // TODO: break when all the consensus participants have
-                    // joined
-                }
-                Err(e) => {
-                    warn!("Failed to connect: {}", e);
+            // Listen for incoming socket connections and start a comms task for
+            // each new connection.
+            for stream in listener.incoming() {
+                match stream {
+                    Ok(stream) => {
+                        info!("New connection from {:?}",
+                              stream.peer_addr().unwrap());
+                        let tx = mtx.clone();
+                        let rx = srx.clone();
+                        scope.spawn(move || {
+                            commst::CommsTask::new(tx, rx, stream).run();
+                        });
+
+                        // TODO: break when all the consensus participants have
+                        // joined
+                    }
+                    Err(e) => {
+                        warn!("Failed to connect: {}", e);
+                    }
                 }
             }
-        }
 
-        // broadcast stage
-        let stage = broadcast::Stage::new(Arc::new(Mutex::new(stx)),
-                                          Arc::new(Mutex::new(mrx)));
-        let broadcast_result = stage.run();
-        match broadcast_result {
-            Ok(v) => unimplemented!(),
-            Err(e) => error!("Broadcast stage failed")
-        }
+            // broadcast stage
+            let (tx, rx) = (Arc::new(Mutex::new(stx)), Arc::new(Mutex::new(mrx)));
+            let stage = broadcast::Stage::new(tx, rx);
+            let broadcast_result = stage.run();
+            match broadcast_result {
+                Ok(v) => unimplemented!(),
+                Err(e) => error!("Broadcast stage failed")
+            }
 
-        // wait for all threads to finish
-        for t in comms_threads {
-            t.join().unwrap();
-        }
+            // TODO: other stages
+
+        }); // end of thread scope
     }
 }

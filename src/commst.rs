@@ -2,10 +2,11 @@
 //! socket. Local communication with coordinating threads is made via
 //! `spmc::channel()` and `mpsc::channel()`.
 use std::fmt::Debug;
-//use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex};
 use std::sync::mpsc;
-use std::thread;
 use spmc;
+use crossbeam;
+
 use proto::Message;
 use task;
 
@@ -39,30 +40,40 @@ where Vec<u8>: From<T>
     /// The main socket IO loop and an asynchronous thread responding to manager
     /// thread requests.
     pub fn run(&mut self) {
-        // Local comms receive loop.
-        let comms = thread::spawn(move || {
+        // Borrow parts of `self` before entering the thread binding scope.
+        let tx = Arc::new(&self.tx);
+        let rx = Arc::new(&self.rx);
+        let task = Arc::new(Mutex::new(&mut self.task));
+
+        crossbeam::scope(|scope| {
+            // Make a further copy of `task` for the thread stack.
+            let task1 = task.clone();
+
+            // Local comms receive loop thread.
+            scope.spawn(move || {
+                loop {
+                    // Receive a message from the manager thread.
+                    let message = rx.recv().unwrap();
+                    // Forward the message to the remote node.
+                    task1.lock().unwrap().send_message(message).unwrap();
+                }
+            });
+
+            // Remote comms receive loop.
             loop {
-                // Receive a message from the manager thread.
-                let message = self.rx.recv().unwrap();
-                // Forward the message to the remote node.
-                self.task.send_message(message).unwrap();
+                match task.lock().unwrap().receive_message() {
+                    Ok(message) => // self.on_message_received(message),
+                        tx.send(message).unwrap(),
+                    Err(task::Error::ProtobufError(e)) =>
+                        warn!("Protobuf error {}", e),
+                    Err(e) => {
+                        warn!("Critical error {:?}", e);
+                        break;
+                    }
+                }
             }
         });
 
-        // Remote comms receive loop.
-        loop {
-            match self.task.receive_message() {
-                Ok(message) => self.on_message_received(message),
-                Err(task::Error::ProtobufError(e)) =>
-                    warn!("Protobuf error {}", e),
-                Err(e) => {
-                    warn!("Critical error {:?}", e);
-                    break;
-                }
-            }
-        }
-
-        comms.join().unwrap();
     }
 
     /// Handler of a received message.

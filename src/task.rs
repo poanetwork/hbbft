@@ -60,7 +60,7 @@ fn decode_u32_from_be(buffer: &[u8]) -> Result<u32, Error> {
 }
 
 pub struct Task {
-    pub stream: TcpStream,
+    stream: TcpStream,
     buffer: [u8; 1024],
 }
 

@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use std::sync::mpsc;
 use spmc;
-use std::thread;
+use crossbeam;
 use proto::*;
 use std::marker::{Send, Sync};
 use merkle::*;
@@ -42,17 +42,20 @@ impl<T: Send + Sync> Stage<T> {
         let mut aborted = false;
         let mut decoded = false;
 
-        // Manager thread. rx cannot be cloned due to its type constraint but
-        // can be used inside a thread with the help of an `Arc` (`Rc` wouldn't
+        // Manager thread.
+        //
+        // rx cannot be cloned due to its type constraint but can be used
+        // inside a thread with the help of an `Arc` (`Rc` wouldn't
         // work for the same reason).
-        let rx = Arc::new(Mutex::new(self.rx));
-        let manager = thread::spawn(move || {
-            while !aborted && !decoded {
-                // TODO
-            }
+        let rx = &self.rx.clone();
+        crossbeam::scope(|scope| {
+            scope.spawn(move || {
+                while !aborted && !decoded {
+                    rx;
+                    // TODO
+                }
+            });
         });
-
-        manager.join().unwrap();
         // TODO
         Err(())
     }
