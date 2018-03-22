@@ -1,5 +1,6 @@
 //! Networking controls of the consensus node.
 use std::fmt::Debug;
+use std::hash::Hash;
 use std::collections::{HashMap, HashSet};
 use std::marker::{Send, Sync};
 use std::net::{TcpListener, SocketAddr};
@@ -25,7 +26,7 @@ impl Node {
         Node {addr, remotes}
     }
 
-    pub fn run<T: Clone + Debug + Send + Sync + From<Vec<u8>>>(&self)
+    pub fn run<T: Clone + Debug + Eq + Hash + Send + Sync + From<Vec<u8>>>(&self)
     where Vec<u8>: From<T>
     {
         // Listen for incoming connections on a given TCP port.
@@ -63,10 +64,9 @@ impl Node {
             }
 
             // broadcast stage
-            let (tx, rx) = (Arc::new(Mutex::new(stx)), Arc::new(Mutex::new(mrx)));
-            let stage = broadcast::Stage::new(tx, rx);
-            let broadcast_result = stage.run();
-            match broadcast_result {
+            let (tx, rx) = (Arc::new(Mutex::new(stx)),
+                            Arc::new(Mutex::new(mrx)));
+            match broadcast::Stage::new(tx, rx).run() {
                 Ok(v) => unimplemented!(),
                 Err(e) => error!("Broadcast stage failed")
             }

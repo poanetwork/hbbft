@@ -10,6 +10,7 @@ extern crate merkle;
 //extern crate futures;
 extern crate spmc;
 extern crate crossbeam;
+extern crate reed_solomon_erasure;
 
 mod errors;
 mod proto;
