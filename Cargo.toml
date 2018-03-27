@@ -20,3 +20,6 @@ crossbeam = "0.3.2"
 
 [build-dependencies]
 protoc-rust = "1.4.4"
+
+[dev-dependencies]
+docopt = "0.8"
