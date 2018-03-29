@@ -36,8 +36,8 @@ pub struct Stage<T: Send + Sync> {
     pub tx: Arc<Mutex<spmc::Sender<Message<T>>>>,
     /// The receive side of the multiple producer channel from comms threads.
     pub rx: Arc<Mutex<mpsc::Receiver<Message<T>>>>,
-    /// Value to be broadcast
-    pub broadcast_value: Option<T>
+    /// Value to be broadcast.
+    pub broadcast_value: Option<T>,
 }
 
 impl<T: Clone + Debug + Eq + Hash + Send + Sync + Into<Vec<u8>>
@@ -52,7 +52,7 @@ where Vec<u8>: From<T>
         Stage {
             tx: tx,
             rx: rx,
-            broadcast_value: broadcast_value
+            broadcast_value: broadcast_value,
         }
     }
 
@@ -68,21 +68,24 @@ where Vec<u8>: From<T>
         // reason). A `Mutex` is used to grant write access.
         let rx = self.rx.to_owned();
         let tx = self.tx.to_owned();
-        let final_value: Option<Result<T, BroadcastError>> = None;
-        let final_value_r = Arc::new(Mutex::new(final_value.clone()));
-        let final_value_r_scoped = final_value_r.clone();
         let bvalue = self.broadcast_value.to_owned();
+        let result: Result<T, BroadcastError>;
+        let result_r = Arc::new(Mutex::new(None));
+        let result_r_scoped = result_r.clone();
 
         crossbeam::scope(|scope| {
             scope.spawn(move || {
-                *final_value_r_scoped.lock().unwrap() =
+                *result_r_scoped.lock().unwrap() =
                     Some(inner_run(tx, rx, bvalue));
             });
         });
-        match final_value {
-            Some(ref r) => r.clone(),
-            None => Err(BroadcastError::Threading)
+        if let Some(ref r) = *result_r.lock().unwrap() {
+            result = r.to_owned();
         }
+        else {
+            result = Err(BroadcastError::Threading);
+        }
+        result
     }
 }
 
