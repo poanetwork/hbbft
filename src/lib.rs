@@ -34,6 +34,7 @@
 //! the consensus `result` is not an error then every successfully terminated
 //! consensus node will be the same `result`.
 
+#![feature(optin_builtin_traits)]
 #[macro_use]
 extern crate error_chain;
 #[macro_use]

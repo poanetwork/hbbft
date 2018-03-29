@@ -1,5 +1,4 @@
 //! Construction of messages from protobuf buffers.
-#![feature(optin_builtin_traits)]
 pub mod message;
 
 use std::marker::{Send, Sync};
