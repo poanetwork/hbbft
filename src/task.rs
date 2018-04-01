@@ -57,14 +57,14 @@ fn decode_u32_from_be(buffer: &[u8]) -> Result<u32, Error> {
     Ok(result)
 }
 
-pub struct Task {
-    stream: TcpStream,
+pub struct Task<'a> {
+    stream: &'a TcpStream,
     buffer: [u8; 1024],
 }
 
 /// A message handling task.
-impl Task where {
-    pub fn new(stream: TcpStream) -> Task {
+impl<'a> Task<'a> where {
+    pub fn new(stream: &'a TcpStream) -> Task<'a> {
         Task {
             stream,
             buffer: [0; 1024]

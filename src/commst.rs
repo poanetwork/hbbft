@@ -12,7 +12,7 @@ use task;
 
 /// A communication task connects a remote node to the thread that manages the
 /// consensus algorithm.
-pub struct CommsTask<T: Send + Sync + From<Vec<u8>> + Into<Vec<u8>>>
+pub struct CommsTask<'a, T: Send + Sync + From<Vec<u8>> + Into<Vec<u8>>>
 where Vec<u8>: From<T>
 {
     /// The transmit side of the multiple producer channel from comms threads.
@@ -20,16 +20,16 @@ where Vec<u8>: From<T>
     /// The receive side of the multiple consumer channel to comms threads.
     rx: spmc::Receiver<Message<T>>,
     /// The socket IO task.
-    task: task::Task
+    task: task::Task<'a>
 }
 
-impl<T: Debug + Send + Sync + From<Vec<u8>> + Into<Vec<u8>>>
-    CommsTask<T>
+impl<'a, T: Debug + Send + Sync + From<Vec<u8>> + Into<Vec<u8>>>
+    CommsTask<'a, T>
 where Vec<u8>: From<T>
 {
     pub fn new(tx: mpsc::Sender<Message<T>>,
                rx: spmc::Receiver<Message<T>>,
-               stream: ::std::net::TcpStream) -> Self {
+               stream: &'a ::std::net::TcpStream) -> Self {
         CommsTask {
             tx: tx,
             rx: rx,

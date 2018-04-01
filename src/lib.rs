@@ -47,6 +47,7 @@ extern crate spmc;
 extern crate crossbeam;
 extern crate reed_solomon_erasure;
 
+mod connection;
 mod errors;
 mod proto;
 mod task;

@@ -5,6 +5,7 @@ extern crate hbbft;
 
 use hbbft::node::Node;
 use docopt::Docopt;
+use std::collections::HashSet;
 use std::net::SocketAddr;
 use std::vec::Vec;
 
@@ -21,7 +22,7 @@ Usage:
 #[derive(Debug)]
 struct Args {
     bind_address: SocketAddr,
-    remote_addresses: Vec<SocketAddr>,
+    remote_addresses: HashSet<SocketAddr>,
     value: Option<Vec<u8>>,
 }
 
