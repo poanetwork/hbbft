@@ -1,6 +1,4 @@
-//! Protobuf message IO task structure. The generic, shared behaviour is
-//! contained in the implementation of `Task` while any specific behaviour
-//! should be defined by means of the `MessageLoop` trait interface.
+//! Protobuf message IO task structure.
 
 use std::{cmp,io};
 use std::io::Read;
