@@ -3,11 +3,9 @@ use std::collections::HashSet;
 use std::fmt::Debug;
 use std::hash::Hash;
 use std::marker::{Send, Sync};
-use std::net::{TcpListener, SocketAddr};
-use std::sync::{Arc, Mutex};
-use std::sync::mpsc;
-use spmc;
+use std::net::SocketAddr;
 use crossbeam;
+use crossbeam_channel as channel;
 
 use connection;
 use broadcast;
@@ -39,38 +37,64 @@ where Vec<u8>: From<T>
     /// Consensus node procedure implementing HoneyBadgerBFT.
     pub fn run(&self) -> Result<T, ()>
     {
-        // Multicast channel from the manager task to comms tasks.
-        let (stx, srx): (spmc::Sender<Message<T>>,
-                         spmc::Receiver<Message<T>>) = spmc::channel();
-        // Unicast channel from comms tasks to the manager task.
-        let (mtx, mrx): (mpsc::Sender<Message<T>>,
-                         mpsc::Receiver<Message<T>>) = mpsc::channel();
+        // Multiple-producer, multiple-consumer channel from comms tasks to
+        // algorithm actor tasks such as Reliable Broadcast.
+        let (from_comms_tx, from_comms_rx):
+        (
+            channel::Sender<Message<T>>,
+            channel::Receiver<Message<T>>
+        ) = channel::unbounded();
+        let (from_comms_tx, from_comms_rx) = (&from_comms_tx, &from_comms_rx);
+
+        // Multiple-producer, multiple-consumer channel from algorithm actor
+        // tasks such as Reliable Broadcast to comms tasks.
+        let (to_comms_tx, to_comms_rx):
+        (
+            channel::Sender<Message<T>>,
+            channel::Receiver<Message<T>>
+        ) = channel::unbounded();
+        let (to_comms_tx, to_comms_rx) = (&to_comms_tx, &to_comms_rx);
+
         let broadcast_value = self.value.to_owned();
         let connections = connection::make(&self.addr, &self.remotes);
 
         // All spawned threads will have exited by the end of the scope.
         crossbeam::scope(|scope| {
+            // FIXME: Compute [i <- connections | v_i].
 
             // Start a comms task for each connection.
-            for c in connections.iter() {
-                info!("Creating a comms task for {:?}",
+            for (i, c) in connections.iter().enumerate() {
+                // FIXME:
+                //
+                // - Connect the comms task to the broadcast instance.
+                //
+                // - Broadcast v_i through the broadcast instance?
+
+                info!("Creating a comms task #{} for {:?}", i,
                       c.stream.peer_addr().unwrap());
-                let tx = mtx.clone();
-                let rx = srx.clone();
                 scope.spawn(move || {
-                    commst::CommsTask::new(tx, rx, &c.stream).run();
+                    commst::CommsTask::new(from_comms_tx,
+                                           to_comms_rx,
+                                           &c.stream)
+                        .run();
+                });
+
+                // Associate a broadcast instance to the above comms task.
+                scope.spawn(move || {
+                    match broadcast::Instance::new(to_comms_tx,
+                                                   from_comms_rx,
+                                                   // FIXME
+                                                   None)
+                        .run()
+                    {
+                        Ok(_) => debug!("Broadcast instance #{} succeeded", i),
+                        Err(_) => error!("Broadcast instance #{} failed", i)
+                    }
                 });
             }
 
-            // broadcast stage
-            let (tx, rx) = (Arc::new(Mutex::new(stx)),
-                            Arc::new(Mutex::new(mrx)));
-            match broadcast::Stage::new(tx, rx, broadcast_value).run() {
-                Ok(_) => debug!("Broadcast stage succeeded"),
-                Err(_) => error!("Broadcast stage failed")
-            }
-
-            // TODO: other stages
+            // TODO: continue the implementation of the asynchronous common
+            // subset algorithm.
 
         }); // end of thread scope
 

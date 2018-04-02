@@ -3,33 +3,33 @@
 //! `spmc::channel()` and `mpsc::channel()`.
 use std::fmt::Debug;
 use std::sync::{Arc, Mutex};
-use std::sync::mpsc;
-use spmc;
 use crossbeam;
+use crossbeam_channel as channel;
 
 use proto::Message;
 use task;
 
 /// A communication task connects a remote node to the thread that manages the
 /// consensus algorithm.
-pub struct CommsTask<'a, T: Send + Sync + From<Vec<u8>> + Into<Vec<u8>>>
+pub struct CommsTask<'a, 'b, T: 'a + Send + Sync +
+                     From<Vec<u8>> + Into<Vec<u8>>>
 where Vec<u8>: From<T>
 {
     /// The transmit side of the multiple producer channel from comms threads.
-    tx: mpsc::Sender<Message<T>>,
+    tx: &'a channel::Sender<Message<T>>,
     /// The receive side of the multiple consumer channel to comms threads.
-    rx: spmc::Receiver<Message<T>>,
+    rx: &'a channel::Receiver<Message<T>>,
     /// The socket IO task.
-    task: task::Task<'a>
+    task: task::Task<'b>
 }
 
-impl<'a, T: Debug + Send + Sync + From<Vec<u8>> + Into<Vec<u8>>>
-    CommsTask<'a, T>
+impl<'a, 'b, T: Debug + Send + Sync + From<Vec<u8>> + Into<Vec<u8>>>
+    CommsTask<'a, 'b, T>
 where Vec<u8>: From<T>
 {
-    pub fn new(tx: mpsc::Sender<Message<T>>,
-               rx: spmc::Receiver<Message<T>>,
-               stream: &'a ::std::net::TcpStream) -> Self {
+    pub fn new(tx: &'a channel::Sender<Message<T>>,
+               rx: &'a channel::Receiver<Message<T>>,
+               stream: &'b ::std::net::TcpStream) -> Self {
         CommsTask {
             tx: tx,
             rx: rx,
@@ -41,8 +41,8 @@ where Vec<u8>: From<T>
     /// thread requests.
     pub fn run(&mut self) {
         // Borrow parts of `self` before entering the thread binding scope.
-        let tx = Arc::new(&self.tx);
-        let rx = Arc::new(&self.rx);
+        let tx = Arc::new(self.tx);
+        let rx = Arc::new(self.rx);
         let task = Arc::new(Mutex::new(&mut self.task));
 
         crossbeam::scope(|scope| {
@@ -62,7 +62,7 @@ where Vec<u8>: From<T>
             // Remote comms receive loop.
             loop {
                 match task.lock().unwrap().receive_message() {
-                    Ok(message) => // self.on_message_received(message),
+                    Ok(message) =>
                         tx.send(message).unwrap(),
                     Err(task::Error::ProtobufError(e)) =>
                         warn!("Protobuf error {}", e),
@@ -74,11 +74,5 @@ where Vec<u8>: From<T>
             }
         });
 
-    }
-
-    /// Handler of a received message.
-    fn on_message_received(&mut self, message: Message<T>) {
-        // Forward the message to the manager thread.
-        self.tx.send(message).unwrap();
     }
 }

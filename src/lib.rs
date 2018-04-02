@@ -42,9 +42,8 @@ extern crate log;
 extern crate protobuf;
 extern crate ring;
 extern crate merkle;
-//extern crate futures;
-extern crate spmc;
 extern crate crossbeam;
+extern crate crossbeam_channel;
 extern crate reed_solomon_erasure;
 
 mod connection;

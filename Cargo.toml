@@ -6,17 +6,14 @@ authors = ["Vladimir Komendantskiy <komendantsky@gmail.com>"]
 [dependencies]
 log = "0.4.1"
 simple_logger = "0.5"
-tokio = "0.1"
-#tokio-io = "0.1"
-#tokio-timer = "0.1"
 reed-solomon-erasure = "3.0"
 merkle = { git = "https://github.com/vkomenda/merkle.rs", branch = "public-proof" }
 ring = "^0.12"
 rand = "*"
 error-chain = "0.11"
 protobuf = "1.4.4"
-spmc = "0.2.2"
 crossbeam = "0.3.2"
+crossbeam-channel = "0.1"
 
 [build-dependencies]
 protoc-rust = "1.4.4"

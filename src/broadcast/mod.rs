@@ -1,15 +1,14 @@
-//! Reliable broadcast algorithm.
+//! Reliable broadcast algorithm instance.
 use std::fmt::Debug;
 use std::hash::Hash;
 use std::sync::{Arc, Mutex};
-use std::sync::mpsc;
-use spmc;
 use crossbeam;
 use proto::*;
 use std::marker::{Send, Sync};
 use merkle::MerkleTree;
 use merkle::proof::{Proof, Lemma, Positioned};
 use reed_solomon_erasure::ReedSolomon;
+use crossbeam_channel as channel;
 
 /// Temporary placeholders for the number of participants and the maximum
 /// envisaged number of faulty nodes. Only one is required since N >= 3f +
@@ -25,31 +24,30 @@ const PLACEHOLDER_F: usize = 2;
 /// Broadcast stage. See the TODO note below!
 ///
 /// TODO: The ACS algorithm will require multiple broadcast instances running
-/// asynchronously, see Figure 4 in the HBBFT paper. So, it's likely that the
-/// broadcast *stage* has to be replaced with N asynchronous threads, each
-/// responding to values from one particular remote node. The paper doesn't make
-/// it clear though how other messages - Echo and Ready - are distributed over
-/// the instances. Also it appears that the sender of a message has to become
-/// part of the message for this to work.
-pub struct Stage<T: Send + Sync> {
+/// asynchronously, see Figure 4 in the HBBFT paper. Those are N asynchronous
+/// threads, each responding to values from one particular remote node. The
+/// paper doesn't make it clear though how other messages - Echo and Ready - are
+/// distributed over the instances. Also it appears that the sender of a message
+/// might become part of the message for this to work.
+pub struct Instance<'a, T: 'a + Send + Sync> {
     /// The transmit side of the multiple consumer channel to comms threads.
-    pub tx: Arc<Mutex<spmc::Sender<Message<T>>>>,
+    pub tx: &'a channel::Sender<Message<T>>,
     /// The receive side of the multiple producer channel from comms threads.
-    pub rx: Arc<Mutex<mpsc::Receiver<Message<T>>>>,
+    pub rx: &'a channel::Receiver<Message<T>>,
     /// Value to be broadcast.
     pub broadcast_value: Option<T>,
 }
 
-impl<T: Clone + Debug + Eq + Hash + Send + Sync + Into<Vec<u8>>
+impl<'a, T: Clone + Debug + Eq + Hash + Send + Sync + Into<Vec<u8>>
      + From<Vec<u8>> + AsRef<[u8]>>
-    Stage<T>
+    Instance<'a, T>
 where Vec<u8>: From<T>
 {
-    pub fn new(tx: Arc<Mutex<spmc::Sender<Message<T>>>>,
-               rx: Arc<Mutex<mpsc::Receiver<Message<T>>>>,
+    pub fn new(tx: &'a channel::Sender<Message<T>>,
+               rx: &'a channel::Receiver<Message<T>>,
                broadcast_value: Option<T>) -> Self
     {
-        Stage {
+        Instance {
             tx: tx,
             rx: rx,
             broadcast_value: broadcast_value,
@@ -62,12 +60,6 @@ where Vec<u8>: From<T>
     /// TODO: Detailed error status.
     pub fn run(&mut self) -> Result<T, BroadcastError> {
         // Broadcast state machine thread.
-        //
-        // rx cannot be cloned due to its type constraint but can be used inside
-        // a thread with the help of an `Arc` (`Rc` wouldn't work for the same
-        // reason). A `Mutex` is used to grant write access.
-        let rx = self.rx.to_owned();
-        let tx = self.tx.to_owned();
         let bvalue = self.broadcast_value.to_owned();
         let result: Result<T, BroadcastError>;
         let result_r = Arc::new(Mutex::new(None));
@@ -76,7 +68,7 @@ where Vec<u8>: From<T>
         crossbeam::scope(|scope| {
             scope.spawn(move || {
                 *result_r_scoped.lock().unwrap() =
-                    Some(inner_run(tx, rx, bvalue));
+                    Some(inner_run(self.tx, self.rx, bvalue));
             });
         });
         if let Some(ref r) = *result_r.lock().unwrap() {
@@ -98,11 +90,11 @@ pub enum BroadcastError {
 
 /// Breaks the input value into shards of equal length and encodes them -- and
 /// some extra parity shards -- with a Reed-Solomon erasure coding scheme.
-fn send_shards<T>(value: T,
-                  tx: Arc<Mutex<spmc::Sender<Message<T>>>>,
-                  coding: &ReedSolomon,
-                  data_shard_num: usize,
-                  parity_shard_num: usize)
+fn send_shards<'a, T>(value: T,
+                      tx: &'a channel::Sender<Message<T>>,
+                      coding: &ReedSolomon,
+                      data_shard_num: usize,
+                      parity_shard_num: usize)
 where T: Clone + Debug + Send + Sync + Into<Vec<u8>>
     + From<Vec<u8>> + AsRef<[u8]>
     , Vec<u8>: From<T>
@@ -150,16 +142,16 @@ where T: Clone + Debug + Send + Sync + Into<Vec<u8>>
     for leaf_value in mtree.iter().cloned() {
         let proof = mtree.gen_proof(leaf_value);
         if let Some(proof) = proof {
-            tx.lock().unwrap().send(Message::Broadcast(
+            tx.send(Message::Broadcast(
                 BroadcastMessage::Value(proof))).unwrap();
         }
     }
 }
 
 /// The main loop of the broadcast task.
-fn inner_run<T>(tx: Arc<Mutex<spmc::Sender<Message<T>>>>,
-                rx: Arc<Mutex<mpsc::Receiver<Message<T>>>>,
-                broadcast_value: Option<T>) -> Result<T, BroadcastError>
+fn inner_run<'a, T>(tx: &'a channel::Sender<Message<T>>,
+                    rx: &'a channel::Receiver<Message<T>>,
+                    broadcast_value: Option<T>) -> Result<T, BroadcastError>
 where T: Clone + Debug + Eq + Hash + Send + Sync + Into<Vec<u8>>
     + From<Vec<u8>> + AsRef<[u8]>
     , Vec<u8>: From<T>
@@ -175,7 +167,7 @@ where T: Clone + Debug + Eq + Hash + Send + Sync + Into<Vec<u8>>
     //
     // FIXME: Does the node send a proof to itself?
     if let Some(v) = broadcast_value {
-        send_shards(v, tx.clone(), &coding, data_shard_num, parity_shard_num);
+        send_shards(v, tx, &coding, data_shard_num, parity_shard_num);
     }
 
     // currently known leaf values
@@ -197,7 +189,7 @@ where T: Clone + Debug + Eq + Hash + Send + Sync + Into<Vec<u8>>
     // TODO: handle exit conditions
     while result == None {
         // Receive a message from the socket IO task.
-        let message = rx.lock().unwrap().recv().unwrap();
+        let message = rx.recv().unwrap();
         if let Message::Broadcast(message) = message {
             match message {
                 // A value received. Record the value and multicast an echo.
@@ -220,9 +212,7 @@ where T: Clone + Debug + Eq + Hash + Send + Sync + Into<Vec<u8>>
                         }
                     }
                     // Broadcast an echo of this proof.
-                    tx.lock().unwrap()
-                        .send(Message::Broadcast(
-                            BroadcastMessage::Echo(p)))
+                    tx.send(Message::Broadcast(BroadcastMessage::Echo(p)))
                         .unwrap()
                 },
 
@@ -266,7 +256,7 @@ where T: Clone + Debug + Eq + Hash + Send + Sync + Into<Vec<u8>>
                                 // Ready
                                 if !ready_sent {
                                     ready_sent = true;
-                                    tx.lock().unwrap().send(Message::Broadcast(
+                                    tx.send(Message::Broadcast(
                                         BroadcastMessage::Ready(h.to_owned())))
                                         .unwrap();
                                 }
@@ -291,7 +281,7 @@ where T: Clone + Debug + Eq + Hash + Send + Sync + Into<Vec<u8>>
                         if (ready_num == PLACEHOLDER_F + 1) &&
                             !ready_sent
                         {
-                            tx.lock().unwrap().send(Message::Broadcast(
+                            tx.send(Message::Broadcast(
                                 BroadcastMessage::Ready(h.to_vec()))).unwrap();
                         }
 
