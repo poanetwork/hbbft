@@ -34,6 +34,8 @@ pub struct Instance<'a, T: 'a + Send + Sync> {
     pub tx: &'a channel::Sender<Message<T>>,
     /// The receive side of the multiple producer channel from comms threads.
     pub rx: &'a channel::Receiver<Message<T>>,
+    /// Transmit sides of private channels to comms threads.
+    pub txs_priv: &'a Vec<channel::Sender<Message<T>>>,
     /// Value to be broadcast.
     pub broadcast_value: Option<T>,
 }
@@ -45,11 +47,13 @@ where Vec<u8>: From<T>
 {
     pub fn new(tx: &'a channel::Sender<Message<T>>,
                rx: &'a channel::Receiver<Message<T>>,
+               txs_priv: &'a Vec<channel::Sender<Message<T>>>,
                broadcast_value: Option<T>) -> Self
     {
         Instance {
             tx: tx,
             rx: rx,
+            txs_priv: txs_priv,
             broadcast_value: broadcast_value,
         }
     }
