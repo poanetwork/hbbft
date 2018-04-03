@@ -21,23 +21,25 @@ use crossbeam_channel as channel;
 const PLACEHOLDER_N: usize = 8;
 const PLACEHOLDER_F: usize = 2;
 
-/// Broadcast stage. See the TODO note below!
+/// Broadcast algorithm instance.
 ///
-/// TODO: The ACS algorithm will require multiple broadcast instances running
+/// The ACS algorithm requires multiple broadcast instances running
 /// asynchronously, see Figure 4 in the HBBFT paper. Those are N asynchronous
-/// threads, each responding to values from one particular remote node. The
+/// coroutines, each responding to values from one particular remote node. The
 /// paper doesn't make it clear though how other messages - Echo and Ready - are
 /// distributed over the instances. Also it appears that the sender of a message
 /// might become part of the message for this to work.
 pub struct Instance<'a, T: 'a + Send + Sync> {
     /// The transmit side of the multiple consumer channel to comms threads.
-    pub tx: &'a channel::Sender<Message<T>>,
+    tx: &'a channel::Sender<Message<T>>,
     /// The receive side of the multiple producer channel from comms threads.
-    pub rx: &'a channel::Receiver<Message<T>>,
+    rx: &'a channel::Receiver<(usize, Message<T>)>,
     /// Transmit sides of private channels to comms threads.
-    pub txs_priv: &'a Vec<channel::Sender<Message<T>>>,
+    txs_priv: &'a Vec<channel::Sender<Message<T>>>,
     /// Value to be broadcast.
-    pub broadcast_value: Option<T>,
+    broadcast_value: Option<T>,
+    /// This instance's index for identification against its comms task.
+    pub node_index: usize
 }
 
 impl<'a, T: Clone + Debug + Eq + Hash + Send + Sync + Into<Vec<u8>>
@@ -46,15 +48,18 @@ impl<'a, T: Clone + Debug + Eq + Hash + Send + Sync + Into<Vec<u8>>
 where Vec<u8>: From<T>
 {
     pub fn new(tx: &'a channel::Sender<Message<T>>,
-               rx: &'a channel::Receiver<Message<T>>,
+               rx: &'a channel::Receiver<(usize, Message<T>)>,
                txs_priv: &'a Vec<channel::Sender<Message<T>>>,
-               broadcast_value: Option<T>) -> Self
+               broadcast_value: Option<T>,
+               node_index: usize) ->
+        Self
     {
         Instance {
             tx: tx,
             rx: rx,
             txs_priv: txs_priv,
             broadcast_value: broadcast_value,
+            node_index: node_index
         }
     }
 
@@ -72,7 +77,8 @@ where Vec<u8>: From<T>
         crossbeam::scope(|scope| {
             scope.spawn(move || {
                 *result_r_scoped.lock().unwrap() =
-                    Some(inner_run(self.tx, self.rx, bvalue));
+                    Some(inner_run(self.tx, self.rx, self.txs_priv, bvalue,
+                                   self.node_index));
             });
         });
         if let Some(ref r) = *result_r.lock().unwrap() {
@@ -89,20 +95,26 @@ where Vec<u8>: From<T>
 #[derive(Debug, Clone, PartialEq)]
 pub enum BroadcastError {
     RootHashMismatch,
-    Threading
+    Threading,
+    ProofConstructionFailed
 }
 
 /// Breaks the input value into shards of equal length and encodes them -- and
-/// some extra parity shards -- with a Reed-Solomon erasure coding scheme.
+/// some extra parity shards -- with a Reed-Solomon erasure coding scheme. The
+/// returned value contains the shard assigned to this node. That shard doesn't
+/// need to be sent anywhere. It is returned to the broadcast instance and gets
+/// recorded immediately.
 fn send_shards<'a, T>(value: T,
-                      tx: &'a channel::Sender<Message<T>>,
+                      txs_priv: &'a Vec<channel::Sender<Message<T>>>,
                       coding: &ReedSolomon,
                       data_shard_num: usize,
-                      parity_shard_num: usize)
+                      parity_shard_num: usize) ->
+    Result<Proof<T>, BroadcastError>
 where T: Clone + Debug + Send + Sync + Into<Vec<u8>>
     + From<Vec<u8>> + AsRef<[u8]>
     , Vec<u8>: From<T>
 {
+    assert_eq!(txs_priv.len() + 1, data_shard_num + parity_shard_num);
     let mut v: Vec<u8> = Vec::from(value).to_owned();
 
     // Pad the value vector with zeros to allow for shards of equal sizes.
@@ -140,22 +152,34 @@ where T: Clone + Debug + Send + Sync + Into<Vec<u8>>
     // deconstruction into compound branches.
     let mtree = MerkleTree::from_vec(&::ring::digest::SHA256, shards_t);
 
+    let mut result = Err(BroadcastError::ProofConstructionFailed);
+
     // Send each proof to a node.
-    //
-    // FIXME: use a single consumer TX channel.
-    for leaf_value in mtree.iter().cloned() {
+    for (i, leaf_value) in mtree.iter().cloned().enumerate() {
         let proof = mtree.gen_proof(leaf_value);
         if let Some(proof) = proof {
-            tx.send(Message::Broadcast(
-                BroadcastMessage::Value(proof))).unwrap();
+            if i == 0 {
+                // The first proof is addressed to this node.
+                result = Ok(proof);
+            }
+            else {
+                // Rest of the proofs are sent to remote nodes.
+                txs_priv[i-1].send(Message::Broadcast(
+                    BroadcastMessage::Value(proof))).unwrap();
+            }
         }
     }
+
+    result
 }
 
 /// The main loop of the broadcast task.
 fn inner_run<'a, T>(tx: &'a channel::Sender<Message<T>>,
-                    rx: &'a channel::Receiver<Message<T>>,
-                    broadcast_value: Option<T>) -> Result<T, BroadcastError>
+                    rx: &'a channel::Receiver<(usize, Message<T>)>,
+                    txs_priv: &'a Vec<channel::Sender<Message<T>>>,
+                    broadcast_value: Option<T>,
+                    node_index: usize) ->
+    Result<T, BroadcastError>
 where T: Clone + Debug + Eq + Hash + Send + Sync + Into<Vec<u8>>
     + From<Vec<u8>> + AsRef<[u8]>
     , Vec<u8>: From<T>
@@ -164,25 +188,40 @@ where T: Clone + Debug + Eq + Hash + Send + Sync + Into<Vec<u8>>
     let parity_shard_num = 2 * PLACEHOLDER_F;
     let data_shard_num = PLACEHOLDER_N - parity_shard_num;
     let coding = ReedSolomon::new(data_shard_num, parity_shard_num).unwrap();
+    // currently known leaf values
+    let mut leaf_values: Vec<Option<Box<[u8]>>> = vec![None; PLACEHOLDER_N];
+    // Write-once root hash of a tree broadcast from the sender associated with
+    // this instance.
+    let mut root_hash: Option<Vec<u8>> = None;
+    // number of non-None leaf values
+    let mut leaf_values_num = 0;
 
     // Split the value into chunks/shards, encode them with erasure codes.
     // Assemble a Merkle tree from data and parity shards. Take all proofs from
     // this tree and send them, each to its own node.
-    //
-    // FIXME: Does the node send a proof to itself?
     if let Some(v) = broadcast_value {
-        send_shards(v, tx, &coding, data_shard_num, parity_shard_num);
+        match send_shards(v, txs_priv, &coding,
+                          data_shard_num, parity_shard_num)
+        {
+            // Record the first proof that was generated by the node itself.
+            Ok(proof) => {
+                let h = proof.root_hash.clone();
+                if proof.validate(h.as_slice()) {
+                    // Save the leaf value for reconstructing the tree later.
+                    leaf_values[index_of_proof(&proof)] =
+                        Some(Vec::from(proof.value.clone())
+                             .into_boxed_slice());
+                    leaf_values_num = leaf_values_num + 1;
+                    //
+                    root_hash = Some(h);
+                }
+            },
+            Err(e) => return Err(e)
+        }
     }
 
-    // currently known leaf values
-    let mut leaf_values: Vec<Option<Box<[u8]>>> = vec![None; PLACEHOLDER_N];
-    // number of non-None leaf values
-    let mut leaf_values_num = 0;
     // return value
     let mut result: Option<Result<T, BroadcastError>> = None;
-    // Write-once root hash of a tree broadcast from the sender associated with
-    // this instance.
-    let mut root_hash: Option<Vec<u8>> = None;
     // Number of times Echo was received with the same root hash.
     let mut echo_num = 0;
     // Number of times Ready was received with the same root hash.
@@ -194,13 +233,15 @@ where T: Clone + Debug + Eq + Hash + Send + Sync + Into<Vec<u8>>
     while result == None {
         // Receive a message from the socket IO task.
         let message = rx.recv().unwrap();
-        if let Message::Broadcast(message) = message {
+        if let (i, Message::Broadcast(message)) = message {
             match message {
                 // A value received. Record the value and multicast an echo.
-                //
-                // TODO: determine if the paper treats multicast as reflexive and
-                // add an echo to this node if it does.
                 BroadcastMessage::Value(p) => {
+                    if i != node_index {
+                        // Ignore value messages from unrelated remote nodes.
+                        continue;
+                    }
+
                     if let None = root_hash {
                         root_hash = Some(p.root_hash.clone());
                     }

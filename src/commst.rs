@@ -17,28 +17,34 @@ pub struct CommsTask<'a, 'b, 'c, T: 'a + 'c + Send + Sync +
 where Vec<u8>: From<T>
 {
     /// The transmit side of the multiple producer channel from comms threads.
-    tx: &'a channel::Sender<Message<T>>,
+    tx: &'a channel::Sender<(usize, Message<T>)>,
     /// The receive side of the multiple consumer channel to comms threads.
     rx: &'a channel::Receiver<Message<T>>,
     /// The receive side of the private channel to the comms thread.
     rx_priv: &'c channel::Receiver<Message<T>>,
     /// The socket IO task.
     task: task::Task<'b>,
+    /// The index of this comms task for identification against its remote node.
+    pub node_index: usize
 }
 
 impl<'a, 'b, 'c, T: Debug + Send + Sync + From<Vec<u8>> + Into<Vec<u8>>>
     CommsTask<'a, 'b, 'c, T>
 where Vec<u8>: From<T>
 {
-    pub fn new(tx: &'a channel::Sender<Message<T>>,
+    pub fn new(tx: &'a channel::Sender<(usize, Message<T>)>,
                rx: &'a channel::Receiver<Message<T>>,
                rx_priv: &'c channel::Receiver<Message<T>>,
-               stream: &'b ::std::net::TcpStream) -> Self {
+               stream: &'b ::std::net::TcpStream,
+               node_index: usize) ->
+        Self
+    {
         CommsTask {
             tx: tx,
             rx: rx,
             rx_priv: rx_priv,
-            task: task::Task::new(stream)
+            task: task::Task::new(stream),
+            node_index: node_index
         }
     }
 
@@ -50,6 +56,7 @@ where Vec<u8>: From<T>
         let rx = Arc::new(self.rx);
         let rx_priv = Arc::new(self.rx_priv);
         let task = Arc::new(Mutex::new(&mut self.task));
+        let node_index = self.node_index;
 
         crossbeam::scope(|scope| {
             // Make a further copy of `task` for the thread stack.
@@ -83,7 +90,7 @@ where Vec<u8>: From<T>
             loop {
                 match task.lock().unwrap().receive_message() {
                     Ok(message) =>
-                        tx.send(message).unwrap(),
+                        tx.send((node_index, message)).unwrap(),
                     Err(task::Error::ProtobufError(e)) =>
                         warn!("Protobuf error {}", e),
                     Err(e) => {

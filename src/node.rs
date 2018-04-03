@@ -41,8 +41,8 @@ where Vec<u8>: From<T>
         // all algorithm actor tasks such as Reliable Broadcast.
         let (from_comms_tx, from_comms_rx):
         (
-            channel::Sender<Message<T>>,
-            channel::Receiver<Message<T>>
+            channel::Sender<(usize, Message<T>)>,
+            channel::Receiver<(usize, Message<T>)>
         ) = channel::unbounded();
         let (from_comms_tx, from_comms_rx) = (&from_comms_tx, &from_comms_rx);
 
@@ -60,35 +60,39 @@ where Vec<u8>: From<T>
 
         // Single-consumer channels from algorithm actor tasks to comms tasks.
         let to_comms_1: Vec<(channel::Sender<Message<T>>,
-                             channel::Receiver<Message<T>>)>
-            = (0..connections.len()).map(|_| channel::unbounded()).collect();
-        // All transmit sides of channels to comms tasks.
-        let to_comms_1_txs: Vec<channel::Sender<Message<T>>>
-            = to_comms_1.iter().map(|(tx, _)| tx.to_owned()).collect();
+                             channel::Receiver<Message<T>>)> =
+            (0 .. connections.len() + 1)
+            .map(|_| channel::unbounded())
+            .collect();
+        // All transmit sides of channels to comms tasks are collected together
+        // for sending messages to particular remote nodes.
+        let to_comms_1_txs: Vec<channel::Sender<Message<T>>> =
+            to_comms_1.iter().map(|(tx, _)| tx.to_owned()).collect();
         let to_comms_1 = &to_comms_1;
         let to_comms_1_txs = &to_comms_1_txs;
 
-        // FIXME: Compute this index over the vector of connections.
-        const NODE_INDEX: usize = 0;
-
         // All spawned threads will have exited by the end of the scope.
         crossbeam::scope(|scope| {
-            // FIXME: Compute [i <- connections | v_i].
+
+            // Associate a broadcast instance with this node. This instance will
+            // broadcast the proposed value. There is no remote node
+            // corresponding to this instance, and no dedicated comms task. The
+            // node index is 0.
+            scope.spawn(move || {
+                match broadcast::Instance::new(to_comms_tx,
+                                               from_comms_rx,
+                                               to_comms_1_txs,
+                                               value.to_owned(),
+                                               0)
+                    .run()
+                {
+                    Ok(_) => debug!("Sender broadcast instance succeeded"),
+                    Err(_) => error!("Sender broadcast instance failed")
+                }
+            });
 
             // Start a comms task for each connection.
             for (i, c) in connections.iter().enumerate() {
-                // FIXME:
-                //
-                // - Connect the comms task to the broadcast instance.
-                //
-                // - Broadcast v_i through the broadcast instance?
-                let broadcast_value: Option<T>;
-                if i == NODE_INDEX {
-                    broadcast_value = value.to_owned();
-                }
-                else {
-                    broadcast_value = None;
-                }
 
                 // Receive side of a single-consumer channel from algorithm
                 // actor tasks to the comms task.
@@ -100,7 +104,8 @@ where Vec<u8>: From<T>
                     commst::CommsTask::new(from_comms_tx,
                                            to_comms_rx,
                                            to_comms_1_rx,
-                                           &c.stream)
+                                           &c.stream,
+                                           i + 1)
                         .run();
                 });
 
@@ -109,7 +114,8 @@ where Vec<u8>: From<T>
                     match broadcast::Instance::new(to_comms_tx,
                                                    from_comms_rx,
                                                    to_comms_1_txs,
-                                                   broadcast_value)
+                                                   None,
+                                                   i + 1)
                         .run()
                     {
                         Ok(_) => debug!("Broadcast instance #{} succeeded", i),
