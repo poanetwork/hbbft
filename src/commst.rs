@@ -69,7 +69,7 @@ where Vec<u8>: From<T>
             scope.spawn(move || {
                 // Unfolded application of `select_loop!`
                 let mut sel = channel::Select::new();
-                select_loop! { loop {
+                loop { loop {
                     // Receive a multicast message from the manager thread.
                     if let Ok(message) = sel.recv(&rx) {
                         debug!("Node {} <- {:?}", node_index, message);
