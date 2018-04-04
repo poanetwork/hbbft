@@ -1,5 +1,8 @@
 //! Example of a consensus node that uses the `hbbft::node::Node` struct for
 //! running the distributed consensus state machine.
+#[macro_use]
+extern crate log;
+extern crate simple_logger;
 extern crate docopt;
 extern crate hbbft;
 
@@ -48,8 +51,9 @@ fn parse_args() -> Args {
 }
 
 pub fn main() {
+    simple_logger::init_with_level(log::Level::Debug).unwrap();
     let args: Args = parse_args();
     println!("{:?}", args);
     let node = Node::new(args.bind_address, args.remote_addresses, args.value);
-    node.run();
+    node.run().expect("Node failed");
 }

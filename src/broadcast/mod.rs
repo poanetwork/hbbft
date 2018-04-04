@@ -10,17 +10,6 @@ use merkle::proof::{Proof, Lemma, Positioned};
 use reed_solomon_erasure::ReedSolomon;
 use crossbeam_channel as channel;
 
-/// Temporary placeholders for the number of participants and the maximum
-/// envisaged number of faulty nodes. Only one is required since N >= 3f +
-/// 1. There are at least two options for where should N and f come from:
-///
-/// - start-up parameters
-///
-/// - initial socket setup phase in node.rs
-///
-const PLACEHOLDER_N: usize = 8;
-const PLACEHOLDER_F: usize = 2;
-
 /// Broadcast algorithm instance.
 ///
 /// The ACS algorithm requires multiple broadcast instances running
@@ -39,7 +28,11 @@ pub struct Instance<'a, T: 'a + Send + Sync> {
     /// Value to be broadcast.
     broadcast_value: Option<T>,
     /// This instance's index for identification against its comms task.
-    pub node_index: usize
+    pub node_index: usize,
+    /// Number of nodes participating in broadcast.
+    num_nodes: usize,
+    /// Maximum allowed number of faulty nodes.
+    num_faulty_nodes: usize
 }
 
 impl<'a, T: Clone + Debug + Eq + Hash + Send + Sync + Into<Vec<u8>>
@@ -54,12 +47,16 @@ where Vec<u8>: From<T>
                node_index: usize) ->
         Self
     {
+        let num_remote_nodes = txs_priv.len();
+
         Instance {
             tx: tx,
             rx: rx,
             txs_priv: txs_priv,
             broadcast_value: broadcast_value,
-            node_index: node_index
+            node_index: node_index,
+            num_nodes: num_remote_nodes + 1,
+            num_faulty_nodes: num_remote_nodes / 3
         }
     }
 
@@ -78,7 +75,8 @@ where Vec<u8>: From<T>
             scope.spawn(move || {
                 *result_r_scoped.lock().unwrap() =
                     Some(inner_run(self.tx, self.rx, self.txs_priv, bvalue,
-                                   self.node_index));
+                                   self.node_index, self.num_nodes,
+                                   self.num_faulty_nodes));
             });
         });
         if let Some(ref r) = *result_r.lock().unwrap() {
@@ -106,14 +104,17 @@ pub enum BroadcastError {
 /// recorded immediately.
 fn send_shards<'a, T>(value: T,
                       txs_priv: &'a Vec<channel::Sender<Message<T>>>,
-                      coding: &ReedSolomon,
-                      data_shard_num: usize,
-                      parity_shard_num: usize) ->
+                      coding: &ReedSolomon) ->
     Result<Proof<T>, BroadcastError>
 where T: Clone + Debug + Send + Sync + Into<Vec<u8>>
     + From<Vec<u8>> + AsRef<[u8]>
     , Vec<u8>: From<T>
 {
+    let data_shard_num = coding.data_shard_count();
+    let parity_shard_num = coding.parity_shard_count();
+
+    debug!("Data shards: {}, parity shards: {}",
+           data_shard_num, parity_shard_num);
     assert_eq!(txs_priv.len() + 1, data_shard_num + parity_shard_num);
     let mut v: Vec<u8> = Vec::from(value).to_owned();
 
@@ -141,6 +142,8 @@ where T: Clone + Debug + Send + Sync + Into<Vec<u8>>
     // Construct the parity chunks/shards
     coding.encode(shards.as_mut_slice()).unwrap();
 
+    debug!("Shards: {:?}", shards);
+
     // Convert shards back to type `T` for proof generation.
     let mut shards_t: Vec<T> = Vec::new();
     for s in shards.iter() {
@@ -152,6 +155,7 @@ where T: Clone + Debug + Send + Sync + Into<Vec<u8>>
     // deconstruction into compound branches.
     let mtree = MerkleTree::from_vec(&::ring::digest::SHA256, shards_t);
 
+    // Default result in case of `gen_proof` error.
     let mut result = Err(BroadcastError::ProofConstructionFailed);
 
     // Send each proof to a node.
@@ -178,18 +182,19 @@ fn inner_run<'a, T>(tx: &'a channel::Sender<Message<T>>,
                     rx: &'a channel::Receiver<(usize, Message<T>)>,
                     txs_priv: &'a Vec<channel::Sender<Message<T>>>,
                     broadcast_value: Option<T>,
-                    node_index: usize) ->
+                    node_index: usize, num_nodes: usize,
+                    num_faulty_nodes: usize) ->
     Result<T, BroadcastError>
 where T: Clone + Debug + Eq + Hash + Send + Sync + Into<Vec<u8>>
     + From<Vec<u8>> + AsRef<[u8]>
     , Vec<u8>: From<T>
 {
     // Erasure coding scheme: N - 2f value shards and 2f parity shards
-    let parity_shard_num = 2 * PLACEHOLDER_F;
-    let data_shard_num = PLACEHOLDER_N - parity_shard_num;
+    let parity_shard_num = 2 * num_faulty_nodes;
+    let data_shard_num = num_nodes - parity_shard_num;
     let coding = ReedSolomon::new(data_shard_num, parity_shard_num).unwrap();
     // currently known leaf values
-    let mut leaf_values: Vec<Option<Box<[u8]>>> = vec![None; PLACEHOLDER_N];
+    let mut leaf_values: Vec<Option<Box<[u8]>>> = vec![None; num_nodes];
     // Write-once root hash of a tree broadcast from the sender associated with
     // this instance.
     let mut root_hash: Option<Vec<u8>> = None;
@@ -200,9 +205,7 @@ where T: Clone + Debug + Eq + Hash + Send + Sync + Into<Vec<u8>>
     // Assemble a Merkle tree from data and parity shards. Take all proofs from
     // this tree and send them, each to its own node.
     if let Some(v) = broadcast_value {
-        match send_shards(v, txs_priv, &coding,
-                          data_shard_num, parity_shard_num)
-        {
+        match send_shards(v, txs_priv, &coding) {
             // Record the first proof that was generated by the node itself.
             Ok(proof) => {
                 let h = proof.root_hash.clone();
@@ -242,6 +245,8 @@ where T: Clone + Debug + Eq + Hash + Send + Sync + Into<Vec<u8>>
                         continue;
                     }
 
+                    debug!("Broadcast node {} -> Value {:?}", i, p);
+
                     if let None = root_hash {
                         root_hash = Some(p.root_hash.clone());
                     }
@@ -263,6 +268,8 @@ where T: Clone + Debug + Eq + Hash + Send + Sync + Into<Vec<u8>>
 
                 // An echo received. Verify the proof it contains.
                 BroadcastMessage::Echo(p) => {
+                    debug!("Broadcast node {} -> Echo {:?}", i, p);
+
                     if let None = root_hash {
                         root_hash = Some(p.root_hash.clone());
                     }
@@ -283,7 +290,7 @@ where T: Clone + Debug + Eq + Hash + Send + Sync + Into<Vec<u8>>
                             // decode v
                             if ready_to_decode &&
                                 leaf_values_num >=
-                                PLACEHOLDER_N - 2 * PLACEHOLDER_F
+                                num_nodes - 2 * num_faulty_nodes
                             {
                                 result = Some(
                                     decode_from_shards(&mut leaf_values,
@@ -291,7 +298,7 @@ where T: Clone + Debug + Eq + Hash + Send + Sync + Into<Vec<u8>>
                                                        data_shard_num, h));
                             }
                             else if leaf_values_num >=
-                                PLACEHOLDER_N - PLACEHOLDER_F
+                                num_nodes - num_faulty_nodes
                             {
                                 result = Some(
                                     decode_from_shards(&mut leaf_values,
@@ -311,6 +318,8 @@ where T: Clone + Debug + Eq + Hash + Send + Sync + Into<Vec<u8>>
                 },
 
                 BroadcastMessage::Ready(ref h) => {
+                    debug!("Broadcast node {} -> Ready {:?}", i, h);
+
                     // TODO: Prioritise the Value root hash, possibly. Prevent
                     // an incorrect node from blocking progress which it could
                     // achieve by sending an incorrect hash.
@@ -323,7 +332,7 @@ where T: Clone + Debug + Eq + Hash + Send + Sync + Into<Vec<u8>>
 
                         // Upon receiving f + 1 matching Ready(h) messages, if
                         // Ready has not yet been sent, multicast Ready(h).
-                        if (ready_num == PLACEHOLDER_F + 1) &&
+                        if (ready_num == num_faulty_nodes + 1) &&
                             !ready_sent
                         {
                             tx.send(Message::Broadcast(
@@ -332,9 +341,9 @@ where T: Clone + Debug + Eq + Hash + Send + Sync + Into<Vec<u8>>
 
                         // Upon receiving 2f + 1 matching Ready(h) messages,
                         // wait for N − 2f Echo messages, then decode v.
-                        if ready_num > 2 * PLACEHOLDER_F {
+                        if ready_num > 2 * num_faulty_nodes {
                             // Wait for N - 2f Echo messages, then decode v.
-                            if echo_num >= PLACEHOLDER_N - 2 * PLACEHOLDER_F {
+                            if echo_num >= num_nodes - 2 * num_faulty_nodes {
                                 result = Some(
                                     decode_from_shards(&mut leaf_values,
                                                        &coding,

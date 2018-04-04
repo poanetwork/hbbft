@@ -61,7 +61,7 @@ where Vec<u8>: From<T>
         // Single-consumer channels from algorithm actor tasks to comms tasks.
         let to_comms_1: Vec<(channel::Sender<Message<T>>,
                              channel::Receiver<Message<T>>)> =
-            (0 .. connections.len() + 1)
+            (0 .. connections.len())
             .map(|_| channel::unbounded())
             .collect();
         // All transmit sides of channels to comms tasks are collected together
@@ -91,21 +91,21 @@ where Vec<u8>: From<T>
                 }
             });
 
-            // Start a comms task for each connection.
+            // Start a comms task for each connection. Node indices of those
+            // tasks are 1 through N where N is the number of connections.
             for (i, c) in connections.iter().enumerate() {
 
                 // Receive side of a single-consumer channel from algorithm
                 // actor tasks to the comms task.
                 let ref to_comms_1_rx = to_comms_1[i].1;
+                let node_index = i + 1;
 
-                info!("Creating a comms task #{} for {:?}", i,
-                      c.stream.peer_addr().unwrap());
                 scope.spawn(move || {
                     commst::CommsTask::new(from_comms_tx,
                                            to_comms_rx,
                                            to_comms_1_rx,
                                            &c.stream,
-                                           i + 1)
+                                           node_index)
                         .run();
                 });
 
@@ -115,7 +115,7 @@ where Vec<u8>: From<T>
                                                    from_comms_rx,
                                                    to_comms_1_txs,
                                                    None,
-                                                   i + 1)
+                                                   node_index)
                         .run()
                     {
                         Ok(_) => debug!("Broadcast instance #{} succeeded", i),

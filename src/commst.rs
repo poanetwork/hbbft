@@ -39,6 +39,9 @@ where Vec<u8>: From<T>
                node_index: usize) ->
         Self
     {
+        debug!("Creating comms task #{} for {:?}", node_index,
+               stream.peer_addr().unwrap());
+
         CommsTask {
             tx: tx,
             rx: rx,
@@ -66,9 +69,10 @@ where Vec<u8>: From<T>
             scope.spawn(move || {
                 // Unfolded application of `select_loop!`
                 let mut sel = channel::Select::new();
-                loop {
+                select_loop! { loop {
                     // Receive a multicast message from the manager thread.
                     if let Ok(message) = sel.recv(&rx) {
+                        debug!("Node {} <- {:?}", node_index, message);
                         // Forward the message to the remote node.
                         task1.lock().unwrap().send_message(message).unwrap();
                         // Rule: If a selection case fires, the loop must be
@@ -77,20 +81,23 @@ where Vec<u8>: From<T>
                     }
                     // Receive a private message from the manager thread.
                     if let Ok(message) = sel.recv(&rx_priv) {
+                        debug!("Node {} <- {:?}", node_index, message);
                         // Forward the message to the remote node.
                         task1.lock().unwrap().send_message(message).unwrap();
                         // Rule: If a selection case fires, the loop must be
                         // broken.
                         break;
                     }
-                }
+                }}
             });
 
             // Remote comms receive loop.
             loop {
                 match task.lock().unwrap().receive_message() {
-                    Ok(message) =>
-                        tx.send((node_index, message)).unwrap(),
+                    Ok(message) => {
+                        debug!("Node {} -> {:?}", node_index, message);
+                        tx.send((node_index, message)).unwrap()
+                    },
                     Err(task::Error::ProtobufError(e)) =>
                         warn!("Protobuf error {}", e),
                     Err(e) => {
