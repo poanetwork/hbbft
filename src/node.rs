@@ -104,7 +104,8 @@ where Vec<u8>: From<T>
                     commst::CommsTask::new(from_comms_tx,
                                            to_comms_rx,
                                            to_comms_1_rx,
-                                           &c.stream,
+                                           // FIXME: handle error
+                                           c.stream.try_clone().unwrap(),
                                            node_index)
                         .run();
                 });

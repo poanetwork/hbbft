@@ -57,18 +57,25 @@ fn decode_u32_from_be(buffer: &[u8]) -> Result<u32, Error> {
     Ok(result)
 }
 
-pub struct Task<'a> {
-    stream: &'a TcpStream,
+pub struct Task {
+    stream: TcpStream,
     buffer: [u8; 1024],
 }
 
 /// A message handling task.
-impl<'a> Task<'a> where {
-    pub fn new(stream: &'a TcpStream) -> Task<'a> {
+impl Task where {
+    pub fn new(stream: TcpStream) -> Task {
         Task {
             stream,
             buffer: [0; 1024]
         }
+    }
+
+    pub fn try_clone(&self) -> Result<Task, ::std::io::Error> {
+        Ok(Task {
+            stream: self.stream.try_clone()?,
+            buffer: [0; 1024]
+        })
     }
 
     pub fn receive_message<T>(&mut self) -> Result<Message<T>, Error>
