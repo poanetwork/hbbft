@@ -1,10 +1,9 @@
 //! Comms task structure. A comms task communicates with a remote node through a
 //! socket. Local communication with coordinating threads is made via
-//! `spmc::channel()` and `mpsc::channel()`.
+//! `crossbeam_channel::unbounded()`.
 use std::fmt::Debug;
 use std::sync::{Arc, Mutex};
 use crossbeam;
-#[macro_use]
 use crossbeam_channel as channel;
 
 use proto::Message;
@@ -67,28 +66,20 @@ where Vec<u8>: From<T>
 
             // Local comms receive loop thread.
             scope.spawn(move || {
-                // Unfolded application of `select_loop!`
-                let mut sel = channel::Select::new();
-                loop { loop {
+                select_loop! {
                     // Receive a multicast message from the manager thread.
-                    if let Ok(message) = sel.recv(&rx) {
+                    recv(rx, message) => {
                         debug!("Node {} <- {:?}", node_index, message);
                         // Forward the message to the remote node.
                         task1.lock().unwrap().send_message(message).unwrap();
-                        // Rule: If a selection case fires, the loop must be
-                        // broken.
-                        break;
-                    }
+                    },
                     // Receive a private message from the manager thread.
-                    if let Ok(message) = sel.recv(&rx_priv) {
+                    recv(rx_priv, message) => {
                         debug!("Node {} <- {:?}", node_index, message);
                         // Forward the message to the remote node.
                         task1.lock().unwrap().send_message(message).unwrap();
-                        // Rule: If a selection case fires, the loop must be
-                        // broken.
-                        break;
                     }
-                }}
+                }
             });
 
             // Remote comms receive loop.

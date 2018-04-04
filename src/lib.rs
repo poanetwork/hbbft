@@ -43,6 +43,7 @@ extern crate protobuf;
 extern crate ring;
 extern crate merkle;
 extern crate crossbeam;
+#[macro_use]
 extern crate crossbeam_channel;
 extern crate reed_solomon_erasure;
 
