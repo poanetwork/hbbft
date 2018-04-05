@@ -59,7 +59,7 @@ fn decode_u32_from_be(buffer: &[u8]) -> Result<u32, Error> {
 
 pub struct Task {
     stream: TcpStream,
-    buffer: [u8; 1024],
+    buffer: [u8; 1024 * 4],
 }
 
 /// A message handling task.
@@ -67,14 +67,14 @@ impl Task where {
     pub fn new(stream: TcpStream) -> Task {
         Task {
             stream,
-            buffer: [0; 1024]
+            buffer: [0; 1024 * 4]
         }
     }
 
     pub fn try_clone(&self) -> Result<Task, ::std::io::Error> {
         Ok(Task {
             stream: self.stream.try_clone()?,
-            buffer: [0; 1024]
+            buffer: [0; 1024 * 4]
         })
     }
 

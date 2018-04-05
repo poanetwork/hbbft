@@ -65,13 +65,12 @@ where Vec<u8>: From<T>
                     debug!("Node {} <- {:?}", node_index, message);
                     // Forward the message to the remote node.
                     task1.send_message(message).unwrap();
-                    debug!("SENT Node {}", node_index);
                 }
             });
 
             // Remote comms receive loop.
+            debug!("Starting remote RX loop for node {}", node_index);
             loop {
-                debug!("Starting remote RX loop for node {}", node_index);
                 match self.task.receive_message() {
                     Ok(message) => {
                         debug!("Node {} -> {:?}", node_index, message);
@@ -83,9 +82,9 @@ where Vec<u8>: From<T>
                             .unwrap()
                     },
                     Err(task::Error::ProtobufError(e)) =>
-                        warn!("Protobuf error {}", e),
+                        warn!("Node {} - Protobuf error {}", node_index, e),
                     Err(e) => {
-                        warn!("Critical error {:?}", e);
+                        warn!("Node {} - Critical error {:?}", node_index, e);
                         break;
                     }
                 }
