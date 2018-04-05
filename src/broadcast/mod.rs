@@ -8,7 +8,9 @@ use std::marker::{Send, Sync};
 use merkle::MerkleTree;
 use merkle::proof::{Proof, Lemma, Positioned};
 use reed_solomon_erasure::ReedSolomon;
-use crossbeam_channel as channel;
+use crossbeam_channel::{Sender, Receiver};
+
+use messaging::{Target, TargetedMessage, SourcedMessage};
 
 /// Broadcast algorithm instance.
 ///
@@ -18,17 +20,15 @@ use crossbeam_channel as channel;
 /// paper doesn't make it clear though how other messages - Echo and Ready - are
 /// distributed over the instances. Also it appears that the sender of a message
 /// might become part of the message for this to work.
-pub struct Instance<'a, T: 'a + Send + Sync> {
-    /// The transmit side of the multiple consumer channel to comms threads.
-    tx: &'a channel::Sender<Message<T>>,
-    /// The receive side of the multiple producer channel from comms threads.
-    rx: &'a channel::Receiver<(usize, Message<T>)>,
-    /// Transmit sides of private channels to comms threads.
-    txs_priv: &'a Vec<channel::Sender<Message<T>>>,
+pub struct Instance<'a, T: 'a + Clone + Debug + Send + Sync> {
+    /// The transmit side of the channel to comms threads.
+    tx: &'a Sender<TargetedMessage<T>>,
+    /// The receive side of the channel from comms threads.
+    rx: &'a Receiver<SourcedMessage<T>>,
     /// Value to be broadcast.
     broadcast_value: Option<T>,
     /// This instance's index for identification against its comms task.
-    pub node_index: usize,
+    node_index: usize,
     /// Number of nodes participating in broadcast.
     num_nodes: usize,
     /// Maximum allowed number of faulty nodes.
@@ -40,23 +40,20 @@ impl<'a, T: Clone + Debug + Eq + Hash + Send + Sync + Into<Vec<u8>>
     Instance<'a, T>
 where Vec<u8>: From<T>
 {
-    pub fn new(tx: &'a channel::Sender<Message<T>>,
-               rx: &'a channel::Receiver<(usize, Message<T>)>,
-               txs_priv: &'a Vec<channel::Sender<Message<T>>>,
+    pub fn new(tx: &'a Sender<TargetedMessage<T>>,
+               rx: &'a Receiver<SourcedMessage<T>>,
                broadcast_value: Option<T>,
+               num_nodes: usize,
                node_index: usize) ->
         Self
     {
-        let num_remote_nodes = txs_priv.len();
-
         Instance {
             tx: tx,
             rx: rx,
-            txs_priv: txs_priv,
             broadcast_value: broadcast_value,
             node_index: node_index,
-            num_nodes: num_remote_nodes + 1,
-            num_faulty_nodes: num_remote_nodes / 3
+            num_nodes: num_nodes,
+            num_faulty_nodes: (num_nodes - 1) / 3
         }
     }
 
@@ -74,7 +71,7 @@ where Vec<u8>: From<T>
         crossbeam::scope(|scope| {
             scope.spawn(move || {
                 *result_r_scoped.lock().unwrap() =
-                    Some(inner_run(self.tx, self.rx, self.txs_priv, bvalue,
+                    Some(inner_run(self.tx, self.rx, bvalue,
                                    self.node_index, self.num_nodes,
                                    self.num_faulty_nodes));
             });
@@ -103,7 +100,7 @@ pub enum BroadcastError {
 /// need to be sent anywhere. It is returned to the broadcast instance and gets
 /// recorded immediately.
 fn send_shards<'a, T>(value: T,
-                      txs_priv: &'a Vec<channel::Sender<Message<T>>>,
+                      tx: &'a Sender<TargetedMessage<T>>,
                       coding: &ReedSolomon) ->
     Result<Proof<T>, BroadcastError>
 where T: Clone + Debug + Send + Sync + Into<Vec<u8>>
@@ -115,7 +112,6 @@ where T: Clone + Debug + Send + Sync + Into<Vec<u8>>
 
     debug!("Data shards: {}, parity shards: {}",
            data_shard_num, parity_shard_num);
-    assert_eq!(txs_priv.len() + 1, data_shard_num + parity_shard_num);
     let mut v: Vec<u8> = Vec::from(value).to_owned();
 
     // Pad the value vector with zeros to allow for shards of equal sizes.
@@ -168,8 +164,12 @@ where T: Clone + Debug + Send + Sync + Into<Vec<u8>>
             }
             else {
                 // Rest of the proofs are sent to remote nodes.
-                txs_priv[i-1].send(Message::Broadcast(
-                    BroadcastMessage::Value(proof))).unwrap();
+                tx.send(
+                    TargetedMessage {
+                        target: Target::Node(i + 1),
+                        message: Message::Broadcast(
+                            BroadcastMessage::Value(proof))
+                    }).unwrap();
             }
         }
     }
@@ -178,11 +178,11 @@ where T: Clone + Debug + Send + Sync + Into<Vec<u8>>
 }
 
 /// The main loop of the broadcast task.
-fn inner_run<'a, T>(tx: &'a channel::Sender<Message<T>>,
-                    rx: &'a channel::Receiver<(usize, Message<T>)>,
-                    txs_priv: &'a Vec<channel::Sender<Message<T>>>,
+fn inner_run<'a, T>(tx: &'a Sender<TargetedMessage<T>>,
+                    rx: &'a Receiver<SourcedMessage<T>>,
                     broadcast_value: Option<T>,
-                    node_index: usize, num_nodes: usize,
+                    node_index: usize,
+                    num_nodes: usize,
                     num_faulty_nodes: usize) ->
     Result<T, BroadcastError>
 where T: Clone + Debug + Eq + Hash + Send + Sync + Into<Vec<u8>>
@@ -205,7 +205,7 @@ where T: Clone + Debug + Eq + Hash + Send + Sync + Into<Vec<u8>>
     // Assemble a Merkle tree from data and parity shards. Take all proofs from
     // this tree and send them, each to its own node.
     if let Some(v) = broadcast_value {
-        match send_shards(v, txs_priv, &coding) {
+        match send_shards(v, tx, &coding) {
             // Record the first proof that was generated by the node itself.
             Ok(proof) => {
                 let h = proof.root_hash.clone();
@@ -236,7 +236,10 @@ where T: Clone + Debug + Eq + Hash + Send + Sync + Into<Vec<u8>>
     while result == None {
         // Receive a message from the socket IO task.
         let message = rx.recv().unwrap();
-        if let (i, Message::Broadcast(message)) = message {
+        if let SourcedMessage {
+            source: i,
+            message: Message::Broadcast(message)
+        } = message {
             match message {
                 // A value received. Record the value and multicast an echo.
                 BroadcastMessage::Value(p) => {
@@ -262,8 +265,10 @@ where T: Clone + Debug + Eq + Hash + Send + Sync + Into<Vec<u8>>
                         }
                     }
                     // Broadcast an echo of this proof.
-                    tx.send(Message::Broadcast(BroadcastMessage::Echo(p)))
-                        .unwrap()
+                    tx.send(TargetedMessage {
+                        target: Target::All,
+                        message: Message::Broadcast(BroadcastMessage::Echo(p))
+                    }).unwrap()
                 },
 
                 // An echo received. Verify the proof it contains.
@@ -308,9 +313,12 @@ where T: Clone + Debug + Eq + Hash + Send + Sync + Into<Vec<u8>>
                                 // Ready
                                 if !ready_sent {
                                     ready_sent = true;
-                                    tx.send(Message::Broadcast(
-                                        BroadcastMessage::Ready(h.to_owned())))
-                                        .unwrap();
+                                    tx.send(TargetedMessage {
+                                        target: Target::All,
+                                        message: Message::Broadcast(
+                                            BroadcastMessage::Ready(
+                                                h.to_owned()))
+                                    }).unwrap();
                                 }
                             }
                         }
@@ -335,8 +343,12 @@ where T: Clone + Debug + Eq + Hash + Send + Sync + Into<Vec<u8>>
                         if (ready_num == num_faulty_nodes + 1) &&
                             !ready_sent
                         {
-                            tx.send(Message::Broadcast(
-                                BroadcastMessage::Ready(h.to_vec()))).unwrap();
+                            tx.send(TargetedMessage {
+                                target: Target::All,
+                                message: Message::Broadcast(
+                                    BroadcastMessage::Ready(
+                                        h.to_vec()))
+                            }).unwrap();
                         }
 
                         // Upon receiving 2f + 1 matching Ready(h) messages,

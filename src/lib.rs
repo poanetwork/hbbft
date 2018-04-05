@@ -48,11 +48,12 @@ extern crate crossbeam_channel;
 extern crate reed_solomon_erasure;
 
 mod connection;
+mod messaging;
 mod errors;
 mod proto;
 mod task;
 mod commst;
+mod broadcast;
+mod agreement;
 
 pub mod node;
-pub mod broadcast;
-pub mod agreement;
