@@ -1,6 +1,7 @@
 //! Comms task structure. A comms task communicates with a remote node through a
 //! socket. Local communication with coordinating threads is made via
 //! `crossbeam_channel::unbounded()`.
+use std::io;
 use std::fmt::Debug;
 use std::sync::Arc;
 use std::net::TcpStream;
@@ -11,6 +12,15 @@ use proto::Message;
 use proto_io;
 use proto_io::CodecIo;
 use messaging::SourcedMessage;
+
+#[derive(Debug)]
+pub enum Error {
+    IoError(io::Error),
+}
+
+impl From<io::Error> for Error {
+    fn from(err: io::Error) -> Error { Error::IoError(err) }
+}
 
 /// A communication task connects a remote node to the thread that manages the
 /// consensus algorithm.
@@ -51,11 +61,11 @@ where Vec<u8>: From<T>
 
     /// The main socket IO loop and an asynchronous thread responding to manager
     /// thread requests.
-    pub fn run(&mut self) {
+    pub fn run(&mut self) -> Result<(), Error> {
         // Borrow parts of `self` before entering the thread binding scope.
         let tx = Arc::new(self.tx);
         let rx = Arc::new(self.rx);
-        let mut io1 = self.io.try_clone().unwrap(); // FIXME: handle errors
+        let mut io1 = self.io.try_clone()?;
         let node_index = self.node_index;
 
         crossbeam::scope(|scope| {
@@ -80,8 +90,7 @@ where Vec<u8>: From<T>
                             SourcedMessage {
                                 source: node_index,
                                 message
-                            })
-                            .unwrap()
+                            }).unwrap();
                     },
                     Err(proto_io::Error::ProtobufError(e)) =>
                         warn!("Node {} - Protobuf error {}", node_index, e),
@@ -92,5 +101,6 @@ where Vec<u8>: From<T>
                 }
             }
         });
+        Ok(())
     }
 }

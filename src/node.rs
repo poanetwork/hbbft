@@ -1,17 +1,31 @@
 //! Networking controls of the consensus node.
+use std::io;
 use std::collections::HashSet;
 use std::fmt::Debug;
 use std::hash::Hash;
 use std::marker::{Send, Sync};
 use std::net::SocketAddr;
 use crossbeam;
-use crossbeam_channel::{unbounded, Sender, Receiver};
 
 use connection;
 use broadcast;
-use proto::Message;
 use commst;
 use messaging::Messaging;
+
+#[derive(Debug)]
+pub enum Error {
+    IoError(io::Error),
+    CommsError(commst::Error),
+    NotImplemented
+}
+
+impl From<io::Error> for Error {
+    fn from(err: io::Error) -> Error { Error::IoError(err) }
+}
+
+impl From<commst::Error> for Error {
+    fn from(err: commst::Error) -> Error { Error::CommsError(err) }
+}
 
 /// This is a structure to start a consensus node.
 pub struct Node<T> {
@@ -36,7 +50,7 @@ where Vec<u8>: From<T>
     }
 
     /// Consensus node procedure implementing HoneyBadgerBFT.
-    pub fn run(&self) -> Result<T, ()>
+    pub fn run(&self) -> Result<T, Error>
     {
         let value = &self.value;
         let connections = connection::make(&self.addr, &self.remotes);
@@ -71,7 +85,7 @@ where Vec<u8>: From<T>
                         debug!("Broadcast instance 0 succeeded: {}",
                                String::from_utf8(Vec::from(t)).unwrap());
                     },
-                    Err(_) => error!("Sender broadcast instance failed")
+                    Err(e) => error!("Broadcast instance 0: {:?}", e)
                 }
             });
 
@@ -85,12 +99,16 @@ where Vec<u8>: From<T>
                 let node_index = i + 1;
 
                 scope.spawn(move || {
-                    commst::CommsTask::new(from_comms_tx,
-                                           to_comms_rx,
-                                           // FIXME: handle error
-                                           c.stream.try_clone().unwrap(),
-                                           node_index)
-                        .run();
+                    match commst::CommsTask::new(from_comms_tx,
+                                                 to_comms_rx,
+                                                 // FIXME: handle error
+                                                 c.stream.try_clone().unwrap(),
+                                                 node_index)
+                        .run()
+                    {
+                        Ok(_) => debug!("Comms task {} succeeded", node_index),
+                        Err(e) => error!("Comms task {}: {:?}", node_index, e)
+                    }
                 });
 
 
@@ -107,20 +125,17 @@ where Vec<u8>: From<T>
                         Ok(t) => {
                             debug!("Broadcast instance {} succeeded: {}",
                                    node_index,
-                                   String::from_utf8(
-                                       Vec::from(t)
-                                   ).unwrap());
+                                   String::from_utf8(Vec::from(t)).unwrap());
                         },
-                        Err(_) => error!("Broadcast instance {} failed", i)
+                        Err(e) => error!("Broadcast instance {}: {:?}",
+                                         node_index, e)
                     }
                 });
             }
 
             // TODO: continue the implementation of the asynchronous common
             // subset algorithm.
-
-        }); // end of thread scope
-
-        Err(())
+            Err(Error::NotImplemented)
+        }) // end of thread scope
     }
 }
