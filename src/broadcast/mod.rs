@@ -248,6 +248,8 @@ where T: Clone + Debug + Eq + Hash + Send + Sync + Into<Vec<u8>>
 
                     if let None = root_hash {
                         root_hash = Some(p.root_hash.clone());
+                        debug!("Node {} Value root hash {:?}",
+                               node_index, root_hash);
                     }
 
                     if let &Some(ref h) = &root_hash {
@@ -270,7 +272,11 @@ where T: Clone + Debug + Eq + Hash + Send + Sync + Into<Vec<u8>>
                 // An echo received. Verify the proof it contains.
                 BroadcastMessage::Echo(p) => {
                     if let None = root_hash {
-                        root_hash = Some(p.root_hash.clone());
+                        if i == node_index {
+                            root_hash = Some(p.root_hash.clone());
+                            debug!("Node {} Echo root hash {:?}",
+                                   node_index, root_hash);
+                        }
                     }
 
                     // call validate with the root hash as argument
@@ -324,7 +330,11 @@ where T: Clone + Debug + Eq + Hash + Send + Sync + Into<Vec<u8>>
                     // an incorrect node from blocking progress which it could
                     // achieve by sending an incorrect hash.
                     if let None = root_hash {
-                        root_hash = Some(h.clone());
+                        if i == node_index {
+                            root_hash = Some(h.clone());
+                            debug!("Node {} Ready root hash {:?}",
+                                   node_index, root_hash);
+                        }
                     }
                     // Check that the root hash matches.
                     if let &Some(ref h) = &root_hash {
@@ -362,8 +372,7 @@ where T: Clone + Debug + Eq + Hash + Send + Sync + Into<Vec<u8>>
             }
         }
         else {
-            error!("Incorrect message from the socket: {:?}",
-                   message);
+            error!("Incorrect message from the socket: {:?}", message);
         }
     }
     result.unwrap()
@@ -406,7 +415,6 @@ where T: AsRef<[u8]> + From<Vec<u8>>, Vec<u8>: From<T>
     }
 }
 
-
 /// Concatenates the first `n` leaf values of a Merkle tree `m` in one value of
 /// type `T`. This is useful for reconstructing the data value held in the tree
 /// and forgetting the leaves that contain parity information.
@@ -425,6 +433,8 @@ where T: From<Vec<u8>>, Vec<u8>: From<T>
             t.push(b);
         }
     }
+    debug!("Glued data shards {:?}", t);
+
     Vec::into(t)
 }
 

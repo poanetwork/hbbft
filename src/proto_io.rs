@@ -57,22 +57,22 @@ fn decode_u32_from_be(buffer: &[u8]) -> Result<u32, Error> {
     Ok(result)
 }
 
-pub struct Task {
+pub struct CodecIo {
     stream: TcpStream,
     buffer: [u8; 1024 * 4],
 }
 
 /// A message handling task.
-impl Task where {
-    pub fn new(stream: TcpStream) -> Task {
-        Task {
+impl CodecIo where {
+    pub fn new(stream: TcpStream) -> Self {
+        CodecIo {
             stream,
             buffer: [0; 1024 * 4]
         }
     }
 
-    pub fn try_clone(&self) -> Result<Task, ::std::io::Error> {
-        Ok(Task {
+    pub fn try_clone(&self) -> Result<CodecIo, ::std::io::Error> {
+        Ok(CodecIo {
             stream: self.stream.try_clone()?,
             buffer: [0; 1024 * 4]
         })
@@ -127,7 +127,7 @@ impl Task where {
 
 #[cfg(test)]
 mod tests {
-    use task::*;
+    use proto_io::*;
 
     /// Test the requirement that composing encoding with decoding yields the
     /// identity.
