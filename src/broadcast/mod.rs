@@ -1,4 +1,5 @@
 //! Reliable broadcast algorithm instance.
+use std::collections::HashMap;
 use std::fmt::Debug;
 use std::hash::Hash;
 use std::sync::{Arc, Mutex};
@@ -221,9 +222,10 @@ where T: Clone + Debug + Eq + Hash + Send + Sync + Into<Vec<u8>>
     // Assemble a Merkle tree from data and parity shards. Take all proofs from
     // this tree and send them, each to its own node.
     if let Some(v) = broadcast_value {
-        match send_shards(v, tx, &coding) {
-            // Record the first proof as if it were sent by the node to itself.
-            Ok(proof) => {
+        send_shards(v, tx, &coding)
+            .map(|proof| {
+                // Record the first proof as if it were sent by the node to
+                // itself.
                 let h = proof.root_hash.clone();
                 if proof.validate(h.as_slice()) {
                     // Save the leaf value for reconstructing the tree later.
@@ -231,12 +233,9 @@ where T: Clone + Debug + Eq + Hash + Send + Sync + Into<Vec<u8>>
                         Some(Vec::from(proof.value.clone())
                              .into_boxed_slice());
                     leaf_values_num = leaf_values_num + 1;
-                    //
                     root_hash = Some(h);
                 }
-            },
-            Err(e) => return Err(e)
-        }
+            })?
     }
 
     // return value
@@ -244,7 +243,7 @@ where T: Clone + Debug + Eq + Hash + Send + Sync + Into<Vec<u8>>
     // Number of times Echo was received with the same root hash.
     let mut echo_num = 0;
     // Number of times Ready was received with the same root hash.
-    let mut ready_num = 0;
+    let mut readys: HashMap<Vec<u8>, usize> = HashMap::new();
     let mut ready_sent = false;
     let mut ready_to_decode = false;
 
@@ -343,20 +342,13 @@ where T: Clone + Debug + Eq + Hash + Send + Sync + Into<Vec<u8>>
                     }
                 },
 
-                BroadcastMessage::Ready(ref h) => {
-                    // TODO: Prioritise the Value root hash, possibly. Prevent
-                    // an incorrect node from blocking progress which it could
-                    // achieve by sending an incorrect hash.
-                    if let None = root_hash {
-                        if i == node_index {
-                            root_hash = Some(h.clone());
-                            debug!("Node {} Ready root hash {:?}",
-                                   node_index, root_hash);
-                        }
-                    }
+                BroadcastMessage::Ready(ref hash) => {
+                    // Update the number Ready has been received with this hash.
+                    *readys.entry(hash.to_vec()).or_insert(1) += 1;
+
                     // Check that the root hash matches.
                     if let &Some(ref h) = &root_hash {
-                        ready_num += 1;
+                        let ready_num: usize = *readys.get(h).unwrap_or(&0);
 
                         // Upon receiving f + 1 matching Ready(h) messages, if
                         // Ready has not yet been sent, multicast Ready(h).
