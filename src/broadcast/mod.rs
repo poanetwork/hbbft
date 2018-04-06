@@ -130,19 +130,23 @@ where T: Clone + Debug + Send + Sync + Into<Vec<u8>>
     debug!("Data shards: {}, parity shards: {}",
            data_shard_num, parity_shard_num);
     let mut v: Vec<u8> = Vec::from(value).to_owned();
-
-    // Pad the value vector with zeros to allow for shards of equal sizes.
-    let shard_pad_len = v.len() % data_shard_num;
-    for _i in 0..shard_pad_len {
-        v.push(0);
-    }
+    let value_len = v.len();
     // Size of a Merkle tree leaf value, in bytes.
-    // Now the vector length is evenly divisible by the number of shards.
-    let shard_len = v.len() / data_shard_num;
-    // Pad the parity shards with zeros.
-    for _i in 0 .. shard_len * parity_shard_num {
+    let shard_len = if value_len % data_shard_num > 0 {
+        value_len / data_shard_num + 1
+    }
+    else {
+        value_len / data_shard_num
+    };
+    // Length of value vector padding to allow for shards of equal sizes.
+    let shard_pad_len = shard_len - value_len % shard_len;
+    // Pad the last data shard with zeros. Fill the parity shards with zeros.
+    for _i in 0 .. shard_pad_len + shard_len * parity_shard_num {
         v.push(0);
     }
+
+    debug!("value_len {} shard_pad_len {}, shard_len {}", value_len,
+           shard_pad_len, shard_len);
 
     // Divide the vector into chunks/shards.
     let shards_iter = v.chunks_mut(shard_len);
@@ -151,6 +155,8 @@ where T: Clone + Debug + Send + Sync + Into<Vec<u8>>
     for s in shards_iter {
         shards.push(s);
     }
+
+    debug!("Shards before encoding: {:?}", shards);
 
     // Construct the parity chunks/shards
     coding.encode(shards.as_mut_slice())?;
