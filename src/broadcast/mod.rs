@@ -59,8 +59,6 @@ where Vec<u8>: From<T>
 
     /// Broadcast stage task returning the computed values in case of success,
     /// and an error in case of failure.
-    ///
-    /// TODO: Detailed error status.
     pub fn run(&mut self) -> Result<T, BroadcastError> {
         // Broadcast state machine thread.
         let bvalue = self.broadcast_value.to_owned();
@@ -166,7 +164,7 @@ where T: Clone + Debug + Send + Sync + Into<Vec<u8>>
                 // Rest of the proofs are sent to remote nodes.
                 tx.send(
                     TargetedMessage {
-                        target: Target::Node(i + 1),
+                        target: Target::Node(i),
                         message: Message::Broadcast(
                             BroadcastMessage::Value(proof))
                     }).unwrap();
@@ -248,8 +246,6 @@ where T: Clone + Debug + Eq + Hash + Send + Sync + Into<Vec<u8>>
                         continue;
                     }
 
-                    debug!("Broadcast node {} -> Value {:?}", i, p);
-
                     if let None = root_hash {
                         root_hash = Some(p.root_hash.clone());
                     }
@@ -273,8 +269,6 @@ where T: Clone + Debug + Eq + Hash + Send + Sync + Into<Vec<u8>>
 
                 // An echo received. Verify the proof it contains.
                 BroadcastMessage::Echo(p) => {
-                    debug!("Broadcast node {} -> Echo {:?}", i, p);
-
                     if let None = root_hash {
                         root_hash = Some(p.root_hash.clone());
                     }
@@ -326,8 +320,6 @@ where T: Clone + Debug + Eq + Hash + Send + Sync + Into<Vec<u8>>
                 },
 
                 BroadcastMessage::Ready(ref h) => {
-                    debug!("Broadcast node {} -> Ready {:?}", i, h);
-
                     // TODO: Prioritise the Value root hash, possibly. Prevent
                     // an incorrect node from blocking progress which it could
                     // achieve by sending an incorrect hash.

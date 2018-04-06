@@ -10,7 +10,6 @@ reed-solomon-erasure = "3.0"
 merkle = { git = "https://github.com/vkomenda/merkle.rs", branch = "public-proof" }
 ring = "^0.12"
 rand = "*"
-error-chain = "0.11"
 protobuf = "1.4.4"
 crossbeam = "0.3.2"
 crossbeam-channel = "0.1"

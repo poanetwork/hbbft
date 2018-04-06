@@ -67,8 +67,10 @@ where Vec<u8>: From<T>
                                                0)
                     .run()
                 {
-                    Ok(t) => debug!("Broadcast instance 0 succeeded: {}",
-                                    String::from_utf8(Vec::from(t)).unwrap()),
+                    Ok(t) => {
+                        debug!("Broadcast instance 0 succeeded: {}",
+                               String::from_utf8(Vec::from(t)).unwrap());
+                    },
                     Err(_) => error!("Sender broadcast instance failed")
                 }
             });
@@ -102,11 +104,13 @@ where Vec<u8>: From<T>
                                                    node_index)
                         .run()
                     {
-                        Ok(t) => debug!("Broadcast instance {} succeeded: {}",
-                                        i,
-                                        String::from_utf8(
-                                            Vec::from(t)
-                                        ).unwrap()),
+                        Ok(t) => {
+                            debug!("Broadcast instance {} succeeded: {}",
+                                   node_index,
+                                   String::from_utf8(
+                                       Vec::from(t)
+                                   ).unwrap());
+                        },
                         Err(_) => error!("Broadcast instance {} failed", i)
                     }
                 });

@@ -36,8 +36,6 @@
 
 #![feature(optin_builtin_traits)]
 #[macro_use]
-extern crate error_chain;
-#[macro_use]
 extern crate log;
 extern crate protobuf;
 extern crate ring;
@@ -49,7 +47,6 @@ extern crate reed_solomon_erasure;
 
 mod connection;
 mod messaging;
-mod errors;
 mod proto;
 mod task;
 mod commst;
