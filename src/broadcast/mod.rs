@@ -129,7 +129,7 @@ where T: Clone + Debug + Send + Sync + Into<Vec<u8>>
 
     debug!("Data shards: {}, parity shards: {}",
            data_shard_num, parity_shard_num);
-    let mut v: Vec<u8> = Vec::from(value).to_owned();
+    let mut v: Vec<u8> = Vec::from(value);
     let value_len = v.len();
     // Size of a Merkle tree leaf value, in bytes.
     let shard_len = if value_len % data_shard_num > 0 {
