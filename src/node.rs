@@ -2,10 +2,10 @@
 use std::io;
 use std::collections::HashSet;
 use std::fmt::Debug;
-use std::hash::Hash;
 use std::marker::{Send, Sync};
 use std::net::SocketAddr;
 use crossbeam;
+use merkle::Hashable;
 
 use connection;
 use broadcast;
@@ -37,8 +37,7 @@ pub struct Node<T> {
     value: Option<T>
 }
 
-impl<T: Clone + Debug + Eq + Hash + Send + Sync + From<Vec<u8>> + Into<Vec<u8>>
-     + AsRef<[u8]>>
+impl<T: Clone + Debug + Hashable + Send + Sync + From<Vec<u8>> + Into<Vec<u8>>>
     Node<T>
 {
     /// Consensus node constructor. It only initialises initial parameters.
@@ -139,3 +138,20 @@ impl<T: Clone + Debug + Eq + Hash + Send + Sync + From<Vec<u8>> + Into<Vec<u8>>
         }) // end of thread scope
     }
 }
+
+// #[cfg(test)]
+// mod tests {
+//     use std::collections::HashSet;
+//     use node;
+
+//     /// Test that the node works to completion.
+//     #[test]
+//     fn test_node_0() {
+//         let node = node::Node::new("127.0.0.1:10000".parse().unwrap(),
+//                                    HashSet::new(),
+//                                    Some("abc".as_bytes().to_vec()));
+//         let result = node.run();
+//         assert!(match result { Err(node::Error::NotImplemented) => true,
+//                                _ => false });
+//     }
+// }

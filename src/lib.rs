@@ -7,7 +7,7 @@
 //!
 //! The following code could be run on host 192.168.1.1:
 //!
-//! ```rust
+//! ```ignore
 //! extern crate hbbft;
 //!
 //! use hbbft::node::Node;
@@ -15,12 +15,15 @@
 //! use std::vec::Vec;
 //!
 //! fn main() {
-//!     let bind_address = "192.168.1.1:10001".parse().unwrap();
-//!     let remote_addresses = vec!["192.168.1.2:10002".parse().unwrap(),
-//!                                 "192.168.1.3:10003".parse().unwrap(),
-//!                                 "192.168.1.4:10004".parse().unwrap(),
-//!                                 "192.168.1.5:10005".parse().unwrap()];
-//!     let value: &'static str = "Proposed value";
+//!     let bind_address = "127.0.0.1:10001".parse().unwrap();
+//!     let remote_addresses = vec!["192.168.1.2:10002",
+//!                                 "192.168.1.3:10003",
+//!                                 "192.168.1.4:10004"]
+//!         .iter()
+//!         .map(|s| s.parse().unwrap())
+//!         .collect();
+//!
+//!     let value = "Value #1".as_bytes().to_vec();
 //!
 //!     let result = Node::new(bind_address, remote_addresses, Some(value))
 //!         .run();
@@ -28,8 +31,8 @@
 //! }
 //! ```
 //!
-//! Similar code shall then run on hosts 192.168.1.2, 192.168.1.3, 192.168.1.4
-//! and 192.168.1.5, with appropriate changes in `bind_address` and
+//! Similar code shall then run on hosts 192.168.1.2, 192.168.1.3 and
+//! 192.168.1.4 with appropriate changes in `bind_address` and
 //! `remote_addresses`. Each host has it's own optional broadcast `value`. If
 //! the consensus `result` is not an error then every successfully terminated
 //! consensus node will be the same `result`.

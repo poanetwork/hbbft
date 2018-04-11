@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex};
 use crossbeam;
 use proto::*;
 use std::marker::{Send, Sync};
-use merkle::MerkleTree;
+use merkle::{Hashable, MerkleTree};
 use merkle::proof::{Proof, Lemma, Positioned};
 use reed_solomon_erasure as rse;
 use reed_solomon_erasure::ReedSolomon;
@@ -37,8 +37,8 @@ pub struct Instance<'a, T: 'a + Clone + Debug + Send + Sync> {
     num_faulty_nodes: usize
 }
 
-impl<'a, T: Clone + Debug + Eq + Hash + Send + Sync + Into<Vec<u8>>
-     + From<Vec<u8>> + AsRef<[u8]>>
+impl<'a, T: Clone + Debug + Hashable + Send + Sync + Into<Vec<u8>>
+     + From<Vec<u8>>>
     Instance<'a, T>
 {
     pub fn new(tx: &'a Sender<TargetedMessage<T>>,
@@ -119,8 +119,8 @@ fn send_shards<'a, T>(value: T,
                       tx: &'a Sender<TargetedMessage<T>>,
                       coding: &ReedSolomon) ->
     Result<Proof<T>, Error<T>>
-where T: Clone + Debug + Send + Sync + Into<Vec<u8>>
-    + From<Vec<u8>> + AsRef<[u8]>
+where T: Clone + Debug + Hashable + Send + Sync + Into<Vec<u8>>
+    + From<Vec<u8>>
 {
     let data_shard_num = coding.data_shard_count();
     let parity_shard_num = coding.parity_shard_count();
@@ -206,8 +206,8 @@ fn inner_run<'a, T>(tx: &'a Sender<TargetedMessage<T>>,
                     num_nodes: usize,
                     num_faulty_nodes: usize) ->
     Result<T, Error<T>>
-where T: Clone + Debug + Eq + Hash + Send + Sync + Into<Vec<u8>>
-    + From<Vec<u8>> + AsRef<[u8]>
+where T: Clone + Debug + Hashable + Send + Sync + Into<Vec<u8>>
+    + From<Vec<u8>>
 {
     // Erasure coding scheme: N - 2f value shards and 2f parity shards
     let parity_shard_num = 2 * num_faulty_nodes;
@@ -397,8 +397,7 @@ fn decode_from_shards<T>(leaf_values: &mut Vec<Option<Box<[u8]>>>,
                          data_shard_num: usize,
                          root_hash: &Vec<u8>) ->
     Result<T, Error<T>>
-where T: Clone + Debug + Send + Sync + AsRef<[u8]> + From<Vec<u8>>
-    + Into<Vec<u8>>
+where T: Clone + Debug + Hashable + Send + Sync + From<Vec<u8>> + Into<Vec<u8>>
 {
     // Try to interpolate the Merkle tree using the Reed-Solomon erasure coding
     // scheme.
