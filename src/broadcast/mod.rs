@@ -494,11 +494,9 @@ fn index_of_path(mut path: Vec<bool>) -> usize {
     path.reverse();
 
     for &dir in path.iter() {
-        if dir == false {
-            idx = idx << 1;
-        }
-        else {
-            idx = (idx << 1) | 1;
+        idx = idx << 1;
+        if dir == true {
+            idx = idx | 1;
         }
     }
     idx

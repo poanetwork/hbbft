@@ -47,6 +47,7 @@ extern crate reed_solomon_erasure;
 
 mod connection;
 mod messaging;
+mod stream_io;
 mod proto;
 mod proto_io;
 mod commst;

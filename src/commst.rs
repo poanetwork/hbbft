@@ -12,6 +12,7 @@ use proto::Message;
 use proto_io;
 use proto_io::CodecIo;
 use messaging::SourcedMessage;
+use stream_io::StreamIo;
 
 #[derive(Debug)]
 pub enum Error {
@@ -26,21 +27,19 @@ impl From<io::Error> for Error {
 /// consensus algorithm.
 pub struct CommsTask<'a, T: 'a + Clone + Debug + Send + Sync +
                      From<Vec<u8>> + Into<Vec<u8>>>
-where Vec<u8>: From<T>
 {
     /// The transmit side of the multiple producer channel from comms threads.
     tx: &'a Sender<SourcedMessage<T>>,
     /// The receive side of the channel to the comms thread.
     rx: &'a Receiver<Message<T>>,
     /// The socket IO task.
-    io: CodecIo,
+    io: CodecIo<T>,
     /// The index of this comms task for identification against its remote node.
     pub node_index: usize
 }
 
 impl<'a, T: Clone + Debug + Send + Sync + From<Vec<u8>> + Into<Vec<u8>>>
     CommsTask<'a, T>
-where Vec<u8>: From<T>
 {
     pub fn new(tx: &'a Sender<SourcedMessage<T>>,
                rx: &'a Receiver<Message<T>>,
@@ -54,7 +53,7 @@ where Vec<u8>: From<T>
         CommsTask {
             tx: tx,
             rx: rx,
-            io: CodecIo::new(stream),
+            io: StreamIo::from_stream(stream),
             node_index: node_index
         }
     }
@@ -76,14 +75,14 @@ where Vec<u8>: From<T>
                     let message = rx.recv().unwrap();
                     debug!("Node {} <- {:?}", node_index, message);
                     // Forward the message to the remote node.
-                    io1.send_message(message).unwrap();
+                    io1.send(message).unwrap();
                 }
             });
 
             // Remote comms receive loop.
             debug!("Starting remote RX loop for node {}", node_index);
             loop {
-                match self.io.receive_message() {
+                match self.io.recv() {
                     Ok(message) => {
                         debug!("Node {} -> {:?}", node_index, message);
                         tx.send(

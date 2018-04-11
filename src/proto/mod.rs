@@ -16,9 +16,6 @@ pub enum Message<T: Send + Sync> {
     Agreement(AgreementMessage)
 }
 
-//unsafe impl<T: Send + Sync> Send for Message<T> { }
-//impl<T: Send + Sync> !Sync for Message<T> { }
-
 /// The three kinds of message sent during the reliable broadcast stage of the
 /// consensus algorithm.
 #[derive (Clone, Debug, PartialEq)]
