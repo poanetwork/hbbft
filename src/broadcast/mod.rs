@@ -40,7 +40,6 @@ pub struct Instance<'a, T: 'a + Clone + Debug + Send + Sync> {
 impl<'a, T: Clone + Debug + Eq + Hash + Send + Sync + Into<Vec<u8>>
      + From<Vec<u8>> + AsRef<[u8]>>
     Instance<'a, T>
-where Vec<u8>: From<T>
 {
     pub fn new(tx: &'a Sender<TargetedMessage<T>>,
                rx: &'a Receiver<SourcedMessage<T>>,
@@ -122,14 +121,13 @@ fn send_shards<'a, T>(value: T,
     Result<Proof<T>, Error<T>>
 where T: Clone + Debug + Send + Sync + Into<Vec<u8>>
     + From<Vec<u8>> + AsRef<[u8]>
-    , Vec<u8>: From<T>
 {
     let data_shard_num = coding.data_shard_count();
     let parity_shard_num = coding.parity_shard_count();
 
     debug!("Data shards: {}, parity shards: {}",
            data_shard_num, parity_shard_num);
-    let mut v: Vec<u8> = Vec::from(value);
+    let mut v: Vec<u8> = T::into(value);
     let value_len = v.len();
     // Size of a Merkle tree leaf value, in bytes.
     let shard_len = if value_len % data_shard_num > 0 {
@@ -210,7 +208,6 @@ fn inner_run<'a, T>(tx: &'a Sender<TargetedMessage<T>>,
     Result<T, Error<T>>
 where T: Clone + Debug + Eq + Hash + Send + Sync + Into<Vec<u8>>
     + From<Vec<u8>> + AsRef<[u8]>
-    , Vec<u8>: From<T>
 {
     // Erasure coding scheme: N - 2f value shards and 2f parity shards
     let parity_shard_num = 2 * num_faulty_nodes;
@@ -236,7 +233,7 @@ where T: Clone + Debug + Eq + Hash + Send + Sync + Into<Vec<u8>>
                 if proof.validate(h.as_slice()) {
                     // Save the leaf value for reconstructing the tree later.
                     leaf_values[index_of_proof(&proof)] =
-                        Some(Vec::from(proof.value.clone())
+                        Some(T::into(proof.value.clone())
                              .into_boxed_slice());
                     leaf_values_num = leaf_values_num + 1;
                     root_hash = Some(h);
@@ -280,7 +277,7 @@ where T: Clone + Debug + Eq + Hash + Send + Sync + Into<Vec<u8>>
                             // Save the leaf value for reconstructing the tree
                             // later.
                             leaf_values[index_of_proof(&p)] =
-                                Some(Vec::from(p.value.clone())
+                                Some(T::into(p.value.clone())
                                      .into_boxed_slice());
                             leaf_values_num = leaf_values_num + 1;
                         }
@@ -309,7 +306,7 @@ where T: Clone + Debug + Eq + Hash + Send + Sync + Into<Vec<u8>>
                             // Save the leaf value for reconstructing the tree
                             // later.
                             leaf_values[index_of_proof(&p)] =
-                                Some(Vec::from(p.value.clone())
+                                Some(T::into(p.value.clone())
                                      .into_boxed_slice());
                             leaf_values_num = leaf_values_num + 1;
 
@@ -400,8 +397,8 @@ fn decode_from_shards<T>(leaf_values: &mut Vec<Option<Box<[u8]>>>,
                          data_shard_num: usize,
                          root_hash: &Vec<u8>) ->
     Result<T, Error<T>>
-where T: Clone + Debug + Send + Sync + AsRef<[u8]> + From<Vec<u8>>,
-Vec<u8>: From<T>
+where T: Clone + Debug + Send + Sync + AsRef<[u8]> + From<Vec<u8>>
+    + Into<Vec<u8>>
 {
     // Try to interpolate the Merkle tree using the Reed-Solomon erasure coding
     // scheme.
@@ -437,7 +434,7 @@ Vec<u8>: From<T>
 /// type `T`. This is useful for reconstructing the data value held in the tree
 /// and forgetting the leaves that contain parity information.
 fn glue_shards<T>(m: MerkleTree<T>, n: usize) -> T
-where T: From<Vec<u8>>, Vec<u8>: From<T>
+where T: From<Vec<u8>> + Into<Vec<u8>>
 {
     let mut t: Vec<u8> = Vec::new();
     let mut i = 0;
@@ -447,7 +444,7 @@ where T: From<Vec<u8>>, Vec<u8>: From<T>
         if i > n {
             break;
         }
-        for b in Vec::from(s).into_iter() {
+        for b in T::into(s).into_iter() {
             t.push(b);
         }
     }

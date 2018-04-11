@@ -1,6 +1,6 @@
 //! Example of a consensus node that uses the `hbbft::node::Node` struct for
 //! running the distributed consensus state machine.
-#[macro_use]
+//#[macro_use]
 extern crate log;
 extern crate simple_logger;
 extern crate docopt;

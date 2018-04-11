@@ -37,9 +37,9 @@ pub struct Node<T> {
     value: Option<T>
 }
 
-impl<T: Clone + Debug + Eq + Hash + Send + Sync + From<Vec<u8>> + AsRef<[u8]>>
+impl<T: Clone + Debug + Eq + Hash + Send + Sync + From<Vec<u8>> + Into<Vec<u8>>
+     + AsRef<[u8]>>
     Node<T>
-where Vec<u8>: From<T>
 {
     /// Consensus node constructor. It only initialises initial parameters.
     pub fn new(addr: SocketAddr,
@@ -83,7 +83,7 @@ where Vec<u8>: From<T>
                 {
                     Ok(t) => {
                         debug!("Broadcast instance 0 succeeded: {}",
-                               String::from_utf8(Vec::from(t)).unwrap());
+                               String::from_utf8(T::into(t)).unwrap());
                     },
                     Err(e) => error!("Broadcast instance 0: {:?}", e)
                 }
@@ -125,7 +125,7 @@ where Vec<u8>: From<T>
                         Ok(t) => {
                             debug!("Broadcast instance {} succeeded: {}",
                                    node_index,
-                                   String::from_utf8(Vec::from(t)).unwrap());
+                                   String::from_utf8(T::into(t)).unwrap());
                         },
                         Err(e) => error!("Broadcast instance {}: {:?}",
                                          node_index, e)
