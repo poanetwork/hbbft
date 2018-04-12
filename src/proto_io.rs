@@ -6,7 +6,6 @@ use std::net::TcpStream;
 use protobuf;
 use protobuf::Message as ProtobufMessage;
 use proto::*;
-use stream_io::StreamIo;
 
 /// A magic key to put right before each message. An atavism of primitive serial
 /// protocols.
@@ -58,34 +57,31 @@ fn decode_u32_from_be(buffer: &[u8]) -> Result<u32, Error> {
     Ok(result)
 }
 
-pub struct CodecIo<T> {
+pub struct ProtoIo {
     stream: TcpStream,
     buffer: [u8; 1024 * 4],
-    /// FIXME: remove this dependent argument
-    phant: T
 }
 
 /// A message handling task.
-impl<T> StreamIo<TcpStream, T, Error> for CodecIo<T>
-where T: Clone + Send + Sync + From<Vec<u8>> + Into<Vec<u8>>
+impl ProtoIo
+//where T: Clone + Send + Sync + From<Vec<u8>> + Into<Vec<u8>>
 {
-    fn from_stream(stream: TcpStream) -> Self {
-        CodecIo {
+    pub fn from_stream(stream: TcpStream) -> Self {
+        ProtoIo {
             stream,
             buffer: [0; 1024 * 4],
-            phant: T::from(Vec::new())
         }
     }
 
-    fn try_clone(&self) -> Result<CodecIo<T>, ::std::io::Error> {
-        Ok(CodecIo {
+    pub fn try_clone(&self) -> Result<ProtoIo, ::std::io::Error> {
+        Ok(ProtoIo {
             stream: self.stream.try_clone()?,
             buffer: self.buffer.clone(),
-            phant: T::from(Vec::new())
         })
     }
 
-    fn recv(&mut self) -> Result<Message<T>, Error>
+    pub fn recv<T>(&mut self) -> Result<Message<T>, Error>
+    where T: Clone + Send + Sync + From<Vec<u8>> // + Into<Vec<u8>>
     {
         self.stream.read_exact(&mut self.buffer[0..4])?;
         let frame_start = decode_u32_from_be(&self.buffer[0..4])?;
@@ -109,7 +105,8 @@ where T: Clone + Send + Sync + From<Vec<u8>> + Into<Vec<u8>>
             .map_err(|e| Error::ProtobufError(e))
     }
 
-    fn send(&mut self, message: Message<T>) -> Result<(), Error>
+    pub fn send<T>(&mut self, message: Message<T>) -> Result<(), Error>
+    where T: Clone + Send + Sync + Into<Vec<u8>>
     {
         let mut buffer: [u8; 4] = [0; 4];
         // Wrap stream

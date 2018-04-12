@@ -49,9 +49,9 @@ extern crate crossbeam_channel;
 extern crate reed_solomon_erasure;
 
 mod connection;
-mod messaging;
+pub mod messaging;
 mod stream_io;
-mod proto;
+pub mod proto;
 mod proto_io;
 mod commst;
 mod broadcast;

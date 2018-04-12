@@ -10,7 +10,7 @@ use crossbeam_channel::{Sender, Receiver};
 
 use proto::Message;
 use proto_io;
-use proto_io::CodecIo;
+use proto_io::ProtoIo;
 use messaging::SourcedMessage;
 use stream_io::StreamIo;
 
@@ -25,20 +25,21 @@ impl From<io::Error> for Error {
 
 /// A communication task connects a remote node to the thread that manages the
 /// consensus algorithm.
-pub struct CommsTask<'a, T: 'a + Clone + Debug + Send + Sync +
-                     From<Vec<u8>> + Into<Vec<u8>>>
+pub struct CommsTask
+    <'a, T: 'a + Clone + Debug + Send + Sync + From<Vec<u8>> + Into<Vec<u8>>>
 {
     /// The transmit side of the multiple producer channel from comms threads.
     tx: &'a Sender<SourcedMessage<T>>,
     /// The receive side of the channel to the comms thread.
     rx: &'a Receiver<Message<T>>,
     /// The socket IO task.
-    io: CodecIo<T>,
+    io: ProtoIo,
     /// The index of this comms task for identification against its remote node.
     pub node_index: usize
 }
 
-impl<'a, T: Clone + Debug + Send + Sync + From<Vec<u8>> + Into<Vec<u8>>>
+impl
+    <'a, T: 'a + Clone + Debug + Send + Sync + From<Vec<u8>> + Into<Vec<u8>>>
     CommsTask<'a, T>
 {
     pub fn new(tx: &'a Sender<SourcedMessage<T>>,
@@ -53,7 +54,7 @@ impl<'a, T: Clone + Debug + Send + Sync + From<Vec<u8>> + Into<Vec<u8>>>
         CommsTask {
             tx: tx,
             rx: rx,
-            io: StreamIo::from_stream(stream),
+            io: ProtoIo::from_stream(stream),
             node_index: node_index
         }
     }

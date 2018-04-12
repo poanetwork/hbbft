@@ -1,6 +1,5 @@
 //! The local message delivery system.
 use std::fmt::Debug;
-use std::sync::Arc;
 use crossbeam::Scope;
 use crossbeam_channel::{unbounded, Sender, Receiver};
 use proto::Message;
@@ -40,7 +39,7 @@ impl<T: Clone + Debug + Send + Sync> TargetedMessage<T> {
 /// Message sent by a given source. The sources are consensus nodes indexed 1
 /// through N where N is the total number of nodes. Sourced messages are
 /// required when it is essential to know the message origin but the set of
-/// recepients is unkown without further computation which is irrelevant to the
+/// recepients is unknown without further computation which is irrelevant to the
 /// message delivery task.
 #[derive(Clone, Debug)]
 pub struct SourcedMessage<T: Clone + Debug + Send + Sync> {
