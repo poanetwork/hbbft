@@ -61,7 +61,7 @@ impl<'a> TestNode<'a>
     pub fn run(&self, messaging: Messaging<TestValue>) ->
         Result<HashSet<TestValue>, Error<TestValue>>
     {
-        assert_eq!(self.rxs.len(), 3);
+        assert_eq!(self.rxs.len(), self.num_nodes - 1);
 
         let to_comms_rxs = messaging.to_comms_rxs();
         let from_comms_tx = messaging.from_comms_tx();
@@ -122,6 +122,8 @@ impl<'a> TestNode<'a>
                             self.txs[i-1].send(message).unwrap();
                         }
                         recv(comms_stop_rx, _) => {
+                            debug!("Stopping comms task {}/{}",
+                                   self.node_index, i);
                             stop = true;
                         }
                     }}
@@ -195,7 +197,9 @@ impl AsRef<[u8]> for TestValue {
 impl From<Vec<u8>> for TestValue {
     fn from(bytes: Vec<u8>) -> TestValue {
         TestValue {
-            value: String::from_utf8(bytes).expect("Found invalid UTF-8")
+            value: format!("{:?}", bytes)
+                // conversion from UTF-8 often panics:
+                // String::from_utf8(bytes).expect("Found invalid UTF-8")
         }
     }
 }
