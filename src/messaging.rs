@@ -1,7 +1,7 @@
 //! The local message delivery system.
 use std::fmt::Debug;
-use crossbeam::Scope;
-use crossbeam_channel::{unbounded, Sender, Receiver};
+use crossbeam::{Scope, ScopedJoinHandle};
+use crossbeam_channel::{bounded, unbounded, Sender, Receiver};
 use proto::Message;
 
 /// Message destination can be either of the two:
@@ -23,7 +23,8 @@ pub struct TargetedMessage<T: Clone + Debug + Send + Sync> {
     pub message: Message<T>
 }
 
-impl<T: Clone + Debug + Send + Sync> TargetedMessage<T> {
+impl<T: Clone + Debug + Send + Sync> TargetedMessage<T>
+{
     /// Initialises a message while checking parameter preconditions.
     pub fn new(target: Target, message: Message<T>) -> Option<Self> {
         match target {
@@ -70,6 +71,10 @@ pub struct Messaging<T: Clone + Debug + Send + Sync> {
     to_algo_rxs: Vec<Receiver<SourcedMessage<T>>>,
     /// TX handle to be used by algo tasks.
     from_algo_tx: Sender<TargetedMessage<T>>,
+
+    /// Control channel used to stop the listening thread.
+    stop_tx: Sender<()>,
+    stop_rx: Receiver<()>,
 }
 
 impl<T: Clone + Debug + Send + Sync> Messaging<T> {
@@ -101,20 +106,25 @@ impl<T: Clone + Debug + Send + Sync> Messaging<T> {
             .collect();
         let (from_algo_tx, from_algo_rx) = unbounded();
 
+        let (stop_tx, stop_rx) = bounded(1);
+
         Messaging {
-            num_nodes: num_nodes,
+            num_nodes,
 
             // internally used handles
-            to_comms_txs: to_comms_txs,
-            from_comms_rx: from_comms_rx,
-            to_algo_txs: to_algo_txs,
-            from_algo_rx: from_algo_rx,
+            to_comms_txs,
+            from_comms_rx,
+            to_algo_txs,
+            from_algo_rx,
 
             // externally used handles
-            to_comms_rxs: to_comms_rxs,
-            from_comms_tx: from_comms_tx,
-            to_algo_rxs: to_algo_rxs,
-            from_algo_tx: from_algo_tx,
+            to_comms_rxs,
+            from_comms_tx,
+            to_algo_rxs,
+            from_algo_tx,
+
+            stop_tx,
+            stop_rx,
         }
     }
 
@@ -138,8 +148,13 @@ impl<T: Clone + Debug + Send + Sync> Messaging<T> {
         &self.from_algo_tx
     }
 
+    /// Gives the ownership of the handle to stop the message receive loop.
+    pub fn stop_tx(&self) -> Sender<()> {
+        self.stop_tx.to_owned()
+    }
+
     /// Spawns the message delivery thread in a given thread scope.
-    pub fn spawn<'a>(&self, scope: &Scope<'a>)
+    pub fn spawn<'a>(&self, scope: &Scope<'a>) -> ScopedJoinHandle<()>
     where T: 'a
     {
         let to_comms_txs = self.to_comms_txs.to_owned();
@@ -147,9 +162,12 @@ impl<T: Clone + Debug + Send + Sync> Messaging<T> {
         let to_algo_txs = self.to_algo_txs.to_owned();
         let from_algo_rx = self.from_algo_rx.to_owned();
 
+        let stop_rx = self.stop_rx.to_owned();
+        let mut stop = false;
+
         scope.spawn(move || {
             // This loop forwards messages according to their metadata.
-            loop { select_loop! {
+            while !stop { select_loop! {
                 recv(from_algo_rx, message) => {
                     match message {
                         TargetedMessage {
@@ -183,8 +201,11 @@ impl<T: Clone + Debug + Send + Sync> Messaging<T> {
                     for tx in to_algo_txs.iter() {
                         tx.send(message.clone()).unwrap();
                     }
+                },
+                recv(stop_rx, _) => {
+                    stop = true;
                 }
             }} // end of select_loop!
-        });
+        })
     }
 }

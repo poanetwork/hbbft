@@ -37,8 +37,8 @@ pub struct Instance<'a, T: 'a + Clone + Debug + Send + Sync> {
     num_faulty_nodes: usize
 }
 
-impl<'a, T: Clone + Debug + Hashable + Send + Sync + Into<Vec<u8>>
-     + From<Vec<u8>>>
+impl<'a, T: Clone + Debug + Hashable + Send + Sync
+     + Into<Vec<u8>> + From<Vec<u8>>>
     Instance<'a, T>
 {
     pub fn new(tx: &'a Sender<TargetedMessage<T>>,
@@ -96,17 +96,21 @@ pub enum Error<T: Clone + Debug + Send + Sync> {
     Recv(RecvError)
 }
 
-impl<T: Clone + Debug + Send + Sync> From<rse::Error> for Error<T> {
+impl<T: Clone + Debug + Send + Sync>
+    From<rse::Error> for Error<T>
+{
     fn from(err: rse::Error) -> Error<T> { Error::ReedSolomon(err) }
 }
 
-impl<T: Clone + Debug + Send + Sync> From<SendError<TargetedMessage<T>>>
-    for Error<T>
+impl<T: Clone + Debug + Send + Sync>
+    From<SendError<TargetedMessage<T>>> for Error<T>
 {
     fn from(err: SendError<TargetedMessage<T>>) -> Error<T> { Error::Send(err) }
 }
 
-impl<T: Clone + Debug + Send + Sync> From<RecvError> for Error<T> {
+impl<T: Clone + Debug + Send + Sync>
+    From<RecvError> for Error<T>
+{
     fn from(err: RecvError) -> Error<T> { Error::Recv(err) }
 }
 
@@ -119,8 +123,7 @@ fn send_shards<'a, T>(value: T,
                       tx: &'a Sender<TargetedMessage<T>>,
                       coding: &ReedSolomon) ->
     Result<Proof<T>, Error<T>>
-where T: Clone + Debug + Hashable + Send + Sync + Into<Vec<u8>>
-    + From<Vec<u8>>
+where T: Clone + Debug + Hashable + Send + Sync + Into<Vec<u8>> + From<Vec<u8>>
 {
     let data_shard_num = coding.data_shard_count();
     let parity_shard_num = coding.parity_shard_count();
@@ -206,8 +209,7 @@ fn inner_run<'a, T>(tx: &'a Sender<TargetedMessage<T>>,
                     num_nodes: usize,
                     num_faulty_nodes: usize) ->
     Result<T, Error<T>>
-where T: Clone + Debug + Hashable + Send + Sync + Into<Vec<u8>>
-    + From<Vec<u8>>
+where T: Clone + Debug + Hashable + Send + Sync + Into<Vec<u8>> + From<Vec<u8>>
 {
     // Erasure coding scheme: N - 2f value shards and 2f parity shards
     let parity_shard_num = 2 * num_faulty_nodes;

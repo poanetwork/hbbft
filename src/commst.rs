@@ -12,7 +12,6 @@ use proto::Message;
 use proto_io;
 use proto_io::ProtoIo;
 use messaging::SourcedMessage;
-use stream_io::StreamIo;
 
 #[derive(Debug)]
 pub enum Error {
@@ -38,8 +37,7 @@ pub struct CommsTask
     pub node_index: usize
 }
 
-impl
-    <'a, T: 'a + Clone + Debug + Send + Sync + From<Vec<u8>> + Into<Vec<u8>>>
+impl <'a, T: 'a + Clone + Debug + Send + Sync + From<Vec<u8>> + Into<Vec<u8>>>
     CommsTask<'a, T>
 {
     pub fn new(tx: &'a Sender<SourcedMessage<T>>,

@@ -37,7 +37,8 @@ pub struct Node<T> {
     value: Option<T>
 }
 
-impl<T: Clone + Debug + Hashable + Send + Sync + From<Vec<u8>> + Into<Vec<u8>>>
+impl<T: Clone + Debug + Hashable + PartialEq + Send + Sync
+     + From<Vec<u8>> + Into<Vec<u8>>>
     Node<T>
 {
     /// Consensus node constructor. It only initialises initial parameters.
@@ -61,6 +62,7 @@ impl<T: Clone + Debug + Hashable + Send + Sync + From<Vec<u8>> + Into<Vec<u8>>>
         let from_comms_tx = messaging.from_comms_tx();
         let to_algo_rxs = messaging.to_algo_rxs();
         let from_algo_tx = messaging.from_algo_tx();
+        let stop_tx = messaging.stop_tx();
 
         // All spawned threads will have exited by the end of the scope.
         crossbeam::scope(|scope| {
@@ -131,6 +133,9 @@ impl<T: Clone + Debug + Hashable + Send + Sync + From<Vec<u8>> + Into<Vec<u8>>>
                     }
                 });
             }
+
+            // Stop the messaging task.
+            stop_tx.send(()).unwrap();
 
             // TODO: continue the implementation of the asynchronous common
             // subset algorithm.

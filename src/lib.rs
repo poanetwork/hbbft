@@ -50,11 +50,10 @@ extern crate reed_solomon_erasure;
 
 mod connection;
 pub mod messaging;
-mod stream_io;
 pub mod proto;
 mod proto_io;
 mod commst;
-mod broadcast;
-mod agreement;
+pub mod broadcast;
+pub mod agreement;
 
 pub mod node;
