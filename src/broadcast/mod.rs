@@ -14,6 +14,8 @@ use crossbeam_channel::{Sender, Receiver, SendError, RecvError};
 
 use messaging::{Target, TargetedMessage, SourcedMessage};
 
+type MerkleValue = Vec<u8>;
+
 /// Broadcast algorithm instance.
 ///
 /// The ACS algorithm requires multiple broadcast instances running
@@ -24,9 +26,9 @@ use messaging::{Target, TargetedMessage, SourcedMessage};
 /// might become part of the message for this to work.
 pub struct Instance<'a, T: 'a + Clone + Debug + Send + Sync> {
     /// The transmit side of the channel to comms threads.
-    tx: &'a Sender<TargetedMessage<T>>,
+    tx: &'a Sender<TargetedMessage<MerkleValue>>,
     /// The receive side of the channel from comms threads.
-    rx: &'a Receiver<SourcedMessage<T>>,
+    rx: &'a Receiver<SourcedMessage<MerkleValue>>,
     /// Value to be broadcast.
     broadcast_value: Option<T>,
     /// This instance's index for identification against its comms task.
@@ -41,8 +43,8 @@ impl<'a, T: Clone + Debug + Hashable + Send + Sync
      + Into<Vec<u8>> + From<Vec<u8>>>
     Instance<'a, T>
 {
-    pub fn new(tx: &'a Sender<TargetedMessage<T>>,
-               rx: &'a Receiver<SourcedMessage<T>>,
+    pub fn new(tx: &'a Sender<TargetedMessage<MerkleValue>>,
+               rx: &'a Receiver<SourcedMessage<MerkleValue>>,
                broadcast_value: Option<T>,
                num_nodes: usize,
                node_index: usize) ->
@@ -60,10 +62,10 @@ impl<'a, T: Clone + Debug + Hashable + Send + Sync
 
     /// Broadcast stage task returning the computed values in case of success,
     /// and an error in case of failure.
-    pub fn run(&mut self) -> Result<T, Error<T>> {
+    pub fn run(&mut self) -> Result<T, Error> {
         // Broadcast state machine thread.
         let bvalue = self.broadcast_value.to_owned();
-        let result: Result<T, Error<T>>;
+        let result: Result<T, Error>;
         let result_r = Arc::new(Mutex::new(None));
         let result_r_scoped = result_r.clone();
 
@@ -87,31 +89,28 @@ impl<'a, T: Clone + Debug + Hashable + Send + Sync
 
 /// Errors returned by the broadcast instance.
 #[derive(Debug, Clone)]
-pub enum Error<T: Clone + Debug + Send + Sync> {
+pub enum Error {
     RootHashMismatch,
     Threading,
     ProofConstructionFailed,
     ReedSolomon(rse::Error),
-    Send(SendError<TargetedMessage<T>>),
+    Send(SendError<TargetedMessage<MerkleValue>>),
     Recv(RecvError)
 }
 
-impl<T: Clone + Debug + Send + Sync>
-    From<rse::Error> for Error<T>
+impl From<rse::Error> for Error
 {
-    fn from(err: rse::Error) -> Error<T> { Error::ReedSolomon(err) }
+    fn from(err: rse::Error) -> Error { Error::ReedSolomon(err) }
 }
 
-impl<T: Clone + Debug + Send + Sync>
-    From<SendError<TargetedMessage<T>>> for Error<T>
+impl From<SendError<TargetedMessage<MerkleValue>>> for Error
 {
-    fn from(err: SendError<TargetedMessage<T>>) -> Error<T> { Error::Send(err) }
+    fn from(err: SendError<TargetedMessage<MerkleValue>>) -> Error { Error::Send(err) }
 }
 
-impl<T: Clone + Debug + Send + Sync>
-    From<RecvError> for Error<T>
+impl From<RecvError> for Error
 {
-    fn from(err: RecvError) -> Error<T> { Error::Recv(err) }
+    fn from(err: RecvError) -> Error { Error::Recv(err) }
 }
 
 /// Breaks the input value into shards of equal length and encodes them -- and
@@ -120,9 +119,9 @@ impl<T: Clone + Debug + Send + Sync>
 /// need to be sent anywhere. It is returned to the broadcast instance and gets
 /// recorded immediately.
 fn send_shards<'a, T>(value: T,
-                      tx: &'a Sender<TargetedMessage<T>>,
+                      tx: &'a Sender<TargetedMessage<MerkleValue>>,
                       coding: &ReedSolomon) ->
-    Result<Proof<T>, Error<T>>
+    Result<Proof<MerkleValue>, Error>
 where T: Clone + Debug + Hashable + Send + Sync + Into<Vec<u8>> + From<Vec<u8>>
 {
     let data_shard_num = coding.data_shard_count();
@@ -131,6 +130,9 @@ where T: Clone + Debug + Hashable + Send + Sync + Into<Vec<u8>> + From<Vec<u8>>
     debug!("Data shards: {}, parity shards: {}",
            data_shard_num, parity_shard_num);
     let mut v: Vec<u8> = T::into(value);
+    // Insert the length of `v` so it can be decoded without the padding.
+    let payload_len = v.len() as u8;
+    v.insert(0, payload_len); // TODO: Handle messages larger than 255 bytes.
     let value_len = v.len();
     // Size of a Merkle tree leaf value, in bytes.
     let shard_len = if value_len % data_shard_num > 0 {
@@ -139,15 +141,10 @@ where T: Clone + Debug + Hashable + Send + Sync + Into<Vec<u8>> + From<Vec<u8>>
     else {
         value_len / data_shard_num
     };
-    // Length of value vector padding to allow for shards of equal sizes.
-    let shard_pad_len = shard_len - value_len % shard_len;
     // Pad the last data shard with zeros. Fill the parity shards with zeros.
-    for _i in 0 .. shard_pad_len + shard_len * parity_shard_num {
-        v.push(0);
-    }
+    v.resize(shard_len * (data_shard_num + parity_shard_num), 0);
 
-    debug!("value_len {} shard_pad_len {}, shard_len {}", value_len,
-           shard_pad_len, shard_len);
+    debug!("value_len {}, shard_len {}", value_len, shard_len);
 
     // Divide the vector into chunks/shards.
     let shards_iter = v.chunks_mut(shard_len);
@@ -164,12 +161,8 @@ where T: Clone + Debug + Hashable + Send + Sync + Into<Vec<u8>> + From<Vec<u8>>
 
     debug!("Shards: {:?}", shards);
 
-    // Convert shards back to type `T` for proof generation.
-    let mut shards_t: Vec<T> = Vec::new();
-    for s in shards.iter() {
-        let s = Vec::into(s.to_vec());
-        shards_t.push(s);
-    }
+    let shards_t: Vec<MerkleValue> =
+        shards.into_iter().map(|s| s.to_vec()).collect();
 
     // Convert the Merkle tree into a partial binary tree for later
     // deconstruction into compound branches.
@@ -179,8 +172,8 @@ where T: Clone + Debug + Hashable + Send + Sync + Into<Vec<u8>> + From<Vec<u8>>
     let mut result = Err(Error::ProofConstructionFailed);
 
     // Send each proof to a node.
-    for (i, leaf_value) in mtree.iter().cloned().enumerate() {
-        let proof = mtree.gen_proof(leaf_value);
+    for (i, leaf_value) in mtree.iter().enumerate() {
+        let proof = mtree.gen_proof(leaf_value.to_vec());
         if let Some(proof) = proof {
             if i == 0 {
                 // The first proof is addressed to this node.
@@ -202,13 +195,13 @@ where T: Clone + Debug + Hashable + Send + Sync + Into<Vec<u8>> + From<Vec<u8>>
 }
 
 /// The main loop of the broadcast task.
-fn inner_run<'a, T>(tx: &'a Sender<TargetedMessage<T>>,
-                    rx: &'a Receiver<SourcedMessage<T>>,
+fn inner_run<'a, T>(tx: &'a Sender<TargetedMessage<MerkleValue>>,
+                    rx: &'a Receiver<SourcedMessage<MerkleValue>>,
                     broadcast_value: Option<T>,
                     node_index: usize,
                     num_nodes: usize,
                     num_faulty_nodes: usize) ->
-    Result<T, Error<T>>
+    Result<T, Error>
 where T: Clone + Debug + Hashable + Send + Sync + Into<Vec<u8>> + From<Vec<u8>>
 {
     // Erasure coding scheme: N - 2f value shards and 2f parity shards
@@ -235,8 +228,7 @@ where T: Clone + Debug + Hashable + Send + Sync + Into<Vec<u8>> + From<Vec<u8>>
                 if proof.validate(h.as_slice()) {
                     // Save the leaf value for reconstructing the tree later.
                     leaf_values[index_of_proof(&proof)] =
-                        Some(T::into(proof.value.clone())
-                             .into_boxed_slice());
+                        Some(proof.value.clone().into_boxed_slice());
                     leaf_values_num = leaf_values_num + 1;
                     root_hash = Some(h);
                 }
@@ -244,7 +236,7 @@ where T: Clone + Debug + Hashable + Send + Sync + Into<Vec<u8>> + From<Vec<u8>>
     }
 
     // return value
-    let mut result: Option<Result<T, Error<T>>> = None;
+    let mut result: Option<Result<T, Error>> = None;
     // Number of times Echo was received with the same root hash.
     let mut echo_num = 0;
     // Number of times Ready was received with the same root hash.
@@ -271,7 +263,7 @@ where T: Clone + Debug + Hashable + Send + Sync + Into<Vec<u8>> + From<Vec<u8>>
                     if let None = root_hash {
                         root_hash = Some(p.root_hash.clone());
                         debug!("Node {} Value root hash {:?}",
-                               node_index, root_hash);
+                               node_index, HexBytes(&p.root_hash));
                     }
 
                     if let &Some(ref h) = &root_hash {
@@ -279,8 +271,7 @@ where T: Clone + Debug + Hashable + Send + Sync + Into<Vec<u8>> + From<Vec<u8>>
                             // Save the leaf value for reconstructing the tree
                             // later.
                             leaf_values[index_of_proof(&p)] =
-                                Some(T::into(p.value.clone())
-                                     .into_boxed_slice());
+                                Some(p.value.clone().into_boxed_slice());
                             leaf_values_num = leaf_values_num + 1;
                         }
                     }
@@ -308,8 +299,7 @@ where T: Clone + Debug + Hashable + Send + Sync + Into<Vec<u8>> + From<Vec<u8>>
                             // Save the leaf value for reconstructing the tree
                             // later.
                             leaf_values[index_of_proof(&p)] =
-                                Some(T::into(p.value.clone())
-                                     .into_boxed_slice());
+                                Some(p.value.clone().into_boxed_slice());
                             leaf_values_num = leaf_values_num + 1;
 
                             // upon receiving 2f + 1 matching READY(h)
@@ -398,7 +388,7 @@ fn decode_from_shards<T>(leaf_values: &mut Vec<Option<Box<[u8]>>>,
                          coding: &ReedSolomon,
                          data_shard_num: usize,
                          root_hash: &Vec<u8>) ->
-    Result<T, Error<T>>
+    Result<T, Error>
 where T: Clone + Debug + Hashable + Send + Sync + From<Vec<u8>> + Into<Vec<u8>>
 {
     // Try to interpolate the Merkle tree using the Reed-Solomon erasure coding
@@ -407,16 +397,15 @@ where T: Clone + Debug + Hashable + Send + Sync + From<Vec<u8>> + Into<Vec<u8>>
 
     // Recompute the Merkle tree root.
     //
-    // Convert shards back to type `T` for tree construction.
-    let mut shards_t: Vec<T> = Vec::new();
+    // Collect shards for tree construction.
+    let mut shards: Vec<MerkleValue> = Vec::new();
     for l in leaf_values.iter() {
         if let Some(ref v) = *l {
-            let s = Vec::into(v.to_vec());
-            shards_t.push(s);
+            shards.push(v.to_vec());
         }
     }
     // Construct the Merkle tree.
-    let mtree = MerkleTree::from_vec(&::ring::digest::SHA256, shards_t);
+    let mtree = MerkleTree::from_vec(&::ring::digest::SHA256, shards);
     // If the root hash of the reconstructed tree does not match the one
     // received with proofs then abort.
     if *mtree.root_hash() != *root_hash {
@@ -434,7 +423,7 @@ where T: Clone + Debug + Hashable + Send + Sync + From<Vec<u8>> + Into<Vec<u8>>
 /// Concatenates the first `n` leaf values of a Merkle tree `m` in one value of
 /// type `T`. This is useful for reconstructing the data value held in the tree
 /// and forgetting the leaves that contain parity information.
-fn glue_shards<T>(m: MerkleTree<T>, n: usize) -> T
+fn glue_shards<T>(m: MerkleTree<MerkleValue>, n: usize) -> T
 where T: From<Vec<u8>> + Into<Vec<u8>>
 {
     let mut t: Vec<u8> = Vec::new();
@@ -445,13 +434,14 @@ where T: From<Vec<u8>> + Into<Vec<u8>>
         if i > n {
             break;
         }
-        for b in T::into(s).into_iter() {
+        for b in s {
             t.push(b);
         }
     }
-    debug!("Glued data shards {:?}", t);
+    let payload_len = t[0] as usize;
+    debug!("Glued data shards {:?}", &t[1..(payload_len + 1)]);
 
-    Vec::into(t)
+    Vec::into(t[1..(payload_len + 1)].to_vec())
 }
 
 /// An additional path conversion operation on `Lemma` to allow reconstruction
@@ -501,6 +491,6 @@ fn index_of_path(mut path: Vec<bool>) -> usize {
 }
 
 /// Computes the Merkle tree leaf index of a value in a given proof.
-fn index_of_proof<T>(p: &Proof<T>) -> usize {
+fn index_of_proof(p: &Proof<MerkleValue>) -> usize {
     index_of_path(path_of_lemma(&p.lemma))
 }

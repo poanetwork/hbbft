@@ -1,6 +1,7 @@
 //! Construction of messages from protobuf buffers.
 pub mod message;
 
+use std::fmt;
 use std::marker::{Send, Sync};
 use ring::digest::Algorithm;
 use merkle::proof::{Proof, Lemma, Positioned};
@@ -18,11 +19,55 @@ pub enum Message<T: Send + Sync> {
 
 /// The three kinds of message sent during the reliable broadcast stage of the
 /// consensus algorithm.
-#[derive (Clone, Debug, PartialEq)]
+#[derive (Clone, PartialEq)]
 pub enum BroadcastMessage<T: Send + Sync> {
     Value(Proof<T>),
     Echo(Proof<T>),
     Ready(Vec<u8>)
+}
+
+pub struct HexBytes<'a>(pub &'a [u8]);
+
+impl<'a> fmt::Debug for HexBytes<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        if self.0.len() > 6 {
+            for byte in &self.0[..3] {
+                write!(f, "{:0x}", byte)?;
+            }
+            write!(f, "..")?;
+            for byte in &self.0[(self.0.len() - 3)..] {
+                write!(f, "{:0x}", byte)?;
+            }
+        } else {
+            for byte in self.0 {
+                write!(f, "{:0x}", byte)?;
+            }
+        }
+        Ok(())
+    }
+}
+
+struct HexProof<'a, T: 'a>(&'a Proof<T>);
+
+impl<'a, T: Send + Sync + fmt::Debug> fmt::Debug for HexProof<'a, T> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "Proof {{ algorithm: {:?}, root_hash: {:?}, lemma: .., value: {:?} }}",
+               self.0.algorithm,
+               HexBytes(&self.0.root_hash),
+               self.0.value)
+    }
+}
+
+impl<T: Send + Sync + fmt::Debug> fmt::Debug for BroadcastMessage<T> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            BroadcastMessage::Value(ref v) => write!(f, "Value({:?})", HexProof(&v)),
+            BroadcastMessage::Echo(ref v) => write!(f, "Echo({:?})", HexProof(&v)),
+            BroadcastMessage::Ready(ref bytes) => {
+                write!(f, "Value({:?})", HexBytes(bytes))
+            }
+        }
+    }
 }
 
 /// Messages sent during the binary Byzantine agreement stage.

@@ -57,7 +57,7 @@ impl<T: Clone + Debug + Hashable + PartialEq + Send + Sync
         let num_nodes = connections.len() + 1;
 
         // Initialise the message delivery system and obtain TX and RX handles.
-        let messaging: Messaging<T> = Messaging::new(num_nodes);
+        let messaging: Messaging<Vec<u8>> = Messaging::new(num_nodes);
         let to_comms_rxs = messaging.to_comms_rxs();
         let from_comms_tx = messaging.from_comms_tx();
         let to_algo_rxs = messaging.to_algo_rxs();

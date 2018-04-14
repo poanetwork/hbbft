@@ -33,9 +33,9 @@ pub struct TestNode<'a> {
     /// Total number of nodes.
     num_nodes: usize,
     /// TX handles, one for each other node.
-    txs: Vec<&'a Sender<Message<TestValue>>>,
+    txs: Vec<&'a Sender<Message<Vec<u8>>>>,
     /// RX handle, one for each other node.
-    rxs: Vec<&'a Receiver<Message<TestValue>>>,
+    rxs: Vec<&'a Receiver<Message<Vec<u8>>>>,
     /// Optionally, a value to be broadcast by this node.
     value: Option<TestValue>
 }
@@ -45,8 +45,8 @@ impl<'a> TestNode<'a>
     /// Consensus node constructor. It only initialises initial parameters.
     pub fn new(node_index: usize,
                num_nodes: usize,
-               txs: Vec<&'a Sender<Message<TestValue>>>,
-               rxs: Vec<&'a Receiver<Message<TestValue>>>,
+               txs: Vec<&'a Sender<Message<Vec<u8>>>>,
+               rxs: Vec<&'a Receiver<Message<Vec<u8>>>>,
                value: Option<TestValue>) -> Self
     {
         TestNode {
@@ -58,8 +58,8 @@ impl<'a> TestNode<'a>
         }
     }
 
-    pub fn run(&self, messaging: Messaging<TestValue>) ->
-        Result<HashSet<TestValue>, Error<TestValue>>
+    pub fn run(&self, messaging: Messaging<Vec<u8>>) ->
+        Result<HashSet<TestValue>, Error>
     {
         assert_eq!(self.rxs.len(), self.num_nodes - 1);
 
@@ -149,6 +149,7 @@ impl<'a> TestNode<'a>
             for h in handles {
                 match h.join() {
                     Ok(v) => {
+                        debug!("Received value {:?}", v);
                         values.insert(v);
                     },
                     Err(e) => {
@@ -173,13 +174,13 @@ impl<'a> TestNode<'a>
 }
 
 #[derive(Clone, Debug)]
-pub enum Error<T: Clone + Debug + Send + Sync> {
-    Broadcast(broadcast::Error<T>),
+pub enum Error {
+    Broadcast(broadcast::Error),
     NotImplemented
 }
 
-impl<T: Clone + Debug + Send + Sync> From<broadcast::Error<T>> for Error<T> {
-    fn from(e: broadcast::Error<T>) -> Error<T> { Error::Broadcast(e) }
+impl From<broadcast::Error> for Error {
+    fn from(e: broadcast::Error) -> Error { Error::Broadcast(e) }
 }
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
@@ -197,7 +198,7 @@ impl AsRef<[u8]> for TestValue {
 impl From<Vec<u8>> for TestValue {
     fn from(bytes: Vec<u8>) -> TestValue {
         TestValue {
-            value: format!("{:?}", bytes)
+            value: String::from_utf8(bytes).expect("Found invalid UTF-8")
                 // conversion from UTF-8 often panics:
                 // String::from_utf8(bytes).expect("Found invalid UTF-8")
         }
@@ -216,7 +217,7 @@ impl From<TestValue> for Vec<u8> {
 
 /// Creates a vector of test nodes but does not run them.
 fn create_test_nodes<'a>(num_nodes: usize,
-                         net: &'a NetSim<Message<TestValue>>) ->
+                         net: &'a NetSim<Message<Vec<u8>>>) ->
     Vec<TestNode<'a>>
 {
     let mut nodes = Vec::new();
@@ -245,7 +246,7 @@ fn test_4_broadcast_nodes() {
     simple_logger::init_with_level(log::Level::Debug).unwrap();
 
     const NUM_NODES: usize = 4;
-    let net: NetSim<Message<TestValue>> = NetSim::new(NUM_NODES);
+    let net: NetSim<Message<Vec<u8>>> = NetSim::new(NUM_NODES);
     let nodes = create_test_nodes(NUM_NODES, &net);
 
     crossbeam::scope(|scope| {
@@ -255,7 +256,7 @@ fn test_4_broadcast_nodes() {
 
         for node in nodes {
             // Start a local messaging service on the simulated node.
-            let messaging: Messaging<TestValue> =
+            let messaging: Messaging<Vec<u8>> =
                 Messaging::new(NUM_NODES);
             messaging.spawn(scope);
             // Take the thread control handle.
@@ -269,10 +270,11 @@ fn test_4_broadcast_nodes() {
         // Compare the set of values returned by broadcast against the expected
         // set.
         for h in handles {
-            assert!(match h.join() {
-                Err(Error::NotImplemented) => true,
-                _ => false
-            });
+            match h.join() {
+                Err(Error::NotImplemented) => panic!(),
+                Err(err) => panic!("Error: {:?}", err),
+                Ok(v) => debug!("Finished with values {:?}", v),
+            }
         }
         // Stop all messaging tasks.
         for tx in messaging_stop_txs {
