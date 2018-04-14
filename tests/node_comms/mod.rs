@@ -2,10 +2,6 @@
 //! simulated remote node through a channel. Local communication with
 //! coordinating threads is also made via a channel.
 
-extern crate hbbft;
-extern crate crossbeam;
-extern crate crossbeam_channel;
-
 use std::io;
 use std::fmt::Debug;
 use std::sync::Arc;

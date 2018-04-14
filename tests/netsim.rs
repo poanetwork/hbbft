@@ -18,16 +18,16 @@ pub struct NetSim<Message: Clone + Send + Sync> {
 impl<Message: Clone + Send + Sync> NetSim<Message> {
     pub fn new(num_nodes: usize) -> Self {
         assert!(num_nodes > 1);
-        // All channels of a totally conected network of size `num_nodes`.
+        // All channels of a totally connected network of size `num_nodes`.
         let channels: Vec<(Sender<Message>, Receiver<Message>)> =
             (0 .. num_nodes * num_nodes)
             .map(|_| unbounded())
             .collect();
         let txs = channels.iter()
-            .map(|(tx, _)| tx.to_owned())
+            .map(|&(ref tx, _)| tx.to_owned())
             .collect();
         let rxs = channels.iter()
-            .map(|(_, rx)| rx.to_owned())
+            .map(|&(_, ref rx)| rx.to_owned())
             .collect();
         NetSim {
             num_nodes: num_nodes,

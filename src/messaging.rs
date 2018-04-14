@@ -87,10 +87,10 @@ impl<T: Clone + Debug + Send + Sync> Messaging<T> {
             .map(|_| unbounded())
             .collect();
         let to_comms_txs = to_comms.iter()
-            .map(|(tx, _)| tx.to_owned())
+            .map(|&(ref tx, _)| tx.to_owned())
             .collect();
         let to_comms_rxs: Vec<Receiver<Message<T>>> = to_comms.iter()
-            .map(|(_, rx)| rx.to_owned())
+            .map(|&(_, ref rx)| rx.to_owned())
             .collect();
         let (from_comms_tx, from_comms_rx) = unbounded();
         let to_algo: Vec<(Sender<SourcedMessage<T>>,
@@ -99,10 +99,10 @@ impl<T: Clone + Debug + Send + Sync> Messaging<T> {
             .map(|_| unbounded())
             .collect();
         let to_algo_txs = to_algo.iter()
-            .map(|(tx, _)| tx.to_owned())
+            .map(|&(ref tx, _)| tx.to_owned())
             .collect();
         let to_algo_rxs: Vec<Receiver<SourcedMessage<T>>> = to_algo.iter()
-            .map(|(_, rx)| rx.to_owned())
+            .map(|&(_, ref rx)| rx.to_owned())
             .collect();
         let (from_algo_tx, from_algo_rx) = unbounded();
 
