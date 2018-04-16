@@ -10,7 +10,6 @@ extern crate crossbeam_channel;
 extern crate merkle;
 
 mod netsim;
-mod node_comms;
 
 use std::sync::Arc;
 use std::collections::HashSet;
@@ -25,7 +24,6 @@ use hbbft::messaging::{Messaging, SourcedMessage};
 use hbbft::broadcast;
 
 use netsim::NetSim;
-use node_comms::CommsTask;
 
 /// This is a structure to start a consensus node.
 pub struct TestNode<'a> {
@@ -148,20 +146,22 @@ impl<'a> TestNode<'a>
                 }));
             }
 
-            let mut error = None;
-
             // Collect the values computed by broadcast instances.
-            for h in handles {
-                match h.join() {
-                    Ok(v) => {
-                        debug!("Received value {:?}", v);
-                        values.insert(v);
-                    },
-                    Err(e) => {
-                        error = Some(Error::Broadcast(e));
+            let final_result = handles.into_iter().fold(Ok(()), |result, h| {
+                if result.is_ok() {
+                    match h.join() {
+                        Ok(v) => {
+                            debug!("Received value {:?}", v);
+                            values.insert(v);
+                            Ok(())
+                        },
+                        Err(e) => Err(Error::Broadcast(e))
                     }
-                };
-            }
+                }
+                else {
+                    result
+                }
+            }).and_then(|_| Ok(values));
 
             // Stop the comms tasks.
             for tx in comms_stop_txs {
@@ -170,12 +170,7 @@ impl<'a> TestNode<'a>
                 }).unwrap();
             }
 
-            if error.is_some() {
-                Err(error.unwrap())
-            }
-            else {
-                Ok(values)
-            }
+            final_result
         })
     }
 }

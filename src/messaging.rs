@@ -237,5 +237,5 @@ pub enum Error {
 }
 
 impl<T> From<crossbeam_channel::SendError<T>> for Error {
-    fn from(e: crossbeam_channel::SendError<T>) -> Error { Error::SendError }
+    fn from(_: crossbeam_channel::SendError<T>) -> Error { Error::SendError }
 }
