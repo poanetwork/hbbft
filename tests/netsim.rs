@@ -3,6 +3,7 @@
 //! `crossbeam_channel::unbounded`.
 
 extern crate crossbeam_channel;
+extern crate log;
 
 use crossbeam_channel::{Sender, Receiver, unbounded};
 

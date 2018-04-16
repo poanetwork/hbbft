@@ -1,6 +1,7 @@
 //! The local message delivery system.
 use std::fmt::Debug;
 use crossbeam::{Scope, ScopedJoinHandle};
+use crossbeam_channel;
 use crossbeam_channel::{bounded, unbounded, Sender, Receiver};
 use proto::Message;
 
@@ -154,7 +155,8 @@ impl<T: Clone + Debug + Send + Sync> Messaging<T> {
     }
 
     /// Spawns the message delivery thread in a given thread scope.
-    pub fn spawn<'a>(&self, scope: &Scope<'a>) -> ScopedJoinHandle<()>
+    pub fn spawn<'a>(&self, scope: &Scope<'a>) ->
+        ScopedJoinHandle<Result<(), Error>>
     where T: 'a
     {
         let to_comms_txs = self.to_comms_txs.to_owned();
@@ -166,17 +168,26 @@ impl<T: Clone + Debug + Send + Sync> Messaging<T> {
         let mut stop = false;
 
         scope.spawn(move || {
+            let mut result = Ok(());
             // This loop forwards messages according to their metadata.
-            while !stop { select_loop! {
+            while !stop && result.is_ok() { select_loop! {
                 recv(from_algo_rx, message) => {
                     match message {
                         TargetedMessage {
                             target: Target::All,
                             message
                         } => {
-                            for tx in to_comms_txs.iter() {
-                                tx.send(message.clone()).unwrap();
-                            }
+                            // Send the message to all remote nodes, stopping at
+                            // the first error.
+                            result = to_comms_txs.iter()
+                                .fold(Ok(()), |result, tx| {
+                                    if result.is_ok() {
+                                        tx.send(message.clone())
+                                    }
+                                    else {
+                                        result
+                                    }
+                                }).map_err(Error::from);
                         },
                         TargetedMessage {
                             target: Target::Node(i),
@@ -187,25 +198,44 @@ impl<T: Clone + Debug + Send + Sync> Messaging<T> {
                             // Convert node index to vector index.
                             let i = i - 1;
 
-                            if i < to_comms_txs.len() {
+                            result = if i < to_comms_txs.len() {
                                 to_comms_txs[i].send(message.clone())
-                                    .unwrap();
+                                    .map_err(Error::from)
                             }
                             else {
-                                error!("Target {} does not exist", i);
-                            }
+                                Err(Error::NoSuchTarget)
+                            };
                         }
                     }
                 },
                 recv(from_comms_rx, message) => {
-                    for tx in to_algo_txs.iter() {
-                        tx.send(message.clone()).unwrap();
-                    }
+                    // Send the message to all algorithm instances, stopping at
+                    // the first error.
+                    result = to_algo_txs.iter().fold(Ok(()), |result, tx| {
+                        if result.is_ok() {
+                            tx.send(message.clone())
+                        }
+                        else {
+                            result
+                        }
+                    }).map_err(Error::from)
                 },
                 recv(stop_rx, _) => {
+                    // Flag the thread ready to exit.
                     stop = true;
                 }
             }} // end of select_loop!
+            result
         })
     }
+}
+
+#[derive(Clone, Debug)]
+pub enum Error {
+    NoSuchTarget,
+    SendError,
+}
+
+impl<T> From<crossbeam_channel::SendError<T>> for Error {
+    fn from(e: crossbeam_channel::SendError<T>) -> Error { Error::SendError }
 }

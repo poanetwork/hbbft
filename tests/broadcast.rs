@@ -14,6 +14,7 @@ mod node_comms;
 
 use std::sync::Arc;
 use std::collections::HashSet;
+use std::fmt;
 use std::fmt::Debug;
 use std::io;
 use crossbeam::{Scope, ScopedJoinHandle};
@@ -113,13 +114,17 @@ impl<'a> TestNode<'a>
                                 SourcedMessage {
                                     source: i,
                                     message
+                                }).map_err(|e| {
+                                    error!("{}", e);
                                 }).unwrap();
                         },
                         // Receive from an algorithm via local
                         // messaging. Forward the message to the simulated
                         // remote node.
                         recv(to_comms_rxs[i-1], message) => {
-                            self.txs[i-1].send(message).unwrap();
+                            self.txs[i-1].send(message).map_err(|e| {
+                                error!("{}", e);
+                            }).unwrap();
                         }
                         recv(comms_stop_rx, _) => {
                             debug!("Stopping comms task {}/{}",
@@ -160,7 +165,9 @@ impl<'a> TestNode<'a>
 
             // Stop the comms tasks.
             for tx in comms_stop_txs {
-                tx.send(()).unwrap();
+                tx.send(()).map_err(|e| {
+                    error!("{}", e);
+                }).unwrap();
             }
 
             if error.is_some() {
@@ -183,9 +190,16 @@ impl From<broadcast::Error> for Error {
     fn from(e: broadcast::Error) -> Error { Error::Broadcast(e) }
 }
 
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Hash, PartialEq, Eq)]
 pub struct TestValue {
     pub value: String
+}
+
+impl Debug for TestValue {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.value)?;
+        Ok(())
+    }
 }
 
 /// `TestValue: merkle::Hashable` is derived from `TestValue: AsRef<[u8]>`.
@@ -215,6 +229,12 @@ impl From<TestValue> for Vec<u8> {
     }
 }
 
+fn test_value_fmt(n: usize) -> TestValue {
+    TestValue {
+        value: format!("-{}-{}-{}-", n, n, n)
+    }
+}
+
 /// Creates a vector of test nodes but does not run them.
 fn create_test_nodes<'a>(num_nodes: usize,
                          net: &'a NetSim<Message<Vec<u8>>>) ->
@@ -222,9 +242,7 @@ fn create_test_nodes<'a>(num_nodes: usize,
 {
     let mut nodes = Vec::new();
     for n in 0..num_nodes {
-        let value = TestValue {
-            value: format!("-{}-{}-{}-", n, n, n)
-        };
+        let value = test_value_fmt(n);
         let mut txs = Vec::new();
         let mut rxs = Vec::new();
         // Set up comms channels to other nodes.
@@ -253,12 +271,14 @@ fn test_4_broadcast_nodes() {
 
         let mut handles = Vec::new();
         let mut messaging_stop_txs = Vec::new();
+        let mut msg_handles = Vec::new();
 
         for node in nodes {
             // Start a local messaging service on the simulated node.
             let messaging: Messaging<Vec<u8>> =
                 Messaging::new(NUM_NODES);
-            messaging.spawn(scope);
+            // Take the handle to receive the result after the thread finishes.
+            msg_handles.push(messaging.spawn(scope));
             // Take the thread control handle.
             messaging_stop_txs.push(messaging.stop_tx());
 
@@ -273,12 +293,27 @@ fn test_4_broadcast_nodes() {
             match h.join() {
                 Err(Error::NotImplemented) => panic!(),
                 Err(err) => panic!("Error: {:?}", err),
-                Ok(v) => debug!("Finished with values {:?}", v),
+                Ok(v) => {
+                    let mut expected = HashSet::new();
+                    for n in 0..NUM_NODES {
+                        expected.insert(test_value_fmt(n));
+                    }
+                    debug!("Finished with values {:?}", v);
+                    assert_eq!(v, expected);
+                },
             }
         }
         // Stop all messaging tasks.
         for tx in messaging_stop_txs {
-            tx.send(()).unwrap();
+            tx.send(()).map_err(|e| {
+                error!("{}", e);
+            }).unwrap();
+        }
+        for (i, h) in msg_handles.into_iter().enumerate() {
+            match h.join() {
+                Ok(()) => debug!("Messaging[{}] stopped OK", i),
+                Err(e) => debug!("Messaging[{}] error: {:?}", i, e)
+            }
         }
     });
 }

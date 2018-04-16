@@ -67,7 +67,7 @@ impl<T: Clone + Debug + Hashable + PartialEq + Send + Sync
         // All spawned threads will have exited by the end of the scope.
         crossbeam::scope(|scope| {
             // Start the centralised message delivery system.
-            messaging.spawn(scope);
+            let msg_handle = messaging.spawn(scope);
 
             // Associate a broadcast instance with this node. This instance will
             // broadcast the proposed value. There is no remote node
@@ -135,8 +135,14 @@ impl<T: Clone + Debug + Hashable + PartialEq + Send + Sync
             }
 
             // Stop the messaging task.
-            stop_tx.send(()).unwrap();
+            stop_tx.send(()).map_err(|e| {
+                error!("{}", e);
+            }).unwrap();
 
+            match msg_handle.join() {
+                Ok(()) => debug!("Messaging stopped OK"),
+                Err(e) => debug!("Messaging error: {:?}", e)
+            }
             // TODO: continue the implementation of the asynchronous common
             // subset algorithm.
             Err(Error::NotImplemented)

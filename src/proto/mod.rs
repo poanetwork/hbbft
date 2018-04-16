@@ -64,7 +64,7 @@ impl<T: Send + Sync + fmt::Debug> fmt::Debug for BroadcastMessage<T> {
             BroadcastMessage::Value(ref v) => write!(f, "Value({:?})", HexProof(&v)),
             BroadcastMessage::Echo(ref v) => write!(f, "Echo({:?})", HexProof(&v)),
             BroadcastMessage::Ready(ref bytes) => {
-                write!(f, "Value({:?})", HexBytes(bytes))
+                write!(f, "Ready({:?})", HexBytes(bytes))
             }
         }
     }

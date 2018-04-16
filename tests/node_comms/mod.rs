@@ -72,15 +72,18 @@ impl <'a, T: 'a + Clone + Debug + Send + Sync + From<Vec<u8>> + Into<Vec<u8>>>
                 recv(rx, message) => {
                     println!("Node {} <- {:?}", node_index, message);
                     // Forward the message to the remote node.
-                    remote_tx.send(message).unwrap();
+                    remote_tx.send(message).map_err(|e| {
+                        error!("{}", e);
+                    }).unwrap();
                 },
                 recv(remote_rx, message) => {
                     println!("Node {} -> {:?}", node_index, message);
-                    tx.send(
-                        SourcedMessage {
-                            source: node_index,
-                            message
-                        }).unwrap();
+                    tx.send(SourcedMessage {
+                        source: node_index,
+                        message
+                    }).map_err(|e| {
+                        error!("{}", e);
+                    }).unwrap();
                 }
             }}
         })
