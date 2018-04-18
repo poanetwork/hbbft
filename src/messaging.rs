@@ -1,14 +1,63 @@
 //! The local message delivery system.
+use std::collections::{HashSet, HashMap};
 use std::fmt::Debug;
 use crossbeam::{Scope, ScopedJoinHandle};
 use crossbeam_channel;
 use crossbeam_channel::{bounded, unbounded, Sender, Receiver};
 use proto::Message;
 
+/// Type of algorithm primitive used in HoneyBadgerBFT.
+///
+/// TODO: Add the epoch parameter?
+pub enum Algorithm {
+    /// Encryption stage.
+    Encryption,
+    /// Decryption stage.
+    Decryption,
+    /// Asynchronous Common Subset.
+    CommonSubset,
+    /// Reliable Broadcast instance.
+    Broadcast(usize),
+    /// Binary Agreement instance.
+    Agreement(usize),
+}
+
+/// Type of proposed (encrypted) value for consensus.
+type ProposedValue = Vec<u8>;
+
+/// Messages sent between algorithm instances.
+pub enum AlgoMessage {
+    /// Asynchronous common subset input.
+    CommonSubsetInput(ProposedValue),
+    /// Asynchronous common subset output.
+    CommonSubsetOutput(HashSet<ProposedValue>),
+    /// Broadcast instance input or output.
+    Broadcast(ProposedValue),
+    /// Binary agreement instance input or output.
+    Agreement(bool)
+}
+
+pub struct RoutedMessage {
+    /// Identifier of the algorithm that sent the message.
+    src: Algorithm,
+    /// Identifier of the message destination algorithm.
+    dst: Algorithm,
+    message: AlgoMessage
+}
+
+pub struct MessageRouting {
+    message_handlers: HashMap<Algorithm, Box<FnMut()>>
+}
+
+impl MessageRouting {
+    pub fn add_algo(&mut self, algo: Algorithm, handler: Box<FnMut()>) {
+    }
+}
+
 /// Message destination can be either of the two:
 ///
-/// 1) `All`: all nodes, if sent to socket tasks, or all local algorithm
-/// instances, if received from socket tasks.
+/// 1) `All`: all nodes if sent to socket tasks, or all local algorithm
+/// instances if received from socket tasks.
 ///
 /// 2) `Node(i)`: node i or local algorithm instances with the node index i.
 #[derive(Clone, Debug)]

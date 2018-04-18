@@ -20,6 +20,7 @@ use crossbeam::{Scope, ScopedJoinHandle};
 use crossbeam_channel::{bounded, Sender, Receiver};
 
 use hbbft::proto::*;
+use hbbft::messaging;
 use hbbft::messaging::{Messaging, SourcedMessage};
 use hbbft::broadcast;
 
@@ -172,6 +173,12 @@ impl<'a> TestNode<'a>
 
             final_result
         })
+    }
+
+    pub fn handle_message(&self, m: messaging::RoutedMessage) ->
+        Result<(), Error>
+    {
+        Ok(())
     }
 }
 
