@@ -21,7 +21,9 @@ use crossbeam_channel::{bounded, Sender, Receiver};
 
 use hbbft::proto::*;
 use hbbft::messaging;
-use hbbft::messaging::{Messaging, SourcedMessage};
+use hbbft::messaging::{AlgoError, Algorithm, ProposedValue, AlgoMessage,
+                       MessageLoopState, MessageQueue,
+                       Messaging, SourcedMessage};
 use hbbft::broadcast;
 
 use netsim::NetSim;
@@ -261,11 +263,30 @@ fn create_test_nodes<'a>(num_nodes: usize,
     nodes
 }
 
+#[derive(Debug)]
+enum TestAlgoError {
+    TestError
+}
+
+impl AlgoError for TestAlgoError {
+    fn to_str(&self) -> &'static str {
+        "TestError"
+    }
+}
+
 #[test]
 fn test_4_broadcast_nodes() {
     simple_logger::init_with_level(log::Level::Debug).unwrap();
 
     const NUM_NODES: usize = 4;
+    let mut stop = false;
+    let mut mq: MessageQueue<TestAlgoError> = MessageQueue::new();
+    let mut loop_result = Ok(MessageLoopState::Processing);
+
+    while loop_result.is_ok() && loop_result.unwrap().is_processing() {
+        loop_result = mq.deliver();
+    }
+
     let net: NetSim<Message<Vec<u8>>> = NetSim::new(NUM_NODES);
     let nodes = create_test_nodes(NUM_NODES, &net);
 
