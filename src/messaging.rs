@@ -1,6 +1,7 @@
 //! The local message delivery system.
 use std::collections::{HashSet, HashMap, VecDeque};
 use std::fmt::Debug;
+use std::net::SocketAddr;
 use crossbeam::{Scope, ScopedJoinHandle};
 use crossbeam_channel;
 use crossbeam_channel::{bounded, unbounded, Sender, Receiver};
@@ -44,18 +45,23 @@ pub struct RoutedMessage {
     src: Algorithm,
     /// Identifier of the message destination algorithm.
     dst: Algorithm,
+    /// Payload
     message: AlgoMessage
 }
 
-#[derive(PartialEq, Eq)]
+/// States of the message loop consided as an automaton with output. There is
+/// one exit state `Finished` and one transitional (also initial) state
+/// `Processing` whose argument is a queue of messages that are output in order
+/// to be sent to remote nodes.
+#[derive(Clone, PartialEq)]
 pub enum MessageLoopState {
-    Processing,
+    Processing(VecDeque<TargetedMessage<ProposedValue>>),
     Finished
 }
 
 impl MessageLoopState {
     pub fn is_processing(&self) -> bool {
-        if let MessageLoopState::Processing = self {
+        if let MessageLoopState::Processing(_) = self {
             true
         }
         else {
@@ -68,14 +74,20 @@ impl MessageLoopState {
 pub struct MessageQueue<HandlerError: AlgoError> {
     algos: HashMap<Algorithm, Box<Fn(&AlgoMessage) ->
                                   Result<MessageLoopState, HandlerError>>>,
-    queue: VecDeque<RoutedMessage>
+    /// The queue of local messages.
+    queue: VecDeque<RoutedMessage>,
+    /// TX handles to remote nodes.
+    remote_txs: HashMap<SocketAddr, Sender<Message<ProposedValue>>>,
 }
 
 impl<HandlerError: AlgoError> MessageQueue<HandlerError> {
-    pub fn new() -> Self {
+    pub fn new(remote_txs: HashMap<SocketAddr,
+                                   Sender<Message<ProposedValue>>>) -> Self
+    {
         MessageQueue {
             algos: HashMap::new(),
-            queue: VecDeque::new()
+            queue: VecDeque::new(),
+            remote_txs
         }
     }
 
@@ -106,7 +118,7 @@ impl<HandlerError: AlgoError> MessageQueue<HandlerError> {
 
     /// Message delivery routine.
     pub fn deliver(&mut self) -> Result<MessageLoopState, Error> {
-        let mut result = Ok(MessageLoopState::Processing);
+        let mut result = Ok(MessageLoopState::Processing(VecDeque::new()));
         let mut queue_empty = false;
 
         while !queue_empty && result.is_ok() {
@@ -116,10 +128,33 @@ impl<HandlerError: AlgoError> MessageQueue<HandlerError> {
                 ref message
             }) = self.pop() {
                 if let Some(handler) = self.algos.get(dst) {
-                    result = handler(message).map_err(Error::from);
+                    result = handler(message).map_err(Error::from)
+                        .map(|new_state| {
+                            if let MessageLoopState::Processing(mut new_msgs)
+                                = new_state.to_owned()
+                            {
+                                if let Ok(MessageLoopState::Processing(mut msgs))
+                                    = result
+                                {
+                                    // Append the messages to remote nodes
+                                    // emitted by the handler to the messages
+                                    // already queued.
+                                    msgs.append(&mut new_msgs);
+                                    MessageLoopState::Processing(
+                                        msgs
+                                    )
+                                }
+                                else {
+                                    new_state
+                                }
+                            }
+                            else {
+                                new_state
+                            }
+                        });
                 }
                 else {
-                    result = Err(Error::NoSuchDestination);
+                    result = Err(Error::NoSuchAlgorithm);
                 }
             }
             else {
@@ -127,6 +162,20 @@ impl<HandlerError: AlgoError> MessageQueue<HandlerError> {
             }
         }
         result
+    }
+
+    /// Send a message to a remote node.
+    pub fn send_remote(&mut self,
+                       addr: &SocketAddr,
+                       message: Message<ProposedValue>) ->
+        Result<(), Error>
+    {
+        if let Some(tx) = self.remote_txs.get(addr) {
+            tx.send(message).map_err(Error::from)
+        }
+        else {
+            Err(Error::NoSuchRemote)
+        }
     }
 }
 
@@ -136,14 +185,14 @@ impl<HandlerError: AlgoError> MessageQueue<HandlerError> {
 /// instances if received from socket tasks.
 ///
 /// 2) `Node(i)`: node i or local algorithm instances with the node index i.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Target {
     All,
     Node(usize)
 }
 
 /// Message with a designated target.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct TargetedMessage<T: Clone + Debug + Send + Sync> {
     pub target: Target,
     pub message: Message<T>
@@ -362,7 +411,8 @@ pub trait AlgoError {
 
 #[derive(Clone, Debug)]
 pub enum Error {
-    NoSuchDestination,
+    NoSuchAlgorithm,
+    NoSuchRemote,
     AlgoError(&'static str),
     NoSuchTarget,
     SendError,

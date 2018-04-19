@@ -12,7 +12,7 @@ extern crate merkle;
 mod netsim;
 
 use std::sync::Arc;
-use std::collections::HashSet;
+use std::collections::{HashSet, HashMap, VecDeque};
 use std::fmt;
 use std::fmt::Debug;
 use std::io;
@@ -58,6 +58,12 @@ impl<'a> TestNode<'a>
             rxs: rxs,
             value: value
         }
+    }
+
+    pub fn handle(&self, message: &AlgoMessage) ->
+        Result<MessageLoopState, TestAlgoError>
+    {
+        Err(TestAlgoError::TestError)
     }
 
     pub fn run(&self, messaging: Messaging<Vec<u8>>) ->
@@ -173,6 +179,36 @@ impl<'a> TestNode<'a>
                 }).unwrap();
             }
 
+            // NEW START
+            let mut stop = false;
+            let mut mq: MessageQueue<TestAlgoError> = MessageQueue::new(
+                HashMap::new() // FIXME: TX handles to comms tasks
+            );
+            // Set the initial state of the message loop to Processing.
+            let mut loop_result = Ok(MessageLoopState::Processing(
+                VecDeque::new()
+            ));
+
+            while !stop {
+                match loop_result {
+                    Ok(MessageLoopState::Processing(msgs)) => {
+                        // Send messages to remote nodes. FIXME.
+
+                        // Deliver all messages locally. Message handlers queue
+                        // local messages and output messages to remote nodes.
+                        loop_result = mq.deliver();
+                    }
+                    Ok(MessageLoopState::Finished) => {
+                        stop = true;
+                    }
+                    Err(ref e) => {
+                        error!("Error: {:?}", e);
+                        stop = true;
+                    }
+                }
+            }
+            // NEW END
+
             final_result
         })
     }
@@ -264,7 +300,7 @@ fn create_test_nodes<'a>(num_nodes: usize,
 }
 
 #[derive(Debug)]
-enum TestAlgoError {
+pub enum TestAlgoError {
     TestError
 }
 
@@ -279,14 +315,6 @@ fn test_4_broadcast_nodes() {
     simple_logger::init_with_level(log::Level::Debug).unwrap();
 
     const NUM_NODES: usize = 4;
-    let mut stop = false;
-    let mut mq: MessageQueue<TestAlgoError> = MessageQueue::new();
-    let mut loop_result = Ok(MessageLoopState::Processing);
-
-    while loop_result.is_ok() && loop_result.unwrap().is_processing() {
-        loop_result = mq.deliver();
-    }
-
     let net: NetSim<Message<Vec<u8>>> = NetSim::new(NUM_NODES);
     let nodes = create_test_nodes(NUM_NODES, &net);
 
@@ -317,6 +345,7 @@ fn test_4_broadcast_nodes() {
                 Err(Error::NotImplemented) => panic!(),
                 Err(err) => panic!("Error: {:?}", err),
                 Ok(v) => {
+                    panic!("End of test");
                     let mut expected = HashSet::new();
                     for n in 0..NUM_NODES {
                         expected.insert(test_value_fmt(n));
