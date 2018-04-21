@@ -38,18 +38,18 @@ impl<Message: Clone + Send + Sync> NetSim<Message> {
     }
 
     /// The TX side of a channel from node `src` to node `dst`.
-    pub fn tx(&self, src: usize, dst: usize) -> &Sender<Message> {
+    pub fn tx(&self, src: usize, dst: usize) -> Sender<Message> {
         assert!(src < self.num_nodes);
         assert!(dst < self.num_nodes);
 
-        &self.txs[src * self.num_nodes + dst]
+        self.txs[src * self.num_nodes + dst].clone()
     }
 
     /// The RX side of a channel from node `src` to node `dst`.
-    pub fn rx(&self, src: usize, dst: usize) -> &Receiver<Message> {
+    pub fn rx(&self, src: usize, dst: usize) -> Receiver<Message> {
         assert!(src < self.num_nodes);
         assert!(dst < self.num_nodes);
 
-        &self.rxs[src * self.num_nodes + dst]
+        self.rxs[src * self.num_nodes + dst].clone()
     }
 }

@@ -1,7 +1,9 @@
 //! The local message delivery system.
 use std::collections::{HashSet, HashMap, VecDeque};
 use std::fmt::Debug;
+use std::mem;
 use std::net::SocketAddr;
+use std::rc::Rc;
 use crossbeam::{Scope, ScopedJoinHandle};
 use crossbeam_channel;
 use crossbeam_channel::{bounded, unbounded, Sender, Receiver};
@@ -40,13 +42,38 @@ pub enum AlgoMessage {
 }
 
 /// A message sent between algorithm instances.
-pub struct RoutedMessage {
-    /// Identifier of the algorithm that sent the message.
-    src: Algorithm,
+pub struct LocalMessage {
+    // /// Identifier of the algorithm that sent the message.
+    // src: Algorithm,
     /// Identifier of the message destination algorithm.
     dst: Algorithm,
     /// Payload
     message: AlgoMessage
+}
+
+/// The message destinations corresponding to a remote node `i`. It can be
+/// either of the two:
+///
+/// 1) `All`: all nodes if sent to socket tasks, or all local algorithm
+/// instances if received from socket tasks.
+///
+/// 2) `Node(i)`: node `i` or local algorithm instances with the node index `i`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum RemoteNode {
+    All,
+    Node(SocketAddr)
+}
+
+/// Message with a designated target.
+#[derive(Clone, Debug, PartialEq)]
+pub struct RemoteMessage {
+    pub node: RemoteNode,
+    pub message: Message<ProposedValue>
+}
+
+pub enum QMessage {
+    Local(LocalMessage),
+    Remote(RemoteMessage)
 }
 
 /// States of the message loop consided as an automaton with output. There is
@@ -55,7 +82,7 @@ pub struct RoutedMessage {
 /// to be sent to remote nodes.
 #[derive(Clone, PartialEq)]
 pub enum MessageLoopState {
-    Processing(VecDeque<TargetedMessage<ProposedValue>>),
+    Processing(VecDeque<RemoteMessage>),
     Finished
 }
 
@@ -68,32 +95,55 @@ impl MessageLoopState {
             false
         }
     }
+
+    /// Appends pending messages of another state.  Used to append messages
+    /// emitted by the handler to the messages already queued from previous
+    /// iterations of a message handling loop.
+    pub fn append(&mut self, other: &mut MessageLoopState) {
+        if let MessageLoopState::Processing(ref mut new_msgs) = other
+        {
+            if let MessageLoopState::Processing(ref mut msgs) = self
+            {
+                msgs.append(new_msgs);
+            }
+        }
+    }
 }
 
 /// The queue functionality for messages sent between algorithm instances.
 pub struct MessageQueue<HandlerError: AlgoError> {
-    algos: HashMap<Algorithm, Box<Fn(&AlgoMessage) ->
+    /// Algorithm message handlers. Every message handler receives a message and
+    /// the TX handle of the incoming message queue.
+    algos: HashMap<Algorithm, Box<Fn(&QMessage, Sender<QMessage>) ->
                                   Result<MessageLoopState, HandlerError>>>,
-    /// The queue of local messages.
-    queue: VecDeque<RoutedMessage>,
-    /// TX handles to remote nodes.
-    remote_txs: HashMap<SocketAddr, Sender<Message<ProposedValue>>>,
+    /// The queue of local and remote messages.
+    /// TODO: Arc(Mutex(_)) for pushing from socket threads.
+    queue: VecDeque<QMessage>,
+    /// TX handle of the message queue.
+    queue_tx: Sender<QMessage>,
+    /// RX handle of the message queue.
+    queue_rx: Receiver<QMessage>,
+    /// Remote send function
+    send_remote: fn(&VecDeque<RemoteMessage>)
 }
 
 impl<HandlerError: AlgoError> MessageQueue<HandlerError> {
-    pub fn new(remote_txs: HashMap<SocketAddr,
-                                   Sender<Message<ProposedValue>>>) -> Self
+    pub fn new(send_remote: fn(&VecDeque<RemoteMessage>)) ->
+        Self
     {
+        let (queue_tx, queue_rx) = unbounded();
         MessageQueue {
             algos: HashMap::new(),
             queue: VecDeque::new(),
-            remote_txs
+            queue_tx,
+            queue_rx,
+            send_remote
         }
     }
 
     /// Registers a handler for messages sent to the given algorithm.
     pub fn insert_algo(&mut self, algo: Algorithm,
-                       handler: Box<Fn(&AlgoMessage) ->
+                       handler: Box<Fn(&QMessage, Sender<QMessage>) ->
                                     Result<MessageLoopState, HandlerError>>)
     {
         let _ = self.algos.insert(algo, handler).unwrap();
@@ -106,76 +156,87 @@ impl<HandlerError: AlgoError> MessageQueue<HandlerError> {
 
     /// Places a message at the end of the queue for routing to the destination
     /// later.
-    pub fn push(&mut self, message: RoutedMessage) {
+    ///
+    /// FIXME: Thread-safe interface.
+    pub fn push(&mut self, message: QMessage) {
         self.queue.push_back(message);
     }
 
     /// Removes and returns the message from the front of the queue if the queue
     /// is not empty.
-    pub fn pop(&mut self) -> Option<RoutedMessage> {
-        self.queue.pop_front()
-    }
+    // pub fn pop(&mut self) -> Option<QMessage> {
+    //     self.queue.pop_front()
+    // }
 
-    /// Message delivery routine.
-    pub fn deliver(&mut self) -> Result<MessageLoopState, Error> {
-        let mut result = Ok(MessageLoopState::Processing(VecDeque::new()));
-        let mut queue_empty = false;
-
-        while !queue_empty && result.is_ok() {
-            if let Some(RoutedMessage {
-                src: ref _src,
-                ref dst,
-                ref message
-            }) = self.pop() {
-                if let Some(handler) = self.algos.get(dst) {
-                    result = handler(message).map_err(Error::from)
-                        .map(|new_state| {
-                            if let MessageLoopState::Processing(mut new_msgs)
-                                = new_state.to_owned()
-                            {
-                                if let Ok(MessageLoopState::Processing(mut msgs))
-                                    = result
-                                {
-                                    // Append the messages to remote nodes
-                                    // emitted by the handler to the messages
-                                    // already queued.
-                                    msgs.append(&mut new_msgs);
-                                    MessageLoopState::Processing(
-                                        msgs
-                                    )
-                                }
-                                else {
-                                    new_state
-                                }
-                            }
-                            else {
-                                new_state
-                            }
-                        });
-                }
-                else {
-                    result = Err(Error::NoSuchAlgorithm);
-                }
-            }
-            else {
-                queue_empty = true;
-            }
-        }
-        result
-    }
-
-    /// Send a message to a remote node.
-    pub fn send_remote(&mut self,
-                       addr: &SocketAddr,
-                       message: Message<ProposedValue>) ->
-        Result<(), Error>
+    /// The message loop.
+    pub fn message_loop(&mut self) -> Result<MessageLoopState, Error>
     {
-        if let Some(tx) = self.remote_txs.get(addr) {
-            tx.send(message).map_err(Error::from)
-        }
-        else {
-            Err(Error::NoSuchRemote)
-        }
+        let mut result = Ok(MessageLoopState::Processing(VecDeque::new()));
+
+        while let Ok(mut state) = result {
+            // Send any outgoing messages to remote nodes using the provided
+            // function.
+            if let MessageLoopState::Processing(messages) = state {
+                // TODO: error handling
+                (self.send_remote)(&messages);
+                state = MessageLoopState::Processing(VecDeque::new())
+            }
+
+            // Receive local and remote messages.
+            if let Ok(m) = self.queue_rx.recv() { match m {
+                QMessage::Local(LocalMessage {
+                    dst,
+                    message
+                }) => {
+                    result = if let Some(handler) = self.algos.get(&dst) {
+                        let mut new_result = handler(&QMessage::Local(
+                            LocalMessage {
+                                dst,
+                                message
+                            }), self.queue_tx.clone()
+                        ).map_err(Error::from);
+                        if let Ok(ref mut new_state) = new_result {
+                            state.append(new_state);
+                            Ok(state)
+                        }
+                        else {
+                            // Error overrides the previous state.
+                            new_result
+                        }
+                    }
+                    else {
+                        Err(Error::NoSuchAlgorithm)
+                    }
+                }
+
+                QMessage::Remote(RemoteMessage {
+                    node,
+                    message
+                }) => {
+                    // Multicast the message to all algorithm instances,
+                    // collecting output messages iteratively and appending them
+                    // to result.
+                    result = self.algos.iter()
+                        .fold(Ok(state),
+                              |result1, (_, handler)| {
+                                  if let Ok(mut state1) = result1 {
+                                      handler(&QMessage::Remote(RemoteMessage {
+                                          node: node.clone(),
+                                          message: message.clone()
+                                      }), self.queue_tx.clone()
+                                      ).map(|ref mut state2| {
+                                          state1.append(state2);
+                                          state1
+                                      }).map_err(Error::from)
+                                  }
+                                  else {
+                                      result1
+                                  }
+                              }
+                        )
+                }
+            }} else { result = Err(Error::RecvError) }} // end of while loop
+        result
     }
 }
 
@@ -413,6 +474,7 @@ pub trait AlgoError {
 pub enum Error {
     NoSuchAlgorithm,
     NoSuchRemote,
+    RecvError,
     AlgoError(&'static str),
     NoSuchTarget,
     SendError,
