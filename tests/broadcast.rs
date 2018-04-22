@@ -71,7 +71,7 @@ impl TestNode
         // FIXME: localise to the Node context.
         // let f: fn(&VecDeque<RemoteMessage>) = self.send_remote;
         let mut mq: MessageQueue<TestAlgoError> = MessageQueue::new(
-            send_remote
+            self.txs.clone()
         );
 
         Err(Error::NotImplemented)
@@ -83,6 +83,7 @@ impl TestNode
 }
 
 fn send_remote(messages: &VecDeque<RemoteMessage>) {
+
     // FIXME
 }
 
@@ -101,6 +102,10 @@ fn proposed_value(n: usize) -> ProposedValue {
     vec![b; 10]
 }
 
+fn node_addr(node_index: usize) -> SocketAddr {
+    format!("127.0.0.1:{}", node_index).parse().unwrap()
+}
+
 /// Creates a vector of test nodes but does not run them.
 fn create_test_nodes(num_nodes: usize,
                          net: &NetSim<Message<Vec<u8>>>) ->
@@ -117,7 +122,7 @@ fn create_test_nodes(num_nodes: usize,
                 // Skip the channel back to the node itself.
                 continue;
             }
-            let addr = format!("127.0.0.1:{}", m).parse().unwrap();
+            let addr = node_addr(m);
             txs.insert(addr, net.tx(n, m));
             rxs.insert(addr, net.rx(m, n));
         }

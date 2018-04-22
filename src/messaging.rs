@@ -9,6 +9,8 @@ use crossbeam_channel;
 use crossbeam_channel::{bounded, unbounded, Sender, Receiver};
 use proto::Message;
 
+type NodeUid = SocketAddr;
+
 /// Type of algorithm primitive used in HoneyBadgerBFT.
 ///
 /// TODO: Add the epoch parameter?
@@ -61,7 +63,7 @@ pub struct LocalMessage {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum RemoteNode {
     All,
-    Node(SocketAddr)
+    Node(NodeUid)
 }
 
 /// Message with a designated target.
@@ -117,18 +119,20 @@ pub struct MessageQueue<HandlerError: AlgoError> {
     algos: HashMap<Algorithm, Box<Fn(&QMessage, Sender<QMessage>) ->
                                   Result<MessageLoopState, HandlerError>>>,
     /// The queue of local and remote messages.
-    /// TODO: Arc(Mutex(_)) for pushing from socket threads.
     queue: VecDeque<QMessage>,
     /// TX handle of the message queue.
     queue_tx: Sender<QMessage>,
     /// RX handle of the message queue.
     queue_rx: Receiver<QMessage>,
-    /// Remote send function
-    send_remote: fn(&VecDeque<RemoteMessage>)
+    /// Remote send handles. Messages are sent through channels as opposed to
+    /// diretly to sockets. This is done to make tests independent of socket
+    /// IO.
+    remote_txs: HashMap<NodeUid, Sender<Message<ProposedValue>>>
 }
 
 impl<HandlerError: AlgoError> MessageQueue<HandlerError> {
-    pub fn new(send_remote: fn(&VecDeque<RemoteMessage>)) ->
+    pub fn new(remote_txs: HashMap<NodeUid,
+                                   Sender<Message<ProposedValue>>>) ->
         Self
     {
         let (queue_tx, queue_rx) = unbounded();
@@ -137,8 +141,12 @@ impl<HandlerError: AlgoError> MessageQueue<HandlerError> {
             queue: VecDeque::new(),
             queue_tx,
             queue_rx,
-            send_remote
+            remote_txs
         }
+    }
+
+    pub fn queue_tx(&self) -> Sender<QMessage> {
+        self.queue_tx.clone()
     }
 
     /// Registers a handler for messages sent to the given algorithm.
@@ -162,8 +170,8 @@ impl<HandlerError: AlgoError> MessageQueue<HandlerError> {
         self.queue.push_back(message);
     }
 
-    /// Removes and returns the message from the front of the queue if the queue
-    /// is not empty.
+    // Removes and returns the message from the front of the queue if the queue
+    // is not empty.
     // pub fn pop(&mut self) -> Option<QMessage> {
     //     self.queue.pop_front()
     // }
@@ -178,7 +186,7 @@ impl<HandlerError: AlgoError> MessageQueue<HandlerError> {
             // function.
             if let MessageLoopState::Processing(messages) = state {
                 // TODO: error handling
-                (self.send_remote)(&messages);
+                self.send_remote(messages);
                 state = MessageLoopState::Processing(VecDeque::new())
             }
 
@@ -237,6 +245,44 @@ impl<HandlerError: AlgoError> MessageQueue<HandlerError> {
                 }
             }} else { result = Err(Error::RecvError) }} // end of while loop
         result
+    }
+
+    /// Send a message queue to remote nodes.
+    fn send_remote(&mut self,
+                   messages: VecDeque<RemoteMessage>) ->
+        Result<(), Error>
+    {
+        messages.iter().fold(Ok(()), |result, m| {
+            if result.is_err() { result } else { match m {
+                RemoteMessage {
+                    node: RemoteNode::Node(uid),
+                    message
+                } => {
+                    if let Some(tx) = self.remote_txs.get(&uid) {
+                        tx.send(message.clone()).map_err(Error::from)
+                    }
+                    else {
+                        Err(Error::SendError)
+                    }
+                },
+
+                RemoteMessage {
+                    node: RemoteNode::All,
+                    message
+                } => {
+                    self.remote_txs.iter().fold(result, |result1, (uid, tx)| {
+                        if result1.is_err() { result1 } else {
+                            if let Some(tx) = self.remote_txs.get(&uid) {
+                                tx.send(message.clone()).map_err(Error::from)
+                            }
+                            else {
+                                Err(Error::SendError)
+                            }
+                        }
+                    })
+                }
+            }}
+        })
     }
 }
 
