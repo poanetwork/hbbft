@@ -77,6 +77,7 @@ impl<'a> TestNode<'a>
 
     pub fn run(&'a self) -> Result<HashSet<ProposedValue>, Error>
     {
+        self.message_loop.run();
         Err(Error::NotImplemented)
     }
 }
@@ -156,7 +157,7 @@ fn test_4_broadcast_nodes() {
             join_handles.insert(node.uid, scope.spawn(move || {
                 node.add_handler(Algorithm::Broadcast(node_uids_r[0]),
                                  bi0.deref());
-                debug!("Running {:?}", node.uid);
+//                debug!("Running {:?}", node.uid);
                 node.run()
             }));
         }

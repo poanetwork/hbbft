@@ -207,7 +207,7 @@ where HandlerError: 'a + From<Error>
     // }
 
     /// The message loop.
-    pub fn run(&mut self) -> Result<MessageLoopState, HandlerError>
+    pub fn run(&self) -> Result<MessageLoopState, HandlerError>
     {
         let mut result = Ok(MessageLoopState::Processing(VecDeque::new()));
 
@@ -287,7 +287,7 @@ where HandlerError: 'a + From<Error>
     }
 
     /// Send a message queue to remote nodes.
-    fn send_remote(&mut self, messages: &VecDeque<RemoteMessage>) ->
+    fn send_remote(&self, messages: &VecDeque<RemoteMessage>) ->
         Result<(), Error>
     {
         messages.iter().fold(Ok(()), |result, m| {
