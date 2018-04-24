@@ -13,23 +13,34 @@ use reed_solomon_erasure::ReedSolomon;
 use crossbeam_channel::{Sender, Receiver, SendError, RecvError};
 
 use messaging::{Target, TargetedMessage, SourcedMessage,
-                ProposedValue};
+                ProposedValue, QMessage, MessageLoopState,
+                Handler};
+use messaging;
 
-/*
 pub struct Broadcast {
-    handler: Box<Fn(&QMessage, Sender<QMessage>) ->
-                 Result<MessageLoopState, HandlerError>>
 }
 
 impl Broadcast {
     pub fn new() -> Self {
+        Broadcast {}
     }
 
-    pub fn handle(&self) -> Box<Fn(&QMessage, Sender<QMessage>) ->
-                                Result<MessageLoopState, HandlerError>> {
+    pub fn handle<E>(&self, m: QMessage, tx: Sender<QMessage>) ->
+        Result<MessageLoopState, E>
+    where E: From<Error> + From<messaging::Error>
+    {
+        Err(Error::NotImplemented).map_err(E::from)
     }
 }
- */
+
+impl<E> Handler<E> for Broadcast
+where E: From<Error> + From<messaging::Error> {
+    fn handle(&self, m: QMessage, tx: Sender<QMessage>) ->
+        Result<MessageLoopState, E>
+    {
+        self.handle(m, tx)
+    }
+}
 
 /// Broadcast algorithm instance.
 ///
@@ -110,7 +121,8 @@ pub enum Error {
     ProofConstructionFailed,
     ReedSolomon(rse::Error),
     Send(SendError<TargetedMessage<ProposedValue>>),
-    Recv(RecvError)
+    Recv(RecvError),
+    NotImplemented
 }
 
 impl From<rse::Error> for Error

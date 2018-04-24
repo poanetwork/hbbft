@@ -29,6 +29,14 @@ pub enum Algorithm {
     Agreement(NodeUid),
 }
 
+impl Iterator for Algorithm {
+    type Item = String;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        Some(format!("{:?}", self))
+    }
+}
+
 /// Type of proposed (encrypted) value for consensus.
 pub type ProposedValue = Vec<u8>;
 
@@ -117,13 +125,13 @@ impl MessageLoopState {
 /// message loop. A call to the function returns either a new message loop state
 /// - either `Finished` or a state with outgoing messages to remote nodes - or
 /// an error.
-pub trait Handler<HandlerError: AlgoError>: Send + Sync {
+pub trait Handler<HandlerError: From<Error>>: Send + Sync {
     fn handle(&self, m: QMessage, tx: Sender<QMessage>) ->
         Result<MessageLoopState, HandlerError>;
 }
 
 /// The queue functionality for messages sent between algorithm instances.
-pub struct MessageLoop<'a, HandlerError: 'a + AlgoError> {
+pub struct MessageLoop<'a, HandlerError: 'a + From<Error>> {
     /// Algorithm message handlers. Every message handler receives a message and
     /// the TX handle of the incoming message queue for sending replies back to
     /// the message loop.
@@ -140,7 +148,9 @@ pub struct MessageLoop<'a, HandlerError: 'a + AlgoError> {
     remote_txs: HashMap<NodeUid, Sender<Message<ProposedValue>>>
 }
 
-impl<'a, HandlerError: AlgoError> MessageLoop<'a, HandlerError> {
+impl<'a, HandlerError> MessageLoop<'a, HandlerError>
+where HandlerError: 'a + From<Error>
+{
     pub fn new(remote_txs: HashMap<NodeUid, Sender<Message<ProposedValue>>>) ->
         Self
     {
@@ -162,12 +172,24 @@ impl<'a, HandlerError: AlgoError> MessageLoop<'a, HandlerError> {
     pub fn insert_algo(&'a self, algo: Algorithm,
                        handler: &'a Handler<HandlerError>)
     {
-        let _ = self.algos.write().unwrap().insert(algo, handler).unwrap();
+        let lock = self.algos.write();
+        if let Ok(mut map) = lock {
+            map.insert(algo, handler);
+        }
+        else {
+            error!("Cannot insert {:?}", algo);
+        }
     }
 
     /// Unregisters the handler for messages sent to the given algorithm.
     pub fn remove_algo(&self, algo: &Algorithm) {
-        let _ = self.algos.write().unwrap().remove(algo).unwrap();
+        let lock = self.algos.write();
+        if let Ok(mut map) = lock {
+            map.remove(algo);
+        }
+        else {
+            error!("Cannot remove {:?}", algo);
+        }
     }
 
     /// Places a message at the end of the queue for routing to the destination
@@ -185,7 +207,7 @@ impl<'a, HandlerError: AlgoError> MessageLoop<'a, HandlerError> {
     // }
 
     /// The message loop.
-    pub fn run(&mut self) -> Result<MessageLoopState, Error>
+    pub fn run(&mut self) -> Result<MessageLoopState, HandlerError>
     {
         let mut result = Ok(MessageLoopState::Processing(VecDeque::new()));
 
@@ -195,7 +217,7 @@ impl<'a, HandlerError: AlgoError> MessageLoop<'a, HandlerError> {
             (if let MessageLoopState::Processing(messages) = &state {
                 self.send_remote(messages)
                     .map(|_| MessageLoopState::Processing(VecDeque::new()))
-                    .map_err(Error::from)
+                    .map_err(HandlerError::from)
             }
             else {
                 Ok(MessageLoopState::Finished)
@@ -207,6 +229,7 @@ impl<'a, HandlerError: AlgoError> MessageLoop<'a, HandlerError> {
                     dst,
                     message
                 }) => {
+                    // FIXME: error handling
                     if let Some(handler) = self.algos.read().unwrap().get(&dst) {
                         let mut new_result =
                             handler.handle(QMessage::Local(
@@ -214,7 +237,7 @@ impl<'a, HandlerError: AlgoError> MessageLoop<'a, HandlerError> {
                                     dst,
                                     message
                                 }), self.queue_tx.clone()
-                            ).map_err(Error::from);
+                            );
                         if let Ok(ref mut new_state) = new_result {
                             state.append(new_state);
                             Ok(state)
@@ -225,7 +248,7 @@ impl<'a, HandlerError: AlgoError> MessageLoop<'a, HandlerError> {
                         }
                     }
                     else {
-                        Err(Error::NoSuchAlgorithm)
+                        Err(Error::NoSuchAlgorithm).map_err(HandlerError::from)
                     }
                 }
 
@@ -236,6 +259,8 @@ impl<'a, HandlerError: AlgoError> MessageLoop<'a, HandlerError> {
                     // Multicast the message to all algorithm instances,
                     // collecting output messages iteratively and appending them
                     // to result.
+                    //
+                    // FIXME: error handling
                     self.algos.read().unwrap().iter()
                         .fold(Ok(state),
                               |result1, (_, handler)| {
@@ -248,7 +273,7 @@ impl<'a, HandlerError: AlgoError> MessageLoop<'a, HandlerError> {
                                           ).map(|ref mut state2| {
                                               state1.append(state2);
                                               state1
-                                          }).map_err(Error::from)
+                                          }) // .map_err(Error::from)
                                   }
                                   else {
                                       result1
@@ -256,7 +281,8 @@ impl<'a, HandlerError: AlgoError> MessageLoop<'a, HandlerError> {
                               }
                         )
                 }
-            }} else { result = Err(Error::RecvError) }} // end of while loop
+            }} else { result = Err(Error::RecvError)
+                      .map_err(HandlerError::from) }} // end of while loop
         result
     }
 
@@ -518,23 +544,13 @@ impl<T: Clone + Debug + Send + Sync> Messaging<T> {
     }
 }
 
-/// Class of algorithm error types.
-pub trait AlgoError: Send + Sync {
-    fn to_str(&self) -> &'static str;
-}
-
 #[derive(Clone, Debug)]
 pub enum Error {
     NoSuchAlgorithm,
     NoSuchRemote,
     RecvError,
-    AlgoError(&'static str),
     NoSuchTarget,
     SendError,
-}
-
-impl<E: AlgoError> From<E> for Error {
-    fn from(e: E) -> Error { Error::AlgoError(e.to_str()) }
 }
 
 impl<T> From<crossbeam_channel::SendError<T>> for Error {
