@@ -284,12 +284,7 @@ impl<'a, HandlerError: AlgoError> MessageLoop<'a, HandlerError> {
                 } => {
                     self.remote_txs.iter().fold(result, |result1, (uid, tx)| {
                         if result1.is_err() { result1 } else {
-                            if let Some(tx) = self.remote_txs.get(&uid) {
-                                tx.send(message.clone()).map_err(Error::from)
-                            }
-                            else {
-                                Err(Error::SendError)
-                            }
+                            tx.send(message.clone()).map_err(Error::from)
                         }
                     })
                 }

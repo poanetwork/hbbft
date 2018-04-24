@@ -68,7 +68,7 @@ impl<'a> TestNode<'a>
 
     pub fn run(&'a self) -> Result<HashSet<ProposedValue>, Error>
     {
-        let node0_uid = "127.0.0.1:0".parse().unwrap();
+        let node0_uid = node_addr(0);
         self.message_loop.insert_algo(Algorithm::Broadcast(node0_uid), self);
 
         Err(Error::NotImplemented)
