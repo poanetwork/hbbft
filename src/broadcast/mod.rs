@@ -12,9 +12,24 @@ use reed_solomon_erasure as rse;
 use reed_solomon_erasure::ReedSolomon;
 use crossbeam_channel::{Sender, Receiver, SendError, RecvError};
 
-use messaging::{Target, TargetedMessage, SourcedMessage};
+use messaging::{Target, TargetedMessage, SourcedMessage,
+                ProposedValue};
 
-type MerkleValue = Vec<u8>;
+/*
+pub struct Broadcast {
+    handler: Box<Fn(&QMessage, Sender<QMessage>) ->
+                 Result<MessageLoopState, HandlerError>>
+}
+
+impl Broadcast {
+    pub fn new() -> Self {
+    }
+
+    pub fn handle(&self) -> Box<Fn(&QMessage, Sender<QMessage>) ->
+                                Result<MessageLoopState, HandlerError>> {
+    }
+}
+ */
 
 /// Broadcast algorithm instance.
 ///
@@ -26,9 +41,9 @@ type MerkleValue = Vec<u8>;
 /// might become part of the message for this to work.
 pub struct Instance<'a, T: 'a + Clone + Debug + Send + Sync> {
     /// The transmit side of the channel to comms threads.
-    tx: &'a Sender<TargetedMessage<MerkleValue>>,
+    tx: &'a Sender<TargetedMessage<ProposedValue>>,
     /// The receive side of the channel from comms threads.
-    rx: &'a Receiver<SourcedMessage<MerkleValue>>,
+    rx: &'a Receiver<SourcedMessage<ProposedValue>>,
     /// Value to be broadcast.
     broadcast_value: Option<T>,
     /// This instance's index for identification against its comms task.
@@ -43,8 +58,8 @@ impl<'a, T: Clone + Debug + Hashable + Send + Sync
      + Into<Vec<u8>> + From<Vec<u8>>>
     Instance<'a, T>
 {
-    pub fn new(tx: &'a Sender<TargetedMessage<MerkleValue>>,
-               rx: &'a Receiver<SourcedMessage<MerkleValue>>,
+    pub fn new(tx: &'a Sender<TargetedMessage<ProposedValue>>,
+               rx: &'a Receiver<SourcedMessage<ProposedValue>>,
                broadcast_value: Option<T>,
                num_nodes: usize,
                node_index: usize) ->
@@ -94,7 +109,7 @@ pub enum Error {
     Threading,
     ProofConstructionFailed,
     ReedSolomon(rse::Error),
-    Send(SendError<TargetedMessage<MerkleValue>>),
+    Send(SendError<TargetedMessage<ProposedValue>>),
     Recv(RecvError)
 }
 
@@ -103,9 +118,9 @@ impl From<rse::Error> for Error
     fn from(err: rse::Error) -> Error { Error::ReedSolomon(err) }
 }
 
-impl From<SendError<TargetedMessage<MerkleValue>>> for Error
+impl From<SendError<TargetedMessage<ProposedValue>>> for Error
 {
-    fn from(err: SendError<TargetedMessage<MerkleValue>>) -> Error { Error::Send(err) }
+    fn from(err: SendError<TargetedMessage<ProposedValue>>) -> Error { Error::Send(err) }
 }
 
 impl From<RecvError> for Error
@@ -119,9 +134,9 @@ impl From<RecvError> for Error
 /// need to be sent anywhere. It is returned to the broadcast instance and gets
 /// recorded immediately.
 fn send_shards<'a, T>(value: T,
-                      tx: &'a Sender<TargetedMessage<MerkleValue>>,
+                      tx: &'a Sender<TargetedMessage<ProposedValue>>,
                       coding: &ReedSolomon) ->
-    Result<Proof<MerkleValue>, Error>
+    Result<Proof<ProposedValue>, Error>
 where T: Clone + Debug + Hashable + Send + Sync + Into<Vec<u8>> + From<Vec<u8>>
 {
     let data_shard_num = coding.data_shard_count();
@@ -161,7 +176,7 @@ where T: Clone + Debug + Hashable + Send + Sync + Into<Vec<u8>> + From<Vec<u8>>
 
     debug!("Shards: {:?}", shards);
 
-    let shards_t: Vec<MerkleValue> =
+    let shards_t: Vec<ProposedValue> =
         shards.into_iter().map(|s| s.to_vec()).collect();
 
     // Convert the Merkle tree into a partial binary tree for later
@@ -195,8 +210,8 @@ where T: Clone + Debug + Hashable + Send + Sync + Into<Vec<u8>> + From<Vec<u8>>
 }
 
 /// The main loop of the broadcast task.
-fn inner_run<'a, T>(tx: &'a Sender<TargetedMessage<MerkleValue>>,
-                    rx: &'a Receiver<SourcedMessage<MerkleValue>>,
+fn inner_run<'a, T>(tx: &'a Sender<TargetedMessage<ProposedValue>>,
+                    rx: &'a Receiver<SourcedMessage<ProposedValue>>,
                     broadcast_value: Option<T>,
                     node_index: usize,
                     num_nodes: usize,
@@ -398,7 +413,7 @@ where T: Clone + Debug + Hashable + Send + Sync + From<Vec<u8>> + Into<Vec<u8>>
     // Recompute the Merkle tree root.
     //
     // Collect shards for tree construction.
-    let mut shards: Vec<MerkleValue> = Vec::new();
+    let mut shards: Vec<ProposedValue> = Vec::new();
     for l in leaf_values.iter() {
         if let Some(ref v) = *l {
             shards.push(v.to_vec());
@@ -423,7 +438,7 @@ where T: Clone + Debug + Hashable + Send + Sync + From<Vec<u8>> + Into<Vec<u8>>
 /// Concatenates the first `n` leaf values of a Merkle tree `m` in one value of
 /// type `T`. This is useful for reconstructing the data value held in the tree
 /// and forgetting the leaves that contain parity information.
-fn glue_shards<T>(m: MerkleTree<MerkleValue>, n: usize) -> T
+fn glue_shards<T>(m: MerkleTree<ProposedValue>, n: usize) -> T
 where T: From<Vec<u8>> + Into<Vec<u8>>
 {
     let mut t: Vec<u8> = Vec::new();
@@ -491,6 +506,6 @@ fn index_of_path(mut path: Vec<bool>) -> usize {
 }
 
 /// Computes the Merkle tree leaf index of a value in a given proof.
-fn index_of_proof(p: &Proof<MerkleValue>) -> usize {
+fn index_of_proof(p: &Proof<ProposedValue>) -> usize {
     index_of_path(path_of_lemma(&p.lemma))
 }
