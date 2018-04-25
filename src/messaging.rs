@@ -41,6 +41,7 @@ impl Iterator for Algorithm {
 pub type ProposedValue = Vec<u8>;
 
 /// Kinds of messages sent between algorithm instances.
+#[derive(Clone)]
 pub enum AlgoMessage {
     /// Asynchronous common subset input.
     CommonSubsetInput(ProposedValue),
@@ -53,6 +54,7 @@ pub enum AlgoMessage {
 }
 
 /// A message sent between algorithm instances.
+#[derive(Clone)]
 pub struct LocalMessage {
     /// Identifier of the message destination algorithm.
     pub dst: Algorithm,
@@ -81,6 +83,7 @@ pub struct RemoteMessage {
 }
 
 /// The union type of local and remote messages.
+#[derive(Clone)]
 pub enum QMessage {
     Local(LocalMessage),
     Remote(RemoteMessage)
@@ -213,7 +216,9 @@ where HandlerError: 'a + From<Error>
                     message
                 }) => {
                     // FIXME: error handling
-                    if let Some(handler) = self.algos.read().unwrap().get(&dst) {
+                    if let Some(mut handler) =
+                        self.algos.write().unwrap().get_mut(&dst)
+                    {
                         let mut new_result =
                             handler.handle(QMessage::Local(
                                 LocalMessage {
@@ -245,7 +250,7 @@ where HandlerError: 'a + From<Error>
                     // to result.
                     //
                     // FIXME: error handling
-                    self.algos.read().unwrap().iter()
+                    self.algos.write().unwrap().iter_mut()
                         .fold(Ok(state),
                               |result1, (_, handler)| {
                                   if let Ok(mut state1) = result1 {

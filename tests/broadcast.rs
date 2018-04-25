@@ -157,8 +157,14 @@ fn create_test_nodes(num_nodes: usize,
         let mut broadcast_instances = HashMap::new();
         for k in 0..num_nodes {
             let them_uid = node_addr(k);
-            broadcast_instances.insert(them_uid, Broadcast::new(them_uid,
-                                                                num_nodes));
+            match Broadcast::new(them_uid, num_nodes) {
+                Ok(instance) => {
+                    broadcast_instances.insert(them_uid, instance);
+                },
+                Err(e) => {
+                    panic!("{:?}", e);
+                }
+            }
         }
 
         nodes.insert(uid, (TestNode::new(uid, num_nodes, txs, rxs, Some(value)),
