@@ -25,7 +25,7 @@ use hbbft::proto::*;
 use hbbft::messaging;
 use hbbft::messaging::{QMessage, NodeUid, Algorithm, ProposedValue,
                        AlgoMessage, Handler,
-                       MessageLoopState, MessageLoop, RemoteMessage};
+                       MessageLoopState, MessageLoop, RemoteMessage, RemoteNode};
 use hbbft::broadcast::Broadcast;
 use hbbft::broadcast;
 
@@ -77,7 +77,30 @@ impl<'a> TestNode<'a>
 
     pub fn run(&'a self) -> Result<HashSet<ProposedValue>, Error>
     {
-        self.message_loop.run();
+        let tx = self.message_loop.queue_tx();
+
+        crossbeam::scope(|scope| {
+            // Spawn receive loops for messages from simulated remote
+            // nodes. Each loop receives a message from the simulated remote
+            // node and forwards it to the local message loop having annotated
+            // the message with the sender node UID.
+            for (uid, rx) in &self.rxs {
+                let tx = tx.clone();
+                let self_uid = self.uid;
+                scope.spawn(move || {
+                    while let Ok(message) = rx.recv() {
+                        // FIXME: error handling
+                        tx.send(QMessage::Remote(RemoteMessage {
+                            node: RemoteNode::Node(uid.clone()),
+                            message
+                        })).unwrap();
+                    }
+                    debug!("Node {} receiver {} terminated", self_uid, uid);
+                });
+            }
+            let _ = self.message_loop.run();
+        });
+
         Err(Error::NotImplemented)
     }
 }
@@ -157,7 +180,7 @@ fn test_4_broadcast_nodes() {
             join_handles.insert(node.uid, scope.spawn(move || {
                 node.add_handler(Algorithm::Broadcast(node_uids_r[0]),
                                  bi0.deref());
-//                debug!("Running {:?}", node.uid);
+                debug!("Running {:?}", node.uid);
                 node.run()
             }));
         }

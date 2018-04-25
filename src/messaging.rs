@@ -136,14 +136,12 @@ pub struct MessageLoop<'a, HandlerError: 'a + From<Error>> {
     /// the TX handle of the incoming message queue for sending replies back to
     /// the message loop.
     algos: RwLock<HashMap<Algorithm, &'a Handler<HandlerError>>>,
-    /// The queue of local and remote messages.
-    queue: VecDeque<QMessage>,
     /// TX handle of the message queue.
     queue_tx: Sender<QMessage>,
     /// RX handle of the message queue.
     queue_rx: Receiver<QMessage>,
     /// Remote send handles. Messages are sent through channels as opposed to
-    /// diretly to sockets. This is done to make tests independent of socket
+    /// directly to sockets. This is done to make tests independent of socket
     /// IO.
     remote_txs: HashMap<NodeUid, Sender<Message<ProposedValue>>>
 }
@@ -157,7 +155,6 @@ where HandlerError: 'a + From<Error>
         let (queue_tx, queue_rx) = unbounded();
         MessageLoop {
             algos: RwLock::new(HashMap::new()),
-            queue: VecDeque::new(),
             queue_tx,
             queue_rx,
             remote_txs
@@ -191,20 +188,6 @@ where HandlerError: 'a + From<Error>
             error!("Cannot remove {:?}", algo);
         }
     }
-
-    /// Places a message at the end of the queue for routing to the destination
-    /// later.
-    ///
-    /// FIXME: Thread-safe interface.
-    pub fn push(&mut self, message: QMessage) {
-        self.queue.push_back(message);
-    }
-
-    // Removes and returns the message from the front of the queue if the queue
-    // is not empty.
-    // pub fn pop(&mut self) -> Option<QMessage> {
-    //     self.queue.pop_front()
-    // }
 
     /// The message loop.
     pub fn run(&self) -> Result<MessageLoopState, HandlerError>
@@ -252,6 +235,7 @@ where HandlerError: 'a + From<Error>
                     }
                 }
 
+                // A message FROM a remote node.
                 QMessage::Remote(RemoteMessage {
                     node,
                     message
@@ -273,7 +257,7 @@ where HandlerError: 'a + From<Error>
                                           ).map(|ref mut state2| {
                                               state1.append(state2);
                                               state1
-                                          }) // .map_err(Error::from)
+                                          })
                                   }
                                   else {
                                       result1
@@ -282,7 +266,8 @@ where HandlerError: 'a + From<Error>
                         )
                 }
             }} else { result = Err(Error::RecvError)
-                      .map_err(HandlerError::from) }} // end of while loop
+                      .map_err(HandlerError::from) }
+        } // end of while loop
         result
     }
 
@@ -308,7 +293,7 @@ where HandlerError: 'a + From<Error>
                     node: RemoteNode::All,
                     message
                 } => {
-                    self.remote_txs.iter().fold(result, |result1, (uid, tx)| {
+                    self.remote_txs.iter().fold(result, |result1, (_, tx)| {
                         if result1.is_err() { result1 } else {
                             tx.send(message.clone()).map_err(Error::from)
                         }
