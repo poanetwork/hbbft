@@ -88,6 +88,7 @@ impl<'a> TestNode<'a>
                 let tx = tx.clone();
                 let self_uid = self.uid;
                 scope.spawn(move || {
+                    debug!("Node {} receiver {} starting", self_uid, uid);
                     while let Ok(message) = rx.recv() {
                         // FIXME: error handling
                         tx.send(QMessage::Remote(RemoteMessage {
@@ -98,6 +99,7 @@ impl<'a> TestNode<'a>
                     debug!("Node {} receiver {} terminated", self_uid, uid);
                 });
             }
+            // Start the local message loop.
             let _ = self.message_loop.run();
         });
 
@@ -125,16 +127,16 @@ fn proposed_value(n: usize) -> ProposedValue {
     vec![b; 10]
 }
 
-fn node_addr(node_index: usize) -> SocketAddr {
+fn node_addr(node_index: usize) -> NodeUid {
     format!("127.0.0.1:{}", node_index).parse().unwrap()
 }
 
-/// Creates a vector of test nodes but does not run them.
+/// Creates test nodes but does not run them.
 fn create_test_nodes(num_nodes: usize,
                      net: &NetSim<Message<Vec<u8>>>) ->
-    Vec<TestNode>
+    HashMap<NodeUid, (TestNode, HashMap<NodeUid, Broadcast>)>
 {
-    let mut nodes = Vec::new();
+    let mut nodes = HashMap::new();
     for n in 0..num_nodes {
         let value = proposed_value(n);
         let mut txs = HashMap::new();
@@ -150,7 +152,17 @@ fn create_test_nodes(num_nodes: usize,
             rxs.insert(addr, net.rx(m, n));
         }
         let uid = node_addr(n);
-        nodes.push(TestNode::new(uid, num_nodes, txs, rxs, Some(value)));
+
+        // Create a broadcast algorithm instance for each node.
+        let mut broadcast_instances = HashMap::new();
+        for k in 0..num_nodes {
+            let them_uid = node_addr(k);
+            broadcast_instances.insert(them_uid, Broadcast::new(them_uid,
+                                                                num_nodes));
+        }
+
+        nodes.insert(uid, (TestNode::new(uid, num_nodes, txs, rxs, Some(value)),
+                           broadcast_instances));
     }
     nodes
 }
@@ -160,26 +172,20 @@ fn test_4_broadcast_nodes() {
     simple_logger::init_with_level(log::Level::Debug).unwrap();
 
     const NUM_NODES: usize = 4;
-    let mut node_uids = Vec::new();
-    for i in 0..NUM_NODES {
-        node_uids.push(node_addr(i));
-    }
-    let node_uids_r = &node_uids;
-
-    // Create algorithm instances. FIXME.
-    let bi0 = Arc::new(Broadcast::new());
 
     let net: NetSim<Message<Vec<u8>>> = NetSim::new(NUM_NODES);
     let nodes = create_test_nodes(NUM_NODES, &net);
     let mut join_handles: HashMap<NodeUid, _> = HashMap::new();
 
     crossbeam::scope(|scope| {
-        let bi0 = &bi0;
-
-        for node in nodes.iter() {
-            join_handles.insert(node.uid, scope.spawn(move || {
-                node.add_handler(Algorithm::Broadcast(node_uids_r[0]),
-                                 bi0.deref());
+        // Run the test nodes, each in its own thread.
+        for (uid, (node, broadcast_instances)) in nodes.iter() {
+            join_handles.insert(*uid, scope.spawn(move || {
+                // Register broadcast instance handlers with the message loop.
+                for (instance_uid, instance) in broadcast_instances {
+                    node.add_handler(Algorithm::Broadcast(*instance_uid),
+                                     instance);
+                }
                 debug!("Running {:?}", node.uid);
                 node.run()
             }));

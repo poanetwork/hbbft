@@ -1,5 +1,5 @@
 //! Reliable broadcast algorithm instance.
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::fmt::Debug;
 use std::hash::Hash;
 use std::sync::{Arc, Mutex};
@@ -13,23 +13,96 @@ use reed_solomon_erasure::ReedSolomon;
 use crossbeam_channel::{Sender, Receiver, SendError, RecvError};
 
 use messaging::{Target, TargetedMessage, SourcedMessage,
-                ProposedValue, QMessage, MessageLoopState,
-                Handler};
+                NodeUid, ProposedValue, QMessage, MessageLoopState,
+                Handler, LocalMessage, RemoteMessage, AlgoMessage,
+                RemoteNode};
 use messaging;
 
 pub struct Broadcast {
+    uid: NodeUid,
+    num_nodes: usize,
+    root_hash: Option<Vec<u8>>,
+    leaf_values: Vec<Option<Box<[u8]>>>,
+    leaf_values_num: usize,
 }
 
 impl Broadcast {
-    pub fn new() -> Self {
-        Broadcast {}
+    pub fn new(uid: NodeUid, num_nodes: usize) -> Self {
+        Broadcast {
+            uid,
+            num_nodes,
+            root_hash: None,
+            leaf_values: vec![None; num_nodes],
+            leaf_values_num: 0
+        }
     }
 
-    pub fn handle<E>(&self, m: QMessage, tx: Sender<QMessage>) ->
+    pub fn handle<E>(&mut self, m: QMessage, tx: Sender<QMessage>) ->
         Result<MessageLoopState, E>
     where E: From<Error> + From<messaging::Error>
     {
-        Err(Error::NotImplemented).map_err(E::from)
+        match m {
+            QMessage::Local(LocalMessage {
+                dst: _,
+                message
+            }) => {
+                match message {
+                    AlgoMessage::Broadcast(value) => {
+                        Err(Error::NotImplemented).map_err(E::from)
+                    }
+
+                    _ => Err(Error::UnexpectedMessage).map_err(E::from)
+                }
+            },
+
+            QMessage::Remote(RemoteMessage {
+                node: RemoteNode::Node(uid),
+                message
+            }) => {
+                if let Message::Broadcast(b) = message { match b {
+                    BroadcastMessage::Value(p) => {
+                        if uid != self.uid {
+                            // Ignore value messages from unrelated remote nodes.
+                            Ok(MessageLoopState::Processing(VecDeque::new()))
+                        }
+                        else {
+                            if let None = self.root_hash {
+                                self.root_hash = Some(p.root_hash.clone());
+                                debug!("Node {} Value root hash {:?}",
+                                       self.uid, HexBytes(&p.root_hash));
+                            }
+
+                            if let &Some(ref h) = &self.root_hash {
+                                if p.validate(h.as_slice()) {
+                                    // Save the leaf value for reconstructing
+                                    // the tree later.
+                                    self.leaf_values[index_of_proof(&p)] =
+                                        Some(p.value.clone().into_boxed_slice());
+                                    self.leaf_values_num += 1;
+                                }
+                            }
+
+                            // Enqueue a broadcast of an echo of this proof.
+                            Ok(MessageLoopState::Processing(VecDeque::from(
+                                vec![RemoteMessage {
+                                    node: RemoteNode::All,
+                                    message: Message::Broadcast(
+                                        BroadcastMessage::Echo(p))
+                                }]
+                            )))
+                        }
+                    },
+
+                        _ => Err(Error::NotImplemented).map_err(E::from)
+                    }
+                }
+                else {
+                    Err(Error::UnexpectedMessage).map_err(E::from)
+                }
+            },
+
+            _ => Err(Error::UnexpectedMessage).map_err(E::from)
+        }
     }
 }
 
@@ -122,6 +195,7 @@ pub enum Error {
     ReedSolomon(rse::Error),
     Send(SendError<TargetedMessage<ProposedValue>>),
     Recv(RecvError),
+    UnexpectedMessage,
     NotImplemented
 }
 

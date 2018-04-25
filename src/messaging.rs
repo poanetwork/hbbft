@@ -55,9 +55,9 @@ pub enum AlgoMessage {
 /// A message sent between algorithm instances.
 pub struct LocalMessage {
     /// Identifier of the message destination algorithm.
-    dst: Algorithm,
+    pub dst: Algorithm,
     /// Payload
-    message: AlgoMessage
+    pub message: AlgoMessage
 }
 
 /// The message destinations corresponding to a remote node `i`. It can be
