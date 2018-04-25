@@ -2,7 +2,6 @@
 use std::collections::{HashSet, HashMap, VecDeque};
 use std::fmt::Debug;
 use std::net::SocketAddr;
-use std::rc::Rc;
 use std::sync::RwLock;
 use crossbeam::{Scope, ScopedJoinHandle};
 use crossbeam_channel;
