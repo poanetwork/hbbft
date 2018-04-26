@@ -28,6 +28,8 @@ use hbbft::messaging::{QMessage, NodeUid, Algorithm, ProposedValue,
                        MessageLoopState, MessageLoop, RemoteMessage, RemoteNode};
 use hbbft::broadcast::Broadcast;
 use hbbft::broadcast;
+use hbbft::common_subset::CommonSubset;
+use hbbft::common_subset;
 
 use netsim::NetSim;
 
@@ -111,6 +113,7 @@ impl<'a> TestNode<'a>
 pub enum Error {
     Messaging(messaging::Error),
     Broadcast(broadcast::Error),
+    CommonSubset(common_subset::Error),
     NotImplemented
 }
 
@@ -120,6 +123,10 @@ impl From<messaging::Error> for Error {
 
 impl From<broadcast::Error> for Error {
     fn from(e: broadcast::Error) -> Error { Error::Broadcast(e) }
+}
+
+impl From<common_subset::Error> for Error {
+    fn from(e: common_subset::Error) -> Error { Error::CommonSubset(e) }
 }
 
 fn proposed_value(n: usize) -> ProposedValue {

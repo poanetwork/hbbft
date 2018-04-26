@@ -53,6 +53,7 @@ pub mod messaging;
 pub mod proto;
 mod proto_io;
 mod commst;
+pub mod common_subset;
 pub mod broadcast;
 pub mod agreement;
 

@@ -46,10 +46,14 @@ pub enum AlgoMessage {
     CommonSubsetInput(ProposedValue),
     /// Asynchronous common subset output.
     CommonSubsetOutput(HashSet<ProposedValue>),
-    /// Broadcast instance input or output.
-    Broadcast(ProposedValue),
-    /// Binary agreement instance input or output.
-    Agreement(bool)
+    /// Broadcast instance input.
+    BroadcastInput(ProposedValue),
+    /// Broadcast instance output.
+    BroadcastOutput(NodeUid, ProposedValue),
+    /// Binary agreement instance input.
+    AgreementInput(bool),
+    /// Binary agreement instance output.
+    AgreementOutput(NodeUid, bool),
 }
 
 /// A message sent between algorithm instances.

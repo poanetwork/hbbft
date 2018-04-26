@@ -68,36 +68,34 @@ impl Broadcast {
     pub fn on_message<E>(&self, m: QMessage, tx: Sender<QMessage>) ->
         Result<MessageLoopState, E>
     where E: From<Error> + From<messaging::Error>
-    {
-        match m {
-            QMessage::Local(LocalMessage {
-                dst: _,
-                message
-            }) => {
-                match message {
-                    AlgoMessage::Broadcast(value) => {
-                        Err(Error::NotImplemented).map_err(E::from)
-                    }
-
-                    _ => Err(Error::UnexpectedMessage).map_err(E::from)
+    { match m {
+        QMessage::Local(LocalMessage {
+            dst: _,
+            message
+        }) => {
+            match message {
+                AlgoMessage::BroadcastInput(value) => {
+                    Err(Error::NotImplemented).map_err(E::from)
                 }
-            },
 
-            QMessage::Remote(RemoteMessage {
-                node: RemoteNode::Node(uid),
-                message
-            }) => {
-                if let Message::Broadcast(b) = message {
-                    self.on_remote_message(uid, b, tx)
-                }
-                else {
-                    Err(Error::UnexpectedMessage).map_err(E::from)
-                }
-            },
+                _ => Err(Error::UnexpectedMessage).map_err(E::from)
+            }
+        },
 
-            _ => Err(Error::UnexpectedMessage).map_err(E::from)
-        }
-    }
+        QMessage::Remote(RemoteMessage {
+            node: RemoteNode::Node(uid),
+            message
+        }) => {
+            if let Message::Broadcast(b) = message {
+                self.on_remote_message(uid, b, tx)
+            }
+            else {
+                Err(Error::UnexpectedMessage).map_err(E::from)
+            }
+        },
+
+        _ => Err(Error::UnexpectedMessage).map_err(E::from)
+    }}
 
     /// Handler of messages received from remote nodes.
     fn on_remote_message<E>(&self, uid: NodeUid,
@@ -179,7 +177,9 @@ impl Broadcast {
                                     self.data_shard_num, h)?;
                             tx.send(QMessage::Local(LocalMessage {
                                 dst: Algorithm::CommonSubset,
-                                message: AlgoMessage::Broadcast(value)
+                                message: AlgoMessage::BroadcastOutput(
+                                    uid,
+                                    value)
                             })).map_err(Error::from)?;
 
                             no_outgoing
@@ -258,7 +258,9 @@ impl Broadcast {
 
                             tx.send(QMessage::Local(LocalMessage {
                                 dst: Algorithm::CommonSubset,
-                                message: AlgoMessage::Broadcast(value)
+                                message: AlgoMessage::BroadcastOutput(
+                                    self.uid,
+                                    value)
                             })).map_err(Error::from)?;
                         }
                         else {
