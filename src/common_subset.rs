@@ -10,14 +10,14 @@ use messaging::{NodeUid, QMessage, MessageLoopState, Handler, LocalMessage,
 
 struct CommonSubsetState {
     agreement_inputs: HashMap<NodeUid, bool>,
-    agreement_true_outputs: HashSet<NodeUid>
+    agreement_true_outputs: HashSet<NodeUid>,
+    agreements_without_input: HashSet<NodeUid>,
 }
 
 pub struct CommonSubset {
     uid: NodeUid,
     num_nodes: usize,
     num_faulty_nodes: usize,
-    node_uids: HashSet<NodeUid>,
     state: RwLock<CommonSubsetState>
 }
 
@@ -32,10 +32,10 @@ impl CommonSubset {
             uid,
             num_nodes,
             num_faulty_nodes,
-            node_uids,
             state: RwLock::new(CommonSubsetState {
                 agreement_inputs: HashMap::new(),
-                agreement_true_outputs: HashSet::new()
+                agreement_true_outputs: HashSet::new(),
+                agreements_without_input: node_uids
             })
         }
     }
@@ -64,7 +64,9 @@ impl CommonSubset {
                 // Upon delivery of v_j from RBC_j, if input has not yet been
                 // provided to BA_j, then provide input 1 to BA_j. See Figure
                 // 11.
-                AlgoMessage::BroadcastOutput(uid, value) => {
+                //
+                // FIXME: Use the output value.
+                AlgoMessage::BroadcastOutput(uid, _value) => {
                     let mut state = self.state.write().unwrap();
                     if let None = state.agreement_inputs.get(&uid) {
                         tx.send(QMessage::Local(LocalMessage {
@@ -73,6 +75,7 @@ impl CommonSubset {
                         })).map_err(Error::from)?;
 
                         let _ = state.agreement_inputs.insert(uid, true);
+                        state.agreements_without_input.remove(&uid);
                     }
 
                     no_outgoing
@@ -82,25 +85,14 @@ impl CommonSubset {
                 // provide input 0 to each instance of BA that has not yet been
                 // provided input.
                 AlgoMessage::AgreementOutput(uid, true) => {
-                    self.state.write().unwrap()
-                        .agreement_true_outputs.insert(uid);
+                    let mut state = self.state.write().unwrap();
+                    state.agreement_true_outputs.insert(uid);
 
-                    if self.state.read().unwrap()
-                        .agreement_true_outputs.len() >=
+                    if state.agreement_true_outputs.len() >=
                         self.num_nodes - self.num_faulty_nodes
                     {
-                        let mut with_agreement_input: HashSet<NodeUid> =
-                            HashSet::new();
-
-                        for (k, _) in self.state.read().unwrap()
-                            .agreement_inputs.iter()
-                        {
-                            let _ = with_agreement_input.insert(*k);
-                        }
-
-                        let without_agreement_input = self.node_uids
-                            .difference(&with_agreement_input);
-                        for &uid0 in without_agreement_input {
+                        // FIXME: Avoid cloning the set.
+                        for uid0 in state.agreements_without_input.clone() {
                             tx.send(QMessage::Local(LocalMessage {
                                 dst: Algorithm::Agreement(uid0),
                                 message: AlgoMessage::AgreementInput(false)
@@ -108,8 +100,7 @@ impl CommonSubset {
 
                             // TODO: Possibly not required. Keeping in place to
                             // avoid resending `false`.
-                            let _ = self.state.write().unwrap()
-                                .agreement_inputs.insert(uid0, false);
+                            let _ = state.agreement_inputs.insert(uid0, false);
                         }
                     }
 
