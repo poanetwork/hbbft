@@ -158,15 +158,18 @@ fn create_test_nodes(num_nodes: usize,
             txs.insert(addr, net.tx(n, m));
             rxs.insert(addr, net.rx(m, n));
         }
+
         let uid = node_addr(n);
+        let all_uids: HashSet<NodeUid> =
+            (0..num_nodes).into_iter().map(|k| node_addr(k)).collect();
+        let all_uids_copy = all_uids.clone();
 
         // Create a broadcast algorithm instance for each node.
         let mut broadcast_instances = HashMap::new();
-        for k in 0..num_nodes {
-            let them_uid = node_addr(k);
-            match Broadcast::new(them_uid, num_nodes) {
+        for uid in all_uids {
+            match Broadcast::new(uid, all_uids_copy.clone(), num_nodes) {
                 Ok(instance) => {
-                    broadcast_instances.insert(them_uid, instance);
+                    broadcast_instances.insert(uid, instance);
                 },
                 Err(e) => {
                     panic!("{:?}", e);
