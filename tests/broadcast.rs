@@ -11,21 +11,14 @@ extern crate merkle;
 
 mod netsim;
 
-use std::collections::{BTreeMap, HashSet, HashMap, VecDeque};
-use std::fmt;
-use std::fmt::Debug;
-use std::io;
-use std::net::SocketAddr;
-use std::sync::{Arc, RwLock};
-use std::ops::Deref;
-use crossbeam::{Scope, ScopedJoinHandle};
-use crossbeam_channel::{bounded, Sender, Receiver};
+use std::collections::{HashSet, HashMap};
+use crossbeam_channel::{Sender, Receiver};
 
 use hbbft::proto::*;
 use hbbft::messaging;
 use hbbft::messaging::{QMessage, NodeUid, Algorithm, ProposedValue,
-                       AlgoMessage, Handler,
-                       MessageLoopState, MessageLoop, RemoteMessage, RemoteNode};
+                       AlgoMessage, Handler, LocalMessage,
+                       MessageLoop, RemoteMessage, RemoteNode};
 use hbbft::broadcast::Broadcast;
 use hbbft::broadcast;
 use hbbft::common_subset::CommonSubset;
@@ -80,6 +73,14 @@ impl<'a> TestNode<'a>
     pub fn run(&'a self) -> Result<HashSet<ProposedValue>, Error>
     {
         let tx = self.message_loop.queue_tx();
+
+        if let Some(value) = &self.value {
+            // Start the broadcast value transmission.
+            tx.send(QMessage::Local(LocalMessage {
+                dst: Algorithm::Broadcast(self.uid),
+                message: AlgoMessage::BroadcastInput(value.clone())
+            }));
+        }
 
         crossbeam::scope(|scope| {
             // Spawn receive loops for messages from simulated remote
