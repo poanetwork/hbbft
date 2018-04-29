@@ -363,22 +363,22 @@ pub struct Messaging<T: Clone + Debug + Send + Sync> {
     num_nodes: usize,
 
     /// Transmit sides of message channels to comms threads.
-    to_comms_txs: Vec<Sender<Message<T>>>,
+    txs_to_comms: Vec<Sender<Message<T>>>,
     /// Receive side of the routed message channel from comms threads.
-    from_comms_rx: Receiver<SourcedMessage<T>>,
+    rx_from_comms: Receiver<SourcedMessage<T>>,
     /// Transmit sides of message channels to algo threads.
-    to_algo_txs: Vec<Sender<SourcedMessage<T>>>,
+    txs_to_algo: Vec<Sender<SourcedMessage<T>>>,
     /// Receive side of the routed message channel from comms threads.
-    from_algo_rx: Receiver<TargetedMessage<T>>,
+    rx_from_algo: Receiver<TargetedMessage<T>>,
 
     /// RX handles to be used by comms tasks.
-    to_comms_rxs: Vec<Receiver<Message<T>>>,
+    rxs_to_comms: Vec<Receiver<Message<T>>>,
     /// TX handle to be used by comms tasks.
-    from_comms_tx: Sender<SourcedMessage<T>>,
+    tx_from_comms: Sender<SourcedMessage<T>>,
     /// RX handles to be used by algo tasks.
-    to_algo_rxs: Vec<Receiver<SourcedMessage<T>>>,
+    rxs_to_algo: Vec<Receiver<SourcedMessage<T>>>,
     /// TX handle to be used by algo tasks.
-    from_algo_tx: Sender<TargetedMessage<T>>,
+    tx_from_algo: Sender<TargetedMessage<T>>,
 
     /// Control channel used to stop the listening thread.
     stop_tx: Sender<()>,
@@ -390,29 +390,26 @@ impl<T: Clone + Debug + Send + Sync> Messaging<T> {
     /// number `num_nodes` of consensus nodes.
     pub fn new(num_nodes: usize) -> Self
     {
-        let to_comms: Vec<(Sender<Message<T>>, Receiver<Message<T>>)>
-            = (0 .. num_nodes - 1)
-            .map(|_| unbounded())
+        let to_comms: Vec<_> = (0 .. num_nodes - 1)
+            .map(|_| unbounded::<Message<T>>())
             .collect();
-        let to_comms_txs = to_comms.iter()
+        let txs_to_comms = to_comms.iter()
             .map(|&(ref tx, _)| tx.to_owned())
             .collect();
-        let to_comms_rxs: Vec<Receiver<Message<T>>> = to_comms.iter()
+        let rxs_to_comms: Vec<Receiver<Message<T>>> = to_comms.iter()
             .map(|&(_, ref rx)| rx.to_owned())
             .collect();
-        let (from_comms_tx, from_comms_rx) = unbounded();
-        let to_algo: Vec<(Sender<SourcedMessage<T>>,
-                          Receiver<SourcedMessage<T>>)>
-            = (0 .. num_nodes)
-            .map(|_| unbounded())
+        let (tx_from_comms, rx_from_comms) = unbounded();
+        let to_algo: Vec<_> = (0 .. num_nodes)
+            .map(|_| unbounded::<SourcedMessage<T>>())
             .collect();
-        let to_algo_txs = to_algo.iter()
+        let txs_to_algo = to_algo.iter()
             .map(|&(ref tx, _)| tx.to_owned())
             .collect();
-        let to_algo_rxs: Vec<Receiver<SourcedMessage<T>>> = to_algo.iter()
+        let rxs_to_algo: Vec<Receiver<SourcedMessage<T>>> = to_algo.iter()
             .map(|&(_, ref rx)| rx.to_owned())
             .collect();
-        let (from_algo_tx, from_algo_rx) = unbounded();
+        let (tx_from_algo, rx_from_algo) = unbounded();
 
         let (stop_tx, stop_rx) = bounded(1);
 
@@ -420,16 +417,16 @@ impl<T: Clone + Debug + Send + Sync> Messaging<T> {
             num_nodes,
 
             // internally used handles
-            to_comms_txs,
-            from_comms_rx,
-            to_algo_txs,
-            from_algo_rx,
+            txs_to_comms,
+            rx_from_comms,
+            txs_to_algo,
+            rx_from_algo,
 
             // externally used handles
-            to_comms_rxs,
-            from_comms_tx,
-            to_algo_rxs,
-            from_algo_tx,
+            rxs_to_comms,
+            tx_from_comms,
+            rxs_to_algo,
+            tx_from_algo,
 
             stop_tx,
             stop_rx,
@@ -440,20 +437,20 @@ impl<T: Clone + Debug + Send + Sync> Messaging<T> {
         self.num_nodes
     }
 
-    pub fn to_comms_rxs(&self) -> &Vec<Receiver<Message<T>>> {
-        &self.to_comms_rxs
+    pub fn rxs_to_comms(&self) -> &Vec<Receiver<Message<T>>> {
+        &self.rxs_to_comms
     }
 
-    pub fn from_comms_tx(&self) -> &Sender<SourcedMessage<T>> {
-        &self.from_comms_tx
+    pub fn tx_from_comms(&self) -> &Sender<SourcedMessage<T>> {
+        &self.tx_from_comms
     }
 
-    pub fn to_algo_rxs(&self) -> &Vec<Receiver<SourcedMessage<T>>> {
-        &self.to_algo_rxs
+    pub fn rxs_to_algo(&self) -> &Vec<Receiver<SourcedMessage<T>>> {
+        &self.rxs_to_algo
     }
 
-    pub fn from_algo_tx(&self) -> &Sender<TargetedMessage<T>> {
-        &self.from_algo_tx
+    pub fn tx_from_algo(&self) -> &Sender<TargetedMessage<T>> {
+        &self.tx_from_algo
     }
 
     /// Gives the ownership of the handle to stop the message receive loop.
@@ -466,19 +463,22 @@ impl<T: Clone + Debug + Send + Sync> Messaging<T> {
         ScopedJoinHandle<Result<(), Error>>
     where T: 'a
     {
-        let to_comms_txs = self.to_comms_txs.to_owned();
-        let from_comms_rx = self.from_comms_rx.to_owned();
-        let to_algo_txs = self.to_algo_txs.to_owned();
-        let from_algo_rx = self.from_algo_rx.to_owned();
+        let txs_to_comms = self.txs_to_comms.to_owned();
+        let rx_from_comms = self.rx_from_comms.to_owned();
+        let txs_to_algo = self.txs_to_algo.to_owned();
+        let rx_from_algo = self.rx_from_algo.to_owned();
 
         let stop_rx = self.stop_rx.to_owned();
         let mut stop = false;
 
+        // TODO: `select_loop!` seems to really confuse Clippy.
+        #[cfg_attr(feature = "cargo-clippy", allow(never_loop,
+            if_let_redundant_pattern_matching, deref_addrof))]
         scope.spawn(move || {
             let mut result = Ok(());
             // This loop forwards messages according to their metadata.
             while !stop && result.is_ok() { select_loop! {
-                recv(from_algo_rx, message) => {
+                recv(rx_from_algo, message) => {
                     match message {
                         TargetedMessage {
                             target: Target::All,
@@ -486,7 +486,7 @@ impl<T: Clone + Debug + Send + Sync> Messaging<T> {
                         } => {
                             // Send the message to all remote nodes, stopping at
                             // the first error.
-                            result = to_comms_txs.iter()
+                            result = txs_to_comms.iter()
                                 .fold(Ok(()), |result, tx| {
                                     if result.is_ok() {
                                         tx.send(message.clone())
@@ -505,8 +505,8 @@ impl<T: Clone + Debug + Send + Sync> Messaging<T> {
                             // Convert node index to vector index.
                             let i = i - 1;
 
-                            result = if i < to_comms_txs.len() {
-                                to_comms_txs[i].send(message.clone())
+                            result = if i < txs_to_comms.len() {
+                                txs_to_comms[i].send(message.clone())
                                     .map_err(Error::from)
                             }
                             else {
@@ -515,10 +515,10 @@ impl<T: Clone + Debug + Send + Sync> Messaging<T> {
                         }
                     }
                 },
-                recv(from_comms_rx, message) => {
+                recv(rx_from_comms, message) => {
                     // Send the message to all algorithm instances, stopping at
                     // the first error.
-                    result = to_algo_txs.iter().fold(Ok(()), |result, tx| {
+                    result = txs_to_algo.iter().fold(Ok(()), |result, tx| {
                         if result.is_ok() {
                             tx.send(message.clone())
                         }

@@ -31,9 +31,9 @@ impl<Message: Clone + Send + Sync> NetSim<Message> {
             .map(|&(_, ref rx)| rx.to_owned())
             .collect();
         NetSim {
-            num_nodes: num_nodes,
-            txs: txs,
-            rxs: rxs
+            num_nodes,
+            txs,
+            rxs
         }
     }
 

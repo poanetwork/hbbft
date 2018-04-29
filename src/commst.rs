@@ -50,10 +50,10 @@ impl <'a, T: 'a + Clone + Debug + Send + Sync + From<Vec<u8>> + Into<Vec<u8>>>
                stream.peer_addr().unwrap());
 
         CommsTask {
-            tx: tx,
-            rx: rx,
+            tx,
+            rx,
             io: ProtoIo::from_stream(stream),
-            node_index: node_index
+            node_index
         }
     }
 

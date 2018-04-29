@@ -5,7 +5,6 @@ extern crate hbbft;
 extern crate log;
 extern crate simple_logger;
 extern crate crossbeam;
-#[macro_use]
 extern crate crossbeam_channel;
 extern crate merkle;
 
@@ -21,7 +20,6 @@ use hbbft::messaging::{QMessage, NodeUid, Algorithm, ProposedValue,
                        MessageLoop, RemoteMessage, RemoteNode};
 use hbbft::broadcast::Broadcast;
 use hbbft::broadcast;
-use hbbft::common_subset::CommonSubset;
 use hbbft::common_subset;
 
 use netsim::NetSim;
@@ -30,11 +28,6 @@ use netsim::NetSim;
 pub struct TestNode<'a> {
     /// Node identifier.
     uid: NodeUid,
-    /// Total number of nodes.
-    num_nodes: usize,
-    /// TX handles indexed with the receiving node address. One handle for each
-    /// other node.
-    txs: HashMap<NodeUid, Sender<Message<ProposedValue>>>,
     /// RX handle indexed with the transmitting node address. One handle for
     /// each other node.
     rxs: HashMap<NodeUid, Receiver<Message<ProposedValue>>>,
@@ -48,15 +41,12 @@ impl<'a> TestNode<'a>
 {
     /// Consensus node constructor. It only initialises initial parameters.
     pub fn new(uid: NodeUid,
-               num_nodes: usize,
                txs: HashMap<NodeUid, Sender<Message<ProposedValue>>>,
                rxs: HashMap<NodeUid, Receiver<Message<ProposedValue>>>,
                value: Option<ProposedValue>) -> Self
     {
         TestNode {
             uid,
-            num_nodes,
-            txs: txs.clone(),
             rxs,
             value,
             message_loop: MessageLoop::new(txs),
@@ -79,7 +69,7 @@ impl<'a> TestNode<'a>
             tx.send(QMessage::Local(LocalMessage {
                 dst: Algorithm::Broadcast(self.uid),
                 message: AlgoMessage::BroadcastInput(value.clone())
-            }));
+            }))?;
         }
 
         crossbeam::scope(|scope| {
@@ -95,7 +85,7 @@ impl<'a> TestNode<'a>
                     while let Ok(message) = rx.recv() {
                         // FIXME: error handling
                         tx.send(QMessage::Remote(RemoteMessage {
-                            node: RemoteNode::Node(uid.clone()),
+                            node: RemoteNode::Node(*uid),
                             message
                         })).unwrap();
                     }
@@ -115,6 +105,7 @@ pub enum Error {
     Messaging(messaging::Error),
     Broadcast(broadcast::Error),
     CommonSubset(common_subset::Error),
+    Send(crossbeam_channel::SendError<QMessage>),
     NotImplemented
 }
 
@@ -128,6 +119,10 @@ impl From<broadcast::Error> for Error {
 
 impl From<common_subset::Error> for Error {
     fn from(e: common_subset::Error) -> Error { Error::CommonSubset(e) }
+}
+
+impl From<crossbeam_channel::SendError<QMessage>> for Error {
+    fn from(e: crossbeam_channel::SendError<QMessage>) -> Error { Error::Send(e) }
 }
 
 fn proposed_value(n: usize) -> ProposedValue {
@@ -162,7 +157,7 @@ fn create_test_nodes(num_nodes: usize,
 
         let uid = node_addr(n);
         let all_uids: HashSet<NodeUid> =
-            (0..num_nodes).into_iter().map(|k| node_addr(k)).collect();
+            (0..num_nodes).into_iter().map(node_addr).collect();
         let all_uids_copy = all_uids.clone();
 
         // Create a broadcast algorithm instance for each node.
@@ -178,7 +173,7 @@ fn create_test_nodes(num_nodes: usize,
             }
         }
 
-        nodes.insert(uid, (TestNode::new(uid, num_nodes, txs, rxs, Some(value)),
+        nodes.insert(uid, (TestNode::new(uid, txs, rxs, Some(value)),
                            broadcast_instances));
     }
     nodes
@@ -196,7 +191,7 @@ fn test_4_broadcast_nodes() {
 
     crossbeam::scope(|scope| {
         // Run the test nodes, each in its own thread.
-        for (uid, (node, broadcast_instances)) in nodes.iter() {
+        for (uid, (node, broadcast_instances)) in &nodes {
             join_handles.insert(*uid, scope.spawn(move || {
                 // Register broadcast instance handlers with the message loop.
                 for (instance_uid, instance) in broadcast_instances {

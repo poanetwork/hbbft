@@ -58,10 +58,10 @@ impl<T: Clone + Debug + Hashable + PartialEq + Send + Sync
 
         // Initialise the message delivery system and obtain TX and RX handles.
         let messaging: Messaging<Vec<u8>> = Messaging::new(num_nodes);
-        let to_comms_rxs = messaging.to_comms_rxs();
-        let from_comms_tx = messaging.from_comms_tx();
-        let to_algo_rxs = messaging.to_algo_rxs();
-        let from_algo_tx = messaging.from_algo_tx();
+        let rxs_to_comms = messaging.rxs_to_comms();
+        let tx_from_comms = messaging.tx_from_comms();
+        let rxs_to_algo = messaging.rxs_to_algo();
+        let tx_from_algo = messaging.tx_from_algo();
         let stop_tx = messaging.stop_tx();
 
         // All spawned threads will have exited by the end of the scope.
@@ -74,10 +74,10 @@ impl<T: Clone + Debug + Hashable + PartialEq + Send + Sync
             // broadcast the proposed value. There is no remote node
             // corresponding to this instance, and no dedicated comms task. The
             // node index is 0.
-            let ref to_algo_rx0 = to_algo_rxs[0];
+            let rx_to_algo0 = &rxs_to_algo[0];
             broadcast_handles.push(scope.spawn(move || {
-                match broadcast::Instance::new(from_algo_tx,
-                                               to_algo_rx0,
+                match broadcast::Instance::new(tx_from_algo,
+                                               rx_to_algo0,
                                                value.to_owned(),
                                                num_nodes,
                                                0)
@@ -97,12 +97,12 @@ impl<T: Clone + Debug + Hashable + PartialEq + Send + Sync
 
                 // Receive side of a single-consumer channel from algorithm
                 // actor tasks to the comms task.
-                let ref to_comms_rx = to_comms_rxs[i];
+                let rx_to_comms = &rxs_to_comms[i];
                 let node_index = i + 1;
 
                 scope.spawn(move || {
-                    match commst::CommsTask::new(from_comms_tx,
-                                                 to_comms_rx,
+                    match commst::CommsTask::new(tx_from_comms,
+                                                 rx_to_comms,
                                                  // FIXME: handle error
                                                  c.stream.try_clone().unwrap(),
                                                  node_index)
@@ -115,10 +115,10 @@ impl<T: Clone + Debug + Hashable + PartialEq + Send + Sync
 
 
                 // Associate a broadcast instance to the above comms task.
-                let ref to_algo_rx = to_algo_rxs[node_index];
+                let rx_to_algo = &rxs_to_algo[node_index];
                 broadcast_handles.push(scope.spawn(move || {
-                    match broadcast::Instance::new(from_algo_tx,
-                                                   to_algo_rx,
+                    match broadcast::Instance::new(tx_from_algo,
+                                                   rx_to_algo,
                                                    None,
                                                    num_nodes,
                                                    node_index)

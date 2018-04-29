@@ -1,7 +1,6 @@
 //! Reliable broadcast algorithm instance.
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fmt::Debug;
-use std::hash::Hash;
 use std::sync::{Arc, Mutex, RwLock};
 use crossbeam;
 use proto::*;
@@ -57,9 +56,9 @@ impl Broadcast {
             uid,
             all_uids,
             num_nodes,
-            num_faulty_nodes: num_faulty_nodes,
-            data_shard_num: data_shard_num,
-            coding: coding,
+            num_faulty_nodes,
+            data_shard_num,
+            coding,
             state: RwLock::new(BroadcastState {
                 root_hash: None,
                 leaf_values: vec![None; num_nodes],
@@ -74,17 +73,17 @@ impl Broadcast {
 
     /// The message-driven interface function for calls from the main message
     /// loop.
-    pub fn on_message<E>(&self, m: QMessage, tx: Sender<QMessage>) ->
+    pub fn on_message<E>(&self, m: QMessage, tx: &Sender<QMessage>) ->
         Result<MessageLoopState, E>
     where E: From<Error> + From<messaging::Error>
     { match m {
         QMessage::Local(LocalMessage {
-            dst: _,
-            message
+            message,
+            ..
         }) => {
             match message {
                 AlgoMessage::BroadcastInput(value) => {
-                    self.on_local_message(&mut value.to_owned(), tx)
+                    self.on_local_message(&mut value.to_owned())
                 }
 
                 _ => Err(Error::UnexpectedMessage).map_err(E::from)
@@ -107,8 +106,7 @@ impl Broadcast {
     }}
 
     /// Processes the proposed value input by broadcasting it.
-    fn on_local_message<E>(&self, value: &mut ProposedValue,
-                           tx: Sender<QMessage>) ->
+    fn on_local_message<E>(&self, value: &mut ProposedValue) ->
         Result<MessageLoopState, E>
     where E: From<Error> + From<messaging::Error>
     {
@@ -116,7 +114,7 @@ impl Broadcast {
         // Split the value into chunks/shards, encode them with erasure codes.
         // Assemble a Merkle tree from data and parity shards. Take all proofs
         // from this tree and send them, each to its own node.
-        self.send_shards(value, tx)
+        self.send_shards(value)
             .map(|(proof, remote_messages)| {
                 // Record the first proof as if it were sent by the node to
                 // itself.
@@ -138,7 +136,7 @@ impl Broadcast {
     /// scheme. The returned value contains the shard assigned to this
     /// node. That shard doesn't need to be sent anywhere. It gets recorded in
     /// the broadcast instance.
-    fn send_shards<E>(&self, value: &mut ProposedValue, tx: Sender<QMessage>) ->
+    fn send_shards<E>(&self, value: &mut ProposedValue) ->
         Result<(Proof<ProposedValue>, VecDeque<RemoteMessage>), E>
     where E: From<Error> + From<messaging::Error>
     {
@@ -217,7 +215,7 @@ impl Broadcast {
     /// Handler of messages received from remote nodes.
     fn on_remote_message<E>(&self, uid: NodeUid,
                             message: &BroadcastMessage<ProposedValue>,
-                            tx: Sender<QMessage>) ->
+                            tx: &Sender<QMessage>) ->
         Result<MessageLoopState, E>
     where E: From<Error> + From<messaging::Error>
     {
@@ -233,7 +231,7 @@ impl Broadcast {
                 }
                 else {
                     // Initialise the root hash if not already initialised.
-                    if let None = state.root_hash {
+                    if state.root_hash.is_none() {
                         state.root_hash = Some(p.root_hash.clone());
                         debug!("Node {} Value root hash {:?}",
                                self.uid, HexBytes(&p.root_hash));
@@ -262,12 +260,10 @@ impl Broadcast {
 
             // An echo received. Verify the proof it contains.
             BroadcastMessage::Echo(p) => {
-                if let None = state.root_hash {
-                    if uid == self.uid {
-                        state.root_hash = Some(p.root_hash.clone());
-                        debug!("Node {} Echo root hash {:?}",
-                               self.uid, state.root_hash);
-                    }
+                if state.root_hash.is_none() && uid == self.uid {
+                    state.root_hash = Some(p.root_hash.clone());
+                    debug!("Node {} Echo root hash {:?}",
+                           self.uid, state.root_hash);
                 }
 
                 // Call validate with the root hash as argument.
@@ -398,7 +394,7 @@ where E: From<Error> + From<messaging::Error> {
     fn handle(&self, m: QMessage, tx: Sender<QMessage>) ->
         Result<MessageLoopState, E>
     {
-        self.on_message(m, tx)
+        self.on_message(m, &tx)
     }
 }
 
@@ -437,11 +433,11 @@ impl<'a, T: Clone + Debug + Hashable + Send + Sync
         Self
     {
         Instance {
-            tx: tx,
-            rx: rx,
-            broadcast_value: broadcast_value,
-            node_index: node_index,
-            num_nodes: num_nodes,
+            tx,
+            rx,
+            broadcast_value,
+            node_index,
+            num_nodes,
             num_faulty_nodes: (num_nodes - 1) / 3
         }
     }
@@ -624,7 +620,7 @@ where T: Clone + Debug + Hashable + Send + Sync + Into<Vec<u8>> + From<Vec<u8>>
                     // Save the leaf value for reconstructing the tree later.
                     leaf_values[index_of_proof(&proof)] =
                         Some(proof.value.clone().into_boxed_slice());
-                    leaf_values_num = leaf_values_num + 1;
+                    leaf_values_num += 1;
                     root_hash = Some(h);
                 }
             })?
@@ -655,19 +651,19 @@ where T: Clone + Debug + Hashable + Send + Sync + Into<Vec<u8>> + From<Vec<u8>>
                         continue;
                     }
 
-                    if let None = root_hash {
+                    if root_hash.is_none() {
                         root_hash = Some(p.root_hash.clone());
                         debug!("Node {} Value root hash {:?}",
                                node_index, HexBytes(&p.root_hash));
                     }
 
-                    if let &Some(ref h) = &root_hash {
+                    if let Some(ref h) = root_hash {
                         if p.validate(h.as_slice()) {
                             // Save the leaf value for reconstructing the tree
                             // later.
                             leaf_values[index_of_proof(&p)] =
                                 Some(p.value.clone().into_boxed_slice());
-                            leaf_values_num = leaf_values_num + 1;
+                            leaf_values_num += 1;
                         }
                     }
                     // Broadcast an echo of this proof.
@@ -679,23 +675,21 @@ where T: Clone + Debug + Hashable + Send + Sync + Into<Vec<u8>> + From<Vec<u8>>
 
                 // An echo received. Verify the proof it contains.
                 BroadcastMessage::Echo(p) => {
-                    if let None = root_hash {
-                        if i == node_index {
-                            root_hash = Some(p.root_hash.clone());
-                            debug!("Node {} Echo root hash {:?}",
-                                   node_index, root_hash);
-                        }
+                    if root_hash.is_none() && i == node_index {
+                        root_hash = Some(p.root_hash.clone());
+                        debug!("Node {} Echo root hash {:?}",
+                               node_index, root_hash);
                     }
 
                     // call validate with the root hash as argument
-                    if let &Some(ref h) = &root_hash {
+                    if let Some(ref h) = root_hash {
                         if p.validate(h.as_slice()) {
                             echo_num += 1;
                             // Save the leaf value for reconstructing the tree
                             // later.
                             leaf_values[index_of_proof(&p)] =
                                 Some(p.value.clone().into_boxed_slice());
-                            leaf_values_num = leaf_values_num + 1;
+                            leaf_values_num += 1;
 
                             // upon receiving 2f + 1 matching READY(h)
                             // messages, wait for N − 2 f ECHO messages, then
@@ -737,7 +731,7 @@ where T: Clone + Debug + Hashable + Send + Sync + Into<Vec<u8>> + From<Vec<u8>>
                     *readys.entry(hash.to_vec()).or_insert(1) += 1;
 
                     // Check that the root hash matches.
-                    if let &Some(ref h) = &root_hash {
+                    if let Some(ref h) = root_hash {
                         let ready_num: usize = *readys.get(h).unwrap_or(&0);
 
                         // Upon receiving f + 1 matching Ready(h) messages, if
@@ -782,7 +776,7 @@ where T: Clone + Debug + Hashable + Send + Sync + Into<Vec<u8>> + From<Vec<u8>>
 fn decode_from_shards<T>(leaf_values: &mut Vec<Option<Box<[u8]>>>,
                          coding: &ReedSolomon,
                          data_shard_num: usize,
-                         root_hash: &Vec<u8>) ->
+                         root_hash: &[u8]) ->
     Result<T, Error>
 where T: Clone + Debug + Hashable + Send + Sync + From<Vec<u8>> + Into<Vec<u8>>
 {
@@ -803,7 +797,7 @@ where T: Clone + Debug + Hashable + Send + Sync + From<Vec<u8>> + Into<Vec<u8>>
     let mtree = MerkleTree::from_vec(&::ring::digest::SHA256, shards);
     // If the root hash of the reconstructed tree does not match the one
     // received with proofs then abort.
-    if *mtree.root_hash() != *root_hash {
+    if &mtree.root_hash()[..] != root_hash {
         // NOTE: The paper does not define the meaning of *abort*. But it is
         // sensible not to continue trying to reconstruct the tree after this
         // point. This instance must have received incorrect shards.
@@ -821,18 +815,7 @@ where T: Clone + Debug + Hashable + Send + Sync + From<Vec<u8>> + Into<Vec<u8>>
 fn glue_shards<T>(m: MerkleTree<ProposedValue>, n: usize) -> T
 where T: From<Vec<u8>> + Into<Vec<u8>>
 {
-    let mut t: Vec<u8> = Vec::new();
-    let mut i = 0;
-
-    for s in m.into_iter() {
-        i += 1;
-        if i > n {
-            break;
-        }
-        for b in s {
-            t.push(b);
-        }
-    }
+    let t: Vec<u8> = m.into_iter().take(n).flat_map(|s| s).collect();
     let payload_len = t[0] as usize;
     debug!("Glued data shards {:?}", &t[1..(payload_len + 1)]);
 
@@ -876,10 +859,10 @@ fn index_of_path(mut path: Vec<bool>) -> usize {
     // Convert to the MSB order.
     path.reverse();
 
-    for &dir in path.iter() {
-        idx = idx << 1;
-        if dir == true {
-            idx = idx | 1;
+    for &dir in &path {
+        idx <<= 1;
+        if dir {
+            idx |= 1;
         }
     }
     idx

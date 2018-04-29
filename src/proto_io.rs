@@ -11,7 +11,7 @@ use proto::*;
 /// protocols.
 ///
 /// TODO: Replace it with a proper handshake at connection initiation.
-const FRAME_START: u32 = 0x2C0FFEE5;
+const FRAME_START: u32 = 0x2C0F_FEE5;
 
 #[derive(Debug)]
 pub enum Error {
@@ -19,7 +19,7 @@ pub enum Error {
     EncodeError,
     DecodeError,
     FrameStartMismatch,
-    ProtocolError,
+    // ProtocolError,
     ProtobufError(protobuf::ProtobufError),
 }
 
@@ -36,10 +36,10 @@ fn encode_u32_to_be(value: u32, buffer: &mut[u8]) -> Result<(), Error> {
         return Err(Error::EncodeError);
     }
     let value = value.to_le();
-    buffer[0] = ((value & 0xFF000000) >> 24) as u8;
-    buffer[1] = ((value & 0x00FF0000) >> 16) as u8;
-    buffer[2] = ((value & 0x0000FF00) >> 8) as u8;
-    buffer[3] = (value & 0x000000FF) as u8;
+    buffer[0] = ((value & 0xFF00_0000) >> 24) as u8;
+    buffer[1] = ((value & 0x00FF_0000) >> 16) as u8;
+    buffer[2] = ((value & 0x0000_FF00) >> 8) as u8;
+    buffer[3] = (value & 0x0000_00FF) as u8;
     Ok(())
 }
 
@@ -47,13 +47,13 @@ fn decode_u32_from_be(buffer: &[u8]) -> Result<u32, Error> {
     if buffer.len() < 4 {
         return Err(Error::DecodeError);
     }
-    let mut result: u32 = buffer[0] as u32;
-    result = result << 8;
-    result += buffer[1] as u32;
-    result = result << 8;
-    result += buffer[2] as u32;
-    result = result << 8;
-    result += buffer[3] as u32;
+    let mut result = u32::from(buffer[0]);
+    result <<= 8;
+    result += u32::from(buffer[1]);
+    result <<= 8;
+    result += u32::from(buffer[2]);
+    result <<= 8;
+    result += u32::from(buffer[3]);
     Ok(result)
 }
 
@@ -76,7 +76,7 @@ impl ProtoIo
     pub fn try_clone(&self) -> Result<ProtoIo, ::std::io::Error> {
         Ok(ProtoIo {
             stream: self.stream.try_clone()?,
-            buffer: self.buffer.clone(),
+            buffer: self.buffer,
         })
     }
 
@@ -102,7 +102,7 @@ impl ProtoIo
         }
 
         Message::parse_from_bytes(&message_v)
-            .map_err(|e| Error::ProtobufError(e))
+            .map_err(Error::ProtobufError)
     }
 
     pub fn send<T>(&mut self, message: Message<T>) -> Result<(), Error>

@@ -40,13 +40,13 @@ impl CommonSubset {
         }
     }
 
-    pub fn on_message<E>(&self, m: QMessage, tx: Sender<QMessage>) ->
+    pub fn on_message<E>(&self, m: QMessage, tx: &Sender<QMessage>) ->
         Result<MessageLoopState, E>
     where E: From<Error> + From<messaging::Error>
     { match m {
         QMessage::Local(LocalMessage {
-            dst: _,
-            message
+            message,
+            ..
         }) => {
             let no_outgoing = Ok(MessageLoopState::Processing(VecDeque::new()));
 
@@ -68,7 +68,7 @@ impl CommonSubset {
                 // FIXME: Use the output value.
                 AlgoMessage::BroadcastOutput(uid, _value) => {
                     let mut state = self.state.write().unwrap();
-                    if let None = state.agreement_inputs.get(&uid) {
+                    if state.agreement_inputs.get(&uid).is_none() {
                         tx.send(QMessage::Local(LocalMessage {
                             dst: Algorithm::Agreement(uid),
                             message: AlgoMessage::AgreementInput(true)
@@ -127,7 +127,7 @@ where E: From<Error> + From<messaging::Error> {
     fn handle(&self, m: QMessage, tx: Sender<QMessage>) ->
         Result<MessageLoopState, E>
     {
-        self.on_message(m, tx)
+        self.on_message(m, &tx)
     }
 }
 

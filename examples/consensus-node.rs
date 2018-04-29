@@ -12,8 +12,8 @@ use std::collections::HashSet;
 use std::net::SocketAddr;
 use std::vec::Vec;
 
-const VERSION: &'static str = "0.1.0";
-const USAGE: &'static str = "
+const VERSION: &str = "0.1.0";
+const USAGE: &str = "
 Consensus node example
 
 Usage:

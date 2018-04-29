@@ -1,7 +1,6 @@
 //! Connection data and initiation routines.
 
 use std::collections::HashSet;
-use std::fmt::Debug;
 use std::io::BufReader;
 use std::net::{TcpStream, TcpListener, SocketAddr};
 
@@ -16,7 +15,7 @@ impl Connection {
         Connection {
             // Create a read buffer of 1K bytes.
             reader: BufReader::with_capacity(1024, stream.try_clone().unwrap()),
-            stream: stream
+            stream
         }
     }
 }
