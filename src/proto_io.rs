@@ -1,11 +1,11 @@
 //! Protobuf message IO task structure.
 
-use std::{cmp,io};
-use std::io::Read;
-use std::net::TcpStream;
+use proto::*;
 use protobuf;
 use protobuf::Message as ProtobufMessage;
-use proto::*;
+use std::io::Read;
+use std::net::TcpStream;
+use std::{cmp, io};
 
 /// A magic key to put right before each message. An atavism of primitive serial
 /// protocols.
@@ -24,14 +24,18 @@ pub enum Error {
 }
 
 impl From<io::Error> for Error {
-    fn from(err: io::Error) -> Error { Error::IoError(err) }
+    fn from(err: io::Error) -> Error {
+        Error::IoError(err)
+    }
 }
 
 impl From<protobuf::ProtobufError> for Error {
-    fn from(err: protobuf::ProtobufError) -> Error { Error::ProtobufError(err) }
+    fn from(err: protobuf::ProtobufError) -> Error {
+        Error::ProtobufError(err)
+    }
 }
 
-fn encode_u32_to_be(value: u32, buffer: &mut[u8]) -> Result<(), Error> {
+fn encode_u32_to_be(value: u32, buffer: &mut [u8]) -> Result<(), Error> {
     if buffer.len() < 4 {
         return Err(Error::EncodeError);
     }
@@ -81,7 +85,8 @@ impl ProtoIo
     }
 
     pub fn recv<T>(&mut self) -> Result<Message<T>, Error>
-    where T: Clone + Send + Sync + From<Vec<u8>> // + Into<Vec<u8>>
+    where
+        T: Clone + Send + Sync + From<Vec<u8>>, // + Into<Vec<u8>>
     {
         self.stream.read_exact(&mut self.buffer[0..4])?;
         let frame_start = decode_u32_from_be(&self.buffer[0..4])?;
@@ -94,19 +99,18 @@ impl ProtoIo
         let mut message_v: Vec<u8> = Vec::new();
         message_v.reserve(size);
         while message_v.len() < size {
-            let num_to_read = cmp::min(self.buffer.len(), size -
-                                       message_v.len());
+            let num_to_read = cmp::min(self.buffer.len(), size - message_v.len());
             let (slice, _) = self.buffer.split_at_mut(num_to_read);
             self.stream.read_exact(slice)?;
             message_v.extend_from_slice(slice);
         }
 
-        Message::parse_from_bytes(&message_v)
-            .map_err(Error::ProtobufError)
+        Message::parse_from_bytes(&message_v).map_err(Error::ProtobufError)
     }
 
     pub fn send<T>(&mut self, message: Message<T>) -> Result<(), Error>
-    where T: Clone + Send + Sync + Into<Vec<u8>>
+    where
+        T: Clone + Send + Sync + Into<Vec<u8>>,
     {
         let mut buffer: [u8; 4] = [0; 4];
         // Wrap stream

@@ -1,13 +1,13 @@
 //! Example of a consensus node that uses the `hbbft::node::Node` struct for
 //! running the distributed consensus state machine.
 //#[macro_use]
-extern crate log;
-extern crate simple_logger;
 extern crate docopt;
 extern crate hbbft;
+extern crate log;
+extern crate simple_logger;
 
-use hbbft::node::Node;
 use docopt::Docopt;
+use hbbft::node::Node;
 use std::collections::HashSet;
 use std::net::SocketAddr;
 use std::vec::Vec;
@@ -38,15 +38,14 @@ fn parse_args() -> Args {
     Args {
         value: if args.get_count("--value") > 0 {
             Some(args.get_str("--value").as_bytes().to_vec())
-        }
-        else {
+        } else {
             None
         },
         bind_address: args.get_str("--bind-address").parse().unwrap(),
         remote_addresses: args.get_vec("--remote-address")
             .iter()
             .map(|s| s.parse().unwrap())
-            .collect()
+            .collect(),
     }
 }
 

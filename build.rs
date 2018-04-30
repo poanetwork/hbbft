@@ -12,18 +12,19 @@ fn protoc_exists() -> bool {
                 }
             }
         }
-        None => println!("PATH environment variable is not defined.")
+        None => println!("PATH environment variable is not defined."),
     }
     false
 }
 
 fn main() {
     if !protoc_exists() {
-        panic!("
+        panic!(
+            "
 protoc cannot be found. Install the protobuf compiler in the \
-system path.");
-    }
-    else {
+system path."
+        );
+    } else {
         println!("cargo:rerun-if-changed=proto/message.proto");
         protoc_rust::run(protoc_rust::Args {
             out_dir: "src/proto",

@@ -1,30 +1,34 @@
 //! Networking controls of the consensus node.
-use std::io;
-use std::collections::HashSet;
-use std::fmt::Debug;
-use std::marker::{Send, Sync};
-use std::net::SocketAddr;
 use crossbeam;
 use merkle::Hashable;
+use std::collections::HashSet;
+use std::fmt::Debug;
+use std::io;
+use std::marker::{Send, Sync};
+use std::net::SocketAddr;
 
-use connection;
 use broadcast;
 use commst;
+use connection;
 use messaging::Messaging;
 
 #[derive(Debug)]
 pub enum Error {
     IoError(io::Error),
     CommsError(commst::Error),
-    NotImplemented
+    NotImplemented,
 }
 
 impl From<io::Error> for Error {
-    fn from(err: io::Error) -> Error { Error::IoError(err) }
+    fn from(err: io::Error) -> Error {
+        Error::IoError(err)
+    }
 }
 
 impl From<commst::Error> for Error {
-    fn from(err: commst::Error) -> Error { Error::CommsError(err) }
+    fn from(err: commst::Error) -> Error {
+        Error::CommsError(err)
+    }
 }
 
 /// This is a structure to start a consensus node.
@@ -34,24 +38,23 @@ pub struct Node<T> {
     /// Sockets of remote nodes.
     remotes: HashSet<SocketAddr>,
     /// Optionally, a value to be broadcast by this node.
-    value: Option<T>
+    value: Option<T>,
 }
 
-impl<T: Clone + Debug + Hashable + PartialEq + Send + Sync
-     + From<Vec<u8>> + Into<Vec<u8>>>
+impl<T: Clone + Debug + Hashable + PartialEq + Send + Sync + From<Vec<u8>> + Into<Vec<u8>>>
     Node<T>
 {
     /// Consensus node constructor. It only initialises initial parameters.
-    pub fn new(addr: SocketAddr,
-               remotes: HashSet<SocketAddr>,
-               value: Option<T>) -> Self
-    {
-        Node {addr, remotes, value}
+    pub fn new(addr: SocketAddr, remotes: HashSet<SocketAddr>, value: Option<T>) -> Self {
+        Node {
+            addr,
+            remotes,
+            value,
+        }
     }
 
     /// Consensus node procedure implementing HoneyBadgerBFT.
-    pub fn run(&self) -> Result<T, Error>
-    {
+    pub fn run(&self) -> Result<T, Error> {
         let value = &self.value;
         let connections = connection::make(&self.addr, &self.remotes);
         let num_nodes = connections.len() + 1;
@@ -76,61 +79,65 @@ impl<T: Clone + Debug + Hashable + PartialEq + Send + Sync
             // node index is 0.
             let rx_to_algo0 = &rxs_to_algo[0];
             broadcast_handles.push(scope.spawn(move || {
-                match broadcast::Instance::new(tx_from_algo,
-                                               rx_to_algo0,
-                                               value.to_owned(),
-                                               num_nodes,
-                                               0)
-                    .run()
+                match broadcast::Instance::new(
+                    tx_from_algo,
+                    rx_to_algo0,
+                    value.to_owned(),
+                    num_nodes,
+                    0,
+                ).run()
                 {
                     Ok(t) => {
-                        debug!("Broadcast instance 0 succeeded: {}",
-                               String::from_utf8(T::into(t)).unwrap());
-                    },
-                    Err(e) => error!("Broadcast instance 0: {:?}", e)
+                        debug!(
+                            "Broadcast instance 0 succeeded: {}",
+                            String::from_utf8(T::into(t)).unwrap()
+                        );
+                    }
+                    Err(e) => error!("Broadcast instance 0: {:?}", e),
                 }
             }));
 
             // Start a comms task for each connection. Node indices of those
             // tasks are 1 through N where N is the number of connections.
             for (i, c) in connections.iter().enumerate() {
-
                 // Receive side of a single-consumer channel from algorithm
                 // actor tasks to the comms task.
                 let rx_to_comms = &rxs_to_comms[i];
                 let node_index = i + 1;
 
                 scope.spawn(move || {
-                    match commst::CommsTask::new(tx_from_comms,
-                                                 rx_to_comms,
-                                                 // FIXME: handle error
-                                                 c.stream.try_clone().unwrap(),
-                                                 node_index)
-                        .run()
+                    match commst::CommsTask::new(
+                        tx_from_comms,
+                        rx_to_comms,
+                        // FIXME: handle error
+                        c.stream.try_clone().unwrap(),
+                        node_index,
+                    ).run()
                     {
                         Ok(_) => debug!("Comms task {} succeeded", node_index),
-                        Err(e) => error!("Comms task {}: {:?}", node_index, e)
+                        Err(e) => error!("Comms task {}: {:?}", node_index, e),
                     }
                 });
-
 
                 // Associate a broadcast instance to the above comms task.
                 let rx_to_algo = &rxs_to_algo[node_index];
                 broadcast_handles.push(scope.spawn(move || {
-                    match broadcast::Instance::new(tx_from_algo,
-                                                   rx_to_algo,
-                                                   None,
-                                                   num_nodes,
-                                                   node_index)
-                        .run()
+                    match broadcast::Instance::new(
+                        tx_from_algo,
+                        rx_to_algo,
+                        None,
+                        num_nodes,
+                        node_index,
+                    ).run()
                     {
                         Ok(t) => {
-                            debug!("Broadcast instance {} succeeded: {}",
-                                   node_index,
-                                   String::from_utf8(T::into(t)).unwrap());
-                        },
-                        Err(e) => error!("Broadcast instance {}: {:?}",
-                                         node_index, e)
+                            debug!(
+                                "Broadcast instance {} succeeded: {}",
+                                node_index,
+                                String::from_utf8(T::into(t)).unwrap()
+                            );
+                        }
+                        Err(e) => error!("Broadcast instance {}: {:?}", node_index, e),
                     }
                 }));
             }
@@ -142,13 +149,16 @@ impl<T: Clone + Debug + Hashable + PartialEq + Send + Sync
             }
 
             // Stop the messaging task.
-            stop_tx.send(()).map_err(|e| {
-                error!("{}", e);
-            }).unwrap();
+            stop_tx
+                .send(())
+                .map_err(|e| {
+                    error!("{}", e);
+                })
+                .unwrap();
 
             match msg_handle.join() {
                 Ok(()) => debug!("Messaging stopped OK"),
-                Err(e) => debug!("Messaging error: {:?}", e)
+                Err(e) => debug!("Messaging error: {:?}", e),
             }
             // TODO: continue the implementation of the asynchronous common
             // subset algorithm.

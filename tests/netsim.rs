@@ -5,7 +5,7 @@
 extern crate crossbeam_channel;
 extern crate log;
 
-use crossbeam_channel::{Sender, Receiver, unbounded};
+use crossbeam_channel::{unbounded, Receiver, Sender};
 
 pub struct NetSim<Message: Clone + Send + Sync> {
     /// The number of simulated nodes.
@@ -21,19 +21,13 @@ impl<Message: Clone + Send + Sync> NetSim<Message> {
         assert!(num_nodes > 1);
         // All channels of a totally connected network of size `num_nodes`.
         let channels: Vec<(Sender<Message>, Receiver<Message>)> =
-            (0 .. num_nodes * num_nodes)
-            .map(|_| unbounded())
-            .collect();
-        let txs = channels.iter()
-            .map(|&(ref tx, _)| tx.to_owned())
-            .collect();
-        let rxs = channels.iter()
-            .map(|&(_, ref rx)| rx.to_owned())
-            .collect();
+            (0..num_nodes * num_nodes).map(|_| unbounded()).collect();
+        let txs = channels.iter().map(|&(ref tx, _)| tx.to_owned()).collect();
+        let rxs = channels.iter().map(|&(_, ref rx)| rx.to_owned()).collect();
         NetSim {
             num_nodes,
             txs,
-            rxs
+            rxs,
         }
     }
 

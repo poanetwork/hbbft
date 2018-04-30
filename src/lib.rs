@@ -40,21 +40,21 @@
 #![feature(optin_builtin_traits)]
 #[macro_use]
 extern crate log;
+extern crate crossbeam;
+extern crate merkle;
 extern crate protobuf;
 extern crate ring;
-extern crate merkle;
-extern crate crossbeam;
 #[macro_use]
 extern crate crossbeam_channel;
 extern crate reed_solomon_erasure;
 
+pub mod agreement;
+pub mod broadcast;
+pub mod common_subset;
+mod commst;
 mod connection;
 pub mod messaging;
 pub mod proto;
 mod proto_io;
-mod commst;
-pub mod common_subset;
-pub mod broadcast;
-pub mod agreement;
 
 pub mod node;
