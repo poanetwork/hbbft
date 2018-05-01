@@ -4,6 +4,9 @@ use crossbeam_channel::{SendError, Sender};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::RwLock;
 
+use agreement;
+use agreement::Agreement;
+
 use broadcast;
 use broadcast::Broadcast;
 
@@ -11,8 +14,15 @@ use messaging;
 use messaging::{AlgoMessage, Algorithm, Handler, LocalMessage, RemoteMessage,
                 MessageLoopState, NodeUid, QMessage, ProposedValue};
 
-pub enum CommonSubsetMessage {
+use proto::{BroadcastMessage, AgreementMessage};
 
+pub enum Message {
+    /// Local message to initiate broadcast of a value.
+    CommonSubset(ProposedValue),
+    /// Message from a remote node `uid` to the broadcast instance `uid`.
+    Broadcast(NodeUid, BroadcastMessage<ProposedValue>),
+    /// Message from a remote node `uid` to the agreement instance `uid`.
+    Agreement(NodeUid, AgreementMessage),
 }
 
 struct CommonSubsetState {
@@ -26,6 +36,7 @@ pub struct CommonSubset {
     num_nodes: usize,
     num_faulty_nodes: usize,
     broadcast_instances: HashMap<NodeUid, Broadcast>,
+    agreement_instances: HashMap<NodeUid, Agreement>,
     state: RwLock<CommonSubsetState>,
 }
 
@@ -39,6 +50,8 @@ impl CommonSubset {
             num_faulty_nodes,
             // FIXME: instantiate broadcast instances
             broadcast_instances: HashMap::new(),
+            // FIXME: instantiate agreement instances
+            agreement_instances: HashMap::new(),
             state: RwLock::new(CommonSubsetState {
                 agreement_inputs: HashMap::new(),
                 agreement_true_outputs: HashSet::new(),
@@ -49,7 +62,7 @@ impl CommonSubset {
 
     /// Common Subset input message handler. It receives a value for broadcast
     /// and redirects it to the corresponding broadcast instance.
-    pub fn on_message_input(&self, value: ProposedValue) ->
+    pub fn on_proposed_value(&self, value: ProposedValue) ->
         Result<VecDeque<RemoteMessage>, Error>
     {
         // Upon receiving input v_i , input v_i to RBC_i. See Figure 2.
@@ -60,30 +73,55 @@ impl CommonSubset {
             Err(Error::NoSuchBroadcastInstance(self.uid))
         }
     }
+
+    /// Upon delivery of v_j from RBC_j, if input has not yet been provided to
+    /// BA_j, then provide input 1 to BA_j. See Figure 11.
+    pub fn on_broadcast_output(&mut self, uid: NodeUid) ->
+        Result<(), Error>
+    {
+        if let Some(agreement_instance) = self.agreement_instances.get_mut(&uid) {
+            if agreement_instance.get_input().is_none() {
+                agreement_instance.set_input(true);
+
+                let mut state = self.state.write().unwrap();
+                state.agreements_without_input.remove(&uid);
+            }
+            Ok(())
+        }
+        else {
+            Err(Error::NoSuchBroadcastInstance(self.uid))
+        }
+    }
+
+    pub fn handle_input(&self, message: Message) ->
+        Result<VecDeque<RemoteMessage>, Error>
+    {
+        match message {
+            Message::CommonSubset(value) => self.on_proposed_value(value),
+            Message::Broadcast(uid, bmessage) => {
+                if let Some(broadcast_instance) = self.broadcast_instances.get_mut(&uid) {
+                    broadcast_instance.handle_broadcast_message(uid, &bmessage)
+                        .map(|(value, queue)| {
+                            if let Some(value) = value {
+                                self.on_broadcast_output(uid);
+                            }
+                            queue
+                        })
+                        .map_err(Error::from)
+                }
+                else {
+                    Err(Error::NoSuchBroadcastInstance(uid))
+                }
+            },
+            Message::Agreement(_uid, _message) => {
+                Err(Error::NotImplemented)
+            }
+        }
+    }
 }
+
+
     /*
-                        no_outgoing
-                    }
-
-                    // Upon delivery of v_j from RBC_j, if input has not yet been
-                    // provided to BA_j, then provide input 1 to BA_j. See Figure
-                    // 11.
-                    //
-                    // FIXME: Use the output value.
-                    AlgoMessage::BroadcastOutput(uid, _value) => {
-                        let mut state = self.state.write().unwrap();
-                        if state.agreement_inputs.get(&uid).is_none() {
-                            tx.send(QMessage::Local(LocalMessage {
-                                dst: Algorithm::Agreement(uid),
-                                message: AlgoMessage::AgreementInput(true),
-                            })).map_err(Error::from)?;
-
-                            let _ = state.agreement_inputs.insert(uid, true);
-                            state.agreements_without_input.remove(&uid);
-                        }
-
-                        no_outgoing
-                    }
 
                     // Upon delivery of value 1 from at least N − f instances of BA,
                     // provide input 0 to each instance of BA that has not yet been
