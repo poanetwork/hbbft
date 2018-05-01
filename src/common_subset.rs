@@ -54,7 +54,7 @@ impl CommonSubset {
     {
         // Upon receiving input v_i , input v_i to RBC_i. See Figure 2.
         if let Some(instance) = self.broadcast_instances.get(&self.uid) {
-            instance.handle_broadcast_value(value)
+            instance.propose_value(value).map_err(Error::from)
         }
         else {
             Err(Error::NoSuchBroadcastInstance(self.uid))

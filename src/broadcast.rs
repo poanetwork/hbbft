@@ -76,7 +76,7 @@ impl Broadcast {
     {
         match m {
             QMessage::Local(LocalMessage { message, .. }) => match message {
-                AlgoMessage::BroadcastInput(value) => self.on_local_message(&mut value.to_owned()),
+                AlgoMessage::BroadcastInput(value) => self.on_local_message(value.to_owned()),
 
                 _ => Err(Error::UnexpectedMessage).map_err(E::from),
             },
@@ -97,7 +97,34 @@ impl Broadcast {
     }
 
     /// Processes the proposed value input by broadcasting it.
-    pub fn on_local_message<E>(&self, value: &mut ProposedValue) -> Result<MessageLoopState, E>
+    pub fn propose_value(&self, value: ProposedValue) ->
+        Result<VecDeque<RemoteMessage>, Error>
+    {
+        let mut state = self.state.write().unwrap();
+        // Split the value into chunks/shards, encode them with erasure codes.
+        // Assemble a Merkle tree from data and parity shards. Take all proofs
+        // from this tree and send them, each to its own node.
+        self.send_shards(value)
+            .map_err(Error::from)
+            .map(|(proof, remote_messages)| {
+            // Record the first proof as if it were sent by the node to
+            // itself.
+            let h = proof.root_hash.clone();
+            if proof.validate(h.as_slice()) {
+                // Save the leaf value for reconstructing the tree later.
+                state.leaf_values[index_of_proof(&proof)] =
+                    Some(proof.value.clone().into_boxed_slice());
+                state.leaf_values_num += 1;
+                state.root_hash = Some(h);
+            }
+
+            remote_messages
+        })
+    }
+
+    /// FIXME: Deprecated. Processes the proposed value input by broadcasting
+    /// it.
+    pub fn on_local_message<E>(&self, value: ProposedValue) -> Result<MessageLoopState, E>
     where
         E: From<Error> + From<messaging::Error>,
     {
@@ -118,7 +145,7 @@ impl Broadcast {
             }
 
             MessageLoopState::Processing(remote_messages)
-        })
+        }).map_err(E::from)
     }
 
     /// Breaks the input value into shards of equal length and encodes them --
@@ -126,12 +153,10 @@ impl Broadcast {
     /// scheme. The returned value contains the shard assigned to this
     /// node. That shard doesn't need to be sent anywhere. It gets recorded in
     /// the broadcast instance.
-    fn send_shards<E>(
+    fn send_shards(
         &self,
-        value: &mut ProposedValue,
-    ) -> Result<(Proof<ProposedValue>, VecDeque<RemoteMessage>), E>
-    where
-        E: From<Error> + From<messaging::Error>,
+        mut value: ProposedValue,
+    ) -> Result<(Proof<ProposedValue>, VecDeque<RemoteMessage>), Error>
     {
         let data_shard_num = self.coding.data_shard_count();
         let parity_shard_num = self.coding.parity_shard_count();
@@ -201,7 +226,7 @@ impl Broadcast {
             }
         }
 
-        result.map(|r| (r, outgoing)).map_err(E::from)
+        result.map(|r| (r, outgoing))
     }
 
     fn on_remote_message<E>(
