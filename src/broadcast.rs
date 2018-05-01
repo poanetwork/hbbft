@@ -97,7 +97,7 @@ impl Broadcast {
     }
 
     /// Processes the proposed value input by broadcasting it.
-    fn on_local_message<E>(&self, value: &mut ProposedValue) -> Result<MessageLoopState, E>
+    pub fn on_local_message<E>(&self, value: &mut ProposedValue) -> Result<MessageLoopState, E>
     where
         E: From<Error> + From<messaging::Error>,
     {
@@ -204,7 +204,6 @@ impl Broadcast {
         result.map(|r| (r, outgoing)).map_err(E::from)
     }
 
-    /// Handler of messages received from remote nodes.
     fn on_remote_message<E>(
         &self,
         uid: NodeUid,
@@ -214,15 +213,34 @@ impl Broadcast {
     where
         E: From<Error> + From<messaging::Error>,
     {
+        let (output, messages) = self.handle_broadcast_message::<E>(uid, message)?;
+        if let Some(value) = output {
+            tx.send(QMessage::Local(LocalMessage {
+                dst: Algorithm::CommonSubset,
+                message: AlgoMessage::BroadcastOutput(self.uid, value),
+            })).map_err(Error::from)?;
+        }
+        Ok(MessageLoopState::Processing(messages))
+    }
+
+    /// Handler of messages received from remote nodes.
+    pub fn handle_broadcast_message<E>(
+        &self,
+        uid: NodeUid,
+        message: &BroadcastMessage<ProposedValue>,
+    ) -> Result<(Option<ProposedValue>, VecDeque<RemoteMessage>), E>
+    where
+        E: From<Error> + From<messaging::Error>,
+    {
         let mut state = self.state.write().unwrap();
-        let no_outgoing = Ok(MessageLoopState::Processing(VecDeque::new()));
+        let no_outgoing = VecDeque::new();
 
         // A value received. Record the value and multicast an echo.
         match message {
             BroadcastMessage::Value(p) => {
                 if uid != self.uid {
                     // Ignore value messages from unrelated remote nodes.
-                    no_outgoing
+                    Ok((None, no_outgoing))
                 } else {
                     // Initialise the root hash if not already initialised.
                     if state.root_hash.is_none() {
@@ -245,12 +263,11 @@ impl Broadcast {
                     }
 
                     // Enqueue a broadcast of an echo of this proof.
-                    Ok(MessageLoopState::Processing(VecDeque::from(vec![
-                        RemoteMessage {
-                            node: RemoteNode::All,
-                            message: Message::Broadcast(BroadcastMessage::Echo(p.clone())),
-                        },
-                    ])))
+                    let state = VecDeque::from(vec![RemoteMessage {
+                        node: RemoteNode::All,
+                        message: Message::Broadcast(BroadcastMessage::Echo(p.clone())),
+                    }]);
+                    Ok((None, state))
                 }
             }
 
@@ -283,12 +300,7 @@ impl Broadcast {
                                 self.data_shard_num,
                                 h,
                             )?;
-                            tx.send(QMessage::Local(LocalMessage {
-                                dst: Algorithm::CommonSubset,
-                                message: AlgoMessage::BroadcastOutput(uid, value),
-                            })).map_err(Error::from)?;
-
-                            no_outgoing
+                            Ok((Some(value), no_outgoing))
                         } else if state.leaf_values_num >= self.num_nodes - self.num_faulty_nodes {
                             let result: Result<ProposedValue, Error> = decode_from_shards(
                                 &mut state.leaf_values,
@@ -303,30 +315,31 @@ impl Broadcast {
                                     if !state.ready_sent {
                                         state.ready_sent = true;
 
-                                        Ok(MessageLoopState::Processing(VecDeque::from(vec![
-                                            RemoteMessage {
+                                        Ok((
+                                            None,
+                                            VecDeque::from(vec![RemoteMessage {
                                                 node: RemoteNode::All,
                                                 message: Message::Broadcast(
                                                     BroadcastMessage::Ready(h.to_owned()),
                                                 ),
-                                            },
-                                        ])))
+                                            }]),
+                                        ))
                                     } else {
-                                        no_outgoing
+                                        Ok((None, no_outgoing))
                                     }
                                 }
                                 Err(e) => Err(E::from(e)),
                             }
                         } else {
-                            no_outgoing
+                            Ok((None, no_outgoing))
                         }
                     } else {
                         debug!("Broadcast/{} cannot validate Echo {:?}", self.uid, p);
-                        no_outgoing
+                        Ok((None, no_outgoing))
                     }
                 } else {
                     error!("Broadcast/{} root hash not initialised", self.uid);
-                    no_outgoing
+                    Ok((None, no_outgoing))
                 }
             }
 
@@ -349,6 +362,8 @@ impl Broadcast {
                         });
                     }
 
+                    let mut output = None;
+
                     // Upon receiving 2f + 1 matching Ready(h) messages, wait
                     // for N − 2f Echo messages, then decode v.
                     if ready_num > 2 * self.num_faulty_nodes {
@@ -361,18 +376,15 @@ impl Broadcast {
                                 h,
                             )?;
 
-                            tx.send(QMessage::Local(LocalMessage {
-                                dst: Algorithm::CommonSubset,
-                                message: AlgoMessage::BroadcastOutput(self.uid, value),
-                            })).map_err(Error::from)?;
+                            output = Some(value);
                         } else {
                             state.ready_to_decode = true;
                         }
                     }
 
-                    Ok(MessageLoopState::Processing(outgoing))
+                    Ok((output, outgoing))
                 } else {
-                    no_outgoing
+                    Ok((None, no_outgoing))
                 }
             }
         }
