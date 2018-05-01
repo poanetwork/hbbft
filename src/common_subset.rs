@@ -5,11 +5,11 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::RwLock;
 
 use broadcast;
-use broadcast::Broadcast;
+use broadcast::{Broadcast, TargetedBroadcastMessage};
 
 use messaging;
-use messaging::{AlgoMessage, Algorithm, Handler, LocalMessage, RemoteMessage,
-                MessageLoopState, NodeUid, QMessage, ProposedValue};
+use messaging::{AlgoMessage, Algorithm, Handler, LocalMessage, MessageLoopState, NodeUid,
+                ProposedValue, QMessage, RemoteMessage};
 
 pub enum CommonSubsetMessage {
 
@@ -25,7 +25,7 @@ pub struct CommonSubset {
     uid: NodeUid,
     num_nodes: usize,
     num_faulty_nodes: usize,
-    broadcast_instances: HashMap<NodeUid, Broadcast>,
+    broadcast_instances: HashMap<NodeUid, Broadcast<NodeUid>>,
     state: RwLock<CommonSubsetState>,
 }
 
@@ -49,19 +49,20 @@ impl CommonSubset {
 
     /// Common Subset input message handler. It receives a value for broadcast
     /// and redirects it to the corresponding broadcast instance.
-    pub fn on_message_input(&self, value: ProposedValue) ->
-        Result<VecDeque<RemoteMessage>, Error>
-    {
+    pub fn on_message_input(&self, value: ProposedValue) -> Result<VecDeque<RemoteMessage>, Error> {
         // Upon receiving input v_i , input v_i to RBC_i. See Figure 2.
         if let Some(instance) = self.broadcast_instances.get(&self.uid) {
-            instance.propose_value(value).map_err(Error::from)
-        }
-        else {
+            Ok(instance
+                .propose_value(value)?
+                .into_iter()
+                .map(TargetedBroadcastMessage::into_remote_message)
+                .collect())
+        } else {
             Err(Error::NoSuchBroadcastInstance(self.uid))
         }
     }
 }
-    /*
+/*
                         no_outgoing
                     }
 

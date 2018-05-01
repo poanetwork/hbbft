@@ -7,14 +7,40 @@ use proto::*;
 use reed_solomon_erasure as rse;
 use reed_solomon_erasure::ReedSolomon;
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::fmt::Debug;
+use std::fmt::{Debug, Display};
+use std::hash::Hash;
 use std::marker::{Send, Sync};
 use std::sync::{Arc, Mutex, RwLock};
 
 use messaging;
-use messaging::{AlgoMessage, Algorithm, Handler, LocalMessage, MessageLoopState, NodeUid,
-                ProposedValue, QMessage, RemoteMessage, RemoteNode, SourcedMessage, Target,
-                TargetedMessage};
+use messaging::{AlgoMessage, Algorithm, Handler, LocalMessage, MessageLoopState, ProposedValue,
+                QMessage, RemoteMessage, RemoteNode, SourcedMessage, Target, TargetedMessage};
+
+/// A `BroadcastMessage` to be sent out, together with a target.
+#[derive(Debug)]
+pub struct TargetedBroadcastMessage<NodeUid> {
+    pub target: BroadcastTarget<NodeUid>,
+    pub message: BroadcastMessage<ProposedValue>,
+}
+
+impl TargetedBroadcastMessage<messaging::NodeUid> {
+    pub fn into_remote_message(self) -> RemoteMessage {
+        RemoteMessage {
+            node: match self.target {
+                BroadcastTarget::All => RemoteNode::All,
+                BroadcastTarget::Node(node) => RemoteNode::Node(node),
+            },
+            message: Message::Broadcast(self.message),
+        }
+    }
+}
+
+/// A target node for a `BroadcastMessage`.
+#[derive(Debug)]
+pub enum BroadcastTarget<NodeUid> {
+    All,
+    Node(NodeUid),
+}
 
 struct BroadcastState {
     root_hash: Option<Vec<u8>>,
@@ -27,7 +53,7 @@ struct BroadcastState {
 }
 
 /// Reliable Broadcast algorithm instance.
-pub struct Broadcast {
+pub struct Broadcast<NodeUid: Eq + Hash> {
     /// The UID of this node.
     uid: NodeUid,
     /// UIDs of all nodes for iteration purposes.
@@ -42,7 +68,96 @@ pub struct Broadcast {
     state: RwLock<BroadcastState>,
 }
 
-impl Broadcast {
+impl Broadcast<messaging::NodeUid> {
+    /// The message-driven interface function for calls from the main message
+    /// loop.
+    pub fn on_message(
+        &self,
+        m: QMessage,
+        tx: &Sender<QMessage>,
+    ) -> Result<MessageLoopState, Error> {
+        match m {
+            QMessage::Local(LocalMessage { message, .. }) => match message {
+                AlgoMessage::BroadcastInput(value) => self.on_local_message(&mut value.to_owned()),
+
+                _ => Err(Error::UnexpectedMessage),
+            },
+
+            QMessage::Remote(RemoteMessage {
+                node: RemoteNode::Node(uid),
+                message,
+            }) => {
+                if let Message::Broadcast(b) = message {
+                    self.on_remote_message(uid, &b, tx)
+                } else {
+                    Err(Error::UnexpectedMessage)
+                }
+            }
+
+            _ => Err(Error::UnexpectedMessage),
+        }
+    }
+
+    fn on_remote_message(
+        &self,
+        uid: messaging::NodeUid,
+        message: &BroadcastMessage<ProposedValue>,
+        tx: &Sender<QMessage>,
+    ) -> Result<MessageLoopState, Error> {
+        let (output, messages) = self.handle_broadcast_message(&uid, message)?;
+        if let Some(value) = output {
+            tx.send(QMessage::Local(LocalMessage {
+                dst: Algorithm::CommonSubset,
+                message: AlgoMessage::BroadcastOutput(self.uid, value),
+            })).map_err(Error::from)?;
+        }
+        Ok(MessageLoopState::Processing(
+            messages
+                .into_iter()
+                .map(TargetedBroadcastMessage::into_remote_message)
+                .collect(),
+        ))
+    }
+
+    /// Processes the proposed value input by broadcasting it.
+    pub fn on_local_message(&self, value: &mut ProposedValue) -> Result<MessageLoopState, Error> {
+        let mut state = self.state.write().unwrap();
+        // Split the value into chunks/shards, encode them with erasure codes.
+        // Assemble a Merkle tree from data and parity shards. Take all proofs
+        // from this tree and send them, each to its own node.
+        self.send_shards(value.clone())
+            .map(|(proof, remote_messages)| {
+                // Record the first proof as if it were sent by the node to
+                // itself.
+                let h = proof.root_hash.clone();
+                if proof.validate(h.as_slice()) {
+                    // Save the leaf value for reconstructing the tree later.
+                    state.leaf_values[index_of_proof(&proof)] =
+                        Some(proof.value.clone().into_boxed_slice());
+                    state.leaf_values_num += 1;
+                    state.root_hash = Some(h);
+                }
+
+                MessageLoopState::Processing(
+                    remote_messages
+                        .into_iter()
+                        .map(TargetedBroadcastMessage::into_remote_message)
+                        .collect(),
+                )
+            })
+    }
+}
+
+impl<'a, E> Handler<E> for Broadcast<messaging::NodeUid>
+where
+    E: From<Error> + From<messaging::Error>,
+{
+    fn handle(&self, m: QMessage, tx: Sender<QMessage>) -> Result<MessageLoopState, E> {
+        self.on_message(m, &tx).map_err(E::from)
+    }
+}
+
+impl<NodeUid: Eq + Hash + Debug + Display + Clone> Broadcast<NodeUid> {
     pub fn new(uid: NodeUid, all_uids: HashSet<NodeUid>, num_nodes: usize) -> Result<Self, Error> {
         let num_faulty_nodes = (num_nodes - 1) / 3;
         let parity_shard_num = 2 * num_faulty_nodes;
@@ -68,38 +183,11 @@ impl Broadcast {
         })
     }
 
-    /// The message-driven interface function for calls from the main message
-    /// loop.
-    pub fn on_message<E>(&self, m: QMessage, tx: &Sender<QMessage>) -> Result<MessageLoopState, E>
-    where
-        E: From<Error> + From<messaging::Error>,
-    {
-        match m {
-            QMessage::Local(LocalMessage { message, .. }) => match message {
-                AlgoMessage::BroadcastInput(value) => self.on_local_message(value.to_owned()),
-
-                _ => Err(Error::UnexpectedMessage).map_err(E::from),
-            },
-
-            QMessage::Remote(RemoteMessage {
-                node: RemoteNode::Node(uid),
-                message,
-            }) => {
-                if let Message::Broadcast(b) = message {
-                    self.on_remote_message(uid, &b, tx)
-                } else {
-                    Err(Error::UnexpectedMessage).map_err(E::from)
-                }
-            }
-
-            _ => Err(Error::UnexpectedMessage).map_err(E::from),
-        }
-    }
-
     /// Processes the proposed value input by broadcasting it.
-    pub fn propose_value(&self, value: ProposedValue) ->
-        Result<VecDeque<RemoteMessage>, Error>
-    {
+    pub fn propose_value(
+        &self,
+        value: ProposedValue,
+    ) -> Result<VecDeque<TargetedBroadcastMessage<NodeUid>>, Error> {
         let mut state = self.state.write().unwrap();
         // Split the value into chunks/shards, encode them with erasure codes.
         // Assemble a Merkle tree from data and parity shards. Take all proofs
@@ -107,45 +195,19 @@ impl Broadcast {
         self.send_shards(value)
             .map_err(Error::from)
             .map(|(proof, remote_messages)| {
-            // Record the first proof as if it were sent by the node to
-            // itself.
-            let h = proof.root_hash.clone();
-            if proof.validate(h.as_slice()) {
-                // Save the leaf value for reconstructing the tree later.
-                state.leaf_values[index_of_proof(&proof)] =
-                    Some(proof.value.clone().into_boxed_slice());
-                state.leaf_values_num += 1;
-                state.root_hash = Some(h);
-            }
+                // Record the first proof as if it were sent by the node to
+                // itself.
+                let h = proof.root_hash.clone();
+                if proof.validate(h.as_slice()) {
+                    // Save the leaf value for reconstructing the tree later.
+                    state.leaf_values[index_of_proof(&proof)] =
+                        Some(proof.value.clone().into_boxed_slice());
+                    state.leaf_values_num += 1;
+                    state.root_hash = Some(h);
+                }
 
-            remote_messages
-        })
-    }
-
-    /// FIXME: Deprecated. Processes the proposed value input by broadcasting
-    /// it.
-    pub fn on_local_message<E>(&self, value: ProposedValue) -> Result<MessageLoopState, E>
-    where
-        E: From<Error> + From<messaging::Error>,
-    {
-        let mut state = self.state.write().unwrap();
-        // Split the value into chunks/shards, encode them with erasure codes.
-        // Assemble a Merkle tree from data and parity shards. Take all proofs
-        // from this tree and send them, each to its own node.
-        self.send_shards(value).map(|(proof, remote_messages)| {
-            // Record the first proof as if it were sent by the node to
-            // itself.
-            let h = proof.root_hash.clone();
-            if proof.validate(h.as_slice()) {
-                // Save the leaf value for reconstructing the tree later.
-                state.leaf_values[index_of_proof(&proof)] =
-                    Some(proof.value.clone().into_boxed_slice());
-                state.leaf_values_num += 1;
-                state.root_hash = Some(h);
-            }
-
-            MessageLoopState::Processing(remote_messages)
-        }).map_err(E::from)
+                remote_messages
+            })
     }
 
     /// Breaks the input value into shards of equal length and encodes them --
@@ -156,8 +218,13 @@ impl Broadcast {
     fn send_shards(
         &self,
         mut value: ProposedValue,
-    ) -> Result<(Proof<ProposedValue>, VecDeque<RemoteMessage>), Error>
-    {
+    ) -> Result<
+        (
+            Proof<ProposedValue>,
+            VecDeque<TargetedBroadcastMessage<NodeUid>>,
+        ),
+        Error,
+    > {
         let data_shard_num = self.coding.data_shard_count();
         let parity_shard_num = self.coding.parity_shard_count();
 
@@ -218,9 +285,9 @@ impl Broadcast {
                     result = Ok(proof);
                 } else {
                     // Rest of the proofs are sent to remote nodes.
-                    outgoing.push_back(RemoteMessage {
-                        node: RemoteNode::Node(uid),
-                        message: Message::Broadcast(BroadcastMessage::Value(proof)),
+                    outgoing.push_back(TargetedBroadcastMessage {
+                        target: BroadcastTarget::Node(uid),
+                        message: BroadcastMessage::Value(proof),
                     });
                 }
             }
@@ -229,41 +296,25 @@ impl Broadcast {
         result.map(|r| (r, outgoing))
     }
 
-    fn on_remote_message<E>(
-        &self,
-        uid: NodeUid,
-        message: &BroadcastMessage<ProposedValue>,
-        tx: &Sender<QMessage>,
-    ) -> Result<MessageLoopState, E>
-    where
-        E: From<Error> + From<messaging::Error>,
-    {
-        let (output, messages) = self.handle_broadcast_message::<E>(uid, message)?;
-        if let Some(value) = output {
-            tx.send(QMessage::Local(LocalMessage {
-                dst: Algorithm::CommonSubset,
-                message: AlgoMessage::BroadcastOutput(self.uid, value),
-            })).map_err(Error::from)?;
-        }
-        Ok(MessageLoopState::Processing(messages))
-    }
-
     /// Handler of messages received from remote nodes.
-    pub fn handle_broadcast_message<E>(
+    pub fn handle_broadcast_message(
         &self,
-        uid: NodeUid,
+        uid: &NodeUid,
         message: &BroadcastMessage<ProposedValue>,
-    ) -> Result<(Option<ProposedValue>, VecDeque<RemoteMessage>), E>
-    where
-        E: From<Error> + From<messaging::Error>,
-    {
+    ) -> Result<
+        (
+            Option<ProposedValue>,
+            VecDeque<TargetedBroadcastMessage<NodeUid>>,
+        ),
+        Error,
+    > {
         let mut state = self.state.write().unwrap();
         let no_outgoing = VecDeque::new();
 
         // A value received. Record the value and multicast an echo.
         match message {
             BroadcastMessage::Value(p) => {
-                if uid != self.uid {
+                if *uid != self.uid {
                     // Ignore value messages from unrelated remote nodes.
                     Ok((None, no_outgoing))
                 } else {
@@ -288,9 +339,9 @@ impl Broadcast {
                     }
 
                     // Enqueue a broadcast of an echo of this proof.
-                    let state = VecDeque::from(vec![RemoteMessage {
-                        node: RemoteNode::All,
-                        message: Message::Broadcast(BroadcastMessage::Echo(p.clone())),
+                    let state = VecDeque::from(vec![TargetedBroadcastMessage {
+                        target: BroadcastTarget::All,
+                        message: BroadcastMessage::Echo(p.clone()),
                     }]);
                     Ok((None, state))
                 }
@@ -298,7 +349,7 @@ impl Broadcast {
 
             // An echo received. Verify the proof it contains.
             BroadcastMessage::Echo(p) => {
-                if state.root_hash.is_none() && uid == self.uid {
+                if state.root_hash.is_none() && *uid == self.uid {
                     state.root_hash = Some(p.root_hash.clone());
                     debug!("Node {} Echo root hash {:?}", self.uid, state.root_hash);
                 }
@@ -333,27 +384,21 @@ impl Broadcast {
                                 self.data_shard_num,
                                 h,
                             );
-                            match result {
-                                Ok(_) => {
-                                    // if Ready has not yet been sent, multicast
-                                    // Ready
-                                    if !state.ready_sent {
-                                        state.ready_sent = true;
+                            result?;
+                            // if Ready has not yet been sent, multicast
+                            // Ready
+                            if !state.ready_sent {
+                                state.ready_sent = true;
 
-                                        Ok((
-                                            None,
-                                            VecDeque::from(vec![RemoteMessage {
-                                                node: RemoteNode::All,
-                                                message: Message::Broadcast(
-                                                    BroadcastMessage::Ready(h.to_owned()),
-                                                ),
-                                            }]),
-                                        ))
-                                    } else {
-                                        Ok((None, no_outgoing))
-                                    }
-                                }
-                                Err(e) => Err(E::from(e)),
+                                Ok((
+                                    None,
+                                    VecDeque::from(vec![TargetedBroadcastMessage {
+                                        target: BroadcastTarget::All,
+                                        message: BroadcastMessage::Ready(h.to_owned()),
+                                    }]),
+                                ))
+                            } else {
+                                Ok((None, no_outgoing))
                             }
                         } else {
                             Ok((None, no_outgoing))
@@ -381,9 +426,9 @@ impl Broadcast {
                     // has not yet been sent, multicast Ready(h).
                     if (ready_num == self.num_faulty_nodes + 1) && !state.ready_sent {
                         // Enqueue a broadcast of a ready message.
-                        outgoing.push_back(RemoteMessage {
-                            node: RemoteNode::All,
-                            message: Message::Broadcast(BroadcastMessage::Ready(h.to_vec())),
+                        outgoing.push_back(TargetedBroadcastMessage {
+                            target: BroadcastTarget::All,
+                            message: BroadcastMessage::Ready(h.to_vec()),
                         });
                     }
 
@@ -413,15 +458,6 @@ impl Broadcast {
                 }
             }
         }
-    }
-}
-
-impl<'a, E> Handler<E> for Broadcast
-where
-    E: From<Error> + From<messaging::Error>,
-{
-    fn handle(&self, m: QMessage, tx: Sender<QMessage>) -> Result<MessageLoopState, E> {
-        self.on_message(m, &tx)
     }
 }
 
