@@ -8,11 +8,11 @@ use agreement;
 use agreement::Agreement;
 
 use broadcast;
-use broadcast::Broadcast;
+use broadcast::{Broadcast, TargetedBroadcastMessage};
 
 use messaging;
-use messaging::{AlgoMessage, Algorithm, Handler, LocalMessage, RemoteMessage,
-                MessageLoopState, NodeUid, QMessage, ProposedValue};
+use messaging::{AlgoMessage, Algorithm, Handler, LocalMessage, MessageLoopState, NodeUid,
+                ProposedValue, QMessage, RemoteMessage};
 
 use proto::{BroadcastMessage, AgreementMessage};
 
@@ -35,7 +35,7 @@ pub struct CommonSubset {
     uid: NodeUid,
     num_nodes: usize,
     num_faulty_nodes: usize,
-    broadcast_instances: HashMap<NodeUid, Broadcast>,
+    broadcast_instances: HashMap<NodeUid, Broadcast<NodeUid>>,
     agreement_instances: HashMap<NodeUid, Agreement>,
     state: RwLock<CommonSubsetState>,
 }
@@ -67,9 +67,12 @@ impl CommonSubset {
     {
         // Upon receiving input v_i , input v_i to RBC_i. See Figure 2.
         if let Some(instance) = self.broadcast_instances.get(&self.uid) {
-            instance.propose_value(value).map_err(Error::from)
-        }
-        else {
+            Ok(instance
+                .propose_value(value)?
+                .into_iter()
+                .map(TargetedBroadcastMessage::into_remote_message)
+                .collect())
+        } else {
             Err(Error::NoSuchBroadcastInstance(self.uid))
         }
     }
@@ -119,8 +122,6 @@ impl CommonSubset {
         }
     }
 }
-
-
     /*
 
                     // Upon delivery of value 1 from at least N − f instances of BA,
