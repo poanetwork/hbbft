@@ -43,19 +43,38 @@ pub struct CommonSubset<NodeUid: Eq + Hash> {
 }
 
 impl<NodeUid: Clone + Debug + Display + Eq + Hash> CommonSubset<NodeUid> {
-    pub fn new(uid: NodeUid, num_nodes: usize) -> Self {
+    pub fn new(uid: NodeUid, all_uids: HashSet<NodeUid>, num_nodes: usize) ->
+        Result<Self, Error>
+    {
         let num_faulty_nodes = (num_nodes - 1) / 3;
 
-        CommonSubset {
+        // Create all broadcast instances.
+        let mut broadcast_instances: HashMap<NodeUid, Broadcast<NodeUid>> =
+            HashMap::new();
+        for uid0 in &all_uids {
+            broadcast_instances.insert(uid0.clone(),
+                                       Broadcast::new(uid0.clone(),
+                                                      all_uids.clone(),
+                                                      num_nodes)?);
+        }
+
+        // Create all agreement instances.
+        let mut agreement_instances: HashMap<NodeUid, Agreement> =
+            HashMap::new();
+        for uid0 in &all_uids {
+            agreement_instances.insert(uid0.clone(), Agreement::new());
+        }
+
+        Ok(CommonSubset {
             uid,
             num_nodes,
             num_faulty_nodes,
             agreement_true_outputs: HashSet::new(),
             // FIXME: instantiate broadcast instances
-            broadcast_instances: HashMap::new(),
+            broadcast_instances: broadcast_instances,
             // FIXME: instantiate agreement instances
             agreement_instances: HashMap::new(),
-        }
+        })
     }
 
     /// Common Subset input message handler. It receives a value for broadcast
@@ -102,9 +121,7 @@ impl<NodeUid: Clone + Debug + Display + Eq + Hash> CommonSubset<NodeUid> {
                     if let Some(broadcast_instance) = self.broadcast_instances.get(&uid) {
                         broadcast_instance.handle_broadcast_message(&uid, &bmessage)
                             .map(|(value, queue)| {
-                                if let Some(value) = value {
-                                    instance_result = Some(value)
-                                }
+                                instance_result = value;
                                 queue
                                     .into_iter()
                                     .map(Output::Broadcast)
@@ -117,7 +134,7 @@ impl<NodeUid: Clone + Debug + Display + Eq + Hash> CommonSubset<NodeUid> {
                     }
                 };
                 if instance_result.is_some() {
-                    self.on_broadcast_result(uid);
+                    self.on_broadcast_result(uid)?;
                 }
                 input_result
             },

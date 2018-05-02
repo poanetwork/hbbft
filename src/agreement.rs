@@ -8,6 +8,10 @@ pub struct Agreement {
 }
 
 impl Agreement {
+    pub fn new() -> Self {
+        Agreement { input: None }
+    }
+
     pub fn set_input(&mut self, input: bool) {
         self.input = Some(input);
     }
