@@ -10,108 +10,232 @@ extern crate rand;
 extern crate simple_logger;
 
 use rand::Rng;
-use std::collections::{HashSet, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, HashSet, VecDeque};
 
 use hbbft::broadcast::{Broadcast, BroadcastTarget, TargetedBroadcastMessage};
 use hbbft::messaging::ProposedValue;
 use hbbft::proto::BroadcastMessage;
 
+#[derive(Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Clone, Copy)]
+struct NodeId(usize);
+
+type MessageQueue = VecDeque<TargetedBroadcastMessage<NodeId>>;
+
+/// A "node" running a broadcast instance.
 struct TestNode {
-    broadcast: Broadcast<usize>,
-    queue: VecDeque<(usize, BroadcastMessage<ProposedValue>)>,
+    /// This node's own ID.
+    id: NodeId,
+    /// The instance of the broadcast algorithm.
+    broadcast: Broadcast<NodeId>,
+    /// Incoming messages from other nodes that this node has not yet handled.
+    queue: VecDeque<(NodeId, BroadcastMessage<ProposedValue>)>,
+    /// The values this node has output so far.
+    outputs: Vec<ProposedValue>,
 }
 
 impl TestNode {
-    fn new(broadcast: Broadcast<usize>) -> TestNode {
+    /// Creates a new test node with the given broadcast instance.
+    fn new(broadcast: Broadcast<NodeId>) -> TestNode {
         TestNode {
+            id: *broadcast.uid(),
             broadcast,
             queue: VecDeque::new(),
+            outputs: Vec::new(),
+        }
+    }
+
+    /// Handles the first message in the node's queue.
+    fn handle_message(&mut self) -> (Option<ProposedValue>, MessageQueue) {
+        let (from_id, msg) = self.queue.pop_front().expect("message not found");
+        debug!("Handling {:?} -> {:?}: {:?}", from_id, self.id, msg);
+        let (output, msgs) = self.broadcast
+            .handle_broadcast_message(&self.id, &msg)
+            .expect("handling message");
+        if let Some(output) = output.clone() {
+            self.outputs.push(output);
+        }
+        (output, msgs)
+    }
+}
+
+/// A strategy for picking the next good node to handle a message.
+enum MessageScheduler {
+    /// Picks a random node.
+    Random,
+    /// Picks the first non-idle node.
+    First,
+}
+
+impl MessageScheduler {
+    /// Chooses a node to be the next one to handle a message.
+    fn pick_node(&self, nodes: &BTreeMap<NodeId, TestNode>) -> NodeId {
+        match *self {
+            MessageScheduler::First => nodes
+                .iter()
+                .find(|(_, node)| !node.queue.is_empty())
+                .map(|(id, _)| *id)
+                .expect("no more messages in queue"),
+            MessageScheduler::Random => {
+                let ids: Vec<NodeId> = nodes
+                    .iter()
+                    .filter(|(_, node)| !node.queue.is_empty())
+                    .map(|(id, _)| *id)
+                    .collect();
+                *rand::thread_rng()
+                    .choose(&ids)
+                    .expect("no more messages in queue")
+            }
         }
     }
 }
 
-/// Creates `num` nodes, and returns the set of node IDs as well as the new `TestNode`s.
-fn create_test_nodes(num: usize) -> Vec<TestNode> {
-    let node_ids: HashSet<usize> = (0..num).collect();
-    (0..num)
-        .map(|id| {
-            TestNode::new(Broadcast::new(id, node_ids.clone(), num).expect("Instantiate broadcast"))
-        })
-        .collect()
+/// An adversary that can control a set of nodes and pick the next good node to receive a message.
+trait Adversary {
+    /// Chooses a node to be the next one to handle a message.
+    fn pick_node(&self, nodes: &BTreeMap<NodeId, TestNode>) -> NodeId;
+
+    /// Adds a message sent to one of the adversary's nodes.
+    fn push_message(&mut self, sender_id: NodeId, msg: TargetedBroadcastMessage<NodeId>);
+
+    /// Produces a list of messages to be sent from the adversary's nodes.
+    fn step(&mut self) -> Vec<(NodeId, TargetedBroadcastMessage<NodeId>)>;
 }
 
-/// Pushes the messages into the queues of the corresponding recipients.
-fn dispatch_messages(
-    nodes: &mut Vec<TestNode>,
-    sender_id: usize,
-    msgs: VecDeque<TargetedBroadcastMessage<usize>>,
-) {
-    for msg in msgs {
-        match msg {
-            TargetedBroadcastMessage {
-                target: BroadcastTarget::All,
-                message,
-            } => {
-                for (i, node) in nodes.iter_mut().enumerate() {
-                    if i != sender_id {
+/// An adversary whose nodes never send any messages.
+struct SilentAdversary {
+    scheduler: MessageScheduler,
+}
+
+impl SilentAdversary {
+    /// Creates a new silent adversary with the given message scheduler.
+    fn new(scheduler: MessageScheduler) -> SilentAdversary {
+        SilentAdversary { scheduler }
+    }
+}
+
+impl Adversary for SilentAdversary {
+    fn pick_node(&self, nodes: &BTreeMap<NodeId, TestNode>) -> NodeId {
+        self.scheduler.pick_node(nodes)
+    }
+
+    fn push_message(&mut self, _: NodeId, _: TargetedBroadcastMessage<NodeId>) {
+        // All messages are ignored.
+    }
+
+    fn step(&mut self) -> Vec<(NodeId, TargetedBroadcastMessage<NodeId>)> {
+        vec![] // No messages are sent.
+    }
+}
+
+/// A collection of `TestNode`s representing a network.
+struct TestNetwork<A: Adversary> {
+    nodes: BTreeMap<NodeId, TestNode>,
+    adv_nodes: BTreeSet<NodeId>,
+    adversary: A,
+}
+
+impl<A: Adversary> TestNetwork<A> {
+    /// Creates a new network with `good_num` good nodes, and the given `adversary` controlling
+    /// `adv_num` nodes.
+    fn new(good_num: usize, adv_num: usize, adversary: A) -> TestNetwork<A> {
+        let node_ids: HashSet<NodeId> = (0..(good_num + adv_num)).map(NodeId).collect();
+        let new_broadcast = |id: NodeId| {
+            let bc = Broadcast::new(id, node_ids.clone(), node_ids.len())
+                .expect("Instantiate broadcast");
+            (id, TestNode::new(bc))
+        };
+        TestNetwork {
+            nodes: (0..good_num).map(NodeId).map(new_broadcast).collect(),
+            adversary,
+            adv_nodes: (good_num..(good_num + adv_num)).map(NodeId).collect(),
+        }
+    }
+
+    /// Pushes the messages into the queues of the corresponding recipients.
+    fn dispatch_messages(&mut self, sender_id: NodeId, msgs: MessageQueue) {
+        debug!("Sending: {:?}", msgs);
+        for msg in msgs {
+            match msg {
+                TargetedBroadcastMessage {
+                    target: BroadcastTarget::All,
+                    ref message,
+                } => {
+                    for node in self.nodes.values_mut() {
+                        // TODO: `Broadcast` currently assumes that messages to `All` also reach
+                        // ourselves.
+                        //if node.id != sender_id {
                         node.queue.push_back((sender_id, message.clone()))
+                        //}
+                    }
+                    self.adversary.push_message(sender_id, msg.clone());
+                }
+                TargetedBroadcastMessage {
+                    target: BroadcastTarget::Node(to_id),
+                    ref message,
+                } => {
+                    if self.adv_nodes.contains(&to_id) {
+                        self.adversary.push_message(sender_id, msg.clone());
+                    } else {
+                        self.nodes
+                            .get_mut(&to_id)
+                            .unwrap()
+                            .queue
+                            .push_back((sender_id, message.clone()));
                     }
                 }
             }
-            TargetedBroadcastMessage {
-                target: BroadcastTarget::Node(to_id),
-                message,
-            } => nodes[to_id].queue.push_back((sender_id, message)),
         }
+    }
+
+    /// Handles a queued message in a randomly selected node and returns the selected node's ID and
+    /// its output value, if any.
+    fn step(&mut self) -> (NodeId, Option<ProposedValue>) {
+        // TODO: `self.adversary.step()`
+        // Pick a random non-idle node..
+        let id = self.adversary.pick_node(&self.nodes);
+        let (output, msgs) = self.nodes.get_mut(&id).unwrap().handle_message();
+        self.dispatch_messages(id, msgs);
+        (id, output)
+    }
+
+    /// Makes the node `proposer_id` propose a value.
+    fn propose_value(&mut self, proposer_id: NodeId, value: ProposedValue) {
+        let msgs = self.nodes[&proposer_id]
+            .broadcast
+            .propose_value(value)
+            .expect("propose");
+        self.dispatch_messages(proposer_id, msgs);
     }
 }
 
-/// Handles a queued message in a randomly selected node.
-fn handle_message(nodes: &mut Vec<TestNode>) -> (usize, Option<ProposedValue>) {
-    let ids: Vec<usize> = nodes
-        .iter()
-        .enumerate()
-        .filter(|(_, node)| !node.queue.is_empty())
-        .map(|(id, _)| id)
-        .collect();
-    let id = *rand::thread_rng()
-        .choose(&ids)
-        .expect("no more messages in queue");
-    let (from_id, msg) = nodes[id].queue.pop_front().expect("message not found");
-    debug!("Handling {} -> {}: {:?}", from_id, id, msg);
-    let (output, msgs) = nodes[id]
-        .broadcast
-        .handle_broadcast_message(&id, &msg)
-        .expect("handling message");
-    debug!("Sending: {:?}", msgs);
-    dispatch_messages(nodes, id, msgs);
-    (id, output)
-}
-
-#[test]
-fn test_16_broadcast_nodes() {
-    simple_logger::init_with_level(log::Level::Debug).unwrap();
-
-    // Create 4 nodes.
-    const NUM_NODES: usize = 16;
-    let mut nodes = create_test_nodes(NUM_NODES);
+/// Broadcasts a value from node 0 and expects all good nodes to receive it.
+fn test_broadcast<A: Adversary>(mut network: TestNetwork<A>) {
+    // TODO: This returns an error in all but the first test.
+    let _ = simple_logger::init_with_level(log::Level::Debug);
 
     // Make node 0 propose a value.
     let proposed_value = b"Foo";
-    let msgs = nodes[0]
-        .broadcast
-        .propose_value(proposed_value.to_vec())
-        .expect("propose");
-    dispatch_messages(&mut nodes, 0, msgs);
+    network.propose_value(NodeId(0), proposed_value.to_vec());
 
     // Handle messages in random order until all nodes have output the proposed value.
-    let mut received = 0;
-    while received < NUM_NODES {
-        let (id, output) = handle_message(&mut nodes);
+    while network.nodes.values().any(|node| node.outputs.is_empty()) {
+        let (id, output) = network.step();
         if let Some(value) = output {
             assert_eq!(value, proposed_value);
-            received += 1;
-            debug!("Node {} received", id);
+            assert_eq!(1, network.nodes[&id].outputs.len());
+            debug!("Node {:?} received", id);
         }
     }
+}
+
+#[test]
+fn test_11_5_broadcast_nodes_random_delivery() {
+    let adversary = SilentAdversary::new(MessageScheduler::Random);
+    test_broadcast(TestNetwork::new(11, 5, adversary));
+}
+
+#[test]
+fn test_11_5_broadcast_nodes_first_delivery() {
+    let adversary = SilentAdversary::new(MessageScheduler::First);
+    test_broadcast(TestNetwork::new(11, 5, adversary));
 }
