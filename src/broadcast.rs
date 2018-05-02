@@ -7,7 +7,7 @@ use proto::*;
 use reed_solomon_erasure as rse;
 use reed_solomon_erasure::ReedSolomon;
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::fmt::{Debug, Display};
+use std::fmt::Debug;
 use std::hash::Hash;
 use std::marker::{Send, Sync};
 use std::sync::{Arc, Mutex, RwLock};
@@ -17,7 +17,7 @@ use messaging::{AlgoMessage, Algorithm, Handler, LocalMessage, MessageLoopState,
                 QMessage, RemoteMessage, RemoteNode, SourcedMessage, Target, TargetedMessage};
 
 /// A `BroadcastMessage` to be sent out, together with a target.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct TargetedBroadcastMessage<NodeUid> {
     pub target: BroadcastTarget<NodeUid>,
     pub message: BroadcastMessage<ProposedValue>,
@@ -36,7 +36,7 @@ impl TargetedBroadcastMessage<messaging::NodeUid> {
 }
 
 /// A target node for a `BroadcastMessage`.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum BroadcastTarget<NodeUid> {
     All,
     Node(NodeUid),
@@ -50,6 +50,7 @@ struct BroadcastState {
     readys: HashMap<Vec<u8>, usize>,
     ready_sent: bool,
     ready_to_decode: bool,
+    has_output: bool,
 }
 
 /// Reliable Broadcast algorithm instance.
@@ -157,7 +158,7 @@ where
     }
 }
 
-impl<NodeUid: Eq + Hash + Debug + Display + Clone> Broadcast<NodeUid> {
+impl<NodeUid: Eq + Hash + Debug + Clone> Broadcast<NodeUid> {
     pub fn new(uid: NodeUid, all_uids: HashSet<NodeUid>, num_nodes: usize) -> Result<Self, Error> {
         let num_faulty_nodes = (num_nodes - 1) / 3;
         let parity_shard_num = 2 * num_faulty_nodes;
@@ -179,6 +180,7 @@ impl<NodeUid: Eq + Hash + Debug + Display + Clone> Broadcast<NodeUid> {
                 readys: HashMap::new(),
                 ready_sent: false,
                 ready_to_decode: false,
+                has_output: false,
             }),
         })
     }
@@ -208,6 +210,10 @@ impl<NodeUid: Eq + Hash + Debug + Display + Clone> Broadcast<NodeUid> {
 
                 remote_messages
             })
+    }
+
+    pub fn uid(&self) -> &NodeUid {
+        &self.uid
     }
 
     /// Breaks the input value into shards of equal length and encodes them --
@@ -322,7 +328,7 @@ impl<NodeUid: Eq + Hash + Debug + Display + Clone> Broadcast<NodeUid> {
                     if state.root_hash.is_none() {
                         state.root_hash = Some(p.root_hash.clone());
                         debug!(
-                            "Node {} Value root hash {:?}",
+                            "Node {:?} Value root hash {:?}",
                             self.uid,
                             HexBytes(&p.root_hash)
                         );
@@ -351,7 +357,7 @@ impl<NodeUid: Eq + Hash + Debug + Display + Clone> Broadcast<NodeUid> {
             BroadcastMessage::Echo(p) => {
                 if state.root_hash.is_none() && *uid == self.uid {
                     state.root_hash = Some(p.root_hash.clone());
-                    debug!("Node {} Echo root hash {:?}", self.uid, state.root_hash);
+                    debug!("Node {:?} Echo root hash {:?}", self.uid, state.root_hash);
                 }
 
                 // Call validate with the root hash as argument.
@@ -404,11 +410,11 @@ impl<NodeUid: Eq + Hash + Debug + Display + Clone> Broadcast<NodeUid> {
                             Ok((None, no_outgoing))
                         }
                     } else {
-                        debug!("Broadcast/{} cannot validate Echo {:?}", self.uid, p);
+                        debug!("Broadcast/{:?} cannot validate Echo {:?}", self.uid, p);
                         Ok((None, no_outgoing))
                     }
                 } else {
-                    error!("Broadcast/{} root hash not initialised", self.uid);
+                    error!("Broadcast/{:?} root hash not initialised", self.uid);
                     Ok((None, no_outgoing))
                 }
             }
@@ -446,7 +452,10 @@ impl<NodeUid: Eq + Hash + Debug + Display + Clone> Broadcast<NodeUid> {
                                 h,
                             )?;
 
-                            output = Some(value);
+                            if !state.has_output {
+                                output = Some(value);
+                                state.has_output = true;
+                            }
                         } else {
                             state.ready_to_decode = true;
                         }
