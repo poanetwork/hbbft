@@ -27,12 +27,6 @@ pub enum Output<NodeUid> {
     Broadcast(TargetedBroadcastMessage<NodeUid>)
 }
 
-struct CommonSubsetState<NodeUid: Eq + Hash> {
-    agreement_true_outputs: HashSet<NodeUid>,
-    broadcast_instances: HashMap<NodeUid, Broadcast<NodeUid>>,
-    agreement_instances: HashMap<NodeUid, Agreement>,
-}
-
 pub struct CommonSubset<NodeUid: Eq + Hash> {
     uid: NodeUid,
     num_nodes: usize,
@@ -40,10 +34,12 @@ pub struct CommonSubset<NodeUid: Eq + Hash> {
     agreement_true_outputs: HashSet<NodeUid>,
     broadcast_instances: HashMap<NodeUid, Broadcast<NodeUid>>,
     agreement_instances: HashMap<NodeUid, Agreement>,
+    broadcast_results: HashMap<NodeUid, ProposedValue>,
+    agreement_results: HashMap<NodeUid, bool>,
 }
 
-impl<NodeUid: Clone + Debug + Display + Eq + Hash> CommonSubset<NodeUid> {
-    pub fn new(uid: NodeUid, all_uids: HashSet<NodeUid>, num_nodes: usize) ->
+impl<NodeUid: Clone + Debug + Display + Eq + Hash + Ord> CommonSubset<NodeUid> {
+    pub fn new(uid: NodeUid, all_uids: &HashSet<NodeUid>, num_nodes: usize) ->
         Result<Self, Error>
     {
         let num_faulty_nodes = (num_nodes - 1) / 3;
@@ -51,7 +47,7 @@ impl<NodeUid: Clone + Debug + Display + Eq + Hash> CommonSubset<NodeUid> {
         // Create all broadcast instances.
         let mut broadcast_instances: HashMap<NodeUid, Broadcast<NodeUid>> =
             HashMap::new();
-        for uid0 in &all_uids {
+        for uid0 in all_uids {
             broadcast_instances.insert(uid0.clone(),
                                        Broadcast::new(uid0.clone(),
                                                       all_uids.clone(),
@@ -61,7 +57,7 @@ impl<NodeUid: Clone + Debug + Display + Eq + Hash> CommonSubset<NodeUid> {
         // Create all agreement instances.
         let mut agreement_instances: HashMap<NodeUid, Agreement> =
             HashMap::new();
-        for uid0 in &all_uids {
+        for uid0 in all_uids {
             agreement_instances.insert(uid0.clone(), Agreement::new());
         }
 
@@ -70,10 +66,10 @@ impl<NodeUid: Clone + Debug + Display + Eq + Hash> CommonSubset<NodeUid> {
             num_nodes,
             num_faulty_nodes,
             agreement_true_outputs: HashSet::new(),
-            // FIXME: instantiate broadcast instances
             broadcast_instances: broadcast_instances,
-            // FIXME: instantiate agreement instances
             agreement_instances: HashMap::new(),
+            broadcast_results: HashMap::new(),
+            agreement_results: HashMap::new(),
         })
     }
 
@@ -168,11 +164,33 @@ impl<NodeUid: Clone + Debug + Display + Eq + Hash> CommonSubset<NodeUid> {
         }
     }
 
-    // FIXME (missing clause):
-    //
-    // Once all instances of BA have completed, let C ⊂ [1..N] be
-    // the indexes of each BA that delivered 1. Wait for the output
-    // v_j for each RBC_j such that j∈C. Finally output ∪ j∈C v_j.
+    pub fn on_agreement_completion(&self) -> Option<HashSet<ProposedValue>> {
+        // Once all instances of BA have completed, let C ⊂ [1..N] be
+        // the indexes of each BA that delivered 1. Wait for the output
+        // v_j for each RBC_j such that j∈C. Finally output ∪ j∈C v_j.
+        let instance_uids: HashSet<NodeUid> =
+            self.agreement_instances.iter().map(|(k, _)| k.clone()).collect();
+        let completed_uids: HashSet<NodeUid> =
+            self.agreement_results.iter().map(|(k, _)| k.clone()).collect();
+        if instance_uids == completed_uids {
+            // All instances of Agreement that delivered `true`.
+            let delivered_1: HashSet<NodeUid> =
+                self.agreement_results.iter().filter(|(_, v)| **v).map(|(k, _)| k.clone()).collect();
+            // Results of Broadcast instances in `delivered_1`
+            let broadcast_results: HashSet<ProposedValue> =
+                self.broadcast_results.iter().filter(|(k, _)| delivered_1.get(k).is_some()).map(|(_, v)| v.clone()).collect();
+
+            if delivered_1.len() == broadcast_results.len() {
+                Some(broadcast_results)
+            }
+            else {
+                None
+            }
+        }
+        else {
+            None
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
