@@ -161,11 +161,9 @@ impl<A: Adversary> TestNetwork<A> {
                     ref message,
                 } => {
                     for node in self.nodes.values_mut() {
-                        // TODO: `Broadcast` currently assumes that messages to `All` also reach
-                        // ourselves.
-                        //if node.id != sender_id {
-                        node.queue.push_back((sender_id, message.clone()))
-                        //}
+                        if node.id != sender_id {
+                            node.queue.push_back((sender_id, message.clone()))
+                        }
                     }
                     self.adversary.push_message(sender_id, msg.clone());
                 }
