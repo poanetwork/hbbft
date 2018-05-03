@@ -74,7 +74,8 @@ impl<T: Send + Sync + fmt::Debug> fmt::Debug for BroadcastMessage<T> {
 /// Messages sent during the binary Byzantine agreement stage.
 #[derive(Clone, Debug, PartialEq)]
 pub enum AgreementMessage {
-    // TODO
+    BVal(bool),
+    Aux(bool)
 }
 
 impl<T: Send + Sync> Message<T> {
@@ -194,13 +195,26 @@ impl<T: Send + Sync> BroadcastMessage<T> {
 
 impl AgreementMessage {
     pub fn into_proto(self) -> AgreementProto {
-        unimplemented!();
+        let mut p = AgreementProto::new();
+        match self {
+            AgreementMessage::BVal(b) => p.set_bval(b),
+            AgreementMessage::Aux(b) => p.set_aux(b)
+        }
+        p
     }
 
     // TODO: Re-enable lint once implemented.
     #[cfg_attr(feature = "cargo-clippy", allow(needless_pass_by_value))]
-    pub fn from_proto(_mp: AgreementProto) -> Option<Self> {
-        unimplemented!();
+    pub fn from_proto(mp: AgreementProto) -> Option<Self> {
+        if mp.has_bval() {
+            Some(AgreementMessage::BVal(mp.get_bval()))
+        }
+        else if mp.has_aux() {
+            Some(AgreementMessage::Aux(mp.get_aux()))
+        }
+        else {
+            None
+        }
     }
 }
 

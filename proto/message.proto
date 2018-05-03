@@ -45,5 +45,8 @@ message LemmaProto {
 }
 
 message AgreementProto {
-  // TODO
+  oneof payload {
+    bool bval = 1;
+    bool aux = 2;
+  }
 }
