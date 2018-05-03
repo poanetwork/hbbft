@@ -59,7 +59,9 @@ struct BroadcastState {
 /// Reliable Broadcast algorithm instance.
 pub struct Broadcast<NodeUid: Eq + Hash> {
     /// The UID of this node.
-    uid: NodeUid,
+    our_id: NodeUid,
+    /// The UID of the sending node.
+    proposer_id: NodeUid,
     /// UIDs of all nodes for iteration purposes.
     all_uids: HashSet<NodeUid>,
     num_nodes: usize,
@@ -112,7 +114,7 @@ impl Broadcast<messaging::NodeUid> {
         if let Some(value) = output {
             tx.send(QMessage::Local(LocalMessage {
                 dst: Algorithm::CommonSubset,
-                message: AlgoMessage::BroadcastOutput(self.uid, value),
+                message: AlgoMessage::BroadcastOutput(self.our_id, value),
             })).map_err(Error::from)?;
         }
         Ok(MessageLoopState::Processing(
@@ -162,14 +164,22 @@ where
 }
 
 impl<NodeUid: Eq + Hash + Debug + Clone> Broadcast<NodeUid> {
-    pub fn new(uid: NodeUid, all_uids: HashSet<NodeUid>, num_nodes: usize) -> Result<Self, Error> {
+    /// Creates a new broadcast instance to be used by node `our_id` which expects a value proposal
+    /// from node `proposer_id`.
+    pub fn new(
+        our_id: NodeUid,
+        proposer_id: NodeUid,
+        all_uids: HashSet<NodeUid>,
+    ) -> Result<Self, Error> {
+        let num_nodes = all_uids.len();
         let num_faulty_nodes = (num_nodes - 1) / 3;
         let parity_shard_num = 2 * num_faulty_nodes;
         let data_shard_num = num_nodes - parity_shard_num;
         let coding = ReedSolomon::new(data_shard_num, parity_shard_num)?;
 
         Ok(Broadcast {
-            uid,
+            our_id,
+            proposer_id,
             all_uids,
             num_nodes,
             num_faulty_nodes,
@@ -190,6 +200,9 @@ impl<NodeUid: Eq + Hash + Debug + Clone> Broadcast<NodeUid> {
 
     /// Processes the proposed value input by broadcasting it.
     pub fn propose_value(&self, value: ProposedValue) -> Result<MessageQueue<NodeUid>, Error> {
+        if self.our_id != self.proposer_id {
+            return Err(Error::UnexpectedMessage);
+        }
         let mut state = self.state.write().unwrap();
         // Split the value into chunks/shards, encode them with erasure codes.
         // Assemble a Merkle tree from data and parity shards. Take all proofs
@@ -212,8 +225,8 @@ impl<NodeUid: Eq + Hash + Debug + Clone> Broadcast<NodeUid> {
             })
     }
 
-    pub fn uid(&self) -> &NodeUid {
-        &self.uid
+    pub fn our_id(&self) -> &NodeUid {
+        &self.our_id
     }
 
     /// Breaks the input value into shards of equal length and encodes them --
@@ -280,7 +293,7 @@ impl<NodeUid: Eq + Hash + Debug + Clone> Broadcast<NodeUid> {
         for (leaf_value, uid) in mtree.iter().zip(self.all_uids.clone()) {
             let proof = mtree.gen_proof(leaf_value.to_vec());
             if let Some(proof) = proof {
-                if uid == self.uid {
+                if uid == self.our_id {
                     // The proof is addressed to this node.
                     result = Ok(proof);
                 } else {
@@ -299,12 +312,12 @@ impl<NodeUid: Eq + Hash + Debug + Clone> Broadcast<NodeUid> {
     /// Handler of messages received from remote nodes.
     pub fn handle_broadcast_message(
         &self,
-        _uid: &NodeUid, // TODO: Remove or clarify: this should probably be the sender's ID.
+        sender_id: &NodeUid,
         message: &BroadcastMessage<ProposedValue>,
     ) -> Result<(Option<ProposedValue>, MessageQueue<NodeUid>), Error> {
         let state = self.state.write().unwrap();
         match message {
-            BroadcastMessage::Value(p) => self.handle_value(p, state),
+            BroadcastMessage::Value(p) => self.handle_value(sender_id, p, state),
             BroadcastMessage::Echo(p) => self.handle_echo(p, state),
             BroadcastMessage::Ready(ref hash) => self.handle_ready(hash, state),
         }
@@ -313,15 +326,19 @@ impl<NodeUid: Eq + Hash + Debug + Clone> Broadcast<NodeUid> {
     /// Handles a received echo and verifies the proof it contains.
     fn handle_value(
         &self,
+        sender_id: &NodeUid,
         p: &Proof<ProposedValue>,
         mut state: RwLockWriteGuard<BroadcastState>,
     ) -> Result<(Option<ProposedValue>, MessageQueue<NodeUid>), Error> {
+        if *sender_id != self.proposer_id {
+            return Ok((None, VecDeque::new()));
+        }
         // Initialize the root hash if not already initialised.
         if state.root_hash.is_none() {
             state.root_hash = Some(p.root_hash.clone());
             debug!(
                 "Node {:?} Value root hash {:?}",
-                self.uid,
+                self.our_id,
                 HexBytes(&p.root_hash)
             );
         }
@@ -352,19 +369,22 @@ impl<NodeUid: Eq + Hash + Debug + Clone> Broadcast<NodeUid> {
     ) -> Result<(Option<ProposedValue>, MessageQueue<NodeUid>), Error> {
         if state.root_hash.is_none() {
             state.root_hash = Some(p.root_hash.clone());
-            debug!("Node {:?} Echo root hash {:?}", self.uid, state.root_hash);
+            debug!(
+                "Node {:?} Echo root hash {:?}",
+                self.our_id, state.root_hash
+            );
         }
 
         // Call validate with the root hash as argument.
         let h = if let Some(h) = state.root_hash.clone() {
             h
         } else {
-            error!("Broadcast/{:?} root hash not initialised", self.uid);
+            error!("Broadcast/{:?} root hash not initialised", self.our_id);
             return Ok((None, VecDeque::new()));
         };
 
         if !p.validate(h.as_slice()) {
-            debug!("Broadcast/{:?} cannot validate Echo {:?}", self.uid, p);
+            debug!("Broadcast/{:?} cannot validate Echo {:?}", self.our_id, p);
             return Ok((None, VecDeque::new()));
         }
 

@@ -48,10 +48,10 @@ impl<NodeUid: Clone + Debug + Display + Eq + Hash + Ord> CommonSubset<NodeUid> {
         let mut broadcast_instances: HashMap<NodeUid, Broadcast<NodeUid>> =
             HashMap::new();
         for uid0 in all_uids {
-            broadcast_instances.insert(uid0.clone(),
-                                       Broadcast::new(uid0.clone(),
-                                                      all_uids.clone(),
-                                                      num_nodes)?);
+            broadcast_instances.insert(
+                uid0.clone(),
+                Broadcast::new(uid.clone(), uid0.clone(), all_uids.clone())?,
+            );
         }
 
         // Create all agreement instances.
