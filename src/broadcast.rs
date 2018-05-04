@@ -949,6 +949,6 @@ fn index_of_path(mut path: Vec<bool>) -> usize {
 /// Computes the Merkle tree leaf index of a value in a given proof.
 // TODO: This currently only works if the number of leaves is a power of two. With the
 // `merkle_light` crate, it might not even be needed, though.
-fn index_of_proof(p: &Proof<ProposedValue>) -> usize {
+pub fn index_of_proof<T>(p: &Proof<T>) -> usize {
     index_of_path(path_of_lemma(&p.lemma))
 }

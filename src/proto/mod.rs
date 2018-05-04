@@ -53,9 +53,10 @@ impl<'a, T: Send + Sync + fmt::Debug> fmt::Debug for HexProof<'a, T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
-            "Proof {{ algorithm: {:?}, root_hash: {:?}, lemma: .., value: {:?} }}",
+            "Proof {{ algorithm: {:?}, root_hash: {:?}, lemma for leaf #{}, value: {:?} }}",
             self.0.algorithm,
             HexBytes(&self.0.root_hash),
+            ::broadcast::index_of_proof(self.0),
             self.0.value
         )
     }
@@ -75,7 +76,7 @@ impl<T: Send + Sync + fmt::Debug> fmt::Debug for BroadcastMessage<T> {
 #[derive(Clone, Debug, PartialEq)]
 pub enum AgreementMessage {
     BVal(bool),
-    Aux(bool)
+    Aux(bool),
 }
 
 impl<T: Send + Sync> Message<T> {
@@ -198,7 +199,7 @@ impl AgreementMessage {
         let mut p = AgreementProto::new();
         match self {
             AgreementMessage::BVal(b) => p.set_bval(b),
-            AgreementMessage::Aux(b) => p.set_aux(b)
+            AgreementMessage::Aux(b) => p.set_aux(b),
         }
         p
     }
@@ -208,11 +209,9 @@ impl AgreementMessage {
     pub fn from_proto(mp: AgreementProto) -> Option<Self> {
         if mp.has_bval() {
             Some(AgreementMessage::BVal(mp.get_bval()))
-        }
-        else if mp.has_aux() {
+        } else if mp.has_aux() {
             Some(AgreementMessage::Aux(mp.get_aux()))
-        }
-        else {
+        } else {
             None
         }
     }

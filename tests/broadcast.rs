@@ -213,7 +213,6 @@ impl<A: Adversary> TestNetwork<A> {
     where
         Q: IntoIterator<Item = TargetedBroadcastMessage<NodeId>> + fmt::Debug,
     {
-        debug!("Sending: {:?}", msgs);
         for msg in msgs {
             match msg {
                 TargetedBroadcastMessage {
@@ -270,12 +269,11 @@ impl<A: Adversary> TestNetwork<A> {
 }
 
 /// Broadcasts a value from node 0 and expects all good nodes to receive it.
-fn test_broadcast<A: Adversary>(mut network: TestNetwork<A>) {
+fn test_broadcast<A: Adversary>(mut network: TestNetwork<A>, proposed_value: &[u8]) {
     // TODO: This returns an error in all but the first test.
     let _ = simple_logger::init_with_level(log::Level::Debug);
 
-    // Make node 0 propose a value.
-    let proposed_value = b"Foo";
+    // Make node 0 propose the value.
     network.propose_value(NodeId(0), proposed_value.to_vec());
 
     // Handle messages in random order until all nodes have output the proposed value.
@@ -289,16 +287,34 @@ fn test_broadcast<A: Adversary>(mut network: TestNetwork<A>) {
     }
 }
 
+// TODO: Unignore once equal shards don't cause problems anymore.
+#[test]
+#[ignore]
+fn test_8_broadcast_equal_leaves() {
+    let adversary = SilentAdversary::new(MessageScheduler::Random);
+    // Space is ASCII character 32. So 32 spaces will create shards that are all equal, even if the
+    // length of the value is inserted.
+    test_broadcast(TestNetwork::new(8, 0, adversary), &vec![b' '; 32]);
+}
+
+// TODO: Unignore once node numbers are supported that are not powers of two.
+#[test]
+#[ignore]
+fn test_13_broadcast_nodes_random_delivery() {
+    let adversary = SilentAdversary::new(MessageScheduler::Random);
+    test_broadcast(TestNetwork::new(13, 0, adversary), b"Foo");
+}
+
 #[test]
 fn test_11_5_broadcast_nodes_random_delivery() {
     let adversary = SilentAdversary::new(MessageScheduler::Random);
-    test_broadcast(TestNetwork::new(11, 5, adversary));
+    test_broadcast(TestNetwork::new(11, 5, adversary), b"Foo");
 }
 
 #[test]
 fn test_11_5_broadcast_nodes_first_delivery() {
     let adversary = SilentAdversary::new(MessageScheduler::First);
-    test_broadcast(TestNetwork::new(11, 5, adversary));
+    test_broadcast(TestNetwork::new(11, 5, adversary), b"Foo");
 }
 
 #[test]
@@ -306,7 +322,7 @@ fn test_11_5_broadcast_nodes_random_delivery_adv_propose() {
     let good_nodes: BTreeSet<NodeId> = (0..11).map(NodeId).collect();
     let adv_nodes: BTreeSet<NodeId> = (11..16).map(NodeId).collect();
     let adversary = ProposeAdversary::new(MessageScheduler::Random, good_nodes, adv_nodes);
-    test_broadcast(TestNetwork::new(11, 5, adversary));
+    test_broadcast(TestNetwork::new(11, 5, adversary), b"Foo");
 }
 
 #[test]
@@ -314,5 +330,5 @@ fn test_11_5_broadcast_nodes_first_delivery_adv_propose() {
     let good_nodes: BTreeSet<NodeId> = (0..11).map(NodeId).collect();
     let adv_nodes: BTreeSet<NodeId> = (11..16).map(NodeId).collect();
     let adversary = ProposeAdversary::new(MessageScheduler::First, good_nodes, adv_nodes);
-    test_broadcast(TestNetwork::new(11, 5, adversary));
+    test_broadcast(TestNetwork::new(11, 5, adversary), b"Foo");
 }
