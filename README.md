@@ -1,3 +1,6 @@
+[![Build Status](https://travis-ci.com/poanetwork/hbbft.svg?branch=master)](https://travis-ci.com/poanetwork/hbbft) 
+[![Gitter](https://badges.gitter.im/poanetwork/hbbft.svg)](https://gitter.im/poanetwork/hbbft?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge)
+
 # About
 
 An implementation of the paper
@@ -42,4 +45,3 @@ Once you have verified that the `protoc` binary is in your `$PATH`, you can
 build `hbbft` using cargo:
 
     $ cargo build [--release]
-
