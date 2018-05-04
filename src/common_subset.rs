@@ -120,7 +120,7 @@ impl<NodeUid: Clone + Debug + Display + Eq + Hash + Ord> CommonSubset<NodeUid> {
                 let input_result = {
                     if let Some(broadcast_instance) = self.broadcast_instances.get(&uid) {
                         broadcast_instance
-                            .handle_broadcast_message(&uid, &bmessage)
+                            .handle_broadcast_message(&uid, bmessage)
                             .map(|(value, queue)| {
                                 instance_result = value;
                                 queue.into_iter().map(Output::Broadcast).collect()

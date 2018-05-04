@@ -50,7 +50,7 @@ impl TestNode {
         let (from_id, msg) = self.queue.pop_front().expect("message not found");
         debug!("Handling {:?} -> {:?}: {:?}", from_id, self.id, msg);
         let (output, msgs) = self.broadcast
-            .handle_broadcast_message(&from_id, &msg)
+            .handle_broadcast_message(&from_id, msg)
             .expect("handling message");
         if let Some(output) = output.clone() {
             self.outputs.push(output);
