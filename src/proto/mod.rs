@@ -73,7 +73,7 @@ impl<T: Send + Sync + fmt::Debug> fmt::Debug for BroadcastMessage<T> {
 }
 
 /// Messages sent during the binary Byzantine agreement stage.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub enum AgreementMessage {
     BVal(bool),
     Aux(bool),

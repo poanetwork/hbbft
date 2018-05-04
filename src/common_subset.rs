@@ -1,5 +1,8 @@
 //! Asynchronous Common Subset algorithm.
 
+// TODO: This module is work in progress. Remove this attribute when it's not needed anymore.
+#![allow(unused)]
+
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fmt::{Debug, Display};
 use std::hash::Hash;
@@ -70,7 +73,7 @@ impl<NodeUid: Clone + Debug + Display + Eq + Hash + Ord> CommonSubset<NodeUid> {
             num_nodes,
             num_faulty_nodes,
             agreement_true_outputs: HashSet::new(),
-            broadcast_instances: broadcast_instances,
+            broadcast_instances,
             agreement_instances: HashMap::new(),
             broadcast_results: HashMap::new(),
             agreement_results: HashMap::new(),
@@ -97,8 +100,11 @@ impl<NodeUid: Clone + Debug + Display + Eq + Hash + Ord> CommonSubset<NodeUid> {
 
     /// Upon delivery of v_j from RBC_j, if input has not yet been provided to
     /// BA_j, then provide input 1 to BA_j. See Figure 11.
-    pub fn on_broadcast_result(&mut self, uid: NodeUid) -> Result<Option<AgreementMessage>, Error> {
-        if let Some(agreement_instance) = self.agreement_instances.get_mut(&uid) {
+    pub fn on_broadcast_result(
+        &mut self,
+        uid: &NodeUid,
+    ) -> Result<Option<AgreementMessage>, Error> {
+        if let Some(agreement_instance) = self.agreement_instances.get_mut(uid) {
             if !agreement_instance.has_input() {
                 Ok(Some(agreement_instance.set_input(true)))
             } else {
@@ -131,7 +137,7 @@ impl<NodeUid: Clone + Debug + Display + Eq + Hash + Ord> CommonSubset<NodeUid> {
                     }
                 };
                 if instance_result.is_some() {
-                    self.on_broadcast_result(uid)?;
+                    self.on_broadcast_result(&uid)?;
                 }
                 input_result
             }

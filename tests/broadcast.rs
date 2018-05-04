@@ -294,7 +294,7 @@ fn test_8_broadcast_equal_leaves() {
     let adversary = SilentAdversary::new(MessageScheduler::Random);
     // Space is ASCII character 32. So 32 spaces will create shards that are all equal, even if the
     // length of the value is inserted.
-    test_broadcast(TestNetwork::new(8, 0, adversary), &vec![b' '; 32]);
+    test_broadcast(TestNetwork::new(8, 0, adversary), &[b' '; 32]);
 }
 
 // TODO: Unignore once node numbers are supported that are not powers of two.

@@ -3,16 +3,17 @@
 use proto::AgreementMessage;
 use std::collections::{BTreeSet, VecDeque};
 
+#[derive(Default)]
 pub struct Agreement {
     input: Option<bool>,
-    bin_values: BTreeSet<bool>,
+    _bin_values: BTreeSet<bool>,
 }
 
 impl Agreement {
     pub fn new() -> Self {
         Agreement {
             input: None,
-            bin_values: BTreeSet::new(),
+            _bin_values: BTreeSet::new(),
         }
     }
 
@@ -29,7 +30,7 @@ impl Agreement {
     /// Receive input from a remote node.
     pub fn on_input(
         &self,
-        _message: AgreementMessage,
+        _message: &AgreementMessage,
     ) -> Result<VecDeque<AgreementMessage>, Error> {
         Err(Error::NotImplemented)
     }
