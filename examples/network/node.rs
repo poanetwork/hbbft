@@ -1,16 +1,50 @@
 //! Networking controls of the consensus node.
+//!
+//! ## Example
+//!
+//! The following code could be run on host 192.168.1.1:
+//!
+//! ```ignore
+//! extern crate hbbft;
+//!
+//! use hbbft::node::Node;
+//! use std::net::SocketAddr;
+//! use std::vec::Vec;
+//!
+//! fn main() {
+//!     let bind_address = "127.0.0.1:10001".parse().unwrap();
+//!     let remote_addresses = vec!["192.168.1.2:10002",
+//!                                 "192.168.1.3:10003",
+//!                                 "192.168.1.4:10004"]
+//!         .iter()
+//!         .map(|s| s.parse().unwrap())
+//!         .collect();
+//!
+//!     let value = "Value #1".as_bytes().to_vec();
+//!
+//!     let result = Node::new(bind_address, remote_addresses, Some(value))
+//!         .run();
+//!     println!("Consensus result {:?}", result);
+//! }
+//! ```
+//!
+//! Similar code shall then run on hosts 192.168.1.2, 192.168.1.3 and
+//! 192.168.1.4 with appropriate changes in `bind_address` and
+//! `remote_addresses`. Each host has it's own optional broadcast `value`. If
+//! the consensus `result` is not an error then every successfully terminated
+//! consensus node will be the same `result`.
+
 use crossbeam;
-use merkle::Hashable;
 use std::collections::HashSet;
 use std::fmt::Debug;
 use std::io;
 use std::marker::{Send, Sync};
 use std::net::SocketAddr;
 
-use broadcast;
-use commst;
-use connection;
-use messaging::Messaging;
+use hbbft::broadcast;
+use network::commst;
+use network::connection;
+use network::messaging::Messaging;
 
 #[derive(Debug)]
 pub enum Error {
@@ -41,7 +75,7 @@ pub struct Node<T> {
     value: Option<T>,
 }
 
-impl<T: Clone + Debug + Hashable + PartialEq + Send + Sync + From<Vec<u8>> + Into<Vec<u8>>>
+impl<T: Clone + Debug + AsRef<[u8]> + PartialEq + Send + Sync + From<Vec<u8>> + Into<Vec<u8>>>
     Node<T>
 {
     /// Consensus node constructor. It only initialises initial parameters.
