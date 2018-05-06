@@ -45,8 +45,9 @@ message LemmaProto {
 }
 
 message AgreementProto {
+  uint32 epoch = 1;
   oneof payload {
-    bool bval = 1;
-    bool aux = 2;
+    bool bval = 2;
+    bool aux = 3;
   }
 }

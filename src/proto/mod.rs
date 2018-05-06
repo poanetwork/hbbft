@@ -67,10 +67,12 @@ impl<'a, T: AsRef<[u8]>> fmt::Debug for HexProof<'a, T> {
 }
 
 /// Messages sent during the binary Byzantine agreement stage.
-#[derive(Copy, Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum AgreementMessage {
-    BVal(bool),
-    Aux(bool),
+    /// BVAL message with an epoch.
+    BVal((u32, bool)),
+    /// AUX message with an epoch.
+    Aux((u32, bool)),
 }
 
 impl<T: Send + Sync + AsRef<[u8]> + From<Vec<u8>>> Message<T> {
@@ -175,8 +177,14 @@ impl AgreementMessage {
     pub fn into_proto(self) -> AgreementProto {
         let mut p = AgreementProto::new();
         match self {
-            AgreementMessage::BVal(b) => p.set_bval(b),
-            AgreementMessage::Aux(b) => p.set_aux(b),
+            AgreementMessage::BVal((e, b)) => {
+                p.set_epoch(e);
+                p.set_bval(b);
+            }
+            AgreementMessage::Aux((e, b)) => {
+                p.set_epoch(e);
+                p.set_aux(b);
+            }
         }
         p
     }
@@ -184,10 +192,11 @@ impl AgreementMessage {
     // TODO: Re-enable lint once implemented.
     #[cfg_attr(feature = "cargo-clippy", allow(needless_pass_by_value))]
     pub fn from_proto(mp: AgreementProto) -> Option<Self> {
+        let epoch = mp.get_epoch();
         if mp.has_bval() {
-            Some(AgreementMessage::BVal(mp.get_bval()))
+            Some(AgreementMessage::BVal((epoch, mp.get_bval())))
         } else if mp.has_aux() {
-            Some(AgreementMessage::Aux(mp.get_aux()))
+            Some(AgreementMessage::Aux((epoch, mp.get_aux())))
         } else {
             None
         }

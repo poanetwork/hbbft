@@ -43,15 +43,15 @@ pub struct CommonSubset<NodeUid: Eq + Hash + Ord> {
     uid: NodeUid,
     num_nodes: usize,
     num_faulty_nodes: usize,
-    agreement_true_outputs: HashSet<NodeUid>,
     broadcast_instances: HashMap<NodeUid, Broadcast<NodeUid>>,
-    agreement_instances: HashMap<NodeUid, Agreement>,
+    agreement_instances: HashMap<NodeUid, Agreement<NodeUid>>,
     broadcast_results: HashMap<NodeUid, ProposedValue>,
     agreement_results: HashMap<NodeUid, bool>,
 }
 
 impl<NodeUid: Clone + Debug + Display + Eq + Hash + Ord> CommonSubset<NodeUid> {
-    pub fn new(uid: NodeUid, all_uids: &HashSet<NodeUid>, num_nodes: usize) -> Result<Self, Error> {
+    pub fn new(uid: NodeUid, all_uids: &HashSet<NodeUid>) -> Result<Self, Error> {
+        let num_nodes = all_uids.len();
         let num_faulty_nodes = (num_nodes - 1) / 3;
 
         // Create all broadcast instances.
@@ -68,18 +68,17 @@ impl<NodeUid: Clone + Debug + Display + Eq + Hash + Ord> CommonSubset<NodeUid> {
         }
 
         // Create all agreement instances.
-        let mut agreement_instances: HashMap<NodeUid, Agreement> = HashMap::new();
+        let mut agreement_instances: HashMap<NodeUid, Agreement<NodeUid>> = HashMap::new();
         for uid0 in all_uids {
-            agreement_instances.insert(uid0.clone(), Agreement::new());
+            agreement_instances.insert(uid0.clone(), Agreement::new(uid0.clone(), num_nodes));
         }
 
         Ok(CommonSubset {
             uid,
             num_nodes,
             num_faulty_nodes,
-            agreement_true_outputs: HashSet::new(),
             broadcast_instances,
-            agreement_instances: HashMap::new(),
+            agreement_instances,
             broadcast_results: HashMap::new(),
             agreement_results: HashMap::new(),
         })
@@ -109,7 +108,7 @@ impl<NodeUid: Clone + Debug + Display + Eq + Hash + Ord> CommonSubset<NodeUid> {
         &mut self,
         uid: &NodeUid,
     ) -> Result<Option<AgreementMessage>, Error> {
-        if let Some(agreement_instance) = self.agreement_instances.get_mut(uid) {
+        if let Some(agreement_instance) = self.agreement_instances.get_mut(&uid) {
             if !agreement_instance.has_input() {
                 Ok(Some(agreement_instance.set_input(true)))
             } else {
@@ -146,11 +145,35 @@ impl<NodeUid: Clone + Debug + Display + Eq + Hash + Ord> CommonSubset<NodeUid> {
                 }
                 input_result
             }
-            Input::Agreement(_uid, _message) => {
-                // FIXME: send the message to the Agreement instance and
-                // conditionally call `on_agreement_output`
 
-                Err(Error::NotImplemented)
+            Input::Agreement(uid, amessage) => {
+                // The result defaults to error.
+                let mut result = Err(Error::NoSuchAgreementInstance);
+
+                // FIXME: send the message to the Agreement instance and
+                if let Some(mut agreement_instance) = self.agreement_instances.get_mut(&uid) {
+                    // Optional output of agreement and outgoing agreement
+                    // messages to remote nodes.
+                    result = if agreement_instance.terminated() {
+                        // This instance has terminated and does not accept input.
+                        Ok((None, VecDeque::new()))
+                    } else {
+                        agreement_instance
+                            .on_input(uid.clone(), &amessage)
+                            .map_err(Error::from)
+                    }
+                }
+
+                if let Ok((output, mut outgoing)) = result {
+                    if let Some(b) = output {
+                        outgoing.append(&mut self.on_agreement_result(uid, b));
+                    }
+                    Ok(outgoing.into_iter().map(Output::Agreement).collect())
+                } else {
+                    // error
+                    result
+                        .map(|(_, messages)| messages.into_iter().map(Output::Agreement).collect())
+                }
             }
         }
     }
@@ -166,9 +189,14 @@ impl<NodeUid: Clone + Debug + Display + Eq + Hash + Ord> CommonSubset<NodeUid> {
         // Upon delivery of value 1 from at least N − f instances of BA, provide
         // input 0 to each instance of BA that has not yet been provided input.
         if result {
-            self.agreement_true_outputs.insert(uid);
+            self.agreement_results.insert(uid, result);
+            let results1: Vec<bool> = self.agreement_results
+                .iter()
+                .map(|(_, v)| *v)
+                .filter(|b| *b)
+                .collect();
 
-            if self.agreement_true_outputs.len() >= self.num_nodes - self.num_faulty_nodes {
+            if results1.len() >= self.num_nodes - self.num_faulty_nodes {
                 let instances = &mut self.agreement_instances;
                 for (_uid0, instance) in instances.iter_mut() {
                     if !instance.has_input() {
@@ -222,6 +250,7 @@ pub enum Error {
     UnexpectedMessage,
     NotImplemented,
     NoSuchBroadcastInstance,
+    NoSuchAgreementInstance,
     Broadcast(broadcast::Error),
     Agreement(agreement::Error),
 }
