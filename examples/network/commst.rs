@@ -8,10 +8,9 @@ use std::io;
 use std::net::TcpStream;
 use std::sync::Arc;
 
-use messaging::SourcedMessage;
-use proto::Message;
-use proto_io;
-use proto_io::ProtoIo;
+use hbbft::messaging::SourcedMessage;
+use hbbft::proto::Message;
+use hbbft::proto_io::{self, ProtoIo};
 
 #[derive(Debug)]
 pub enum Error {
@@ -32,7 +31,7 @@ pub struct CommsTask<'a, T: 'a + Clone + Debug + Send + Sync + From<Vec<u8>> + I
     /// The receive side of the channel to the comms thread.
     rx: &'a Receiver<Message<T>>,
     /// The socket IO task.
-    io: ProtoIo,
+    io: ProtoIo<TcpStream>,
     /// The index of this comms task for identification against its remote node.
     pub node_index: usize,
 }

@@ -26,6 +26,7 @@ pub enum BroadcastMessage<T: Send + Sync> {
     Ready(Vec<u8>),
 }
 
+/// Wrapper for a byte array, whose `Debug` implementation outputs shortened hexadecimal strings.
 pub struct HexBytes<'a>(pub &'a [u8]);
 
 impl<'a> fmt::Debug for HexBytes<'a> {
@@ -73,7 +74,7 @@ impl<T: Send + Sync + fmt::Debug> fmt::Debug for BroadcastMessage<T> {
 }
 
 /// Messages sent during the binary Byzantine agreement stage.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub enum AgreementMessage {
     BVal(bool),
     Aux(bool),
@@ -166,6 +167,7 @@ impl<T: Send + Sync> BroadcastMessage<T> {
             BroadcastMessage::Ready(h) => {
                 let mut r = ReadyProto::new();
                 r.set_root_hash(h);
+                b.set_ready(r);
             }
         }
         b

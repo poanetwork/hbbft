@@ -1,13 +1,18 @@
 //! Example of a consensus node that uses the `hbbft::node::Node` struct for
 //! running the distributed consensus state machine.
-//#[macro_use]
+extern crate crossbeam;
+#[macro_use]
+extern crate crossbeam_channel;
 extern crate docopt;
 extern crate hbbft;
+#[macro_use]
 extern crate log;
 extern crate simple_logger;
 
+mod network;
+
 use docopt::Docopt;
-use hbbft::node::Node;
+use network::node::Node;
 use std::collections::HashSet;
 use std::net::SocketAddr;
 use std::vec::Vec;

@@ -1,5 +1,4 @@
 //! Reliable broadcast algorithm instance.
-use crossbeam;
 use crossbeam_channel::{Receiver, RecvError, SendError, Sender};
 use merkle::proof::{Lemma, Positioned, Proof};
 use merkle::{Hashable, MerkleTree};
@@ -11,11 +10,12 @@ use std::fmt::Debug;
 use std::hash::Hash;
 use std::iter;
 use std::marker::{Send, Sync};
-use std::sync::{Arc, Mutex, RwLock, RwLockWriteGuard};
+use std::sync::{RwLock, RwLockWriteGuard};
 
-use messaging;
-use messaging::{AlgoMessage, Algorithm, Handler, LocalMessage, MessageLoopState, ProposedValue,
-                QMessage, RemoteMessage, RemoteNode, SourcedMessage, Target, TargetedMessage};
+use messaging::{SourcedMessage, Target, TargetedMessage};
+
+// TODO: Make this a generic argument of `Broadcast`.
+type ProposedValue = Vec<u8>;
 
 type MessageQueue<NodeUid> = VecDeque<TargetedBroadcastMessage<NodeUid>>;
 
@@ -26,12 +26,12 @@ pub struct TargetedBroadcastMessage<NodeUid> {
     pub message: BroadcastMessage<ProposedValue>,
 }
 
-impl TargetedBroadcastMessage<messaging::NodeUid> {
-    pub fn into_remote_message(self) -> RemoteMessage {
-        RemoteMessage {
-            node: match self.target {
-                BroadcastTarget::All => RemoteNode::All,
-                BroadcastTarget::Node(node) => RemoteNode::Node(node),
+impl TargetedBroadcastMessage<usize> {
+    pub fn into_targeted_message(self) -> TargetedMessage<ProposedValue> {
+        TargetedMessage {
+            target: match self.target {
+                BroadcastTarget::All => Target::All,
+                BroadcastTarget::Node(node) => Target::Node(node),
             },
             message: Message::Broadcast(self.message),
         }
@@ -72,95 +72,6 @@ pub struct Broadcast<NodeUid: Eq + Hash> {
     /// mutate state even when the broadcast instance is referred to by an
     /// immutable reference.
     state: RwLock<BroadcastState>,
-}
-
-impl Broadcast<messaging::NodeUid> {
-    /// The message-driven interface function for calls from the main message
-    /// loop.
-    pub fn on_message(
-        &self,
-        m: QMessage,
-        tx: &Sender<QMessage>,
-    ) -> Result<MessageLoopState, Error> {
-        match m {
-            QMessage::Local(LocalMessage { message, .. }) => match message {
-                AlgoMessage::BroadcastInput(value) => self.on_local_message(&mut value.to_owned()),
-
-                _ => Err(Error::UnexpectedMessage),
-            },
-
-            QMessage::Remote(RemoteMessage {
-                node: RemoteNode::Node(uid),
-                message,
-            }) => {
-                if let Message::Broadcast(b) = message {
-                    self.on_remote_message(uid, b, tx)
-                } else {
-                    Err(Error::UnexpectedMessage)
-                }
-            }
-
-            _ => Err(Error::UnexpectedMessage),
-        }
-    }
-
-    fn on_remote_message(
-        &self,
-        uid: messaging::NodeUid,
-        message: BroadcastMessage<ProposedValue>,
-        tx: &Sender<QMessage>,
-    ) -> Result<MessageLoopState, Error> {
-        let (output, messages) = self.handle_broadcast_message(&uid, message)?;
-        if let Some(value) = output {
-            tx.send(QMessage::Local(LocalMessage {
-                dst: Algorithm::CommonSubset,
-                message: AlgoMessage::BroadcastOutput(self.our_id, value),
-            })).map_err(Error::from)?;
-        }
-        Ok(MessageLoopState::Processing(
-            messages
-                .into_iter()
-                .map(TargetedBroadcastMessage::into_remote_message)
-                .collect(),
-        ))
-    }
-
-    /// Processes the proposed value input by broadcasting it.
-    pub fn on_local_message(&self, value: &mut ProposedValue) -> Result<MessageLoopState, Error> {
-        let mut state = self.state.write().unwrap();
-        // Split the value into chunks/shards, encode them with erasure codes.
-        // Assemble a Merkle tree from data and parity shards. Take all proofs
-        // from this tree and send them, each to its own node.
-        self.send_shards(value.clone())
-            .map(|(proof, remote_messages)| {
-                // Record the first proof as if it were sent by the node to
-                // itself.
-                let h = proof.root_hash.clone();
-                if proof.validate(h.as_slice()) {
-                    // Save the leaf value for reconstructing the tree later.
-                    state.leaf_values[index_of_proof(&proof)] =
-                        Some(proof.value.clone().into_boxed_slice());
-                    state.leaf_values_num += 1;
-                    state.root_hash = Some(h);
-                }
-
-                MessageLoopState::Processing(
-                    remote_messages
-                        .into_iter()
-                        .map(TargetedBroadcastMessage::into_remote_message)
-                        .collect(),
-                )
-            })
-    }
-}
-
-impl<'a, E> Handler<E> for Broadcast<messaging::NodeUid>
-where
-    E: From<Error> + From<messaging::Error>,
-{
-    fn handle(&self, m: QMessage, tx: Sender<QMessage>) -> Result<MessageLoopState, E> {
-        self.on_message(m, &tx).map_err(E::from)
-    }
 }
 
 impl<NodeUid: Eq + Hash + Debug + Clone> Broadcast<NodeUid> {
@@ -487,14 +398,10 @@ pub struct Instance<'a, T: 'a + Clone + Debug + Send + Sync> {
     tx: &'a Sender<TargetedMessage<ProposedValue>>,
     /// The receive side of the channel from comms threads.
     rx: &'a Receiver<SourcedMessage<ProposedValue>>,
+    /// The broadcast algorithm instance.
+    broadcast: Broadcast<usize>,
     /// Value to be broadcast.
     broadcast_value: Option<T>,
-    /// This instance's index for identification against its comms task.
-    node_index: usize,
-    /// Number of nodes participating in broadcast.
-    num_nodes: usize,
-    /// Maximum allowed number of faulty nodes.
-    num_faulty_nodes: usize,
 }
 
 impl<'a, T: Clone + Debug + Hashable + Send + Sync + Into<Vec<u8>> + From<Vec<u8>>>
@@ -505,45 +412,25 @@ impl<'a, T: Clone + Debug + Hashable + Send + Sync + Into<Vec<u8>> + From<Vec<u8
         rx: &'a Receiver<SourcedMessage<ProposedValue>>,
         broadcast_value: Option<T>,
         num_nodes: usize,
-        node_index: usize,
+        proposer_index: usize,
     ) -> Self {
+        let all_indexes = (0..num_nodes).collect();
+        let broadcast = Broadcast::new(0, proposer_index, all_indexes)
+            .expect("failed to instantiate broadcast");
         Instance {
             tx,
             rx,
+            broadcast,
             broadcast_value,
-            node_index,
-            num_nodes,
-            num_faulty_nodes: (num_nodes - 1) / 3,
         }
     }
 
     /// Broadcast stage task returning the computed values in case of success,
     /// and an error in case of failure.
-    pub fn run(&mut self) -> Result<T, Error> {
+    pub fn run(self) -> Result<T, Error> {
         // Broadcast state machine thread.
-        let bvalue = self.broadcast_value.to_owned();
-        let result: Result<T, Error>;
-        let result_r = Arc::new(Mutex::new(None));
-        let result_r_scoped = result_r.clone();
-
-        crossbeam::scope(|scope| {
-            scope.spawn(move || {
-                *result_r_scoped.lock().unwrap() = Some(inner_run(
-                    self.tx,
-                    self.rx,
-                    bvalue,
-                    self.node_index,
-                    self.num_nodes,
-                    self.num_faulty_nodes,
-                ));
-            });
-        });
-        if let Some(ref r) = *result_r.lock().unwrap() {
-            result = r.to_owned();
-        } else {
-            result = Err(Error::Threading);
-        }
-        result
+        let bvalue: Option<ProposedValue> = self.broadcast_value.map(|v| v.into());
+        inner_run(self.tx, self.rx, bvalue, &self.broadcast).map(ProposedValue::into)
     }
 }
 
@@ -554,7 +441,6 @@ pub enum Error {
     Threading,
     ProofConstructionFailed,
     ReedSolomon(rse::Error),
-    Send(SendError<QMessage>),
     SendDeprecated(SendError<TargetedMessage<ProposedValue>>),
     Recv(RecvError),
     UnexpectedMessage,
@@ -564,12 +450,6 @@ pub enum Error {
 impl From<rse::Error> for Error {
     fn from(err: rse::Error) -> Error {
         Error::ReedSolomon(err)
-    }
-}
-
-impl From<SendError<QMessage>> for Error {
-    fn from(err: SendError<QMessage>) -> Error {
-        Error::Send(err)
     }
 }
 
@@ -585,138 +465,25 @@ impl From<RecvError> for Error {
     }
 }
 
-/// Breaks the input value into shards of equal length and encodes them -- and
-/// some extra parity shards -- with a Reed-Solomon erasure coding scheme. The
-/// returned value contains the shard assigned to this node. That shard doesn't
-/// need to be sent anywhere. It is returned to the broadcast instance and gets
-/// recorded immediately.
-fn send_shards<'a, T>(
-    value: T,
+/// The main loop of the broadcast task.
+fn inner_run<'a>(
     tx: &'a Sender<TargetedMessage<ProposedValue>>,
-    coding: &ReedSolomon,
-) -> Result<Proof<ProposedValue>, Error>
-where
-    T: Clone + Debug + Hashable + Send + Sync + Into<Vec<u8>> + From<Vec<u8>>,
-{
-    let data_shard_num = coding.data_shard_count();
-    let parity_shard_num = coding.parity_shard_count();
-
-    debug!(
-        "Data shards: {}, parity shards: {}",
-        data_shard_num, parity_shard_num
-    );
-    let mut v: Vec<u8> = T::into(value);
-    // Insert the length of `v` so it can be decoded without the padding.
-    let payload_len = v.len() as u8;
-    v.insert(0, payload_len); // TODO: Handle messages larger than 255 bytes.
-    let value_len = v.len();
-    // Size of a Merkle tree leaf value, in bytes.
-    let shard_len = if value_len % data_shard_num > 0 {
-        value_len / data_shard_num + 1
-    } else {
-        value_len / data_shard_num
-    };
-    // Pad the last data shard with zeros. Fill the parity shards with zeros.
-    v.resize(shard_len * (data_shard_num + parity_shard_num), 0);
-
-    debug!("value_len {}, shard_len {}", value_len, shard_len);
-
-    // Divide the vector into chunks/shards.
-    let shards_iter = v.chunks_mut(shard_len);
-    // Convert the iterator over slices into a vector of slices.
-    let mut shards: Vec<&mut [u8]> = Vec::new();
-    for s in shards_iter {
-        shards.push(s);
-    }
-
-    debug!("Shards before encoding: {:?}", shards);
-
-    // Construct the parity chunks/shards
-    coding.encode(shards.as_mut_slice())?;
-
-    debug!("Shards: {:?}", shards);
-
-    let shards_t: Vec<ProposedValue> = shards.into_iter().map(|s| s.to_vec()).collect();
-
-    // Convert the Merkle tree into a partial binary tree for later
-    // deconstruction into compound branches.
-    let mtree = MerkleTree::from_vec(&::ring::digest::SHA256, shards_t);
-
-    // Default result in case of `gen_proof` error.
-    let mut result = Err(Error::ProofConstructionFailed);
-
-    // Send each proof to a node.
-    for (i, leaf_value) in mtree.iter().enumerate() {
-        let proof = mtree.gen_proof(leaf_value.to_vec());
-        if let Some(proof) = proof {
-            if i == 0 {
-                // The first proof is addressed to this node.
-                result = Ok(proof);
-            } else {
-                // Rest of the proofs are sent to remote nodes.
-                tx.send(TargetedMessage {
-                    target: Target::Node(i),
-                    message: Message::Broadcast(BroadcastMessage::Value(proof)),
-                })?;
-            }
+    rx: &'a Receiver<SourcedMessage<ProposedValue>>,
+    broadcast_value: Option<ProposedValue>,
+    broadcast: &Broadcast<usize>,
+) -> Result<ProposedValue, Error> {
+    if let Some(v) = broadcast_value {
+        for msg in broadcast
+            .propose_value(v)?
+            .into_iter()
+            .map(TargetedBroadcastMessage::into_targeted_message)
+        {
+            tx.send(msg)?;
         }
     }
 
-    result
-}
-
-/// The main loop of the broadcast task.
-fn inner_run<'a, T>(
-    tx: &'a Sender<TargetedMessage<ProposedValue>>,
-    rx: &'a Receiver<SourcedMessage<ProposedValue>>,
-    broadcast_value: Option<T>,
-    node_index: usize,
-    num_nodes: usize,
-    num_faulty_nodes: usize,
-) -> Result<T, Error>
-where
-    T: Clone + Debug + Hashable + Send + Sync + Into<Vec<u8>> + From<Vec<u8>>,
-{
-    // Erasure coding scheme: N - 2f value shards and 2f parity shards
-    let parity_shard_num = 2 * num_faulty_nodes;
-    let data_shard_num = num_nodes - parity_shard_num;
-    let coding = ReedSolomon::new(data_shard_num, parity_shard_num)?;
-    // currently known leaf values
-    let mut leaf_values: Vec<Option<Box<[u8]>>> = vec![None; num_nodes];
-    // Write-once root hash of a tree broadcast from the sender associated with
-    // this instance.
-    let mut root_hash: Option<Vec<u8>> = None;
-    // number of non-None leaf values
-    let mut leaf_values_num = 0;
-
-    // Split the value into chunks/shards, encode them with erasure codes.
-    // Assemble a Merkle tree from data and parity shards. Take all proofs from
-    // this tree and send them, each to its own node.
-    if let Some(v) = broadcast_value {
-        send_shards(v, tx, &coding).map(|proof| {
-            // Record the first proof as if it were sent by the node to
-            // itself.
-            let h = proof.root_hash.clone();
-            if proof.validate(h.as_slice()) {
-                // Save the leaf value for reconstructing the tree later.
-                leaf_values[index_of_proof(&proof)] = Some(proof.value.clone().into_boxed_slice());
-                leaf_values_num += 1;
-                root_hash = Some(h);
-            }
-        })?
-    }
-
-    // return value
-    let mut result: Option<Result<T, Error>> = None;
-    // Number of times Echo was received with the same root hash.
-    let mut echo_num = 0;
-    // Number of times Ready was received with the same root hash.
-    let mut readys: HashMap<Vec<u8>, usize> = HashMap::new();
-    let mut ready_sent = false;
-    let mut ready_to_decode = false;
-
     // TODO: handle exit conditions
-    while result.is_none() {
+    loop {
         // Receive a message from the socket IO task.
         let message = rx.recv()?;
         if let SourcedMessage {
@@ -724,132 +491,19 @@ where
             message: Message::Broadcast(message),
         } = message
         {
-            match message {
-                // A value received. Record the value and multicast an echo.
-                BroadcastMessage::Value(p) => {
-                    if i != node_index {
-                        // Ignore value messages from unrelated remote nodes.
-                        continue;
-                    }
-
-                    if root_hash.is_none() {
-                        root_hash = Some(p.root_hash.clone());
-                        debug!(
-                            "Node {} Value root hash {:?}",
-                            node_index,
-                            HexBytes(&p.root_hash)
-                        );
-                    }
-
-                    if let Some(ref h) = root_hash {
-                        if p.validate(h.as_slice()) {
-                            // Save the leaf value for reconstructing the tree
-                            // later.
-                            leaf_values[index_of_proof(&p)] =
-                                Some(p.value.clone().into_boxed_slice());
-                            leaf_values_num += 1;
-                        }
-                    }
-                    // Broadcast an echo of this proof.
-                    tx.send(TargetedMessage {
-                        target: Target::All,
-                        message: Message::Broadcast(BroadcastMessage::Echo(p)),
-                    })?
-                }
-
-                // An echo received. Verify the proof it contains.
-                BroadcastMessage::Echo(p) => {
-                    if root_hash.is_none() && i == node_index {
-                        root_hash = Some(p.root_hash.clone());
-                        debug!("Node {} Echo root hash {:?}", node_index, root_hash);
-                    }
-
-                    // call validate with the root hash as argument
-                    if let Some(ref h) = root_hash {
-                        if p.validate(h.as_slice()) {
-                            echo_num += 1;
-                            // Save the leaf value for reconstructing the tree
-                            // later.
-                            leaf_values[index_of_proof(&p)] =
-                                Some(p.value.clone().into_boxed_slice());
-                            leaf_values_num += 1;
-
-                            // upon receiving 2f + 1 matching READY(h)
-                            // messages, wait for N − 2 f ECHO messages, then
-                            // decode v
-                            if ready_to_decode
-                                && leaf_values_num >= num_nodes - 2 * num_faulty_nodes
-                            {
-                                result = Some(decode_from_shards(
-                                    &mut leaf_values,
-                                    &coding,
-                                    data_shard_num,
-                                    h,
-                                ));
-                            } else if leaf_values_num >= num_nodes - num_faulty_nodes {
-                                result = Some(decode_from_shards(
-                                    &mut leaf_values,
-                                    &coding,
-                                    data_shard_num,
-                                    h,
-                                ));
-                                // if Ready has not yet been sent, multicast
-                                // Ready
-                                if !ready_sent {
-                                    ready_sent = true;
-                                    tx.send(TargetedMessage {
-                                        target: Target::All,
-                                        message: Message::Broadcast(BroadcastMessage::Ready(
-                                            h.to_owned(),
-                                        )),
-                                    })?;
-                                }
-                            }
-                        }
-                    }
-                }
-
-                BroadcastMessage::Ready(ref hash) => {
-                    // Update the number Ready has been received with this hash.
-                    *readys.entry(hash.to_vec()).or_insert(1) += 1;
-
-                    // Check that the root hash matches.
-                    if let Some(ref h) = root_hash {
-                        let ready_num: usize = *readys.get(h).unwrap_or(&0);
-
-                        // Upon receiving f + 1 matching Ready(h) messages, if
-                        // Ready has not yet been sent, multicast Ready(h).
-                        if (ready_num == num_faulty_nodes + 1) && !ready_sent {
-                            tx.send(TargetedMessage {
-                                target: Target::All,
-                                message: Message::Broadcast(BroadcastMessage::Ready(h.to_vec())),
-                            })?;
-                        }
-
-                        // Upon receiving 2f + 1 matching Ready(h) messages,
-                        // wait for N − 2f Echo messages, then decode v.
-                        if ready_num > 2 * num_faulty_nodes {
-                            // Wait for N - 2f Echo messages, then decode v.
-                            if echo_num >= num_nodes - 2 * num_faulty_nodes {
-                                result = Some(decode_from_shards(
-                                    &mut leaf_values,
-                                    &coding,
-                                    data_shard_num,
-                                    h,
-                                ));
-                            } else {
-                                ready_to_decode = true;
-                            }
-                        }
-                    }
-                }
+            let (opt_output, msgs) = broadcast.handle_broadcast_message(&i, message)?;
+            for msg in msgs.into_iter()
+                .map(TargetedBroadcastMessage::into_targeted_message)
+            {
+                tx.send(msg)?;
+            }
+            if let Some(output) = opt_output {
+                return Ok(output);
             }
         } else {
             error!("Incorrect message from the socket: {:?}", message);
         }
     }
-    // result is not a None, safe to extract value
-    result.unwrap()
 }
 
 fn decode_from_shards<T>(
