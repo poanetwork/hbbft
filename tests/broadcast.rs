@@ -14,11 +14,12 @@ use std::collections::{BTreeMap, BTreeSet, HashSet, VecDeque};
 use std::fmt;
 
 use hbbft::broadcast::{Broadcast, BroadcastTarget, TargetedBroadcastMessage};
-use hbbft::messaging::ProposedValue;
 use hbbft::proto::BroadcastMessage;
 
 #[derive(Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Clone, Copy)]
 struct NodeId(usize);
+
+type ProposedValue = Vec<u8>;
 
 type MessageQueue = VecDeque<TargetedBroadcastMessage<NodeId>>;
 

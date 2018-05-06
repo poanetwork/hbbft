@@ -26,6 +26,7 @@ pub enum BroadcastMessage<T: Send + Sync> {
     Ready(Vec<u8>),
 }
 
+/// Wrapper for a byte array, whose `Debug` implementation outputs shortened hexadecimal strings.
 pub struct HexBytes<'a>(pub &'a [u8]);
 
 impl<'a> fmt::Debug for HexBytes<'a> {
@@ -166,6 +167,7 @@ impl<T: Send + Sync> BroadcastMessage<T> {
             BroadcastMessage::Ready(h) => {
                 let mut r = ReadyProto::new();
                 r.set_root_hash(h);
+                b.set_ready(r);
             }
         }
         b

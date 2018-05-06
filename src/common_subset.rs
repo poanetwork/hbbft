@@ -13,9 +13,10 @@ use agreement::Agreement;
 use broadcast;
 use broadcast::{Broadcast, TargetedBroadcastMessage};
 
-use messaging::ProposedValue;
-
 use proto::{AgreementMessage, BroadcastMessage};
+
+// TODO: Make this a generic argument of `Broadcast`.
+type ProposedValue = Vec<u8>;
 
 /// Input from a remote node to Common Subset.
 pub enum Input<NodeUid> {
