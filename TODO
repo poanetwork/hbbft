@@ -1,0 +1,12 @@
+TODO
+====
+
+* Fix the inappropriate use of Common Coin in the Byzantine Agreement protocol
+
+   This bug is explained in https://github.com/amiller/HoneyBadgerBFT/issues/59
+   where a solution is suggested introducing an additional type of message,
+   CONF.
+
+   There may be alternative solutions, such as using a different Byzantine
+   Agreement protocol altogether, for example,
+   https://people.csail.mit.edu/silvio/Selected%20Scientific%20Papers/Distributed%20Computation/BYZANTYNE%20AGREEMENT%20MADE%20TRIVIAL.pdf
