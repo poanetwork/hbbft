@@ -74,6 +74,11 @@ impl<NodeUid: Clone + Eq + Hash> Agreement<NodeUid> {
         let mut outgoing = VecDeque::new();
 
         match *message {
+            _ if self.terminated => {
+                // The algorithm instance has already terminated.
+                Err(Error::Terminated)
+            }
+
             AgreementMessage::BVal((epoch, b)) if epoch == self.epoch => {
                 update_map_of_sets(&mut self.received_bval, uid, b);
                 let count_bval = self.received_bval.iter().fold(0, |count, (_, values)| {
@@ -113,7 +118,7 @@ impl<NodeUid: Clone + Eq + Hash> Agreement<NodeUid> {
                 }
             }
 
-            AgreementMessage::Aux((_epoch, b)) => {
+            AgreementMessage::Aux((epoch, b)) if epoch == self.epoch => {
                 update_map_of_sets(&mut self.received_aux, uid, b);
                 if !self.bin_values.is_empty() {
                     let coin_result = self.try_coin();
@@ -231,5 +236,6 @@ where
 
 #[derive(Clone, Debug)]
 pub enum Error {
+    Terminated,
     NotImplemented,
 }
