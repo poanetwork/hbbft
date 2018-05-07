@@ -15,7 +15,7 @@ To build and run `hbbft`, you must have Google's Protocol Buffer Compiler,
 Protocol Buffer Compiler version 3 or greater. Running any of the following
 install methods will save a `protoc` binary at `/usr/local/bin/protoc`.
 
-*Note* As of writing this, the latest stable release of `protoc` is
+*Note:* as of writing this, the latest stable release of `protoc` is
 v3.5.1. You can find out what is the latest compiler version is
 [here](https://github.com/google/protobuf/releases), if you are not
 installing `protoc` on Debian 9 or Ubuntu 17, change your cURL URL and zip
