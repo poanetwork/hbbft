@@ -10,25 +10,30 @@ in Rust. This is a modular library of consensus. There are
 
 # Requirements
 
-You must have the Protocol Buffer compiler binary, `protoc`, located
-somewhere in your `$PATH`. If you have not installed `protoc`, you can
-download the binary and move it to `/usr/local/bin/protoc` using the 
-following:
+To build and run `hbbft`, you must have Google's Protocol Buffer Compiler,
+`protoc` binary, located somewhere in your `$PATH`. You must be using
+Protocol Buffer Compiler version 3 or greater. Running any of the following
+install methods will save a `protoc` binary at `/usr/local/bin/protoc`.
 
 *Note* As of writing this, the latest stable release of `protoc` is
-v3.5.1. You can check out what is the latest compiler version is
-[here](https://github.com/google/protobuf/releases), and update the
-following cURL url and zip-file name accordingly.
+v3.5.1. You can find out what is the latest compiler version is
+[here](https://github.com/google/protobuf/releases), if you are not
+installing `protoc` on Debian 9 or Ubuntu 17, change your cURL URL and zip
+file names accordingly. 
 
-## Installing `protoc` on Debain/Ubuntu
+## Installing `protoc` on Debian 9 (Strech) and Ubuntu 17 (Artful)
 
-    $ cd <some temporary working directory>
+    $ sudo apt-get update
+    $ sudo apt-get install -y protobuf-compiler
+
+## Installing `protoc` on other versions of Debian and Ubuntu
+
     $ sudo apt-get update
     $ sudo apt-get install -y unzip
+    $ cd <some temporary working directory>
     $ curl -OL https://github.com/google/protobuf/releases/download/v3.5.1/protoc-3.5.1-linux-x86_64.zip
     $ sudo unzip protoc-3.5.1-linux-x86_64.zip -d /usr/local bin/protoc
     $ sudo chown $(whoami) /usr/local/bin/protoc
-    $ protoc --version
     $ rm protoc-3.5.1-linux-x86_64.zip
 
 ## Installing `protoc` on OSX
@@ -36,7 +41,6 @@ following cURL url and zip-file name accordingly.
     $ cd <some temporary working directory>
     $ curl -OL https://github.com/google/protobuf/releases/download/v3.5.1/protoc-3.5.1-osx-x86_64.zip
     $ sudo unzip protoc-3.5.1-osx-x86_64.zip -d /usr/local bin/protoc
-    $ protoc --version
     $ rm protoc-3.5.1-osx-x86_64.zip
 
 # Building
