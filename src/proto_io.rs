@@ -9,7 +9,7 @@ use protobuf::{
     ProtobufError
 };
 
-use proto::{BroadcastMessage, Message};
+use proto::Message;
 
 /// A magic key to put right before each message. An atavism of primitive serial
 /// protocols.
@@ -91,7 +91,8 @@ impl<S: Read + Write> ProtoIo<S>
 mod tests {
     use std::io::Cursor;
     
-    use proto_io::*;
+    use proto::{BroadcastMessage, Message};
+    use super::ProtoIo;
 
     #[test]
     fn encode_decode_message() {
