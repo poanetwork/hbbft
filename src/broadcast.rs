@@ -1,10 +1,4 @@
 //! Reliable broadcast algorithm instance.
-use crossbeam_channel::{Receiver, RecvError, SendError, Sender};
-use merkle::proof::{Lemma, Positioned, Proof};
-use merkle::{Hashable, MerkleTree};
-use proto::*;
-use reed_solomon_erasure as rse;
-use reed_solomon_erasure::ReedSolomon;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fmt::Debug;
 use std::hash::Hash;
@@ -12,7 +6,13 @@ use std::iter;
 use std::marker::{Send, Sync};
 use std::sync::{RwLock, RwLockWriteGuard};
 
+use crossbeam_channel::{Receiver, RecvError, Sender, SendError};
+use merkle::{Hashable, MerkleTree};
+use merkle::proof::{Lemma, Positioned, Proof};
+use reed_solomon_erasure::{self as rse, ReedSolomon};
+
 use messaging::{SourcedMessage, Target, TargetedMessage};
+use proto::{BroadcastMessage, HexBytes, Message};
 
 // TODO: Make this a generic argument of `Broadcast`.
 type ProposedValue = Vec<u8>;

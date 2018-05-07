@@ -1,11 +1,15 @@
 //! Protobuf message IO task structure.
-
-use proto::*;
-use protobuf;
-use protobuf::Message as ProtobufMessage;
-use std::io;
-use std::io::{Read, Write};
+use std::io::{self, Read, Write};
 use std::net::TcpStream;
+
+use protobuf::{
+    CodedInputStream,
+    CodedOutputStream,
+    Message as ProtobufMessage,
+    ProtobufError
+};
+
+use proto::Message;
 
 /// A magic key to put right before each message. An atavism of primitive serial
 /// protocols.
@@ -20,7 +24,7 @@ pub enum Error {
     DecodeError,
     FrameStartMismatch,
     // ProtocolError,
-    ProtobufError(protobuf::ProtobufError),
+    ProtobufError(ProtobufError),
 }
 
 impl From<io::Error> for Error {
@@ -29,8 +33,8 @@ impl From<io::Error> for Error {
     }
 }
 
-impl From<protobuf::ProtobufError> for Error {
-    fn from(err: protobuf::ProtobufError) -> Error {
+impl From<ProtobufError> for Error {
+    fn from(err: ProtobufError) -> Error {
         Error::ProtobufError(err)
     }
 }
@@ -40,7 +44,7 @@ pub struct ProtoIo<S: Read + Write> {
 }
 
 impl ProtoIo<TcpStream> {
-    pub fn try_clone(&self) -> Result<ProtoIo<TcpStream>, ::std::io::Error> {
+    pub fn try_clone(&self) -> Result<ProtoIo<TcpStream>, io::Error> {
         Ok(ProtoIo {
             stream: self.stream.try_clone()?,
         })
@@ -49,7 +53,7 @@ impl ProtoIo<TcpStream> {
 
 /// A message handling task.
 impl<S: Read + Write> ProtoIo<S>
-//where T: Clone + Send + Sync + From<Vec<u8>> + Into<Vec<u8>>
+    // where T: Clone + Send + Sync + From<Vec<u8>> + Into<Vec<u8>>
 {
     pub fn from_stream(stream: S) -> Self {
         ProtoIo { stream }
@@ -59,7 +63,7 @@ impl<S: Read + Write> ProtoIo<S>
     where
         T: Clone + Send + Sync + From<Vec<u8>>, // + Into<Vec<u8>>
     {
-        let mut stream = protobuf::CodedInputStream::new(&mut self.stream);
+        let mut stream = CodedInputStream::new(&mut self.stream);
         // Read magic number
         if stream.read_raw_varint32()? != FRAME_START {
             return Err(Error::FrameStartMismatch);
@@ -71,7 +75,7 @@ impl<S: Read + Write> ProtoIo<S>
     where
         T: Clone + Send + Sync + Into<Vec<u8>>,
     {
-        let mut stream = protobuf::CodedOutputStream::new(&mut self.stream);
+        let mut stream = CodedOutputStream::new(&mut self.stream);
         // Write magic number
         stream.write_raw_varint32(FRAME_START)?;
         let message_p = message.into_proto();
@@ -85,8 +89,10 @@ impl<S: Read + Write> ProtoIo<S>
 
 #[cfg(test)]
 mod tests {
-    use proto_io::*;
     use std::io::Cursor;
+    
+    use proto::{BroadcastMessage, Message};
+    use super::ProtoIo;
 
     #[test]
     fn encode_decode_message() {

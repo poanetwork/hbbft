@@ -7,12 +7,8 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::fmt::{Debug, Display};
 use std::hash::Hash;
 
-use agreement;
-use agreement::Agreement;
-
-use broadcast;
-use broadcast::{Broadcast, TargetedBroadcastMessage};
-
+use agreement::{self, Agreement};
+use broadcast::{self, Broadcast, TargetedBroadcastMessage};
 use proto::{AgreementMessage, BroadcastMessage};
 
 // TODO: Make this a generic argument of `Broadcast`.

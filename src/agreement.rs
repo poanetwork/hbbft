@@ -1,7 +1,7 @@
 //! Binary Byzantine agreement protocol from a common coin protocol.
+use std::collections::{BTreeSet, VecDeque};
 
 use proto::AgreementMessage;
-use std::collections::{BTreeSet, VecDeque};
 
 #[derive(Default)]
 pub struct Agreement {

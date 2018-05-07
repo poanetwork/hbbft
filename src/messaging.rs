@@ -1,6 +1,7 @@
 //! The local message delivery system.
-use proto::Message;
 use std::fmt::Debug;
+
+use proto::Message;
 
 /// Message sent by a given source. The sources are consensus nodes indexed 1
 /// through N where N is the total number of nodes. Sourced messages are
