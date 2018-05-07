@@ -9,7 +9,7 @@ use protobuf::{
     ProtobufError
 };
 
-use proto::Message;
+use proto::{BroadcastMessage, Message};
 
 /// A magic key to put right before each message. An atavism of primitive serial
 /// protocols.
