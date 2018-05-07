@@ -1,14 +1,26 @@
 //! Construction of messages from protobuf buffers.
 pub mod message;
 
+use std::fmt::{self, Debug, Formatter};
+use std::marker::{Send, Sync};
+
 use merkle::proof::{Lemma, Positioned, Proof};
-use proto::message::*;
 use protobuf::core::parse_from_bytes;
 use protobuf::error::{ProtobufError, ProtobufResult, WireError};
 use protobuf::Message as ProtobufMessage;
-use ring::digest::Algorithm;
-use std::fmt;
-use std::marker::{Send, Sync};
+use ring::digest::{Algorithm, SHA256};
+
+use broadcast::index_of_proof;
+use self::message::{
+    AgreementProto,
+    BroadcastProto,
+    EchoProto,
+    LemmaProto,
+    MessageProto,
+    ProofProto,
+    ReadyProto,
+    ValueProto
+};
 
 /// Kinds of message sent by nodes participating in consensus.
 #[derive(Clone, Debug, PartialEq)]
@@ -29,8 +41,8 @@ pub enum BroadcastMessage<T: Send + Sync> {
 /// Wrapper for a byte array, whose `Debug` implementation outputs shortened hexadecimal strings.
 pub struct HexBytes<'a>(pub &'a [u8]);
 
-impl<'a> fmt::Debug for HexBytes<'a> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+impl<'a> Debug for HexBytes<'a> {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         if self.0.len() > 6 {
             for byte in &self.0[..3] {
                 write!(f, "{:0x}", byte)?;
@@ -50,21 +62,21 @@ impl<'a> fmt::Debug for HexBytes<'a> {
 
 struct HexProof<'a, T: 'a>(&'a Proof<T>);
 
-impl<'a, T: Send + Sync + fmt::Debug> fmt::Debug for HexProof<'a, T> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+impl<'a, T: Send + Sync + Debug> Debug for HexProof<'a, T> {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         write!(
             f,
             "Proof {{ algorithm: {:?}, root_hash: {:?}, lemma for leaf #{}, value: {:?} }}",
             self.0.algorithm,
             HexBytes(&self.0.root_hash),
-            ::broadcast::index_of_proof(self.0),
+            index_of_proof(self.0),
             self.0.value
         )
     }
 }
 
-impl<T: Send + Sync + fmt::Debug> fmt::Debug for BroadcastMessage<T> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+impl<T: Send + Sync + Debug> Debug for BroadcastMessage<T> {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         match *self {
             BroadcastMessage::Value(ref v) => write!(f, "Value({:?})", HexProof(&v)),
             BroadcastMessage::Echo(ref v) => write!(f, "Echo({:?})", HexProof(&v)),
@@ -87,16 +99,15 @@ impl<T: Send + Sync> Message<T> {
     /// to be fully serialised and sent as a whole, or it can be passed over
     /// using an ID and the `Eq` instance to discriminate the finite set of
     /// algorithms in `ring::digest`.
-    pub fn from_proto(mut proto: message::MessageProto) -> Option<Self>
+    pub fn from_proto(mut proto: MessageProto) -> Option<Self>
     where
         T: From<Vec<u8>>,
     {
         if proto.has_broadcast() {
             BroadcastMessage::from_proto(
                 proto.take_broadcast(),
-                // TODO, possibly move Algorithm inside
-                // BroadcastMessage
-                &::ring::digest::SHA256,
+                // TODO, possibly move Algorithm inside BroadcastMessage
+                &SHA256,
             ).map(Message::Broadcast)
         } else if proto.has_agreement() {
             AgreementMessage::from_proto(proto.take_agreement()).map(Message::Agreement)
@@ -111,13 +122,9 @@ impl<T: Send + Sync> Message<T> {
     {
         let mut m = MessageProto::new();
         match self {
-            Message::Broadcast(b) => {
-                m.set_broadcast(b.into_proto());
-            }
-            Message::Agreement(a) => {
-                m.set_agreement(a.into_proto());
-            }
-        }
+            Message::Broadcast(b) => m.set_broadcast(b.into_proto()),
+            Message::Agreement(a) => m.set_agreement(a.into_proto())
+        };
         m
     }
 
