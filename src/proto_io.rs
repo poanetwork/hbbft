@@ -57,7 +57,7 @@ impl<S: Read + Write> ProtoIo<S>
 
     pub fn recv<T>(&mut self) -> Result<Message<T>, Error>
     where
-        T: Clone + Send + Sync + From<Vec<u8>>, // + Into<Vec<u8>>
+        T: Clone + Send + Sync + AsRef<[u8]> + From<Vec<u8>>,
     {
         let mut stream = protobuf::CodedInputStream::new(&mut self.stream);
         // Read magic number
@@ -69,7 +69,7 @@ impl<S: Read + Write> ProtoIo<S>
 
     pub fn send<T>(&mut self, message: Message<T>) -> Result<(), Error>
     where
-        T: Clone + Send + Sync + Into<Vec<u8>>,
+        T: Clone + Send + Sync + AsRef<[u8]> + From<Vec<u8>>,
     {
         let mut stream = protobuf::CodedOutputStream::new(&mut self.stream);
         // Write magic number
@@ -85,6 +85,7 @@ impl<S: Read + Write> ProtoIo<S>
 
 #[cfg(test)]
 mod tests {
+    use broadcast::BroadcastMessage;
     use proto_io::*;
     use std::io::Cursor;
 

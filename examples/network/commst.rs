@@ -25,7 +25,7 @@ impl From<io::Error> for Error {
 
 /// A communication task connects a remote node to the thread that manages the
 /// consensus algorithm.
-pub struct CommsTask<'a, T: 'a + Clone + Debug + Send + Sync + From<Vec<u8>> + Into<Vec<u8>>> {
+pub struct CommsTask<'a, T: 'a + Clone + Debug + Send + Sync + From<Vec<u8>> + AsRef<[u8]>> {
     /// The transmit side of the multiple producer channel from comms threads.
     tx: &'a Sender<SourcedMessage<T>>,
     /// The receive side of the channel to the comms thread.
@@ -36,7 +36,7 @@ pub struct CommsTask<'a, T: 'a + Clone + Debug + Send + Sync + From<Vec<u8>> + I
     pub node_index: usize,
 }
 
-impl<'a, T: 'a + Clone + Debug + Send + Sync + From<Vec<u8>> + Into<Vec<u8>>> CommsTask<'a, T> {
+impl<'a, T: 'a + Clone + Debug + Send + Sync + From<Vec<u8>> + AsRef<[u8]>> CommsTask<'a, T> {
     pub fn new(
         tx: &'a Sender<SourcedMessage<T>>,
         rx: &'a Receiver<Message<T>>,
@@ -72,7 +72,6 @@ impl<'a, T: 'a + Clone + Debug + Send + Sync + From<Vec<u8>> + Into<Vec<u8>>> Co
                 loop {
                     // Receive a multicast message from the manager thread.
                     let message = rx.recv().unwrap();
-                    debug!("Node {} <- {:?}", node_index, message);
                     // Forward the message to the remote node.
                     io1.send(message).unwrap();
                 }
@@ -83,7 +82,6 @@ impl<'a, T: 'a + Clone + Debug + Send + Sync + From<Vec<u8>> + Into<Vec<u8>>> Co
             loop {
                 match self.io.recv() {
                     Ok(message) => {
-                        debug!("Node {} -> {:?}", node_index, message);
                         tx.send(SourcedMessage {
                             source: node_index,
                             message,

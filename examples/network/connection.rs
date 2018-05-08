@@ -1,6 +1,6 @@
 //! Connection data and initiation routines.
 
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 use std::io::BufReader;
 use std::net::{SocketAddr, TcpListener, TcpStream};
 
@@ -8,61 +8,47 @@ use std::net::{SocketAddr, TcpListener, TcpStream};
 pub struct Connection {
     pub stream: TcpStream,
     pub reader: BufReader<TcpStream>,
+    pub node_str: String,
 }
 
 impl Connection {
-    pub fn new(stream: TcpStream) -> Self {
+    pub fn new(stream: TcpStream, node_str: String) -> Self {
         Connection {
             // Create a read buffer of 1K bytes.
             reader: BufReader::with_capacity(1024, stream.try_clone().unwrap()),
             stream,
+            node_str,
         }
     }
 }
 
-/// Connect this node to remote peers. A vector of successful connections is
-/// returned.
-pub fn make(bind_address: &SocketAddr, remote_addresses: &HashSet<SocketAddr>) -> Vec<Connection> {
-    // Connected remote nodes.
-    //    let mut connected: Vec<SocketAddr> = Vec::new();
+/// Connect this node to remote peers. A vector of successful connections is returned, as well as
+/// our own node ID.
+pub fn make(
+    bind_address: &SocketAddr,
+    remote_addresses: &HashSet<SocketAddr>,
+) -> (String, Vec<Connection>) {
     // Listen for incoming connections on a given TCP port.
     let bind_address = bind_address;
-    let listener = TcpListener::bind(bind_address).unwrap();
-    // Initialise initial connection states.
-    let mut connections: Vec<Option<Connection>> = (0..remote_addresses.len())
-        .into_iter()
-        .map(|_| None)
-        .collect();
-
+    let listener = TcpListener::bind(bind_address).expect("start listener");
     let here_str = format!("{}", bind_address);
+    // Use a `BTreeMap` to make sure we all iterate in the same order.
+    let remote_by_str: BTreeMap<String, _> = remote_addresses
+        .iter()
+        .map(|addr| (format!("{}", addr), addr))
+        .filter(|(there_str, _)| *there_str != here_str)
+        .collect();
     // Wait for all nodes with larger addresses to connect.
-    for (n, &address) in remote_addresses.iter().enumerate() {
-        let there_str = format!("{}", address);
-        if here_str < there_str {
-            connections[n] = match listener.accept() {
-                Ok((stream, _)) => {
-                    info!("Connected to {}", there_str);
-                    Some(Connection::new(stream))
-                }
-                Err(_) => None,
-            }
-        }
-    }
-
-    // Try to connect to all nodes with smaller addresses.
-    for (n, &address) in remote_addresses.iter().enumerate() {
-        let there_str = format!("{}", address);
-        if here_str > there_str {
-            connections[n] = match TcpStream::connect(address) {
-                Ok(stream) => {
-                    info!("Connected to {}", there_str);
-                    Some(Connection::new(stream))
-                }
-                Err(_) => None,
-            }
-        }
-    }
-
-    // remove Nones from connections
-    connections.into_iter().filter_map(|c| c).collect()
+    let connections = remote_by_str
+        .into_iter()
+        .map(|(there_str, address)| {
+            let tcp_conn = if here_str < there_str {
+                listener.accept().expect("failed to connect").0
+            } else {
+                TcpStream::connect(address).expect("failed to connect")
+            };
+            Connection::new(tcp_conn, there_str.to_string())
+        })
+        .collect();
+    (here_str, connections)
 }

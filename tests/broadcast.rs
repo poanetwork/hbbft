@@ -5,16 +5,15 @@ extern crate hbbft;
 extern crate log;
 extern crate crossbeam;
 extern crate crossbeam_channel;
+extern crate env_logger;
 extern crate merkle;
 extern crate rand;
-extern crate simple_logger;
 
 use rand::Rng;
-use std::collections::{BTreeMap, BTreeSet, HashSet, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fmt;
 
-use hbbft::broadcast::{Broadcast, BroadcastTarget, TargetedBroadcastMessage};
-use hbbft::proto::BroadcastMessage;
+use hbbft::broadcast::{Broadcast, BroadcastMessage, BroadcastTarget, TargetedBroadcastMessage};
 
 #[derive(Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Clone, Copy)]
 struct NodeId(usize);
@@ -168,7 +167,7 @@ impl Adversary for ProposeAdversary {
         }
         self.has_sent = true;
         let value = b"Fake news";
-        let node_ids: HashSet<NodeId> = self.adv_nodes
+        let node_ids: BTreeSet<NodeId> = self.adv_nodes
             .iter()
             .cloned()
             .chain(self.good_nodes.iter().cloned())
@@ -191,7 +190,7 @@ impl<A: Adversary> TestNetwork<A> {
     /// Creates a new network with `good_num` good nodes, and the given `adversary` controlling
     /// `adv_num` nodes.
     fn new(good_num: usize, adv_num: usize, adversary: A) -> TestNetwork<A> {
-        let node_ids: HashSet<NodeId> = (0..(good_num + adv_num)).map(NodeId).collect();
+        let node_ids: BTreeSet<NodeId> = (0..(good_num + adv_num)).map(NodeId).collect();
         let new_broadcast = |id: NodeId| {
             let bc =
                 Broadcast::new(id, NodeId(0), node_ids.clone()).expect("Instantiate broadcast");
@@ -271,8 +270,8 @@ impl<A: Adversary> TestNetwork<A> {
 
 /// Broadcasts a value from node 0 and expects all good nodes to receive it.
 fn test_broadcast<A: Adversary>(mut network: TestNetwork<A>, proposed_value: &[u8]) {
-    // TODO: This returns an error in all but the first test.
-    let _ = simple_logger::init_with_level(log::Level::Debug);
+    // This returns an error in all but the first test.
+    let _ = env_logger::try_init();
 
     // Make node 0 propose the value.
     network.propose_value(NodeId(0), proposed_value.to_vec());
@@ -288,34 +287,44 @@ fn test_broadcast<A: Adversary>(mut network: TestNetwork<A>, proposed_value: &[u
     }
 }
 
-// TODO: Unignore once equal shards don't cause problems anymore.
 #[test]
-#[ignore]
-fn test_8_broadcast_equal_leaves() {
+fn test_8_broadcast_equal_leaves_silent() {
     let adversary = SilentAdversary::new(MessageScheduler::Random);
     // Space is ASCII character 32. So 32 spaces will create shards that are all equal, even if the
     // length of the value is inserted.
     test_broadcast(TestNetwork::new(8, 0, adversary), &[b' '; 32]);
 }
 
-// TODO: Unignore once node numbers are supported that are not powers of two.
 #[test]
-#[ignore]
-fn test_13_broadcast_nodes_random_delivery() {
+fn test_13_broadcast_nodes_random_delivery_silent() {
     let adversary = SilentAdversary::new(MessageScheduler::Random);
     test_broadcast(TestNetwork::new(13, 0, adversary), b"Foo");
 }
 
 #[test]
-fn test_11_5_broadcast_nodes_random_delivery() {
+fn test_4_broadcast_nodes_random_delivery_silent() {
+    let adversary = SilentAdversary::new(MessageScheduler::Random);
+    test_broadcast(TestNetwork::new(4, 0, adversary), b"Foo");
+}
+
+#[test]
+fn test_11_5_broadcast_nodes_random_delivery_silent() {
     let adversary = SilentAdversary::new(MessageScheduler::Random);
     test_broadcast(TestNetwork::new(11, 5, adversary), b"Foo");
 }
 
 #[test]
-fn test_11_5_broadcast_nodes_first_delivery() {
+fn test_11_5_broadcast_nodes_first_delivery_silent() {
     let adversary = SilentAdversary::new(MessageScheduler::First);
     test_broadcast(TestNetwork::new(11, 5, adversary), b"Foo");
+}
+
+#[test]
+fn test_3_1_broadcast_nodes_random_delivery_adv_propose() {
+    let good_nodes: BTreeSet<NodeId> = (0..3).map(NodeId).collect();
+    let adv_nodes: BTreeSet<NodeId> = (3..4).map(NodeId).collect();
+    let adversary = ProposeAdversary::new(MessageScheduler::Random, good_nodes, adv_nodes);
+    test_broadcast(TestNetwork::new(3, 1, adversary), b"Foo");
 }
 
 #[test]

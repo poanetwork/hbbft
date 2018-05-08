@@ -4,8 +4,8 @@ version = "0.1.0"
 authors = ["Vladimir Komendantskiy <komendantsky@gmail.com>"]
 
 [dependencies]
+env_logger = "0.5.10"
 log = "0.4.1"
-simple_logger = "0.5"
 reed-solomon-erasure = "3.0"
 merkle = { git = "https://github.com/vkomenda/merkle.rs", branch = "public-proof" }
 ring = "^0.12"
