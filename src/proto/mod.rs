@@ -1,6 +1,7 @@
 //! Construction of messages from protobuf buffers.
 pub mod message;
 
+use agreement::AgreementMessage;
 use broadcast::BroadcastMessage;
 use merkle::proof::{Lemma, Positioned, Proof};
 use proto::message::*;
@@ -64,15 +65,6 @@ impl<'a, T: AsRef<[u8]>> fmt::Debug for HexProof<'a, T> {
             HexBytes(&self.0.value.as_ref())
         )
     }
-}
-
-/// Messages sent during the binary Byzantine agreement stage.
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub enum AgreementMessage {
-    /// BVAL message with an epoch.
-    BVal((u32, bool)),
-    /// AUX message with an epoch.
-    Aux((u32, bool)),
 }
 
 impl<T: Send + Sync + AsRef<[u8]> + From<Vec<u8>>> Message<T> {
@@ -167,36 +159,6 @@ impl<T: Send + Sync + AsRef<[u8]> + From<Vec<u8>>> BroadcastMessage<T> {
         } else if mp.has_ready() {
             let h = mp.take_ready().take_root_hash();
             Some(BroadcastMessage::Ready(h))
-        } else {
-            None
-        }
-    }
-}
-
-impl AgreementMessage {
-    pub fn into_proto(self) -> AgreementProto {
-        let mut p = AgreementProto::new();
-        match self {
-            AgreementMessage::BVal((e, b)) => {
-                p.set_epoch(e);
-                p.set_bval(b);
-            }
-            AgreementMessage::Aux((e, b)) => {
-                p.set_epoch(e);
-                p.set_aux(b);
-            }
-        }
-        p
-    }
-
-    // TODO: Re-enable lint once implemented.
-    #[cfg_attr(feature = "cargo-clippy", allow(needless_pass_by_value))]
-    pub fn from_proto(mp: AgreementProto) -> Option<Self> {
-        let epoch = mp.get_epoch();
-        if mp.has_bval() {
-            Some(AgreementMessage::BVal((epoch, mp.get_bval())))
-        } else if mp.has_aux() {
-            Some(AgreementMessage::Aux((epoch, mp.get_aux())))
         } else {
             None
         }

@@ -9,10 +9,10 @@ log = "0.4.1"
 reed-solomon-erasure = "3.0"
 merkle = { git = "https://github.com/vkomenda/merkle.rs", branch = "public-proof" }
 ring = "^0.12"
-rand = "*"
 protobuf = "1.4.4"
 crossbeam = "0.3.2"
 crossbeam-channel = "0.1"
+rand = "0.3"
 
 [build-dependencies]
 protoc-rust = "1.4.4"
