@@ -22,8 +22,13 @@ type CommonSubsetOutput<NodeUid> = (Option<HashSet<ProposedValue>>, VecDeque<Out
 pub enum Input<NodeUid> {
     /// Message from a remote node `uid` to the broadcast instance `uid`.
     Broadcast(NodeUid, BroadcastMessage<ProposedValue>),
-    /// Message from a remote node `uid` to all agreement instances.
-    Agreement(NodeUid, AgreementMessage),
+    /// Message from a remote node `message_sender_id` concerning the common
+    /// subset element proposed by the node `element_proposer_id`.
+    Agreement {
+        message_sender_id: NodeUid,
+        element_proposer_id: NodeUid,
+        message: AgreementMessage,
+    },
 }
 
 /// Output from Common Subset to remote nodes.
@@ -118,12 +123,16 @@ impl<NodeUid: Clone + Debug + Display + Eq + Hash + Ord> CommonSubset<NodeUid> {
     /// of messages to be sent to remote nodes, or an error.
     pub fn on_input(
         &mut self,
-        message: Input<NodeUid>,
+        input_message: Input<NodeUid>,
     ) -> Result<CommonSubsetOutput<NodeUid>, Error> {
-        match message {
+        match input_message {
             Input::Broadcast(uid, bmessage) => self.on_input_broadcast(&uid, bmessage),
 
-            Input::Agreement(uid, amessage) => self.on_input_agreement(&uid, &amessage),
+            Input::Agreement {
+                message_sender_id,
+                element_proposer_id,
+                message,
+            } => self.on_input_agreement(message_sender_id, element_proposer_id, &message),
         }
     }
 
@@ -162,47 +171,34 @@ impl<NodeUid: Clone + Debug + Display + Eq + Hash + Ord> CommonSubset<NodeUid> {
 
     fn on_input_agreement(
         &mut self,
-        uid: &NodeUid,
+        msg_sender_id: NodeUid,
+        element_proposer_id: NodeUid,
         amessage: &AgreementMessage,
     ) -> Result<CommonSubsetOutput<NodeUid>, Error> {
-        // Send the message to all local instances of Agreement
-        let on_input_result: Result<
-            (HashMap<NodeUid, bool>, VecDeque<AgreementMessage>),
-            Error,
-        > = self.agreement_instances.iter_mut().fold(
-            Ok((HashMap::new(), VecDeque::new())),
-            |accum, (instance_uid, instance)| {
-                match accum {
-                    Err(_) => accum,
-                    Ok((mut outputs, mut outgoing)) => {
-                        // Optional output of agreement and outgoing
-                        // agreement messages to remote nodes.
-                        if instance.terminated() {
-                            // This instance has terminated and does not accept input.
-                            Ok((outputs, outgoing))
-                        } else {
-                            // Send the message to the agreement instance.
-                            instance
-                                .on_input(uid.clone(), &amessage)
-                                .map_err(Error::from)
-                                .map(|(output, mut messages)| {
-                                    if let Some(b) = output {
-                                        outputs.insert(instance_uid.clone(), b);
-                                    }
-                                    outgoing.append(&mut messages);
-                                    (outputs, outgoing)
-                                })
-                        }
-                    }
-                }
-            },
-        );
+        // The result defaults to error.
+        let mut result = Err(Error::NoSuchAgreementInstance);
 
-        if let Ok((outputs, mut outgoing)) = on_input_result {
+        // Send the message to the local instance of Agreement
+        if let Some(mut agreement_instance) = self.agreement_instances.get_mut(&element_proposer_id)
+        {
+            // Optional output of agreement and outgoing agreement
+            // messages to remote nodes.
+            result = if agreement_instance.terminated() {
+                // This instance has terminated and does not accept input.
+                Ok((None, VecDeque::new()))
+            } else {
+                // Send the message to the agreement instance.
+                agreement_instance
+                    .on_input(msg_sender_id, &amessage)
+                    .map_err(Error::from)
+            }
+        }
+
+        if let Ok((output, mut outgoing)) = result {
             // Process Agreement outputs.
-            outputs.iter().map(|(output_uid, &output_value)| {
-                outgoing.append(&mut self.on_agreement_result(output_uid.clone(), output_value));
-            });
+            if let Some(b) = output {
+                outgoing.append(&mut self.on_agreement_result(element_proposer_id, b));
+            }
 
             // Check whether Agreement has completed.
             Ok((
@@ -211,19 +207,23 @@ impl<NodeUid: Clone + Debug + Display + Eq + Hash + Ord> CommonSubset<NodeUid> {
             ))
         } else {
             // error
-            on_input_result
+            result
                 .map(|(_, messages)| (None, messages.into_iter().map(Output::Agreement).collect()))
         }
     }
 
     /// Callback to be invoked on receipt of a returned value of the Agreement
     /// instance `uid`.
-    fn on_agreement_result(&mut self, uid: NodeUid, result: bool) -> VecDeque<AgreementMessage> {
+    fn on_agreement_result(
+        &mut self,
+        element_proposer_id: NodeUid,
+        result: bool,
+    ) -> VecDeque<AgreementMessage> {
         let mut outgoing = VecDeque::new();
         // Upon delivery of value 1 from at least N − f instances of BA, provide
         // input 0 to each instance of BA that has not yet been provided input.
         if result {
-            self.agreement_results.insert(uid, result);
+            self.agreement_results.insert(element_proposer_id, result);
             // The number of instances of BA that output 1.
             let results1 = self.agreement_results.values().filter(|v| **v).count();
 

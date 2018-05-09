@@ -48,7 +48,7 @@ impl AgreementMessage {
 }
 
 pub struct Agreement<NodeUid> {
-    /// The UID of the corresponding node.
+    /// The UID of the corresponding proposer node.
     uid: NodeUid,
     num_nodes: usize,
     num_faulty_nodes: usize,
@@ -113,27 +113,27 @@ impl<NodeUid: Clone + Eq + Hash> Agreement<NodeUid> {
     /// to remote nodes. There can be up to 2 messages.
     pub fn on_input(
         &mut self,
-        uid: NodeUid,
+        sender_id: NodeUid,
         message: &AgreementMessage,
     ) -> Result<AgreementOutput, Error> {
         match *message {
             // The algorithm instance has already terminated.
             _ if self.terminated => Err(Error::Terminated),
 
-            AgreementMessage::BVal((epoch, b)) if epoch == self.epoch => self.on_bval(uid, b),
+            AgreementMessage::BVal((epoch, b)) if epoch == self.epoch => self.on_bval(sender_id, b),
 
-            AgreementMessage::Aux((epoch, b)) if epoch == self.epoch => self.on_aux(uid, b),
+            AgreementMessage::Aux((epoch, b)) if epoch == self.epoch => self.on_aux(sender_id, b),
 
             // Epoch does not match. Ignore the message.
             _ => Ok((None, VecDeque::new())),
         }
     }
 
-    fn on_bval(&mut self, uid: NodeUid, b: bool) -> Result<AgreementOutput, Error> {
+    fn on_bval(&mut self, sender_id: NodeUid, b: bool) -> Result<AgreementOutput, Error> {
         let mut outgoing = VecDeque::new();
 
         self.received_bval
-            .entry(uid)
+            .entry(sender_id)
             .or_insert_with(BTreeSet::new)
             .insert(b);
         let count_bval = self.received_bval
@@ -179,11 +179,11 @@ impl<NodeUid: Clone + Eq + Hash> Agreement<NodeUid> {
         }
     }
 
-    fn on_aux(&mut self, uid: NodeUid, b: bool) -> Result<AgreementOutput, Error> {
+    fn on_aux(&mut self, sender_id: NodeUid, b: bool) -> Result<AgreementOutput, Error> {
         let mut outgoing = VecDeque::new();
 
         self.received_aux
-            .entry(uid)
+            .entry(sender_id)
             .or_insert_with(BTreeSet::new)
             .insert(b);
         if !self.bin_values.is_empty() {
