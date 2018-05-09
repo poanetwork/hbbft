@@ -11,9 +11,9 @@ use agreement;
 use agreement::Agreement;
 
 use broadcast;
-use broadcast::{Broadcast, TargetedBroadcastMessage};
+use broadcast::{Broadcast, BroadcastMessage, TargetedBroadcastMessage};
 
-use proto::{AgreementMessage, BroadcastMessage};
+use proto::AgreementMessage;
 
 // TODO: Make this a generic argument of `Broadcast`.
 type ProposedValue = Vec<u8>;
@@ -39,7 +39,7 @@ pub enum Output<NodeUid> {
     Agreement(AgreementMessage),
 }
 
-pub struct CommonSubset<NodeUid: Eq + Hash> {
+pub struct CommonSubset<NodeUid: Eq + Hash + Ord> {
     uid: NodeUid,
     num_nodes: usize,
     num_faulty_nodes: usize,
@@ -59,7 +59,11 @@ impl<NodeUid: Clone + Debug + Display + Eq + Hash + Ord> CommonSubset<NodeUid> {
         for uid0 in all_uids {
             broadcast_instances.insert(
                 uid0.clone(),
-                Broadcast::new(uid.clone(), uid0.clone(), all_uids.clone())?,
+                Broadcast::new(
+                    uid.clone(),
+                    uid0.clone(),
+                    all_uids.iter().cloned().collect(),
+                )?,
             );
         }
 

@@ -8,7 +8,7 @@ use std::fmt::Debug;
 /// recepients is unknown without further computation which is irrelevant to the
 /// message delivery task.
 #[derive(Clone, Debug)]
-pub struct SourcedMessage<T: Clone + Debug + Send + Sync> {
+pub struct SourcedMessage<T: Clone + Debug + Send + Sync + AsRef<[u8]>> {
     pub source: usize,
     pub message: Message<T>,
 }
@@ -27,20 +27,14 @@ pub enum Target {
 
 /// Message with a designated target.
 #[derive(Clone, Debug, PartialEq)]
-pub struct TargetedMessage<T: Clone + Debug + Send + Sync> {
+pub struct TargetedMessage<T: Clone + Debug + Send + Sync + AsRef<[u8]>> {
     pub target: Target,
     pub message: Message<T>,
 }
 
-impl<T: Clone + Debug + Send + Sync> TargetedMessage<T> {
+impl<T: Clone + Debug + Send + Sync + AsRef<[u8]>> TargetedMessage<T> {
     /// Initialises a message while checking parameter preconditions.
-    pub fn new(target: Target, message: Message<T>) -> Option<Self> {
-        match target {
-            Target::Node(i) if i == 0 => {
-                // Remote node indices start from 1.
-                None
-            }
-            _ => Some(TargetedMessage { target, message }),
-        }
+    pub fn new(target: Target, message: Message<T>) -> Self {
+        TargetedMessage { target, message }
     }
 }

@@ -37,9 +37,9 @@
 use crossbeam;
 use std::collections::HashSet;
 use std::fmt::Debug;
-use std::io;
 use std::marker::{Send, Sync};
 use std::net::SocketAddr;
+use std::{io, iter, process, thread, time};
 
 use hbbft::broadcast;
 use network::commst;
@@ -50,7 +50,6 @@ use network::messaging::Messaging;
 pub enum Error {
     IoError(io::Error),
     CommsError(commst::Error),
-    NotImplemented,
 }
 
 impl From<io::Error> for Error {
@@ -90,54 +89,65 @@ impl<T: Clone + Debug + AsRef<[u8]> + PartialEq + Send + Sync + From<Vec<u8>> + 
     /// Consensus node procedure implementing HoneyBadgerBFT.
     pub fn run(&self) -> Result<T, Error> {
         let value = &self.value;
-        let connections = connection::make(&self.addr, &self.remotes);
+        let (our_str, connections) = connection::make(&self.addr, &self.remotes);
+        let mut node_strs: Vec<String> = iter::once(our_str.clone())
+            .chain(connections.iter().map(|c| c.node_str.clone()))
+            .collect();
+        node_strs.sort();
+        debug!("Nodes:  {:?}", node_strs);
+        let proposer_id = 0;
+        let our_id = node_strs.binary_search(&our_str).unwrap();
         let num_nodes = connections.len() + 1;
+
+        if value.is_some() != (our_id == proposer_id) {
+            panic!("Exactly the first node must propose a value.");
+        }
 
         // Initialise the message delivery system and obtain TX and RX handles.
         let messaging: Messaging<Vec<u8>> = Messaging::new(num_nodes);
         let rxs_to_comms = messaging.rxs_to_comms();
         let tx_from_comms = messaging.tx_from_comms();
-        let rxs_to_algo = messaging.rxs_to_algo();
+        let rx_to_algo = messaging.rx_to_algo();
         let tx_from_algo = messaging.tx_from_algo();
         let stop_tx = messaging.stop_tx();
 
         // All spawned threads will have exited by the end of the scope.
         crossbeam::scope(|scope| {
             // Start the centralised message delivery system.
-            let msg_handle = messaging.spawn(scope);
-            let mut broadcast_handles = Vec::new();
+            let _msg_handle = messaging.spawn(scope);
 
             // Associate a broadcast instance with this node. This instance will
             // broadcast the proposed value. There is no remote node
             // corresponding to this instance, and no dedicated comms task. The
             // node index is 0.
-            let rx_to_algo0 = &rxs_to_algo[0];
-            broadcast_handles.push(scope.spawn(move || {
+            let broadcast_handle = scope.spawn(move || {
                 match broadcast::Instance::new(
                     tx_from_algo,
-                    rx_to_algo0,
+                    rx_to_algo,
                     value.to_owned(),
-                    num_nodes,
-                    0,
+                    (0..num_nodes).collect(),
+                    our_id,
+                    proposer_id,
                 ).run()
                 {
                     Ok(t) => {
-                        debug!(
-                            "Broadcast instance 0 succeeded: {}",
+                        println!(
+                            "Broadcast succeeded! Node {} output: {}",
+                            our_id,
                             String::from_utf8(T::into(t)).unwrap()
                         );
                     }
-                    Err(e) => error!("Broadcast instance 0: {:?}", e),
+                    Err(e) => error!("Broadcast instance: {:?}", e),
                 }
-            }));
+            });
 
             // Start a comms task for each connection. Node indices of those
             // tasks are 1 through N where N is the number of connections.
             for (i, c) in connections.iter().enumerate() {
                 // Receive side of a single-consumer channel from algorithm
                 // actor tasks to the comms task.
-                let rx_to_comms = &rxs_to_comms[i];
-                let node_index = i + 1;
+                let node_index = if c.node_str < our_str { i } else { i + 1 };
+                let rx_to_comms = &rxs_to_comms[node_index];
 
                 scope.spawn(move || {
                     match commst::CommsTask::new(
@@ -152,35 +162,14 @@ impl<T: Clone + Debug + AsRef<[u8]> + PartialEq + Send + Sync + From<Vec<u8>> + 
                         Err(e) => error!("Comms task {}: {:?}", node_index, e),
                     }
                 });
-
-                // Associate a broadcast instance to the above comms task.
-                let rx_to_algo = &rxs_to_algo[node_index];
-                broadcast_handles.push(scope.spawn(move || {
-                    match broadcast::Instance::new(
-                        tx_from_algo,
-                        rx_to_algo,
-                        None,
-                        num_nodes,
-                        node_index,
-                    ).run()
-                    {
-                        Ok(t) => {
-                            debug!(
-                                "Broadcast instance {} succeeded: {}",
-                                node_index,
-                                String::from_utf8(T::into(t)).unwrap()
-                            );
-                        }
-                        Err(e) => error!("Broadcast instance {}: {:?}", node_index, e),
-                    }
-                }));
             }
 
             // Wait for the broadcast instances to finish before stopping the
             // messaging task.
-            for h in broadcast_handles {
-                h.join();
-            }
+            broadcast_handle.join();
+
+            // Wait another second so that pending messages get sent out.
+            thread::sleep(time::Duration::from_secs(1));
 
             // Stop the messaging task.
             stop_tx
@@ -190,30 +179,14 @@ impl<T: Clone + Debug + AsRef<[u8]> + PartialEq + Send + Sync + From<Vec<u8>> + 
                 })
                 .unwrap();
 
-            match msg_handle.join() {
-                Ok(()) => debug!("Messaging stopped OK"),
-                Err(e) => debug!("Messaging error: {:?}", e),
-            }
-            // TODO: continue the implementation of the asynchronous common
-            // subset algorithm.
-            Err(Error::NotImplemented)
+            process::exit(0);
+
+            // TODO: Exit cleanly.
+            // match msg_handle.join() {
+            //     Ok(()) => debug!("Messaging stopped OK"),
+            //     Err(e) => debug!("Messaging error: {:?}", e),
+            // }
+            // Err(Error::NotImplemented)
         }) // end of thread scope
     }
 }
-
-// #[cfg(test)]
-// mod tests {
-//     use std::collections::HashSet;
-//     use node;
-
-//     /// Test that the node works to completion.
-//     #[test]
-//     fn test_node_0() {
-//         let node = node::Node::new("127.0.0.1:10000".parse().unwrap(),
-//                                    HashSet::new(),
-//                                    Some("abc".as_bytes().to_vec()));
-//         let result = node.run();
-//         assert!(match result { Err(node::Error::NotImplemented) => true,
-//                                _ => false });
-//     }
-// }

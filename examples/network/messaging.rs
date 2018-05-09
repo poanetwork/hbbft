@@ -9,13 +9,13 @@ use std::fmt::Debug;
 /// The queue functionality for messages sent between algorithm instances.
 /// The messaging struct allows for targeted message exchange between comms
 /// tasks on one side and algo tasks on the other.
-pub struct Messaging<T: Clone + Debug + Send + Sync> {
+pub struct Messaging<T: Clone + Debug + Send + Sync + AsRef<[u8]>> {
     /// Transmit sides of message channels to comms threads.
     txs_to_comms: Vec<Sender<Message<T>>>,
     /// Receive side of the routed message channel from comms threads.
     rx_from_comms: Receiver<SourcedMessage<T>>,
-    /// Transmit sides of message channels to algo threads.
-    txs_to_algo: Vec<Sender<SourcedMessage<T>>>,
+    /// Transmit sides of message channels to algo thread.
+    tx_to_algo: Sender<SourcedMessage<T>>,
     /// Receive side of the routed message channel from comms threads.
     rx_from_algo: Receiver<TargetedMessage<T>>,
 
@@ -23,9 +23,9 @@ pub struct Messaging<T: Clone + Debug + Send + Sync> {
     rxs_to_comms: Vec<Receiver<Message<T>>>,
     /// TX handle to be used by comms tasks.
     tx_from_comms: Sender<SourcedMessage<T>>,
-    /// RX handles to be used by algo tasks.
-    rxs_to_algo: Vec<Receiver<SourcedMessage<T>>>,
-    /// TX handle to be used by algo tasks.
+    /// RX handles to be used by algo task.
+    rx_to_algo: Receiver<SourcedMessage<T>>,
+    /// TX handle to be used by algo task.
     tx_from_algo: Sender<TargetedMessage<T>>,
 
     /// Control channel used to stop the listening thread.
@@ -33,23 +33,17 @@ pub struct Messaging<T: Clone + Debug + Send + Sync> {
     stop_rx: Receiver<()>,
 }
 
-impl<T: Clone + Debug + Send + Sync> Messaging<T> {
+impl<T: Clone + Debug + Send + Sync + AsRef<[u8]>> Messaging<T> {
     /// Initialises all the required TX and RX handles for the case on a total
     /// number `num_nodes` of consensus nodes.
     pub fn new(num_nodes: usize) -> Self {
-        let to_comms: Vec<_> = (0..num_nodes - 1)
-            .map(|_| unbounded::<Message<T>>())
-            .collect();
+        let to_comms: Vec<_> = (0..num_nodes).map(|_| unbounded::<Message<T>>()).collect();
         let txs_to_comms = to_comms.iter().map(|&(ref tx, _)| tx.to_owned()).collect();
         let rxs_to_comms: Vec<Receiver<Message<T>>> =
             to_comms.iter().map(|&(_, ref rx)| rx.to_owned()).collect();
         let (tx_from_comms, rx_from_comms) = unbounded();
-        let to_algo: Vec<_> = (0..num_nodes)
-            .map(|_| unbounded::<SourcedMessage<T>>())
-            .collect();
-        let txs_to_algo = to_algo.iter().map(|&(ref tx, _)| tx.to_owned()).collect();
-        let rxs_to_algo: Vec<Receiver<SourcedMessage<T>>> =
-            to_algo.iter().map(|&(_, ref rx)| rx.to_owned()).collect();
+
+        let (tx_to_algo, rx_to_algo) = unbounded();
         let (tx_from_algo, rx_from_algo) = unbounded();
 
         let (stop_tx, stop_rx) = bounded(1);
@@ -58,13 +52,13 @@ impl<T: Clone + Debug + Send + Sync> Messaging<T> {
             // internally used handles
             txs_to_comms,
             rx_from_comms,
-            txs_to_algo,
+            tx_to_algo,
             rx_from_algo,
 
             // externally used handles
             rxs_to_comms,
             tx_from_comms,
-            rxs_to_algo,
+            rx_to_algo,
             tx_from_algo,
 
             stop_tx,
@@ -80,8 +74,8 @@ impl<T: Clone + Debug + Send + Sync> Messaging<T> {
         &self.tx_from_comms
     }
 
-    pub fn rxs_to_algo(&self) -> &Vec<Receiver<SourcedMessage<T>>> {
-        &self.rxs_to_algo
+    pub fn rx_to_algo(&self) -> &Receiver<SourcedMessage<T>> {
+        &self.rx_to_algo
     }
 
     pub fn tx_from_algo(&self) -> &Sender<TargetedMessage<T>> {
@@ -100,7 +94,7 @@ impl<T: Clone + Debug + Send + Sync> Messaging<T> {
     {
         let txs_to_comms = self.txs_to_comms.to_owned();
         let rx_from_comms = self.rx_from_comms.to_owned();
-        let txs_to_algo = self.txs_to_algo.to_owned();
+        let tx_to_algo = self.tx_to_algo.to_owned();
         let rx_from_algo = self.rx_from_algo.to_owned();
 
         let stop_rx = self.stop_rx.to_owned();
@@ -128,8 +122,7 @@ impl<T: Clone + Debug + Send + Sync> Messaging<T> {
                                     .fold(Ok(()), |result, tx| {
                                         if result.is_ok() {
                                             tx.send(message.clone())
-                                        }
-                                        else {
+                                        } else {
                                             result
                                         }
                                     }).map_err(Error::from);
@@ -138,16 +131,10 @@ impl<T: Clone + Debug + Send + Sync> Messaging<T> {
                                 target: Target::Node(i),
                                 message
                             } => {
-                                // Remote node indices start from 1.
-                                assert!(i > 0);
-                                // Convert node index to vector index.
-                                let i = i - 1;
-
                                 result = if i < txs_to_comms.len() {
                                     txs_to_comms[i].send(message.clone())
                                         .map_err(Error::from)
-                                }
-                                else {
+                                } else {
                                     Err(Error::NoSuchTarget)
                                 };
                             }
@@ -156,14 +143,7 @@ impl<T: Clone + Debug + Send + Sync> Messaging<T> {
                     recv(rx_from_comms, message) => {
                         // Send the message to all algorithm instances, stopping at
                         // the first error.
-                        result = txs_to_algo.iter().fold(Ok(()), |result, tx| {
-                            if result.is_ok() {
-                                tx.send(message.clone())
-                            }
-                            else {
-                                result
-                            }
-                        }).map_err(Error::from)
+                        result = tx_to_algo.send(message.clone()).map_err(Error::from)
                     },
                     recv(stop_rx, _) => {
                         // Flag the thread ready to exit.

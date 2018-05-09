@@ -4,10 +4,10 @@ extern crate crossbeam;
 #[macro_use]
 extern crate crossbeam_channel;
 extern crate docopt;
+extern crate env_logger;
 extern crate hbbft;
 #[macro_use]
 extern crate log;
-extern crate simple_logger;
 
 mod network;
 
@@ -55,7 +55,7 @@ fn parse_args() -> Args {
 }
 
 pub fn main() {
-    simple_logger::init_with_level(log::Level::Debug).unwrap();
+    env_logger::init();
     let args: Args = parse_args();
     println!("{:?}", args);
     let node = Node::new(args.bind_address, args.remote_addresses, args.value);

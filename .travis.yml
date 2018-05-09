@@ -17,9 +17,11 @@ env:
   global:
     - RUST_BACKTRACE=1
     - RUSTFLAGS="-D warnings"
-  script:
-    - cargo fmt -- --write-mode=diff
-    - cargo clippy -- -D clippy
-    - cargo clippy --tests -- -D clippy
-    - cargo check --tests
-    - cargo test
+script:
+  # TODO: This currently fails, claiming that `src/proto/message.rs` does not
+  #       exist. Re-enable once the problem is resolved.
+  # - cargo fmt -- --write-mode=diff
+  - cargo clippy -- -D clippy
+  - cargo clippy --tests -- -D clippy
+  - cargo check --tests
+  - cargo test
