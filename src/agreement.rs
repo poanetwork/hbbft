@@ -63,7 +63,7 @@ pub struct Agreement<NodeUid> {
     /// Sent BVAL values. Reset on every epoch update.
     sent_bval: BTreeSet<bool>,
     /// Values received in AUX messages. Reset on every epoch update.
-    received_aux: HashMap<NodeUid, BTreeSet<bool>>,
+    received_aux: HashMap<NodeUid, bool>,
     /// Estimates of the decision value in all epochs. The first estimated value
     /// is provided as input by Common Subset using the `set_input` function
     /// which triggers the algorithm to start.
@@ -168,10 +168,7 @@ impl<NodeUid: Clone + Eq + Hash> Agreement<NodeUid> {
                 // Send an AUX message at most once per epoch.
                 outgoing.push_back(AgreementMessage::Aux((self.epoch, b)));
                 // Receive the AUX message locally.
-                self.received_aux
-                    .entry(self.uid.clone())
-                    .or_insert_with(BTreeSet::new)
-                    .insert(b);
+                self.received_aux.insert(self.uid.clone(), b);
             }
 
             let coin_result = self.try_coin();
@@ -193,10 +190,7 @@ impl<NodeUid: Clone + Eq + Hash> Agreement<NodeUid> {
     }
 
     fn handle_aux(&mut self, sender_id: NodeUid, b: bool) -> Result<AgreementOutput, Error> {
-        self.received_aux
-            .entry(sender_id)
-            .or_insert_with(BTreeSet::new)
-            .insert(b);
+        self.received_aux.insert(sender_id, b);
         if !self.bin_values.is_empty() {
             let coin_result = self.try_coin();
             Ok((coin_result, VecDeque::new()))
@@ -216,12 +210,13 @@ impl<NodeUid: Clone + Eq + Hash> Agreement<NodeUid> {
     /// can, however, expect every good node to send an AUX value that will
     /// eventually end up in our bin_values.
     fn count_aux(&self) -> (usize, BTreeSet<bool>) {
-        let vals: BTreeSet<bool> = self.received_aux
-            .values()
-            .filter(|values| values.is_subset(&self.bin_values))
-            .fold(BTreeSet::new(), |vals, values| {
-                vals.union(values).cloned().collect()
-            });
+        let mut vals: BTreeSet<bool> = BTreeSet::new();
+
+        for b in self.received_aux.values() {
+            if self.bin_values.contains(b) {
+                vals.insert(b.clone());
+            }
+        }
 
         (vals.len(), vals)
     }
@@ -251,6 +246,7 @@ impl<NodeUid: Clone + Eq + Hash> Agreement<NodeUid> {
 
         // Start the next epoch.
         self.bin_values.clear();
+        self.received_aux.clear();
         self.epoch += 1;
 
         if vals.len() != 1 {
