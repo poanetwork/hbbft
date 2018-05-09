@@ -10,7 +10,6 @@ extern crate crossbeam;
 extern crate crossbeam_channel;
 extern crate merkle;
 extern crate protobuf;
-extern crate rand;
 extern crate reed_solomon_erasure;
 extern crate ring;
 

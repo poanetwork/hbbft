@@ -1,11 +1,14 @@
 //! Binary Byzantine agreement protocol from a common coin protocol.
 
-use rand::random;
 use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
 use std::hash::Hash;
 
 use proto::message;
 
+/// Type of output from the Agreement message handler. The first component is
+/// the value on which the Agreement has decided, also called "output" in the
+/// HoneyadgerBFT paper. The second component is a queue of messages to be sent
+/// to remote nodes as a result of handling the incomming message.
 type AgreementOutput = (Option<bool>, VecDeque<AgreementMessage>);
 
 /// Messages sent during the binary Byzantine agreement stage.
@@ -53,7 +56,6 @@ pub struct Agreement<NodeUid> {
     num_nodes: usize,
     num_faulty_nodes: usize,
     epoch: u32,
-    input: Option<bool>,
     /// Bin values. Reset on every epoch update.
     bin_values: BTreeSet<bool>,
     /// Values received in BVAL messages. Reset on every epoch update.
@@ -62,9 +64,15 @@ pub struct Agreement<NodeUid> {
     sent_bval: BTreeSet<bool>,
     /// Values received in AUX messages. Reset on every epoch update.
     received_aux: HashMap<NodeUid, BTreeSet<bool>>,
-    /// All the output values in all epochs.
+    /// Estimates of the decision value in all epochs. The first estimated value
+    /// is provided as input by Common Subset using the `set_input` function
+    /// which triggers the algorithm to start.
     estimated: BTreeMap<u32, bool>,
-    /// Termination flag.
+    /// Termination flag. The Agreement instance doesn't terminate immediately
+    /// upon deciding on the agreed value. This is done in order to help other
+    /// nodes decide despite asynchrony of communication. Once the instance
+    /// determines that all the remote nodes have reached agreement, it sets the
+    /// `terminated` flag and accepts no more incoming messages.
     terminated: bool,
 }
 
@@ -77,7 +85,6 @@ impl<NodeUid: Clone + Eq + Hash> Agreement<NodeUid> {
             num_nodes,
             num_faulty_nodes,
             epoch: 0,
-            input: None,
             bin_values: BTreeSet::new(),
             received_bval: HashMap::new(),
             sent_bval: BTreeSet::new(),
@@ -92,26 +99,31 @@ impl<NodeUid: Clone + Eq + Hash> Agreement<NodeUid> {
         self.terminated
     }
 
-    pub fn set_input(&mut self, input: bool) -> AgreementMessage {
-        self.input = Some(input);
+    pub fn set_input(&mut self, input: bool) -> Result<AgreementMessage, Error> {
+        if self.epoch != 0 {
+            return Err(Error::InputNotAccepted);
+        }
+
+        // Set the initial estimated value to the input value.
+        self.estimated.insert(self.epoch, input);
         // Receive the BVAL message locally.
         self.received_bval
             .entry(self.uid.clone())
             .or_insert_with(BTreeSet::new)
             .insert(input);
         // Multicast BVAL
-        AgreementMessage::BVal((self.epoch, input))
+        Ok(AgreementMessage::BVal((self.epoch, input)))
     }
 
     pub fn has_input(&self) -> bool {
-        self.input.is_some()
+        self.estimated.get(&0).is_some()
     }
 
     /// Receive input from a remote node.
     ///
     /// Outputs an optional agreement result and a queue of agreement messages
     /// to remote nodes. There can be up to 2 messages.
-    pub fn on_input(
+    pub fn handle_agreement_message(
         &mut self,
         sender_id: NodeUid,
         message: &AgreementMessage,
@@ -120,16 +132,20 @@ impl<NodeUid: Clone + Eq + Hash> Agreement<NodeUid> {
             // The algorithm instance has already terminated.
             _ if self.terminated => Err(Error::Terminated),
 
-            AgreementMessage::BVal((epoch, b)) if epoch == self.epoch => self.on_bval(sender_id, b),
+            AgreementMessage::BVal((epoch, b)) if epoch == self.epoch => {
+                self.handle_bval(sender_id, b)
+            }
 
-            AgreementMessage::Aux((epoch, b)) if epoch == self.epoch => self.on_aux(sender_id, b),
+            AgreementMessage::Aux((epoch, b)) if epoch == self.epoch => {
+                self.handle_aux(sender_id, b)
+            }
 
             // Epoch does not match. Ignore the message.
             _ => Ok((None, VecDeque::new())),
         }
     }
 
-    fn on_bval(&mut self, sender_id: NodeUid, b: bool) -> Result<AgreementOutput, Error> {
+    fn handle_bval(&mut self, sender_id: NodeUid, b: bool) -> Result<AgreementOutput, Error> {
         let mut outgoing = VecDeque::new();
 
         self.received_bval
@@ -159,10 +175,7 @@ impl<NodeUid: Clone + Eq + Hash> Agreement<NodeUid> {
             }
 
             let coin_result = self.try_coin();
-            if let Some(output_message) = coin_result.1 {
-                outgoing.push_back(output_message);
-            }
-            Ok((coin_result.0, outgoing))
+            Ok((coin_result, outgoing))
         }
         // upon receiving BVAL_r(b) messages from f + 1 nodes, if
         // BVAL_r(b) has not been sent, multicast BVAL_r(b)
@@ -179,21 +192,16 @@ impl<NodeUid: Clone + Eq + Hash> Agreement<NodeUid> {
         }
     }
 
-    fn on_aux(&mut self, sender_id: NodeUid, b: bool) -> Result<AgreementOutput, Error> {
-        let mut outgoing = VecDeque::new();
-
+    fn handle_aux(&mut self, sender_id: NodeUid, b: bool) -> Result<AgreementOutput, Error> {
         self.received_aux
             .entry(sender_id)
             .or_insert_with(BTreeSet::new)
             .insert(b);
         if !self.bin_values.is_empty() {
             let coin_result = self.try_coin();
-            if let Some(output_message) = coin_result.1 {
-                outgoing.push_back(output_message);
-            }
-            Ok((coin_result.0, outgoing))
+            Ok((coin_result, VecDeque::new()))
         } else {
-            Ok((None, outgoing))
+            Ok((None, VecDeque::new()))
         }
     }
 
@@ -208,15 +216,14 @@ impl<NodeUid: Clone + Eq + Hash> Agreement<NodeUid> {
     /// can, however, expect every good node to send an AUX value that will
     /// eventually end up in our bin_values.
     fn count_aux(&self) -> (usize, BTreeSet<bool>) {
-        let vals = BTreeSet::new();
-        (
-            self.received_aux
-                .values()
-                .filter(|values| values.is_subset(&self.bin_values))
-                .map(|values| vals.union(values))
-                .count(),
-            vals,
-        )
+        let vals: BTreeSet<bool> = self.received_aux
+            .values()
+            .filter(|values| values.is_subset(&self.bin_values))
+            .fold(BTreeSet::new(), |vals, values| {
+                vals.union(values).cloned().collect()
+            });
+
+        (vals.len(), vals)
     }
 
     /// Waits until at least (N − f) AUX_r messages have been received, such that
@@ -225,59 +232,53 @@ impl<NodeUid: Clone + Eq + Hash> Agreement<NodeUid> {
     /// messages are received, thus this condition may be triggered upon arrival
     /// of either an AUX_r or a BVAL_r message).
     ///
-    /// `try_coin` outputs an optional combination of the agreement value and
-    /// the agreement broadcast message.
-    fn try_coin(&mut self) -> (Option<bool>, Option<AgreementMessage>) {
+    /// `try_coin` outputs an optional decision value of the agreement instance.
+    fn try_coin(&mut self) -> Option<bool> {
         let (count_aux, vals) = self.count_aux();
         if count_aux < self.num_nodes - self.num_faulty_nodes {
             // Continue waiting for the (N - f) AUX messages.
-            (None, None)
-        } else {
-            // FIXME: Implement the Common Coin algorithm. At the moment the
-            // coin value is random and local to each instance of Agreement.
-            let coin2 = random::<bool>();
-
-            // Check the termination condition: "continue looping until both a
-            // value b is output in some round r, and the value Coin_r' = b for
-            // some round r' > r."
-            self.terminated = self.terminated || self.estimated.values().any(|b| *b == coin2);
-
-            // Prepare to start the next epoch.
-            self.bin_values.clear();
-
-            if vals.len() != 1 {
-                // Start the next epoch.
-                self.epoch += 1;
-                (None, Some(self.set_input(coin2)))
-            } else {
-                let mut message = None;
-                // NOTE: `vals` has exactly one element due to `vals.len() == 1`
-                let output: Vec<Option<bool>> = vals.into_iter()
-                    .take(1)
-                    .map(|b| {
-                        message = Some(self.set_input(b));
-
-                        if b == coin2 {
-                            // Record the output to perform a termination check later.
-                            self.estimated.insert(self.epoch, b);
-                            // Output the agreement value.
-                            Some(b)
-                        } else {
-                            // Don't output a value.
-                            None
-                        }
-                    })
-                    .collect();
-                // Start the next epoch.
-                self.epoch += 1;
-                (output[0], message)
-            }
+            return None;
         }
+
+        // FIXME: Implement the Common Coin algorithm. At the moment the
+        // coin value is common across different nodes but not random.
+        let coin2 = (self.epoch % 2) == 0;
+
+        // Check the termination condition: "continue looping until both a
+        // value b is output in some round r, and the value Coin_r' = b for
+        // some round r' > r."
+        self.terminated = self.terminated || self.estimated.values().any(|b| *b == coin2);
+
+        // Start the next epoch.
+        self.bin_values.clear();
+        self.epoch += 1;
+
+        if vals.len() != 1 {
+            self.estimated.insert(self.epoch, coin2);
+            return None;
+        }
+
+        // NOTE: `vals` has exactly one element due to `vals.len() == 1`
+        let output: Vec<Option<bool>> = vals.into_iter()
+            .take(1)
+            .map(|b| {
+                self.estimated.insert(self.epoch, b);
+                if b == coin2 {
+                    // Output the agreement value.
+                    Some(b)
+                } else {
+                    // Don't output a value.
+                    None
+                }
+            })
+            .collect();
+
+        output[0]
     }
 }
 
 #[derive(Clone, Debug)]
 pub enum Error {
     Terminated,
-    NotImplemented,
+    InputNotAccepted,
 }

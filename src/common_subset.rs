@@ -109,7 +109,7 @@ impl<NodeUid: Clone + Debug + Display + Eq + Hash + Ord> CommonSubset<NodeUid> {
     fn on_broadcast_result(&mut self, uid: &NodeUid) -> Result<Option<AgreementMessage>, Error> {
         if let Some(agreement_instance) = self.agreement_instances.get_mut(&uid) {
             if !agreement_instance.has_input() {
-                Ok(Some(agreement_instance.set_input(true)))
+                Ok(Some(agreement_instance.set_input(true)?))
             } else {
                 Ok(None)
             }
@@ -189,7 +189,7 @@ impl<NodeUid: Clone + Debug + Display + Eq + Hash + Ord> CommonSubset<NodeUid> {
             } else {
                 // Send the message to the agreement instance.
                 agreement_instance
-                    .on_input(msg_sender_id, &amessage)
+                    .handle_agreement_message(msg_sender_id, &amessage)
                     .map_err(Error::from)
             }
         }
@@ -197,7 +197,7 @@ impl<NodeUid: Clone + Debug + Display + Eq + Hash + Ord> CommonSubset<NodeUid> {
         if let Ok((output, mut outgoing)) = result {
             // Process Agreement outputs.
             if let Some(b) = output {
-                outgoing.append(&mut self.on_agreement_result(element_proposer_id, b));
+                outgoing.append(&mut self.on_agreement_result(element_proposer_id, b)?);
             }
 
             // Check whether Agreement has completed.
@@ -218,7 +218,7 @@ impl<NodeUid: Clone + Debug + Display + Eq + Hash + Ord> CommonSubset<NodeUid> {
         &mut self,
         element_proposer_id: NodeUid,
         result: bool,
-    ) -> VecDeque<AgreementMessage> {
+    ) -> Result<VecDeque<AgreementMessage>, Error> {
         let mut outgoing = VecDeque::new();
         // Upon delivery of value 1 from at least N − f instances of BA, provide
         // input 0 to each instance of BA that has not yet been provided input.
@@ -230,12 +230,12 @@ impl<NodeUid: Clone + Debug + Display + Eq + Hash + Ord> CommonSubset<NodeUid> {
             if results1 >= self.num_nodes - self.num_faulty_nodes {
                 for instance in self.agreement_instances.values_mut() {
                     if !instance.has_input() {
-                        outgoing.push_back(instance.set_input(false));
+                        outgoing.push_back(instance.set_input(false)?);
                     }
                 }
             }
         }
-        outgoing
+        Ok(outgoing)
     }
 
     fn try_agreement_completion(&self) -> Option<HashSet<ProposedValue>> {
