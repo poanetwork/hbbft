@@ -39,7 +39,7 @@ use std::collections::HashSet;
 use std::fmt::Debug;
 use std::marker::{Send, Sync};
 use std::net::SocketAddr;
-use std::{io, iter, process};
+use std::{io, iter, process, thread, time};
 
 use hbbft::broadcast;
 use network::commst;
@@ -131,8 +131,9 @@ impl<T: Clone + Debug + AsRef<[u8]> + PartialEq + Send + Sync + From<Vec<u8>> + 
                 ).run()
                 {
                     Ok(t) => {
-                        debug!(
-                            "Broadcast succeeded: {}",
+                        println!(
+                            "Broadcast succeeded! Node {} output: {}",
+                            our_id,
                             String::from_utf8(T::into(t)).unwrap()
                         );
                     }
@@ -166,6 +167,9 @@ impl<T: Clone + Debug + AsRef<[u8]> + PartialEq + Send + Sync + From<Vec<u8>> + 
             // Wait for the broadcast instances to finish before stopping the
             // messaging task.
             broadcast_handle.join();
+
+            // Wait another second so that pending messages get sent out.
+            thread::sleep(time::Duration::from_secs(1));
 
             // Stop the messaging task.
             stop_tx

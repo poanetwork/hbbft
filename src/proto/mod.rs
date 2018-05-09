@@ -299,18 +299,34 @@ impl LemmaProto {
     }
 }
 
+/// The path of a lemma in a Merkle tree
+struct BinaryPath(Vec<bool>);
+
 /// The path of the lemma, as a binary string
-fn path_of_lemma(mut lemma: &Lemma) -> String {
-    let mut result = String::new();
+fn path_of_lemma(mut lemma: &Lemma) -> BinaryPath {
+    let mut result = Vec::new();
     loop {
         match lemma.sibling_hash {
             None => (),
-            Some(Positioned::Left(_)) => result.push('1'),
-            Some(Positioned::Right(_)) => result.push('0'),
+            Some(Positioned::Left(_)) => result.push(true),
+            Some(Positioned::Right(_)) => result.push(false),
         }
         lemma = match lemma.sub_lemma.as_ref() {
             Some(lemma) => lemma,
-            None => return result,
+            None => return BinaryPath(result),
         }
+    }
+}
+
+impl fmt::Display for BinaryPath {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        for b in &self.0 {
+            if *b {
+                write!(f, "1")?;
+            } else {
+                write!(f, "0")?;
+            }
+        }
+        Ok(())
     }
 }
