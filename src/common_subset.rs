@@ -179,8 +179,7 @@ impl<NodeUid: Clone + Debug + Display + Eq + Hash + Ord> CommonSubset<NodeUid> {
         let mut result = Err(Error::NoSuchAgreementInstance);
 
         // Send the message to the local instance of Agreement
-        if let Some(mut agreement_instance) = self.agreement_instances.get_mut(&element_proposer_id)
-        {
+        if let Some(agreement_instance) = self.agreement_instances.get_mut(&element_proposer_id) {
             // Optional output of agreement and outgoing agreement
             // messages to remote nodes.
             result = if agreement_instance.terminated() {
