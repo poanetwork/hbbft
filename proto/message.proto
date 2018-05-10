@@ -41,12 +41,12 @@ message LemmaProto {
     bytes left_sibling_hash = 3;
     bytes right_sibling_hash = 4;
   }
-
 }
 
 message AgreementProto {
+  uint32 epoch = 1;
   oneof payload {
-    bool bval = 1;
-    bool aux = 2;
+    bool bval = 2;
+    bool aux = 3;
   }
 }
