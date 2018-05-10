@@ -19,3 +19,4 @@ protoc-rust = "1.4.4"
 
 [dev-dependencies]
 docopt = "0.8"
+rand = "0.3"
