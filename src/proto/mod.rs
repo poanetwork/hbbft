@@ -5,19 +5,8 @@ use agreement::AgreementMessage;
 use broadcast::BroadcastMessage;
 use merkle::proof::{Lemma, Positioned, Proof};
 use proto::message::*;
-use protobuf::core::parse_from_bytes;
-use protobuf::error::{ProtobufError, ProtobufResult, WireError};
-use protobuf::Message as ProtobufMessage;
 use ring::digest::Algorithm;
 use std::fmt;
-use std::marker::{Send, Sync};
-
-/// Kinds of message sent by nodes participating in consensus.
-#[derive(Clone, Debug, PartialEq)]
-pub enum Message<T: Send + Sync + AsRef<[u8]>> {
-    Broadcast(BroadcastMessage<T>),
-    Agreement(AgreementMessage),
-}
 
 /// Wrapper for a byte array, whose `Debug` implementation outputs shortened hexadecimal strings.
 pub struct HexBytes<'a>(pub &'a [u8]);
@@ -67,62 +56,20 @@ impl<'a, T: AsRef<[u8]>> fmt::Debug for HexProof<'a, T> {
     }
 }
 
-impl<T: Send + Sync + AsRef<[u8]> + From<Vec<u8>>> Message<T> {
-    /// Translation from protobuf to the regular type.
-    ///
-    /// TODO: add an `Algorithm` field to `MessageProto`. Either `Algorithm` has
-    /// to be fully serialised and sent as a whole, or it can be passed over
-    /// using an ID and the `Eq` instance to discriminate the finite set of
-    /// algorithms in `ring::digest`.
-    pub fn from_proto(mut proto: message::MessageProto) -> Option<Self> {
-        if proto.has_broadcast() {
-            BroadcastMessage::from_proto(
-                proto.take_broadcast(),
-                // TODO, possibly move Algorithm inside
-                // BroadcastMessage
-                &::ring::digest::SHA256,
-            ).map(Message::Broadcast)
-        } else if proto.has_agreement() {
-            AgreementMessage::from_proto(proto.take_agreement()).map(Message::Agreement)
-        } else {
-            None
-        }
-    }
-
-    pub fn into_proto(self) -> MessageProto {
-        let mut m = MessageProto::new();
-        match self {
-            Message::Broadcast(b) => {
-                m.set_broadcast(b.into_proto());
-            }
-            Message::Agreement(a) => {
-                m.set_agreement(a.into_proto());
-            }
-        }
-        m
-    }
-
-    /// Parse a `Message` from its protobuf binary representation.
-    ///
-    /// TODO: pass custom errors from down the chain of nested parsers as
-    /// opposed to returning `WireError::Other`.
-    pub fn parse_from_bytes(bytes: &[u8]) -> ProtobufResult<Self> {
-        let r = parse_from_bytes::<MessageProto>(bytes).map(Self::from_proto);
-
-        match r {
-            Ok(Some(m)) => Ok(m),
-            Ok(None) => Err(ProtobufError::WireError(WireError::Other)),
-            Err(e) => Err(e),
-        }
-    }
-
-    /// Produce a protobuf representation of this `Message`.
-    pub fn write_to_bytes(self) -> ProtobufResult<Vec<u8>> {
-        self.into_proto().write_to_bytes()
+impl From<message::BroadcastProto> for BroadcastMessage {
+    fn from(proto: message::BroadcastProto) -> BroadcastMessage {
+        BroadcastMessage::from_proto(proto, &::ring::digest::SHA256)
+            .expect("invalid broadcast message")
     }
 }
 
-impl<T: Send + Sync + AsRef<[u8]> + From<Vec<u8>>> BroadcastMessage<T> {
+impl From<BroadcastMessage> for message::BroadcastProto {
+    fn from(msg: BroadcastMessage) -> message::BroadcastProto {
+        msg.into_proto()
+    }
+}
+
+impl BroadcastMessage {
     pub fn into_proto(self) -> BroadcastProto {
         let mut b = BroadcastProto::new();
         match self {
@@ -159,6 +106,36 @@ impl<T: Send + Sync + AsRef<[u8]> + From<Vec<u8>>> BroadcastMessage<T> {
         } else if mp.has_ready() {
             let h = mp.take_ready().take_root_hash();
             Some(BroadcastMessage::Ready(h))
+        } else {
+            None
+        }
+    }
+}
+
+impl AgreementMessage {
+    pub fn into_proto(self) -> message::AgreementProto {
+        let mut p = message::AgreementProto::new();
+        match self {
+            AgreementMessage::BVal((e, b)) => {
+                p.set_epoch(e);
+                p.set_bval(b);
+            }
+            AgreementMessage::Aux((e, b)) => {
+                p.set_epoch(e);
+                p.set_aux(b);
+            }
+        }
+        p
+    }
+
+    // TODO: Re-enable lint once implemented.
+    #[cfg_attr(feature = "cargo-clippy", allow(needless_pass_by_value))]
+    pub fn from_proto(mp: message::AgreementProto) -> Option<Self> {
+        let epoch = mp.get_epoch();
+        if mp.has_bval() {
+            Some(AgreementMessage::BVal((epoch, mp.get_bval())))
+        } else if mp.has_aux() {
+            Some(AgreementMessage::Aux((epoch, mp.get_aux())))
         } else {
             None
         }
