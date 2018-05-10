@@ -12,6 +12,7 @@ ring = "^0.12"
 protobuf = "1.4.4"
 crossbeam = "0.3.2"
 crossbeam-channel = "0.1"
+itertools = "0.7"
 
 [build-dependencies]
 protoc-rust = "1.4.4"

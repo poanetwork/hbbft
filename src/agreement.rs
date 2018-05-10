@@ -1,5 +1,6 @@
 //! Binary Byzantine agreement protocol from a common coin protocol.
 
+use itertools::Itertools;
 use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
 use std::hash::Hash;
 
@@ -210,17 +211,12 @@ impl<NodeUid: Clone + Eq + Hash> Agreement<NodeUid> {
     /// can, however, expect every good node to send an AUX value that will
     /// eventually end up in our bin_values.
     fn count_aux(&self) -> (usize, BTreeSet<bool>) {
-        let mut count = 0;
-        let vals: BTreeSet<bool> = self.received_aux
+        let (vals_cnt, vals) = self.received_aux
             .values()
-            .filter(|b| {
-                count += 1;
-                self.bin_values.contains(b)
-            })
-            .cloned()
-            .collect();
+            .filter(|b| self.bin_values.contains(b))
+            .tee();
 
-        (count, vals)
+        (vals_cnt.count(), vals.cloned().collect())
     }
 
     /// Waits until at least (N − f) AUX_r messages have been received, such that
