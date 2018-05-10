@@ -178,7 +178,7 @@ impl<NodeUid: Clone + Eq + Hash> Agreement<NodeUid> {
                 self.received_aux.insert(self.uid.clone(), b);
             }
 
-            self.try_coin();
+            outgoing.extend(self.try_coin());
             Ok((self.output, outgoing))
         }
         // upon receiving BVAL_r(b) messages from f + 1 nodes, if
@@ -198,11 +198,12 @@ impl<NodeUid: Clone + Eq + Hash> Agreement<NodeUid> {
 
     fn handle_aux(&mut self, sender_id: &NodeUid, b: bool) -> Result<AgreementOutput, Error> {
         self.received_aux.insert(sender_id.clone(), b);
+        let mut outgoing = VecDeque::new();
         if !self.bin_values.is_empty() {
-            self.try_coin();
-            Ok((self.output, VecDeque::new()))
+            outgoing.extend(self.try_coin());
+            Ok((self.output, outgoing))
         } else {
-            Ok((None, VecDeque::new()))
+            Ok((None, outgoing))
         }
     }
 
@@ -233,12 +234,13 @@ impl<NodeUid: Clone + Eq + Hash> Agreement<NodeUid> {
     ///
     /// Once the (N - f) messages are received, gets a common coin and uses it
     /// to compute the next decision estimate and, optionally, sets the output
-    /// decision value.
-    fn try_coin(&mut self) {
+    /// decision value. The function may start the next epoch. In that case, it
+    /// returns a message for broadcast.
+    fn try_coin(&mut self) -> VecDeque<AgreementMessage> {
         let (count_aux, vals) = self.count_aux();
         if count_aux < self.num_nodes - self.num_faulty_nodes {
             // Continue waiting for the (N - f) AUX messages.
-            return;
+            return VecDeque::new();
         }
 
         // FIXME: Implement the Common Coin algorithm. At the moment the
@@ -257,18 +259,23 @@ impl<NodeUid: Clone + Eq + Hash> Agreement<NodeUid> {
 
         if vals.len() != 1 {
             self.estimated = Some(coin);
-            return;
+        } else {
+            // NOTE: `vals` has exactly one element due to `vals.len() == 1`
+            let v: Vec<bool> = vals.into_iter().collect();
+            let b = v[0];
+            self.estimated = Some(b);
+            // Setting the output value is allowed only once.
+            if self.output.is_none() && b == coin {
+                // Output the agreement value.
+                self.output = Some(b);
+            }
         }
 
-        // NOTE: `vals` has exactly one element due to `vals.len() == 1`
-        let v: Vec<bool> = vals.into_iter().collect();
-        let b = v[0];
-        self.estimated = Some(b);
-        // Setting the output value is allowed only once.
-        if self.output.is_none() && b == coin {
-            // Output the agreement value.
-            self.output = Some(b);
-        }
+        vec![AgreementMessage::BVal((
+            self.epoch,
+            self.estimated.unwrap(),
+        ))].into_iter()
+            .collect()
     }
 }
 
