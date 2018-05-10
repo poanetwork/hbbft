@@ -41,7 +41,9 @@ use std::marker::{Send, Sync};
 use std::net::SocketAddr;
 use std::{io, iter, process, thread, time};
 
-use hbbft::broadcast;
+use hbbft::broadcast::{Broadcast, BroadcastMessage, TargetedBroadcastMessage};
+use hbbft::messaging::SourcedMessage;
+use hbbft::proto::message::BroadcastProto;
 use network::commst;
 use network::connection;
 use network::messaging::Messaging;
@@ -104,7 +106,7 @@ impl<T: Clone + Debug + AsRef<[u8]> + PartialEq + Send + Sync + From<Vec<u8>> + 
         }
 
         // Initialise the message delivery system and obtain TX and RX handles.
-        let messaging: Messaging<Vec<u8>> = Messaging::new(num_nodes);
+        let messaging: Messaging<BroadcastMessage> = Messaging::new(num_nodes);
         let rxs_to_comms = messaging.rxs_to_comms();
         let tx_from_comms = messaging.tx_from_comms();
         let rx_to_algo = messaging.rx_to_algo();
@@ -121,23 +123,42 @@ impl<T: Clone + Debug + AsRef<[u8]> + PartialEq + Send + Sync + From<Vec<u8>> + 
             // corresponding to this instance, and no dedicated comms task. The
             // node index is 0.
             let broadcast_handle = scope.spawn(move || {
-                match broadcast::Instance::new(
-                    tx_from_algo,
-                    rx_to_algo,
-                    value.to_owned(),
-                    (0..num_nodes).collect(),
-                    our_id,
-                    proposer_id,
-                ).run()
-                {
-                    Ok(t) => {
+                let broadcast = Broadcast::new(our_id, proposer_id, (0..num_nodes).collect())
+                    .expect("failed to instantiate broadcast");
+
+                if let Some(v) = value {
+                    for msg in broadcast
+                        .propose_value(v.clone().into())
+                        .expect("propose value")
+                        .into_iter()
+                        .map(TargetedBroadcastMessage::into)
+                    {
+                        tx_from_algo.send(msg).expect("send from algo");
+                    }
+                }
+
+                loop {
+                    // Receive a message from the socket IO task.
+                    let message = rx_to_algo.recv().expect("receive from algo");
+                    let SourcedMessage { source: i, message } = message;
+                    debug!("{} received from {}: {:?}", our_id, i, message);
+                    let (opt_output, msgs) = broadcast
+                        .handle_broadcast_message(&i, message)
+                        .expect("handle broadcast message");
+                    for msg in &msgs {
+                        debug!("{} sending to {:?}: {:?}", our_id, msg.target, msg.message);
+                    }
+                    for msg in msgs.into_iter().map(TargetedBroadcastMessage::into) {
+                        tx_from_algo.send(msg).expect("send from algo");
+                    }
+                    if let Some(output) = opt_output {
                         println!(
                             "Broadcast succeeded! Node {} output: {}",
                             our_id,
-                            String::from_utf8(T::into(t)).unwrap()
+                            String::from_utf8(output).unwrap()
                         );
+                        break;
                     }
-                    Err(e) => error!("Broadcast instance: {:?}", e),
                 }
             });
 
@@ -150,7 +171,7 @@ impl<T: Clone + Debug + AsRef<[u8]> + PartialEq + Send + Sync + From<Vec<u8>> + 
                 let rx_to_comms = &rxs_to_comms[node_index];
 
                 scope.spawn(move || {
-                    match commst::CommsTask::new(
+                    match commst::CommsTask::<BroadcastProto, BroadcastMessage>::new(
                         tx_from_comms,
                         rx_to_comms,
                         // FIXME: handle error

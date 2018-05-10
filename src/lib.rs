@@ -6,8 +6,6 @@
 #![feature(optin_builtin_traits)]
 #[macro_use]
 extern crate log;
-extern crate crossbeam;
-extern crate crossbeam_channel;
 extern crate itertools;
 extern crate merkle;
 extern crate protobuf;

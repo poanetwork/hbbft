@@ -1,9 +1,8 @@
 //! Protobuf message IO task structure.
 
-use proto::*;
-use protobuf;
-use protobuf::Message as ProtobufMessage;
+use protobuf::{self, Message, MessageStatic};
 use std::io::{Read, Write};
+use std::marker::PhantomData;
 use std::net::TcpStream;
 use std::{cmp, io};
 
@@ -61,35 +60,35 @@ fn decode_u32_from_be(buffer: &[u8]) -> Result<u32, Error> {
     Ok(result)
 }
 
-pub struct ProtoIo<S: Read + Write> {
+pub struct ProtoIo<S: Read + Write, M> {
     stream: S,
     buffer: [u8; 1024 * 4],
+    _phantom: PhantomData<M>,
 }
 
-impl ProtoIo<TcpStream> {
-    pub fn try_clone(&self) -> Result<ProtoIo<TcpStream>, ::std::io::Error> {
+impl<M> ProtoIo<TcpStream, M> {
+    pub fn try_clone(&self) -> Result<Self, ::std::io::Error> {
         Ok(ProtoIo {
             stream: self.stream.try_clone()?,
             buffer: [0; 1024 * 4],
+            _phantom: PhantomData,
         })
     }
 }
 
 /// A message handling task.
-impl<S: Read + Write> ProtoIo<S>
+impl<S: Read + Write, M: Message + MessageStatic> ProtoIo<S, M>
 //where T: Clone + Send + Sync + From<Vec<u8>> + Into<Vec<u8>>
 {
     pub fn from_stream(stream: S) -> Self {
         ProtoIo {
             stream,
             buffer: [0; 1024 * 4],
+            _phantom: PhantomData,
         }
     }
 
-    pub fn recv<T>(&mut self) -> Result<Message<T>, Error>
-    where
-        T: Clone + Send + Sync + AsRef<[u8]> + From<Vec<u8>>,
-    {
+    pub fn recv(&mut self) -> Result<M, Error> {
         self.stream.read_exact(&mut self.buffer[0..4])?;
         let frame_start = decode_u32_from_be(&self.buffer[0..4])?;
         if frame_start != FRAME_START {
@@ -107,25 +106,21 @@ impl<S: Read + Write> ProtoIo<S>
             message_v.extend_from_slice(slice);
         }
 
-        Message::parse_from_bytes(&message_v).map_err(Error::ProtobufError)
+        protobuf::parse_from_bytes(&message_v).map_err(Error::ProtobufError)
     }
 
-    pub fn send<T>(&mut self, message: Message<T>) -> Result<(), Error>
-    where
-        T: Clone + Send + Sync + AsRef<[u8]> + From<Vec<u8>>,
-    {
+    pub fn send(&mut self, message: &M) -> Result<(), Error> {
         let mut buffer: [u8; 4] = [0; 4];
         // Wrap stream
         let mut stream = protobuf::CodedOutputStream::new(&mut self.stream);
         // Write magic number
         encode_u32_to_be(FRAME_START, &mut buffer[0..4])?;
         stream.write_raw_bytes(&buffer)?;
-        let message_p = message.into_proto();
         // Write message size
-        encode_u32_to_be(message_p.compute_size(), &mut buffer[0..4])?;
+        encode_u32_to_be(message.compute_size(), &mut buffer[0..4])?;
         stream.write_raw_bytes(&buffer)?;
         // Write message
-        message_p.write_to(&mut stream)?;
+        message.write_to(&mut stream)?;
         // Flush
         stream.flush()?;
         Ok(())
@@ -135,21 +130,20 @@ impl<S: Read + Write> ProtoIo<S>
 #[cfg(test)]
 mod tests {
     use broadcast::BroadcastMessage;
+    use proto::message::BroadcastProto;
     use proto_io::*;
     use std::io::Cursor;
 
     #[test]
     fn encode_decode_message() {
-        let msg0: Message<Vec<u8>> =
-            Message::Broadcast(BroadcastMessage::Ready(b"Test 0".to_vec()));
-        let msg1: Message<Vec<u8>> =
-            Message::Broadcast(BroadcastMessage::Ready(b"Test 1".to_vec()));
-        let mut pio = ProtoIo::from_stream(Cursor::new(Vec::new()));
-        pio.send(msg0.clone()).expect("send msg0");
-        pio.send(msg1.clone()).expect("send msg1");
+        let msg0 = BroadcastMessage::Ready(b"Test 0".to_vec());
+        let msg1 = BroadcastMessage::Ready(b"Test 1".to_vec());
+        let mut pio = ProtoIo::<_, BroadcastProto>::from_stream(Cursor::new(Vec::new()));
+        pio.send(&msg0.clone().into()).expect("send msg0");
+        pio.send(&msg1.clone().into()).expect("send msg1");
         println!("{:?}", pio.stream.get_ref());
         pio.stream.set_position(0);
-        assert_eq!(msg0, pio.recv().expect("recv msg0"));
-        assert_eq!(msg1, pio.recv().expect("recv msg1"));
+        assert_eq!(msg0, pio.recv().expect("recv msg0").into());
+        assert_eq!(msg1, pio.recv().expect("recv msg1").into());
     }
 }

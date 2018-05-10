@@ -3,43 +3,41 @@ use crossbeam::{Scope, ScopedJoinHandle};
 use crossbeam_channel;
 use crossbeam_channel::{bounded, unbounded, Receiver, Sender};
 use hbbft::messaging::{SourcedMessage, Target, TargetedMessage};
-use hbbft::proto::Message;
-use std::fmt::Debug;
 
 /// The queue functionality for messages sent between algorithm instances.
 /// The messaging struct allows for targeted message exchange between comms
 /// tasks on one side and algo tasks on the other.
-pub struct Messaging<T: Clone + Debug + Send + Sync + AsRef<[u8]>> {
+pub struct Messaging<M> {
     /// Transmit sides of message channels to comms threads.
-    txs_to_comms: Vec<Sender<Message<T>>>,
+    txs_to_comms: Vec<Sender<M>>,
     /// Receive side of the routed message channel from comms threads.
-    rx_from_comms: Receiver<SourcedMessage<T>>,
+    rx_from_comms: Receiver<SourcedMessage<M, usize>>,
     /// Transmit sides of message channels to algo thread.
-    tx_to_algo: Sender<SourcedMessage<T>>,
+    tx_to_algo: Sender<SourcedMessage<M, usize>>,
     /// Receive side of the routed message channel from comms threads.
-    rx_from_algo: Receiver<TargetedMessage<T>>,
+    rx_from_algo: Receiver<TargetedMessage<M, usize>>,
 
     /// RX handles to be used by comms tasks.
-    rxs_to_comms: Vec<Receiver<Message<T>>>,
+    rxs_to_comms: Vec<Receiver<M>>,
     /// TX handle to be used by comms tasks.
-    tx_from_comms: Sender<SourcedMessage<T>>,
+    tx_from_comms: Sender<SourcedMessage<M, usize>>,
     /// RX handles to be used by algo task.
-    rx_to_algo: Receiver<SourcedMessage<T>>,
+    rx_to_algo: Receiver<SourcedMessage<M, usize>>,
     /// TX handle to be used by algo task.
-    tx_from_algo: Sender<TargetedMessage<T>>,
+    tx_from_algo: Sender<TargetedMessage<M, usize>>,
 
     /// Control channel used to stop the listening thread.
     stop_tx: Sender<()>,
     stop_rx: Receiver<()>,
 }
 
-impl<T: Clone + Debug + Send + Sync + AsRef<[u8]>> Messaging<T> {
+impl<M: Send> Messaging<M> {
     /// Initialises all the required TX and RX handles for the case on a total
     /// number `num_nodes` of consensus nodes.
     pub fn new(num_nodes: usize) -> Self {
-        let to_comms: Vec<_> = (0..num_nodes).map(|_| unbounded::<Message<T>>()).collect();
+        let to_comms: Vec<_> = (0..num_nodes).map(|_| unbounded::<M>()).collect();
         let txs_to_comms = to_comms.iter().map(|&(ref tx, _)| tx.to_owned()).collect();
-        let rxs_to_comms: Vec<Receiver<Message<T>>> =
+        let rxs_to_comms: Vec<Receiver<M>> =
             to_comms.iter().map(|&(_, ref rx)| rx.to_owned()).collect();
         let (tx_from_comms, rx_from_comms) = unbounded();
 
@@ -66,19 +64,19 @@ impl<T: Clone + Debug + Send + Sync + AsRef<[u8]>> Messaging<T> {
         }
     }
 
-    pub fn rxs_to_comms(&self) -> &Vec<Receiver<Message<T>>> {
+    pub fn rxs_to_comms(&self) -> &Vec<Receiver<M>> {
         &self.rxs_to_comms
     }
 
-    pub fn tx_from_comms(&self) -> &Sender<SourcedMessage<T>> {
+    pub fn tx_from_comms(&self) -> &Sender<SourcedMessage<M, usize>> {
         &self.tx_from_comms
     }
 
-    pub fn rx_to_algo(&self) -> &Receiver<SourcedMessage<T>> {
+    pub fn rx_to_algo(&self) -> &Receiver<SourcedMessage<M, usize>> {
         &self.rx_to_algo
     }
 
-    pub fn tx_from_algo(&self) -> &Sender<TargetedMessage<T>> {
+    pub fn tx_from_algo(&self) -> &Sender<TargetedMessage<M, usize>> {
         &self.tx_from_algo
     }
 
@@ -90,7 +88,7 @@ impl<T: Clone + Debug + Send + Sync + AsRef<[u8]>> Messaging<T> {
     /// Spawns the message delivery thread in a given thread scope.
     pub fn spawn<'a>(&self, scope: &Scope<'a>) -> ScopedJoinHandle<Result<(), Error>>
     where
-        T: 'a,
+        M: Clone + 'a,
     {
         let txs_to_comms = self.txs_to_comms.to_owned();
         let rx_from_comms = self.rx_from_comms.to_owned();
@@ -110,29 +108,23 @@ impl<T: Clone + Debug + Send + Sync + AsRef<[u8]>> Messaging<T> {
             // This loop forwards messages according to their metadata.
             while !stop && result.is_ok() {
                 select_loop! {
-                    recv(rx_from_algo, message) => {
-                        match message {
-                            TargetedMessage {
-                                target: Target::All,
-                                message
-                            } => {
+                    recv(rx_from_algo, tm) => {
+                        match tm.target {
+                            Target::All => {
                                 // Send the message to all remote nodes, stopping at
                                 // the first error.
                                 result = txs_to_comms.iter()
                                     .fold(Ok(()), |result, tx| {
                                         if result.is_ok() {
-                                            tx.send(message.clone())
+                                            tx.send(tm.message.clone())
                                         } else {
                                             result
                                         }
                                     }).map_err(Error::from);
                             },
-                            TargetedMessage {
-                                target: Target::Node(i),
-                                message
-                            } => {
+                            Target::Node(i) => {
                                 result = if i < txs_to_comms.len() {
-                                    txs_to_comms[i].send(message.clone())
+                                    txs_to_comms[i].send(tm.message)
                                         .map_err(Error::from)
                                 } else {
                                     Err(Error::NoSuchTarget)

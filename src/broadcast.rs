@@ -1,6 +1,5 @@
-use crossbeam_channel::{Receiver, RecvError, SendError, Sender};
 use merkle::proof::{Lemma, Positioned, Proof};
-use merkle::{Hashable, MerkleTree};
+use merkle::MerkleTree;
 use proto::*;
 use reed_solomon_erasure as rse;
 use reed_solomon_erasure::ReedSolomon;
@@ -8,42 +7,38 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fmt::{self, Debug};
 use std::hash::Hash;
 use std::iter;
-use std::marker::{Send, Sync};
 use std::sync::{RwLock, RwLockWriteGuard};
 
-use messaging::{SourcedMessage, Target, TargetedMessage};
-
-// TODO: Make this a generic argument of `Broadcast`.
-type ProposedValue = Vec<u8>;
+use messaging::{Target, TargetedMessage};
 
 type MessageQueue<NodeUid> = VecDeque<TargetedBroadcastMessage<NodeUid>>;
 
 /// The three kinds of message sent during the reliable broadcast stage of the
 /// consensus algorithm.
 #[derive(Clone, PartialEq)]
-pub enum BroadcastMessage<T: Send + Sync> {
-    Value(Proof<T>),
-    Echo(Proof<T>),
+pub enum BroadcastMessage {
+    Value(Proof<Vec<u8>>),
+    Echo(Proof<Vec<u8>>),
     Ready(Vec<u8>),
 }
 
-impl BroadcastMessage<ProposedValue> {
+impl BroadcastMessage {
     fn target_all<NodeUid>(self) -> TargetedBroadcastMessage<NodeUid> {
         TargetedBroadcastMessage {
-            target: BroadcastTarget::All,
+            target: Target::All,
             message: self,
         }
     }
 
     fn target_node<NodeUid>(self, id: NodeUid) -> TargetedBroadcastMessage<NodeUid> {
         TargetedBroadcastMessage {
-            target: BroadcastTarget::Node(id),
+            target: Target::Node(id),
             message: self,
         }
     }
 }
 
-impl<T: Send + Sync + Debug + AsRef<[u8]>> fmt::Debug for BroadcastMessage<T> {
+impl fmt::Debug for BroadcastMessage {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
             BroadcastMessage::Value(ref v) => write!(f, "Value({:?})", HexProof(&v)),
@@ -56,36 +51,20 @@ impl<T: Send + Sync + Debug + AsRef<[u8]>> fmt::Debug for BroadcastMessage<T> {
 /// A `BroadcastMessage` to be sent out, together with a target.
 #[derive(Clone, Debug)]
 pub struct TargetedBroadcastMessage<NodeUid> {
-    pub target: BroadcastTarget<NodeUid>,
-    pub message: BroadcastMessage<ProposedValue>,
+    pub target: Target<NodeUid>,
+    pub message: BroadcastMessage,
 }
 
-impl From<TargetedBroadcastMessage<usize>> for TargetedMessage<ProposedValue> {
-    fn from(msg: TargetedBroadcastMessage<usize>) -> TargetedMessage<ProposedValue> {
+impl From<TargetedBroadcastMessage<usize>> for TargetedMessage<BroadcastMessage, usize> {
+    fn from(msg: TargetedBroadcastMessage<usize>) -> TargetedMessage<BroadcastMessage, usize> {
         TargetedMessage {
-            target: msg.target.into(),
-            message: Message::Broadcast(msg.message),
+            target: msg.target,
+            message: msg.message,
         }
     }
 }
 
-/// A target node for a `BroadcastMessage`.
-#[derive(Clone, Debug)]
-pub enum BroadcastTarget<NodeUid> {
-    All,
-    Node(NodeUid),
-}
-
-impl From<BroadcastTarget<usize>> for Target {
-    fn from(bt: BroadcastTarget<usize>) -> Target {
-        match bt {
-            BroadcastTarget::All => Target::All,
-            BroadcastTarget::Node(node) => Target::Node(node),
-        }
-    }
-}
-
-struct BroadcastState<NodeUid: Eq + Hash + Ord> {
+struct BroadcastState<NodeUid> {
     /// Whether we have already multicas `Echo`.
     echo_sent: bool,
     /// Whether we have already multicast `Ready`.
@@ -156,7 +135,7 @@ impl<NodeUid: Eq + Hash + Ord> BroadcastState<NodeUid> {
 /// eventually be able to decode (i.e. receive at least `f + 1` `Echo` messages).
 /// * So a node with `2 * f + 1` `Ready`s and `f + 1` `Echos` will decode and _output_ the value,
 /// knowing that every other good node will eventually do the same.
-pub struct Broadcast<NodeUid: Eq + Hash + Ord> {
+pub struct Broadcast<NodeUid> {
     /// The UID of this node.
     our_id: NodeUid,
     /// The UID of the sending node.
@@ -206,7 +185,7 @@ impl<NodeUid: Eq + Hash + Debug + Clone + Ord> Broadcast<NodeUid> {
     }
 
     /// Processes the proposed value input by broadcasting it.
-    pub fn propose_value(&self, value: ProposedValue) -> Result<MessageQueue<NodeUid>, Error> {
+    pub fn propose_value(&self, value: Vec<u8>) -> Result<MessageQueue<NodeUid>, Error> {
         if self.our_id != self.proposer_id {
             return Err(Error::UnexpectedMessage);
         }
@@ -233,7 +212,7 @@ impl<NodeUid: Eq + Hash + Debug + Clone + Ord> Broadcast<NodeUid> {
     /// the broadcast instance.
     fn send_shards(
         &self,
-        mut value: ProposedValue,
+        mut value: Vec<u8>,
     ) -> Result<(Proof<Vec<u8>>, MessageQueue<NodeUid>), Error> {
         let data_shard_num = self.coding.data_shard_count();
         let parity_shard_num = self.coding.parity_shard_count();
@@ -272,7 +251,7 @@ impl<NodeUid: Eq + Hash + Debug + Clone + Ord> Broadcast<NodeUid> {
 
         // TODO: `MerkleTree` generates the wrong proof if a leaf occurs more than once, so we
         // prepend an "index byte" to each shard. Consider using the `merkle_light` crate instead.
-        let shards_t: Vec<ProposedValue> = shards
+        let shards_t: Vec<Vec<u8>> = shards
             .into_iter()
             .enumerate()
             .map(|(i, s)| iter::once(i as u8).chain(s.iter().cloned()).collect())
@@ -308,8 +287,8 @@ impl<NodeUid: Eq + Hash + Debug + Clone + Ord> Broadcast<NodeUid> {
     pub fn handle_broadcast_message(
         &self,
         sender_id: &NodeUid,
-        message: BroadcastMessage<ProposedValue>,
-    ) -> Result<(Option<ProposedValue>, MessageQueue<NodeUid>), Error> {
+        message: BroadcastMessage,
+    ) -> Result<(Option<Vec<u8>>, MessageQueue<NodeUid>), Error> {
         if !self.all_uids.contains(sender_id) {
             return Err(Error::UnknownSender);
         }
@@ -327,7 +306,7 @@ impl<NodeUid: Eq + Hash + Debug + Clone + Ord> Broadcast<NodeUid> {
         sender_id: &NodeUid,
         p: Proof<Vec<u8>>,
         mut state: RwLockWriteGuard<BroadcastState<NodeUid>>,
-    ) -> Result<(Option<ProposedValue>, MessageQueue<NodeUid>), Error> {
+    ) -> Result<(Option<Vec<u8>>, MessageQueue<NodeUid>), Error> {
         // If the sender is not the proposer, this is not the first `Value` or the proof is invalid,
         // ignore.
         if *sender_id != self.proposer_id {
@@ -361,7 +340,7 @@ impl<NodeUid: Eq + Hash + Debug + Clone + Ord> Broadcast<NodeUid> {
         sender_id: &NodeUid,
         p: Proof<Vec<u8>>,
         mut state: RwLockWriteGuard<BroadcastState<NodeUid>>,
-    ) -> Result<(Option<ProposedValue>, MessageQueue<NodeUid>), Error> {
+    ) -> Result<(Option<Vec<u8>>, MessageQueue<NodeUid>), Error> {
         // If the proof is invalid or the sender has already sent `Echo`, ignore.
         if state.echos.contains_key(sender_id) {
             info!(
@@ -396,7 +375,7 @@ impl<NodeUid: Eq + Hash + Debug + Clone + Ord> Broadcast<NodeUid> {
         sender_id: &NodeUid,
         hash: &[u8],
         mut state: RwLockWriteGuard<BroadcastState<NodeUid>>,
-    ) -> Result<(Option<ProposedValue>, MessageQueue<NodeUid>), Error> {
+    ) -> Result<(Option<Vec<u8>>, MessageQueue<NodeUid>), Error> {
         // If the sender has already sent a `Ready` before, ignore.
         if state.readys.contains_key(sender_id) {
             info!(
@@ -428,7 +407,7 @@ impl<NodeUid: Eq + Hash + Debug + Clone + Ord> Broadcast<NodeUid> {
         &self,
         mut state: RwLockWriteGuard<BroadcastState<NodeUid>>,
         hash: &[u8],
-    ) -> Result<Option<ProposedValue>, Error> {
+    ) -> Result<Option<Vec<u8>>, Error> {
         if state.has_output || state.count_readys(hash) <= 2 * self.num_faulty_nodes
             || state.count_echos(hash) <= self.num_faulty_nodes
         {
@@ -459,13 +438,13 @@ impl<NodeUid: Eq + Hash + Debug + Clone + Ord> Broadcast<NodeUid> {
     }
 
     /// Returns the index of this proof's leave in the Merkle tree.
-    fn index_of_proof(&self, proof: &Proof<ProposedValue>) -> usize {
+    fn index_of_proof(&self, proof: &Proof<Vec<u8>>) -> usize {
         index_of_lemma(&proof.lemma, self.num_nodes)
     }
 
     /// Returns `true` if the proof is valid and has the same index as the node ID. Otherwise
     /// logs an info message.
-    fn validate_proof(&self, p: &Proof<ProposedValue>, id: &NodeUid) -> bool {
+    fn validate_proof(&self, p: &Proof<Vec<u8>>, id: &NodeUid) -> bool {
         if !p.validate(&p.root_hash) {
             info!(
                 "Node {:?} received invalid proof: {:?}",
@@ -488,55 +467,6 @@ impl<NodeUid: Eq + Hash + Debug + Clone + Ord> Broadcast<NodeUid> {
     }
 }
 
-/// Broadcast algorithm instance.
-///
-/// The ACS algorithm requires multiple broadcast instances running
-/// asynchronously, see Figure 4 in the HBBFT paper. Those are N asynchronous
-/// coroutines, each responding to values from one particular remote node. The
-/// paper doesn't make it clear though how other messages - Echo and Ready - are
-/// distributed over the instances. Also it appears that the sender of a message
-/// might become part of the message for this to work.
-pub struct Instance<'a, T: 'a + Clone + Debug + Send + Sync> {
-    /// The transmit side of the channel to comms threads.
-    tx: &'a Sender<TargetedMessage<ProposedValue>>,
-    /// The receive side of the channel from comms threads.
-    rx: &'a Receiver<SourcedMessage<ProposedValue>>,
-    /// The broadcast algorithm instance.
-    broadcast: Broadcast<usize>,
-    /// Value to be broadcast.
-    broadcast_value: Option<T>,
-}
-
-impl<'a, T: Clone + Debug + Hashable + Send + Sync + Into<Vec<u8>> + From<Vec<u8>>>
-    Instance<'a, T>
-{
-    pub fn new(
-        tx: &'a Sender<TargetedMessage<ProposedValue>>,
-        rx: &'a Receiver<SourcedMessage<ProposedValue>>,
-        broadcast_value: Option<T>,
-        node_ids: BTreeSet<usize>,
-        our_id: usize,
-        proposer_id: usize,
-    ) -> Self {
-        let broadcast =
-            Broadcast::new(our_id, proposer_id, node_ids).expect("failed to instantiate broadcast");
-        Instance {
-            tx,
-            rx,
-            broadcast,
-            broadcast_value,
-        }
-    }
-
-    /// Broadcast stage task returning the computed values in case of success,
-    /// and an error in case of failure.
-    pub fn run(self) -> Result<T, Error> {
-        // Broadcast state machine thread.
-        let bvalue: Option<ProposedValue> = self.broadcast_value.map(|v| v.into());
-        inner_run(self.tx, self.rx, bvalue, &self.broadcast).map(ProposedValue::into)
-    }
-}
-
 /// Errors returned by the broadcast instance.
 #[derive(Debug, Clone)]
 pub enum Error {
@@ -544,8 +474,6 @@ pub enum Error {
     Threading,
     ProofConstructionFailed,
     ReedSolomon(rse::Error),
-    SendDeprecated(SendError<TargetedMessage<ProposedValue>>),
-    Recv(RecvError),
     UnexpectedMessage,
     NotImplemented,
     UnknownSender,
@@ -557,64 +485,6 @@ impl From<rse::Error> for Error {
     }
 }
 
-impl From<SendError<TargetedMessage<ProposedValue>>> for Error {
-    fn from(err: SendError<TargetedMessage<ProposedValue>>) -> Error {
-        Error::SendDeprecated(err)
-    }
-}
-
-impl From<RecvError> for Error {
-    fn from(err: RecvError) -> Error {
-        Error::Recv(err)
-    }
-}
-
-/// The main loop of the broadcast task.
-fn inner_run<'a>(
-    tx: &'a Sender<TargetedMessage<ProposedValue>>,
-    rx: &'a Receiver<SourcedMessage<ProposedValue>>,
-    broadcast_value: Option<ProposedValue>,
-    broadcast: &Broadcast<usize>,
-) -> Result<ProposedValue, Error> {
-    if let Some(v) = broadcast_value {
-        for msg in broadcast
-            .propose_value(v)?
-            .into_iter()
-            .map(TargetedBroadcastMessage::into)
-        {
-            tx.send(msg)?;
-        }
-    }
-
-    // TODO: handle exit conditions
-    loop {
-        // Receive a message from the socket IO task.
-        let message = rx.recv()?;
-        if let SourcedMessage {
-            source: i,
-            message: Message::Broadcast(message),
-        } = message
-        {
-            debug!("{} received from {}: {:?}", broadcast.our_id, i, message);
-            let (opt_output, msgs) = broadcast.handle_broadcast_message(&i, message)?;
-            for msg in &msgs {
-                debug!(
-                    "{} sending to {:?}: {:?}",
-                    broadcast.our_id, msg.target, msg.message
-                );
-            }
-            for msg in msgs.into_iter().map(TargetedBroadcastMessage::into) {
-                tx.send(msg)?;
-            }
-            if let Some(output) = opt_output {
-                return Ok(output);
-            }
-        } else {
-            error!("Incorrect message from the socket: {:?}", message);
-        }
-    }
-}
-
 fn decode_from_shards<T>(
     leaf_values: &mut [Option<Box<[u8]>>],
     coding: &ReedSolomon,
@@ -622,7 +492,7 @@ fn decode_from_shards<T>(
     root_hash: &[u8],
 ) -> Result<T, Error>
 where
-    T: Clone + Debug + Hashable + Send + Sync + From<Vec<u8>> + Into<Vec<u8>>,
+    T: From<Vec<u8>>,
 {
     // Try to interpolate the Merkle tree using the Reed-Solomon erasure coding scheme.
     coding.reconstruct_shards(leaf_values)?;
@@ -630,7 +500,7 @@ where
     // Recompute the Merkle tree root.
 
     // Collect shards for tree construction.
-    let shards: Vec<ProposedValue> = leaf_values
+    let shards: Vec<Vec<u8>> = leaf_values
         .iter()
         .filter_map(|l| l.as_ref().map(|v| v.to_vec()))
         .collect();
@@ -655,9 +525,9 @@ where
 /// Concatenates the first `n` leaf values of a Merkle tree `m` in one value of
 /// type `T`. This is useful for reconstructing the data value held in the tree
 /// and forgetting the leaves that contain parity information.
-fn glue_shards<T>(m: MerkleTree<ProposedValue>, n: usize) -> T
+fn glue_shards<T>(m: MerkleTree<Vec<u8>>, n: usize) -> T
 where
-    T: From<Vec<u8>> + Into<Vec<u8>>,
+    T: From<Vec<u8>>,
 {
     let t: Vec<u8> = m.into_iter()
         .take(n)
@@ -666,7 +536,7 @@ where
     let payload_len = t[0] as usize;
     debug!("Glued data shards {:?}", HexBytes(&t[1..(payload_len + 1)]));
 
-    Vec::into(t[1..(payload_len + 1)].to_vec())
+    t[1..(payload_len + 1)].to_vec().into()
 }
 
 /// Computes the Merkle tree leaf index of a value in a given lemma.

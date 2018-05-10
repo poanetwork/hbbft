@@ -4,8 +4,6 @@ use itertools::Itertools;
 use std::collections::{BTreeSet, HashMap, VecDeque};
 use std::hash::Hash;
 
-use proto::message;
-
 /// Type of output from the Agreement message handler. The first component is
 /// the value on which the Agreement has decided, also called "output" in the
 /// HoneyadgerBFT paper. The second component is a queue of messages to be sent
@@ -19,36 +17,6 @@ pub enum AgreementMessage {
     BVal((u32, bool)),
     /// AUX message with an epoch.
     Aux((u32, bool)),
-}
-
-impl AgreementMessage {
-    pub fn into_proto(self) -> message::AgreementProto {
-        let mut p = message::AgreementProto::new();
-        match self {
-            AgreementMessage::BVal((e, b)) => {
-                p.set_epoch(e);
-                p.set_bval(b);
-            }
-            AgreementMessage::Aux((e, b)) => {
-                p.set_epoch(e);
-                p.set_aux(b);
-            }
-        }
-        p
-    }
-
-    // TODO: Re-enable lint once implemented.
-    #[cfg_attr(feature = "cargo-clippy", allow(needless_pass_by_value))]
-    pub fn from_proto(mp: message::AgreementProto) -> Option<Self> {
-        let epoch = mp.get_epoch();
-        if mp.has_bval() {
-            Some(AgreementMessage::BVal((epoch, mp.get_bval())))
-        } else if mp.has_aux() {
-            Some(AgreementMessage::Aux((epoch, mp.get_aux())))
-        } else {
-            None
-        }
-    }
 }
 
 /// Binary Agreement instance.

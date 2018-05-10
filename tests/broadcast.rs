@@ -13,7 +13,8 @@ use rand::Rng;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fmt;
 
-use hbbft::broadcast::{Broadcast, BroadcastMessage, BroadcastTarget, TargetedBroadcastMessage};
+use hbbft::broadcast::{Broadcast, BroadcastMessage, TargetedBroadcastMessage};
+use hbbft::messaging::Target;
 
 #[derive(Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Clone, Copy)]
 struct NodeId(usize);
@@ -29,7 +30,7 @@ struct TestNode {
     /// The instance of the broadcast algorithm.
     broadcast: Broadcast<NodeId>,
     /// Incoming messages from other nodes that this node has not yet handled.
-    queue: VecDeque<(NodeId, BroadcastMessage<ProposedValue>)>,
+    queue: VecDeque<(NodeId, BroadcastMessage)>,
     /// The values this node has output so far.
     outputs: Vec<ProposedValue>,
 }
@@ -216,7 +217,7 @@ impl<A: Adversary> TestNetwork<A> {
         for msg in msgs {
             match msg {
                 TargetedBroadcastMessage {
-                    target: BroadcastTarget::All,
+                    target: Target::All,
                     ref message,
                 } => {
                     for node in self.nodes.values_mut() {
@@ -227,7 +228,7 @@ impl<A: Adversary> TestNetwork<A> {
                     self.adversary.push_message(sender_id, msg.clone());
                 }
                 TargetedBroadcastMessage {
-                    target: BroadcastTarget::Node(to_id),
+                    target: Target::Node(to_id),
                     ref message,
                 } => {
                     if self.adv_nodes.contains(&to_id) {

@@ -114,7 +114,7 @@ impl<NodeUid: Clone + Debug + Display + Eq + Hash + Ord> CommonSubset<NodeUid> {
         &mut self,
         sender_id: &NodeUid,
         proposer_id: &NodeUid,
-        bmessage: BroadcastMessage<ProposedValue>,
+        bmessage: BroadcastMessage,
     ) -> Result<CommonSubsetOutput<NodeUid>, Error> {
         let mut instance_result = None;
         let input_result: Result<VecDeque<Output<NodeUid>>, Error> = {
