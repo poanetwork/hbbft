@@ -95,7 +95,7 @@ impl<NodeUid: Clone + Debug + Display + Eq + Hash + Ord> CommonSubset<NodeUid> {
     /// BA_j, then provide input 1 to BA_j. See Figure 11.
     fn on_broadcast_result(&mut self, uid: &NodeUid) -> Result<Option<AgreementMessage>, Error> {
         if let Some(agreement_instance) = self.agreement_instances.get_mut(&uid) {
-            if !agreement_instance.has_input() {
+            if agreement_instance.accepts_input() {
                 Ok(Some(agreement_instance.set_input(true)?))
             } else {
                 Ok(None)
@@ -168,7 +168,7 @@ impl<NodeUid: Clone + Debug + Display + Eq + Hash + Ord> CommonSubset<NodeUid> {
             } else {
                 // Send the message to the agreement instance.
                 agreement_instance
-                    .handle_agreement_message(sender_id.clone(), &amessage)
+                    .handle_agreement_message(sender_id, &amessage)
                     .map_err(Error::from)
             }
         }
@@ -209,7 +209,7 @@ impl<NodeUid: Clone + Debug + Display + Eq + Hash + Ord> CommonSubset<NodeUid> {
 
             if results1 >= self.num_nodes - self.num_faulty_nodes {
                 for instance in self.agreement_instances.values_mut() {
-                    if !instance.has_input() {
+                    if instance.accepts_input() {
                         outgoing.push_back(instance.set_input(false)?);
                     }
                 }
