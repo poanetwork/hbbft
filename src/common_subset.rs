@@ -11,23 +11,50 @@ use agreement;
 use agreement::{Agreement, AgreementMessage};
 
 use broadcast;
-use broadcast::{Broadcast, BroadcastMessage, TargetedBroadcastMessage};
+use broadcast::{Broadcast, BroadcastMessage};
+
+use messaging::{Target, TargetedMessage};
 
 // TODO: Make this a generic argument of `Broadcast`.
 type ProposedValue = Vec<u8>;
 // Type of output from the Common Subset message handler.
-type CommonSubsetOutput<NodeUid> = (Option<HashSet<ProposedValue>>, VecDeque<Output<NodeUid>>);
+type CommonSubsetOutput<NodeUid> = (
+    Option<HashSet<ProposedValue>>,
+    VecDeque<TargetedMessage<Message<NodeUid>, NodeUid>>,
+);
 
-/// Output from Common Subset to remote nodes.
-pub enum Output<NodeUid> {
-    /// A broadcast message to be sent to the destination set in the
-    /// `TargetedBroadcastMessage`.
-    Broadcast(TargetedBroadcastMessage<NodeUid>),
-    /// An agreement message to be broadcast to all nodes. There are no
-    /// one-to-one agreement messages.
-    Agreement(AgreementMessage),
+/// Message from Common Subset to remote nodes.
+pub enum Message<NodeUid> {
+    /// A message for the broadcast algorithm concerning the set element proposed by the given node.
+    Broadcast(NodeUid, BroadcastMessage),
+    /// A message for the agreement algorithm concerning the set element proposed by the given
+    /// node.
+    Agreement(NodeUid, AgreementMessage),
 }
 
+/// Asynchronous Common Subset algorithm instance
+///
+/// The Asynchronous Common Subset protocol assumes a network of `N` nodes that send signed
+/// messages to each other, with at most `f` of them malicious, where `3 * f < N`. Handling the
+/// networking and signing is the responsibility of the user: only when a message has been
+/// verified to be "from node i", it can be handed to the `CommonSubset` instance.
+///
+/// Each participating node proposes an element for inclusion. Under the above conditions, the
+/// protocol guarantees that all of the good nodes output the same set, consisting of at least
+/// `N - f` of the proposed elements.
+///
+/// The algorithm works as follows:
+///
+/// * `CommonSubset` instantiates one `Broadcast` algorithm for each of the participating nodes.
+/// At least `N - f` of these - the ones whose proposer is not malicious - will eventually output
+/// the element proposed by that node.
+/// * It also instantiates an `Agreement` instance for each participating node, to decide whether
+/// that node's proposed element should be included in the common set. Whenever an element is
+/// received via broadcast, we input "yes" (`true`) into the corresponding `Agreement` instance.
+/// * When `N - f` `Agreement` instances have decided "yes", we input "no" (`false`) into the
+/// remaining ones, where we haven't provided input yet.
+/// * Once all `Agreement` instances have decided, `CommonSubset` returns the set of all proposed
+/// values for which the decision was "yes".
 pub struct CommonSubset<NodeUid: Eq + Hash + Ord> {
     uid: NodeUid,
     num_nodes: usize,
@@ -78,13 +105,13 @@ impl<NodeUid: Clone + Debug + Display + Eq + Hash + Ord> CommonSubset<NodeUid> {
     pub fn send_proposed_value(
         &self,
         value: ProposedValue,
-    ) -> Result<VecDeque<Output<NodeUid>>, Error> {
+    ) -> Result<VecDeque<TargetedMessage<Message<NodeUid>, NodeUid>>, Error> {
         // Upon receiving input v_i , input v_i to RBC_i. See Figure 2.
         if let Some(instance) = self.broadcast_instances.get(&self.uid) {
             Ok(instance
                 .propose_value(value)?
                 .into_iter()
-                .map(Output::Broadcast)
+                .map(|msg| msg.map(|b_msg| Message::Broadcast(self.uid.clone(), b_msg)))
                 .collect())
         } else {
             Err(Error::NoSuchBroadcastInstance)
@@ -105,25 +132,47 @@ impl<NodeUid: Clone + Debug + Display + Eq + Hash + Ord> CommonSubset<NodeUid> {
         }
     }
 
+    /// Receives a message form a remote node `sender_id`, and returns an optional result of the
+    /// Common Subset algorithm - a set of proposed values - and a queue of messages to be sent to
+    /// remote nodes, or an error.
+    pub fn handle_message(
+        &mut self,
+        sender_id: &NodeUid,
+        message: Message<NodeUid>,
+    ) -> Result<CommonSubsetOutput<NodeUid>, Error> {
+        match message {
+            Message::Broadcast(p_id, b_msg) => self.handle_broadcast(sender_id, &p_id, b_msg),
+            Message::Agreement(p_id, a_msg) => self.handle_agreement(sender_id, &p_id, &a_msg),
+        }
+    }
+
     /// Receives a broadcast message from a remote node `sender_id` concerning a
     /// value proposed by the node `proposer_id`. The output contains an
     /// optional result of the Common Subset algorithm - a set of proposed
     /// values - and a queue of messages to be sent to remote nodes, or an
     /// error.
-    pub fn handle_broadcast(
+    fn handle_broadcast(
         &mut self,
         sender_id: &NodeUid,
         proposer_id: &NodeUid,
         bmessage: BroadcastMessage,
     ) -> Result<CommonSubsetOutput<NodeUid>, Error> {
         let mut instance_result = None;
-        let input_result: Result<VecDeque<Output<NodeUid>>, Error> = {
+        let input_result: Result<
+            VecDeque<TargetedMessage<Message<NodeUid>, NodeUid>>,
+            Error,
+        > = {
             if let Some(broadcast_instance) = self.broadcast_instances.get(proposer_id) {
                 broadcast_instance
                     .handle_broadcast_message(sender_id, bmessage)
                     .map(|(opt_value, queue)| {
                         instance_result = opt_value;
-                        queue.into_iter().map(Output::Broadcast).collect()
+                        queue
+                            .into_iter()
+                            .map(|msg| {
+                                msg.map(|b_msg| Message::Broadcast(proposer_id.clone(), b_msg))
+                            })
+                            .collect()
                     })
                     .map_err(Error::from)
             } else {
@@ -138,7 +187,9 @@ impl<NodeUid: Clone + Debug + Display + Eq + Hash + Ord> CommonSubset<NodeUid> {
         input_result.map(|mut queue| {
             if let Some(agreement_message) = opt_message {
                 // Append the message to agreement nodes to the common output queue.
-                queue.push_back(Output::Agreement(agreement_message))
+                queue.push_back(
+                    Target::All.message(Message::Agreement(proposer_id.clone(), agreement_message)),
+                );
             }
             (None, queue)
         })
@@ -149,7 +200,7 @@ impl<NodeUid: Clone + Debug + Display + Eq + Hash + Ord> CommonSubset<NodeUid> {
     /// optional result of the Common Subset algorithm - a set of proposed
     /// values - and a queue of messages to be sent to remote nodes, or an
     /// error.
-    pub fn handle_agreement(
+    fn handle_agreement(
         &mut self,
         sender_id: &NodeUid,
         proposer_id: &NodeUid,
@@ -173,22 +224,19 @@ impl<NodeUid: Clone + Debug + Display + Eq + Hash + Ord> CommonSubset<NodeUid> {
             }
         }
 
-        if let Ok((output, mut outgoing)) = result {
-            // Process Agreement outputs.
-            if let Some(b) = output {
-                outgoing.append(&mut self.on_agreement_result(proposer_id, b)?);
-            }
+        let (output, mut outgoing) = result?;
 
-            // Check whether Agreement has completed.
-            Ok((
-                self.try_agreement_completion(),
-                outgoing.into_iter().map(Output::Agreement).collect(),
-            ))
-        } else {
-            // error
-            result
-                .map(|(_, messages)| (None, messages.into_iter().map(Output::Agreement).collect()))
+        // Process Agreement outputs.
+        if let Some(b) = output {
+            outgoing.append(&mut self.on_agreement_result(proposer_id, b)?);
         }
+
+        // Check whether Agreement has completed.
+        let into_msg = |a_msg| Target::All.message(Message::Agreement(proposer_id.clone(), a_msg));
+        Ok((
+            self.try_agreement_completion(),
+            outgoing.into_iter().map(into_msg).collect(),
+        ))
     }
 
     /// Callback to be invoked on receipt of a returned value of the Agreement
@@ -198,24 +246,26 @@ impl<NodeUid: Clone + Debug + Display + Eq + Hash + Ord> CommonSubset<NodeUid> {
         element_proposer_id: &NodeUid,
         result: bool,
     ) -> Result<VecDeque<AgreementMessage>, Error> {
-        let mut outgoing = VecDeque::new();
+        self.agreement_results
+            .insert(element_proposer_id.clone(), result);
+        if !result || self.count_true() < self.num_nodes - self.num_faulty_nodes {
+            return Ok(VecDeque::new());
+        }
+
         // Upon delivery of value 1 from at least N − f instances of BA, provide
         // input 0 to each instance of BA that has not yet been provided input.
-        if result {
-            self.agreement_results
-                .insert(element_proposer_id.clone(), result);
-            // The number of instances of BA that output 1.
-            let results1 = self.agreement_results.values().filter(|v| **v).count();
-
-            if results1 >= self.num_nodes - self.num_faulty_nodes {
-                for instance in self.agreement_instances.values_mut() {
-                    if instance.accepts_input() {
-                        outgoing.push_back(instance.set_input(false)?);
-                    }
-                }
+        let mut outgoing = VecDeque::new();
+        for instance in self.agreement_instances.values_mut() {
+            if instance.accepts_input() {
+                outgoing.push_back(instance.set_input(false)?);
             }
         }
         Ok(outgoing)
+    }
+
+    /// Returns the number of agreement instances that have decided "yes".
+    fn count_true(&self) -> usize {
+        self.agreement_results.values().filter(|v| **v).count()
     }
 
     fn try_agreement_completion(&self) -> Option<HashSet<ProposedValue>> {

@@ -11,7 +11,7 @@ use std::sync::{RwLock, RwLockWriteGuard};
 
 use messaging::{Target, TargetedMessage};
 
-type MessageQueue<NodeUid> = VecDeque<TargetedBroadcastMessage<NodeUid>>;
+type MessageQueue<NodeUid> = VecDeque<TargetedMessage<BroadcastMessage, NodeUid>>;
 
 /// The three kinds of message sent during the reliable broadcast stage of the
 /// consensus algorithm.
@@ -22,44 +22,12 @@ pub enum BroadcastMessage {
     Ready(Vec<u8>),
 }
 
-impl BroadcastMessage {
-    fn target_all<NodeUid>(self) -> TargetedBroadcastMessage<NodeUid> {
-        TargetedBroadcastMessage {
-            target: Target::All,
-            message: self,
-        }
-    }
-
-    fn target_node<NodeUid>(self, id: NodeUid) -> TargetedBroadcastMessage<NodeUid> {
-        TargetedBroadcastMessage {
-            target: Target::Node(id),
-            message: self,
-        }
-    }
-}
-
 impl fmt::Debug for BroadcastMessage {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
             BroadcastMessage::Value(ref v) => write!(f, "Value({:?})", HexProof(&v)),
             BroadcastMessage::Echo(ref v) => write!(f, "Echo({:?})", HexProof(&v)),
             BroadcastMessage::Ready(ref bytes) => write!(f, "Ready({:?})", HexBytes(bytes)),
-        }
-    }
-}
-
-/// A `BroadcastMessage` to be sent out, together with a target.
-#[derive(Clone, Debug)]
-pub struct TargetedBroadcastMessage<NodeUid> {
-    pub target: Target<NodeUid>,
-    pub message: BroadcastMessage,
-}
-
-impl From<TargetedBroadcastMessage<usize>> for TargetedMessage<BroadcastMessage, usize> {
-    fn from(msg: TargetedBroadcastMessage<usize>) -> TargetedMessage<BroadcastMessage, usize> {
-        TargetedMessage {
-            target: msg.target,
-            message: msg.message,
         }
     }
 }
@@ -276,7 +244,8 @@ impl<NodeUid: Eq + Hash + Debug + Clone + Ord> Broadcast<NodeUid> {
                 result = Ok(proof);
             } else {
                 // Rest of the proofs are sent to remote nodes.
-                outgoing.push_back(BroadcastMessage::Value(proof).target_node(uid.clone()));
+                let msg = BroadcastMessage::Value(proof);
+                outgoing.push_back(Target::Node(uid.clone()).message(msg));
             }
         }
 
@@ -327,7 +296,7 @@ impl<NodeUid: Eq + Hash + Debug + Clone + Ord> Broadcast<NodeUid> {
         // Otherwise multicast the proof in an `Echo` message, and handle it ourselves.
         state.echo_sent = true;
         let (output, echo_msgs) = self.handle_echo(&self.our_id, p.clone(), state)?;
-        let msgs = iter::once(BroadcastMessage::Echo(p).target_all())
+        let msgs = iter::once(Target::All.message(BroadcastMessage::Echo(p)))
             .chain(echo_msgs)
             .collect();
 
@@ -364,7 +333,7 @@ impl<NodeUid: Eq + Hash + Debug + Clone + Ord> Broadcast<NodeUid> {
 
         // Upon receiving `N - f` `Echo`s with this root hash, multicast `Ready`.
         state.ready_sent = true;
-        let msg = BroadcastMessage::Ready(hash.clone()).target_all();
+        let msg = Target::All.message(BroadcastMessage::Ready(hash.clone()));
         let (output, ready_msgs) = self.handle_ready(&self.our_id, &hash, state)?;
         Ok((output, iter::once(msg).chain(ready_msgs).collect()))
     }
@@ -393,7 +362,7 @@ impl<NodeUid: Eq + Hash + Debug + Clone + Ord> Broadcast<NodeUid> {
         {
             // Enqueue a broadcast of a Ready message.
             state.ready_sent = true;
-            iter::once(BroadcastMessage::Ready(hash.to_vec()).target_all()).collect()
+            iter::once(Target::All.message(BroadcastMessage::Ready(hash.to_vec()))).collect()
         } else {
             VecDeque::new()
         };
