@@ -30,6 +30,7 @@ system path."
             out_dir: "src/proto",
             input: &["proto/message.proto"],
             includes: &["proto"],
+            customize: Default::default(),
         }).expect("protoc");
     }
 }

@@ -1,6 +1,6 @@
 //! Protobuf message IO task structure.
 
-use protobuf::{self, Message, MessageStatic};
+use protobuf::{self, Message};
 use std::io::{Read, Write};
 use std::marker::PhantomData;
 use std::net::TcpStream;
@@ -77,7 +77,7 @@ impl<M> ProtoIo<TcpStream, M> {
 }
 
 /// A message handling task.
-impl<S: Read + Write, M: Message + MessageStatic> ProtoIo<S, M>
+impl<S: Read + Write, M: Message> ProtoIo<S, M>
 //where T: Clone + Send + Sync + From<Vec<u8>> + Into<Vec<u8>>
 {
     pub fn from_stream(stream: S) -> Self {
