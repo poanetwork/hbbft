@@ -23,7 +23,7 @@ script:
   # - cargo fmt -- --write-mode=diff
   - cargo clippy -- -D clippy
   - cargo clippy --tests -- -D clippy
-  - cargo clippy --features=serialization-protobuf -- -D clippy
-  - cargo clippy --features=serialization-protobuf --tests -- -D clippy
+  - cargo clippy --features="serialization-protobuf serialization-serde" -- -D clippy
+  - cargo clippy --features="serialization-protobuf serialization-serde" --tests -- -D clippy
   - cargo check --tests
   - cargo test

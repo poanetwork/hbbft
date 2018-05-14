@@ -11,6 +11,7 @@ use std::hash::Hash;
 type AgreementOutput = (Option<bool>, VecDeque<AgreementMessage>);
 
 /// Messages sent during the binary Byzantine agreement stage.
+#[cfg_attr(feature = "serialization-serde", derive(Serialize))]
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum AgreementMessage {
     /// BVAL message with an epoch.

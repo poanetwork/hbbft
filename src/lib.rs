@@ -15,6 +15,9 @@ extern crate protobuf;
 extern crate reed_solomon_erasure;
 extern crate ring;
 extern crate serde;
+#[cfg(feature = "serialization-serde")]
+#[macro_use]
+extern crate serde_derive;
 
 pub mod agreement;
 pub mod broadcast;

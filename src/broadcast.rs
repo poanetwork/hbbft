@@ -2,6 +2,9 @@ use merkle::proof::{Lemma, Positioned, Proof};
 use merkle::MerkleTree;
 use reed_solomon_erasure as rse;
 use reed_solomon_erasure::ReedSolomon;
+use ring::digest;
+#[cfg(feature = "serialization-serde")]
+use serde::{Deserialize, Deserializer};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fmt::{self, Debug};
 use std::hash::Hash;
@@ -14,11 +17,24 @@ type MessageQueue<NodeUid> = VecDeque<TargetedMessage<BroadcastMessage, NodeUid>
 
 /// The three kinds of message sent during the reliable broadcast stage of the
 /// consensus algorithm.
+#[cfg_attr(feature = "serialization-serde", derive(Serialize))]
 #[derive(Clone, PartialEq)]
 pub enum BroadcastMessage {
+    #[cfg_attr(feature = "serialization-serde", serde(deserialize_with = "deserialize_proof"))]
     Value(Proof<Vec<u8>>),
+    #[cfg_attr(feature = "serialization-serde", serde(deserialize_with = "deserialize_proof"))]
     Echo(Proof<Vec<u8>>),
     Ready(Vec<u8>),
+}
+
+#[cfg(feature = "serialization-serde")]
+#[allow(unused)]
+fn deserialize_proof<'de, D>(d: D) -> Result<Proof<Vec<u8>>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let data: ::merkle::proof::ProofData<Vec<u8>> = Deserialize::deserialize(d)?;
+    Ok(data.into_proof(&digest::SHA256))
 }
 
 impl fmt::Debug for BroadcastMessage {
@@ -199,7 +215,7 @@ impl<NodeUid: Eq + Hash + Debug + Clone + Ord> Broadcast<NodeUid> {
 
         // Convert the Merkle tree into a partial binary tree for later
         // deconstruction into compound branches.
-        let mtree = MerkleTree::from_vec(&::ring::digest::SHA256, shards_t);
+        let mtree = MerkleTree::from_vec(&digest::SHA256, shards_t);
 
         // Default result in case of `gen_proof` error.
         let mut result = Err(Error::ProofConstructionFailed);
@@ -458,7 +474,7 @@ where
     debug!("Reconstructed shards: {:?}", HexList(&shards));
 
     // Construct the Merkle tree.
-    let mtree = MerkleTree::from_vec(&::ring::digest::SHA256, shards);
+    let mtree = MerkleTree::from_vec(&digest::SHA256, shards);
     // If the root hash of the reconstructed tree does not match the one
     // received with proofs then abort.
     if &mtree.root_hash()[..] != root_hash {
@@ -504,11 +520,12 @@ pub fn index_of_lemma(lemma: &Lemma, n: usize) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+
     #[test]
     fn test_index_of_lemma() {
         for &n in &[3, 4, 13, 16, 127, 128, 129, 255] {
             let shards: Vec<[u8; 1]> = (0..n).map(|i| [i as u8]).collect();
-            let mtree = MerkleTree::from_vec(&::ring::digest::SHA256, shards);
+            let mtree = MerkleTree::from_vec(&digest::SHA256, shards);
             for (i, val) in mtree.iter().enumerate() {
                 let p = mtree.gen_proof(val.clone()).expect("generate proof");
                 let idx = index_of_lemma(&p.lemma, n);
