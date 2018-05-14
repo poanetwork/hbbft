@@ -113,14 +113,16 @@ pub struct Broadcast<N> {
 
 impl<N: Eq + Debug + Clone + Ord> DistAlgorithm for Broadcast<N> {
     type NodeUid = N;
-    type Input = Vec<u8>; // TODO: Allow anything serializable.
+    // TODO: Allow anything serializable and deserializable, i.e. make this a type parameter
+    // T: Serialize + DeserializeOwned
+    type Input = Vec<u8>;
     type Output = Self::Input;
     type Message = BroadcastMessage;
     type Error = Error;
 
     fn input(&mut self, input: Self::Input) -> Result<(), Self::Error> {
         if self.our_id != self.proposer_id {
-            return Err(Error::UnexpectedMessage);
+            return Err(Error::InstanceCannotPropose);
         }
         // Split the value into chunks/shards, encode them with erasure codes.
         // Assemble a Merkle tree from data and parity shards. Take all proofs
@@ -432,7 +434,7 @@ pub enum Error {
     Threading,
     ProofConstructionFailed,
     ReedSolomon(rse::Error),
-    UnexpectedMessage,
+    InstanceCannotPropose,
     NotImplemented,
     UnknownSender,
 }
