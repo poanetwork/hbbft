@@ -10,13 +10,7 @@ use ring::digest::Algorithm;
 use agreement::AgreementMessage;
 use broadcast::BroadcastMessage;
 use proto::message::{
-    AgreementProto,
-    BroadcastProto,
-    EchoProto,
-    LemmaProto,
-    ProofProto,
-    ReadyProto,
-    ValueProto
+    AgreementProto, BroadcastProto, EchoProto, LemmaProto, ProofProto, ReadyProto, ValueProto,
 };
 
 /// Wrapper for a byte array, whose `Debug` implementation outputs shortened hexadecimal strings.

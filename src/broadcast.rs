@@ -3,8 +3,8 @@ use std::fmt::{self, Debug, Formatter};
 use std::hash::Hash;
 use std::iter;
 
-use merkle::MerkleTree;
 use merkle::proof::{Lemma, Positioned, Proof};
+use merkle::MerkleTree;
 use reed_solomon_erasure::{self as rse, ReedSolomon};
 
 use messaging::{Target, TargetedMessage};

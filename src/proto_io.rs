@@ -131,10 +131,10 @@ impl<S: Read + Write, M: Message> ProtoIo<S, M>
 #[cfg(test)]
 mod tests {
     use std::io::Cursor;
-    
+
+    use super::ProtoIo;
     use broadcast::BroadcastMessage;
     use proto::message::BroadcastProto;
-    use super::ProtoIo;
 
     #[test]
     fn encode_decode_message() {
