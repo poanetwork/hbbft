@@ -150,10 +150,10 @@ fn test_agreement(mut network: TestNetwork) -> BTreeMap<NodeId, TestNode> {
     network.nodes
 }
 
-/// Test 3 correct and 1 faulty node. The faulty node simply negates all other
-/// nodes' inputs.
+/// Test 4 correct nodes. One of the nodes, #3, hasn't finished broadcast yet
+/// and gets an input 0 as a result.
 #[test]
-fn test_agreement_and_validity_with_1_faulty_node() {
+fn test_agreement_and_validity_with_1_late_node() {
     let mut network = TestNetwork::new(4);
 
     network.set_input(NodeId(0), true);
