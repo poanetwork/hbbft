@@ -4,16 +4,18 @@ version = "0.1.0"
 authors = ["Vladimir Komendantskiy <komendantsky@gmail.com>"]
 
 [dependencies]
+bincode = "1.0.0"
 env_logger = "0.5.10"
 itertools = "0.7"
 log = "0.4.1"
-reed-solomon-erasure = "3.0"
 merkle = { git = "https://github.com/vkomenda/merkle.rs", branch = "public-proof" }
-protobuf = "1.4.4"
+protobuf = "1.6.0"
+reed-solomon-erasure = "3.0"
 ring = "^0.12"
+serde = "1.0.54"
 
 [build-dependencies]
-protoc-rust = "1.4.4"
+protoc-rust = "1.6.0"
 
 [dev-dependencies]
 crossbeam = "0.3.2"

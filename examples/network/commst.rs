@@ -8,7 +8,7 @@ use std::net::TcpStream;
 
 use hbbft::messaging::SourcedMessage;
 use hbbft::proto_io::{self, ProtoIo};
-use protobuf::{Message, MessageStatic};
+use protobuf::Message;
 
 #[derive(Debug)]
 pub enum Error {
@@ -34,7 +34,7 @@ pub struct CommsTask<'a, P: 'a, M: 'a> {
     pub node_index: usize,
 }
 
-impl<'a, P: Message + MessageStatic + 'a, M: Into<P> + From<P> + Send + 'a> CommsTask<'a, P, M> {
+impl<'a, P: Message + 'a, M: Into<P> + From<P> + Send + 'a> CommsTask<'a, P, M> {
     pub fn new(
         tx: &'a Sender<SourcedMessage<M, usize>>,
         rx: &'a Receiver<M>,

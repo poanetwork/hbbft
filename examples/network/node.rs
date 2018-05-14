@@ -41,7 +41,7 @@ use std::marker::{Send, Sync};
 use std::net::SocketAddr;
 use std::{io, iter, process, thread, time};
 
-use hbbft::broadcast::{Broadcast, BroadcastMessage, TargetedBroadcastMessage};
+use hbbft::broadcast::{Broadcast, BroadcastMessage};
 use hbbft::messaging::SourcedMessage;
 use hbbft::proto::message::BroadcastProto;
 use network::commst;
@@ -123,15 +123,13 @@ impl<T: Clone + Debug + AsRef<[u8]> + PartialEq + Send + Sync + From<Vec<u8>> + 
             // corresponding to this instance, and no dedicated comms task. The
             // node index is 0.
             let broadcast_handle = scope.spawn(move || {
-                let broadcast = Broadcast::new(our_id, proposer_id, (0..num_nodes).collect())
+                let mut broadcast = Broadcast::new(our_id, proposer_id, (0..num_nodes).collect())
                     .expect("failed to instantiate broadcast");
 
                 if let Some(v) = value {
                     for msg in broadcast
                         .propose_value(v.clone().into())
                         .expect("propose value")
-                        .into_iter()
-                        .map(TargetedBroadcastMessage::into)
                     {
                         tx_from_algo.send(msg).expect("send from algo");
                     }
@@ -148,7 +146,7 @@ impl<T: Clone + Debug + AsRef<[u8]> + PartialEq + Send + Sync + From<Vec<u8>> + 
                     for msg in &msgs {
                         debug!("{} sending to {:?}: {:?}", our_id, msg.target, msg.message);
                     }
-                    for msg in msgs.into_iter().map(TargetedBroadcastMessage::into) {
+                    for msg in msgs {
                         tx_from_algo.send(msg).expect("send from algo");
                     }
                     if let Some(output) = opt_output {

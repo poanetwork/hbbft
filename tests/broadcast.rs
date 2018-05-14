@@ -13,15 +13,15 @@ use rand::Rng;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fmt;
 
-use hbbft::broadcast::{Broadcast, BroadcastMessage, TargetedBroadcastMessage};
-use hbbft::messaging::Target;
+use hbbft::broadcast::{Broadcast, BroadcastMessage};
+use hbbft::messaging::{Target, TargetedMessage};
 
 #[derive(Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Clone, Copy)]
 struct NodeId(usize);
 
 type ProposedValue = Vec<u8>;
 
-type MessageQueue = VecDeque<TargetedBroadcastMessage<NodeId>>;
+type MessageQueue = VecDeque<TargetedMessage<BroadcastMessage, NodeId>>;
 
 /// A "node" running a broadcast instance.
 struct TestNode {
@@ -97,10 +97,10 @@ trait Adversary {
     fn pick_node(&self, nodes: &BTreeMap<NodeId, TestNode>) -> NodeId;
 
     /// Adds a message sent to one of the adversary's nodes.
-    fn push_message(&mut self, sender_id: NodeId, msg: TargetedBroadcastMessage<NodeId>);
+    fn push_message(&mut self, sender_id: NodeId, msg: TargetedMessage<BroadcastMessage, NodeId>);
 
     /// Produces a list of messages to be sent from the adversary's nodes.
-    fn step(&mut self) -> Vec<(NodeId, TargetedBroadcastMessage<NodeId>)>;
+    fn step(&mut self) -> Vec<(NodeId, TargetedMessage<BroadcastMessage, NodeId>)>;
 }
 
 /// An adversary whose nodes never send any messages.
@@ -120,11 +120,11 @@ impl Adversary for SilentAdversary {
         self.scheduler.pick_node(nodes)
     }
 
-    fn push_message(&mut self, _: NodeId, _: TargetedBroadcastMessage<NodeId>) {
+    fn push_message(&mut self, _: NodeId, _: TargetedMessage<BroadcastMessage, NodeId>) {
         // All messages are ignored.
     }
 
-    fn step(&mut self) -> Vec<(NodeId, TargetedBroadcastMessage<NodeId>)> {
+    fn step(&mut self) -> Vec<(NodeId, TargetedMessage<BroadcastMessage, NodeId>)> {
         vec![] // No messages are sent.
     }
 }
@@ -158,11 +158,11 @@ impl Adversary for ProposeAdversary {
         self.scheduler.pick_node(nodes)
     }
 
-    fn push_message(&mut self, _: NodeId, _: TargetedBroadcastMessage<NodeId>) {
+    fn push_message(&mut self, _: NodeId, _: TargetedMessage<BroadcastMessage, NodeId>) {
         // All messages are ignored.
     }
 
-    fn step(&mut self) -> Vec<(NodeId, TargetedBroadcastMessage<NodeId>)> {
+    fn step(&mut self) -> Vec<(NodeId, TargetedMessage<BroadcastMessage, NodeId>)> {
         if self.has_sent {
             return vec![];
         }
@@ -174,7 +174,7 @@ impl Adversary for ProposeAdversary {
             .chain(self.good_nodes.iter().cloned())
             .collect();
         let id = *self.adv_nodes.iter().next().unwrap();
-        let bc = Broadcast::new(id, id, node_ids).expect("broadcast instance");
+        let mut bc = Broadcast::new(id, id, node_ids).expect("broadcast instance");
         let msgs = bc.propose_value(value.to_vec()).expect("propose");
         msgs.into_iter().map(|msg| (id, msg)).collect()
     }
@@ -212,11 +212,11 @@ impl<A: Adversary> TestNetwork<A> {
     /// Pushes the messages into the queues of the corresponding recipients.
     fn dispatch_messages<Q>(&mut self, sender_id: NodeId, msgs: Q)
     where
-        Q: IntoIterator<Item = TargetedBroadcastMessage<NodeId>> + fmt::Debug,
+        Q: IntoIterator<Item = TargetedMessage<BroadcastMessage, NodeId>> + fmt::Debug,
     {
         for msg in msgs {
             match msg {
-                TargetedBroadcastMessage {
+                TargetedMessage {
                     target: Target::All,
                     ref message,
                 } => {
@@ -227,7 +227,7 @@ impl<A: Adversary> TestNetwork<A> {
                     }
                     self.adversary.push_message(sender_id, msg.clone());
                 }
-                TargetedBroadcastMessage {
+                TargetedMessage {
                     target: Target::Node(to_id),
                     ref message,
                 } => {
@@ -261,7 +261,9 @@ impl<A: Adversary> TestNetwork<A> {
 
     /// Makes the node `proposer_id` propose a value.
     fn propose_value(&mut self, proposer_id: NodeId, value: ProposedValue) {
-        let msgs = self.nodes[&proposer_id]
+        let msgs = self.nodes
+            .get_mut(&proposer_id)
+            .expect("proposer instance")
             .broadcast
             .propose_value(value)
             .expect("propose");
