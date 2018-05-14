@@ -49,3 +49,28 @@ Once you have verified that the `protoc` binary is in your `$PATH`, you can
 build `hbbft` using cargo:
 
     $ cargo build [--release]
+
+# Contributing
+
+Before submitting PRs to `hbbft`, check that your code is properly
+formatted using `rustfmt`.
+
+You can check to see whether or not you have `rustfmt` installed by running
+the following:
+
+    $ cargo fmt --help
+
+If you see an error message similiar to the following, you will need to
+install `rustfmt`:
+
+    error: toolchain '<you rust target archetecture>' does not have the binary `cargo-fmt`
+
+To install `rustfmt` run the following:
+
+    $ rustup component add rustfmt-preview
+
+To run `rustfmt` on `hbbft` run the following:
+
+    $ cargo fmt
+
+Commit and push your changes, then submit your PR!
