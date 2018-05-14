@@ -42,7 +42,7 @@ use std::net::SocketAddr;
 use std::{io, iter, process, thread, time};
 
 use hbbft::broadcast::{Broadcast, BroadcastMessage};
-use hbbft::messaging::SourcedMessage;
+use hbbft::messaging::{DistAlgorithm, SourcedMessage};
 use hbbft::proto::message::BroadcastProto;
 use network::commst;
 use network::connection;
@@ -127,10 +127,8 @@ impl<T: Clone + Debug + AsRef<[u8]> + PartialEq + Send + Sync + From<Vec<u8>> + 
                     .expect("failed to instantiate broadcast");
 
                 if let Some(v) = value {
-                    for msg in broadcast
-                        .propose_value(v.clone().into())
-                        .expect("propose value")
-                    {
+                    broadcast.input(v.clone().into()).expect("propose value");
+                    for msg in broadcast.message_iter() {
                         tx_from_algo.send(msg).expect("send from algo");
                     }
                 }
@@ -140,16 +138,14 @@ impl<T: Clone + Debug + AsRef<[u8]> + PartialEq + Send + Sync + From<Vec<u8>> + 
                     let message = rx_to_algo.recv().expect("receive from algo");
                     let SourcedMessage { source: i, message } = message;
                     debug!("{} received from {}: {:?}", our_id, i, message);
-                    let (opt_output, msgs) = broadcast
-                        .handle_broadcast_message(&i, message)
+                    broadcast
+                        .handle_message(&i, message)
                         .expect("handle broadcast message");
-                    for msg in &msgs {
+                    for msg in broadcast.message_iter() {
                         debug!("{} sending to {:?}: {:?}", our_id, msg.target, msg.message);
-                    }
-                    for msg in msgs {
                         tx_from_algo.send(msg).expect("send from algo");
                     }
-                    if let Some(output) = opt_output {
+                    if let Some(output) = broadcast.next_output() {
                         println!(
                             "Broadcast succeeded! Node {} output: {}",
                             our_id,

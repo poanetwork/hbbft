@@ -13,7 +13,7 @@ use agreement::{Agreement, AgreementMessage};
 use broadcast;
 use broadcast::{Broadcast, BroadcastMessage};
 
-use messaging::{Target, TargetedMessage};
+use messaging::{DistAlgorithm, Target, TargetedMessage};
 
 // TODO: Make this a generic argument of `Broadcast`.
 type ProposedValue = Vec<u8>;
@@ -25,6 +25,7 @@ type CommonSubsetOutput<NodeUid> = (
 
 /// Message from Common Subset to remote nodes.
 #[cfg_attr(feature = "serialization-serde", derive(Serialize))]
+#[derive(Debug)]
 pub enum Message<NodeUid> {
     /// A message for the broadcast algorithm concerning the set element proposed by the given node.
     Broadcast(NodeUid, BroadcastMessage),
@@ -109,10 +110,10 @@ impl<NodeUid: Clone + Debug + Display + Eq + Hash + Ord> CommonSubset<NodeUid> {
     ) -> Result<VecDeque<TargetedMessage<Message<NodeUid>, NodeUid>>, Error> {
         // Upon receiving input v_i , input v_i to RBC_i. See Figure 2.
         if let Some(instance) = self.broadcast_instances.get_mut(&self.uid) {
+            instance.input(value)?;
             let uid = self.uid.clone();
             Ok(instance
-                .propose_value(value)?
-                .into_iter()
+                .message_iter()
                 .map(|msg| msg.map(|b_msg| Message::Broadcast(uid.clone(), b_msg)))
                 .collect())
         } else {
@@ -165,18 +166,12 @@ impl<NodeUid: Clone + Debug + Display + Eq + Hash + Ord> CommonSubset<NodeUid> {
             Error,
         > = {
             if let Some(broadcast_instance) = self.broadcast_instances.get_mut(proposer_id) {
-                broadcast_instance
-                    .handle_broadcast_message(sender_id, bmessage)
-                    .map(|(opt_value, queue)| {
-                        instance_result = opt_value;
-                        queue
-                            .into_iter()
-                            .map(|msg| {
-                                msg.map(|b_msg| Message::Broadcast(proposer_id.clone(), b_msg))
-                            })
-                            .collect()
-                    })
-                    .map_err(Error::from)
+                broadcast_instance.handle_message(sender_id, bmessage)?;
+                instance_result = broadcast_instance.next_output();
+                Ok(broadcast_instance
+                    .message_iter()
+                    .map(|msg| msg.map(|b_msg| Message::Broadcast(proposer_id.clone(), b_msg)))
+                    .collect())
             } else {
                 Err(Error::NoSuchBroadcastInstance)
             }

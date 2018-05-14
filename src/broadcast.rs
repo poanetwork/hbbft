@@ -8,12 +8,9 @@ use ring::digest;
 use serde::{Deserialize, Deserializer};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fmt::{self, Debug};
-use std::hash::Hash;
 use std::iter;
 
-use messaging::{Target, TargetedMessage};
-
-type MessageQueue<NodeUid> = VecDeque<TargetedMessage<BroadcastMessage, NodeUid>>;
+use messaging::{DistAlgorithm, Target, TargetedMessage};
 
 /// The three kinds of message sent during the reliable broadcast stage of the
 /// consensus algorithm.
@@ -87,13 +84,13 @@ impl fmt::Debug for BroadcastMessage {
 /// eventually be able to decode (i.e. receive at least `f + 1` `Echo` messages).
 /// * So a node with `2 * f + 1` `Ready`s and `f + 1` `Echos` will decode and _output_ the value,
 /// knowing that every other good node will eventually do the same.
-pub struct Broadcast<NodeUid> {
+pub struct Broadcast<N> {
     /// The UID of this node.
-    our_id: NodeUid,
+    our_id: N,
     /// The UID of the sending node.
-    proposer_id: NodeUid,
+    proposer_id: N,
     /// UIDs of all nodes for iteration purposes.
-    all_uids: BTreeSet<NodeUid>,
+    all_uids: BTreeSet<N>,
     num_nodes: usize,
     num_faulty_nodes: usize,
     data_shard_num: usize,
@@ -105,19 +102,68 @@ pub struct Broadcast<NodeUid> {
     /// Whether we have already output a value.
     has_output: bool,
     /// The proofs we have received via `Echo` messages, by sender ID.
-    echos: BTreeMap<NodeUid, Proof<Vec<u8>>>,
+    echos: BTreeMap<N, Proof<Vec<u8>>>,
     /// The root hashes we received via `Ready` messages, by sender ID.
-    readys: BTreeMap<NodeUid, Vec<u8>>,
+    readys: BTreeMap<N, Vec<u8>>,
+    /// The outgoing message queue.
+    messages: VecDeque<TargetedMessage<BroadcastMessage, N>>,
+    /// The output, if any.
+    output: Option<Vec<u8>>,
 }
 
-impl<NodeUid: Eq + Hash + Debug + Clone + Ord> Broadcast<NodeUid> {
+impl<N: Eq + Debug + Clone + Ord> DistAlgorithm for Broadcast<N> {
+    type NodeUid = N;
+    type Input = Vec<u8>; // TODO: Allow anything serializable.
+    type Output = Self::Input;
+    type Message = BroadcastMessage;
+    type Error = Error;
+
+    fn input(&mut self, input: Self::Input) -> Result<(), Self::Error> {
+        if self.our_id != self.proposer_id {
+            return Err(Error::UnexpectedMessage);
+        }
+        // Split the value into chunks/shards, encode them with erasure codes.
+        // Assemble a Merkle tree from data and parity shards. Take all proofs
+        // from this tree and send them, each to its own node.
+        let proof = self.send_shards(input)?;
+        // TODO: We'd actually need to return the output here, if it was only one node. Should that
+        // use-case be supported?
+        let our_id = self.our_id.clone();
+        self.handle_value(&our_id, proof)
+    }
+
+    fn handle_message(&mut self, sender_id: &N, message: Self::Message) -> Result<(), Self::Error> {
+        if !self.all_uids.contains(sender_id) {
+            return Err(Error::UnknownSender);
+        }
+        match message {
+            BroadcastMessage::Value(p) => self.handle_value(sender_id, p),
+            BroadcastMessage::Echo(p) => self.handle_echo(sender_id, p),
+            BroadcastMessage::Ready(ref hash) => self.handle_ready(sender_id, hash),
+        }
+    }
+
+    fn next_message(&mut self) -> Option<TargetedMessage<Self::Message, N>> {
+        self.messages.pop_front()
+    }
+
+    fn next_output(&mut self) -> Option<Self::Output> {
+        self.output.take()
+    }
+
+    fn terminated(&self) -> bool {
+        self.has_output
+    }
+
+    fn our_id(&self) -> &N {
+        &self.our_id
+    }
+}
+
+impl<N: Eq + Debug + Clone + Ord> Broadcast<N> {
     /// Creates a new broadcast instance to be used by node `our_id` which expects a value proposal
     /// from node `proposer_id`.
-    pub fn new(
-        our_id: NodeUid,
-        proposer_id: NodeUid,
-        all_uids: BTreeSet<NodeUid>,
-    ) -> Result<Self, Error> {
+    pub fn new(our_id: N, proposer_id: N, all_uids: BTreeSet<N>) -> Result<Self, Error> {
         let num_nodes = all_uids.len();
         let num_faulty_nodes = (num_nodes - 1) / 3;
         let parity_shard_num = 2 * num_faulty_nodes;
@@ -137,28 +183,9 @@ impl<NodeUid: Eq + Hash + Debug + Clone + Ord> Broadcast<NodeUid> {
             has_output: false,
             echos: BTreeMap::new(),
             readys: BTreeMap::new(),
+            messages: VecDeque::new(),
+            output: None,
         })
-    }
-
-    /// Processes the proposed value input by broadcasting it.
-    pub fn propose_value(&mut self, value: Vec<u8>) -> Result<MessageQueue<NodeUid>, Error> {
-        if self.our_id != self.proposer_id {
-            return Err(Error::UnexpectedMessage);
-        }
-        // Split the value into chunks/shards, encode them with erasure codes.
-        // Assemble a Merkle tree from data and parity shards. Take all proofs
-        // from this tree and send them, each to its own node.
-        let (proof, value_msgs) = self.send_shards(value)?;
-        // TODO: We'd actually need to return the output here, if it was only one node. Should that
-        // use-case be supported?
-        let our_id = self.our_id.clone();
-        let (_, echo_msgs) = self.handle_value(&our_id, proof)?;
-        Ok(value_msgs.into_iter().chain(echo_msgs).collect())
-    }
-
-    /// Returns this node's ID.
-    pub fn our_id(&self) -> &NodeUid {
-        &self.our_id
     }
 
     /// Breaks the input value into shards of equal length and encodes them --
@@ -166,10 +193,7 @@ impl<NodeUid: Eq + Hash + Debug + Clone + Ord> Broadcast<NodeUid> {
     /// scheme. The returned value contains the shard assigned to this
     /// node. That shard doesn't need to be sent anywhere. It gets recorded in
     /// the broadcast instance.
-    fn send_shards(
-        &self,
-        mut value: Vec<u8>,
-    ) -> Result<(Proof<Vec<u8>>, MessageQueue<NodeUid>), Error> {
+    fn send_shards(&mut self, mut value: Vec<u8>) -> Result<Proof<Vec<u8>>, Error> {
         let data_shard_num = self.coding.data_shard_count();
         let parity_shard_num = self.coding.parity_shard_count();
 
@@ -219,7 +243,6 @@ impl<NodeUid: Eq + Hash + Debug + Clone + Ord> Broadcast<NodeUid> {
 
         // Default result in case of `gen_proof` error.
         let mut result = Err(Error::ProofConstructionFailed);
-        let mut outgoing = VecDeque::new();
         assert_eq!(self.num_nodes, mtree.iter().count());
 
         // Send each proof to a node.
@@ -232,36 +255,16 @@ impl<NodeUid: Eq + Hash + Debug + Clone + Ord> Broadcast<NodeUid> {
                 result = Ok(proof);
             } else {
                 // Rest of the proofs are sent to remote nodes.
-                let msg = BroadcastMessage::Value(proof);
-                outgoing.push_back(Target::Node(uid.clone()).message(msg));
+                let msg = Target::Node(uid.clone()).message(BroadcastMessage::Value(proof));
+                self.messages.push_back(msg);
             }
         }
 
-        result.map(|r| (r, outgoing))
-    }
-
-    /// Handler of messages received from remote nodes.
-    pub fn handle_broadcast_message(
-        &mut self,
-        sender_id: &NodeUid,
-        message: BroadcastMessage,
-    ) -> Result<(Option<Vec<u8>>, MessageQueue<NodeUid>), Error> {
-        if !self.all_uids.contains(sender_id) {
-            return Err(Error::UnknownSender);
-        }
-        match message {
-            BroadcastMessage::Value(p) => self.handle_value(sender_id, p),
-            BroadcastMessage::Echo(p) => self.handle_echo(sender_id, p),
-            BroadcastMessage::Ready(ref hash) => self.handle_ready(sender_id, hash),
-        }
+        result
     }
 
     /// Handles a received echo and verifies the proof it contains.
-    fn handle_value(
-        &mut self,
-        sender_id: &NodeUid,
-        p: Proof<Vec<u8>>,
-    ) -> Result<(Option<Vec<u8>>, MessageQueue<NodeUid>), Error> {
+    fn handle_value(&mut self, sender_id: &N, p: Proof<Vec<u8>>) -> Result<(), Error> {
         // If the sender is not the proposer, this is not the first `Value` or the proof is invalid,
         // ignore.
         if *sender_id != self.proposer_id {
@@ -269,43 +272,37 @@ impl<NodeUid: Eq + Hash + Debug + Clone + Ord> Broadcast<NodeUid> {
                 "Node {:?} received Value from {:?} instead of {:?}.",
                 self.our_id, sender_id, self.proposer_id
             );
-            return Ok((None, VecDeque::new()));
+            return Ok(());
         }
         if self.echo_sent {
             info!("Node {:?} received multiple Values.", self.our_id);
-            return Ok((None, VecDeque::new()));
+            return Ok(());
         }
         if !self.validate_proof(&p, &self.our_id) {
-            return Ok((None, VecDeque::new()));
+            return Ok(());
         }
 
         // Otherwise multicast the proof in an `Echo` message, and handle it ourselves.
         self.echo_sent = true;
         let our_id = self.our_id.clone();
-        let (output, echo_msgs) = self.handle_echo(&our_id, p.clone())?;
-        let msgs = iter::once(Target::All.message(BroadcastMessage::Echo(p)))
-            .chain(echo_msgs)
-            .collect();
-
-        Ok((output, msgs))
+        self.handle_echo(&our_id, p.clone())?;
+        let echo_msg = Target::All.message(BroadcastMessage::Echo(p));
+        self.messages.push_back(echo_msg);
+        Ok(())
     }
 
     /// Handles a received `Echo` message.
-    fn handle_echo(
-        &mut self,
-        sender_id: &NodeUid,
-        p: Proof<Vec<u8>>,
-    ) -> Result<(Option<Vec<u8>>, MessageQueue<NodeUid>), Error> {
+    fn handle_echo(&mut self, sender_id: &N, p: Proof<Vec<u8>>) -> Result<(), Error> {
         // If the proof is invalid or the sender has already sent `Echo`, ignore.
         if self.echos.contains_key(sender_id) {
             info!(
                 "Node {:?} received multiple Echos from {:?}.",
                 self.our_id, sender_id,
             );
-            return Ok((None, VecDeque::new()));
+            return Ok(());
         }
         if !self.validate_proof(&p, sender_id) {
-            return Ok((None, VecDeque::new()));
+            return Ok(());
         }
 
         let hash = p.root_hash.clone();
@@ -314,54 +311,48 @@ impl<NodeUid: Eq + Hash + Debug + Clone + Ord> Broadcast<NodeUid> {
         self.echos.insert(sender_id.clone(), p);
 
         if self.ready_sent || self.count_echos(&hash) < self.num_nodes - self.num_faulty_nodes {
-            return Ok((self.get_output(&hash)?, VecDeque::new()));
+            return self.compute_output(&hash);
         }
 
         // Upon receiving `N - f` `Echo`s with this root hash, multicast `Ready`.
         self.ready_sent = true;
-        let msg = Target::All.message(BroadcastMessage::Ready(hash.clone()));
+        let ready_msg = Target::All.message(BroadcastMessage::Ready(hash.clone()));
+        self.messages.push_back(ready_msg);
         let our_id = self.our_id.clone();
-        let (output, ready_msgs) = self.handle_ready(&our_id, &hash)?;
-        Ok((output, iter::once(msg).chain(ready_msgs).collect()))
+        self.handle_ready(&our_id, &hash)
     }
 
     /// Handles a received `Ready` message.
-    fn handle_ready(
-        &mut self,
-        sender_id: &NodeUid,
-        hash: &[u8],
-    ) -> Result<(Option<Vec<u8>>, MessageQueue<NodeUid>), Error> {
+    fn handle_ready(&mut self, sender_id: &N, hash: &[u8]) -> Result<(), Error> {
         // If the sender has already sent a `Ready` before, ignore.
         if self.readys.contains_key(sender_id) {
             info!(
                 "Node {:?} received multiple Readys from {:?}.",
                 self.our_id, sender_id
             );
-            return Ok((None, VecDeque::new()));
+            return Ok(());
         }
 
         self.readys.insert(sender_id.clone(), hash.to_vec());
 
         // Upon receiving f + 1 matching Ready(h) messages, if Ready
         // has not yet been sent, multicast Ready(h).
-        let outgoing = if self.count_readys(hash) == self.num_faulty_nodes + 1 && !self.ready_sent {
+        if self.count_readys(hash) == self.num_faulty_nodes + 1 && !self.ready_sent {
             // Enqueue a broadcast of a Ready message.
             self.ready_sent = true;
-            iter::once(Target::All.message(BroadcastMessage::Ready(hash.to_vec()))).collect()
-        } else {
-            VecDeque::new()
-        };
-
-        Ok((self.get_output(hash)?, outgoing))
+            let ready_msg = Target::All.message(BroadcastMessage::Ready(hash.to_vec()));
+            self.messages.push_back(ready_msg);
+        }
+        self.compute_output(&hash)
     }
 
-    /// Checks whether the condition for output are met for this hash, and if so, returns the output
+    /// Checks whether the condition for output are met for this hash, and if so, sets the output
     /// value.
-    fn get_output(&mut self, hash: &[u8]) -> Result<Option<Vec<u8>>, Error> {
+    fn compute_output(&mut self, hash: &[u8]) -> Result<(), Error> {
         if self.has_output || self.count_readys(hash) <= 2 * self.num_faulty_nodes
             || self.count_echos(hash) <= self.num_faulty_nodes
         {
-            return Ok(None);
+            return Ok(());
         }
 
         // Upon receiving 2f + 1 matching Ready(h) messages, wait for N − 2f Echo messages.
@@ -379,11 +370,12 @@ impl<NodeUid: Eq + Hash + Debug + Clone + Ord> Broadcast<NodeUid> {
             })
             .collect();
         let value = decode_from_shards(&mut leaf_values, &self.coding, self.data_shard_num, hash)?;
-        Ok(Some(value))
+        self.output = Some(value);
+        Ok(())
     }
 
     /// Returns `i` if `node_id` is the `i`-th ID among all participating nodes.
-    fn index_of_node(&self, node_id: &NodeUid) -> Option<usize> {
+    fn index_of_node(&self, node_id: &N) -> Option<usize> {
         self.all_uids.iter().position(|id| id == node_id)
     }
 
@@ -394,7 +386,7 @@ impl<NodeUid: Eq + Hash + Debug + Clone + Ord> Broadcast<NodeUid> {
 
     /// Returns `true` if the proof is valid and has the same index as the node ID. Otherwise
     /// logs an info message.
-    fn validate_proof(&self, p: &Proof<Vec<u8>>, id: &NodeUid) -> bool {
+    fn validate_proof(&self, p: &Proof<Vec<u8>>, id: &N) -> bool {
         if !p.validate(&p.root_hash) {
             info!(
                 "Node {:?} received invalid proof: {:?}",
