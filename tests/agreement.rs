@@ -29,7 +29,6 @@ type MessageQueue = VecDeque<InstanceMessage>;
 struct TestNode {
     /// Sender ID.
     id: NodeId,
-    num_nodes: usize,
     /// Map from proposer IDs into agreement instances.
     agreements: BTreeMap<NodeId, Agreement<NodeId>>,
     /// Queue of triples (sender_id, proposer_id, message).
@@ -40,12 +39,10 @@ struct TestNode {
 impl TestNode {
     fn new(
         id: NodeId,
-        num_nodes: usize,
         agreements: BTreeMap<NodeId, Agreement<NodeId>>,
     ) -> TestNode {
         TestNode {
             id,
-            num_nodes,
             agreements,
             queue: VecDeque::new(),
             outputs: BTreeMap::new(),
@@ -71,7 +68,7 @@ impl TestNode {
             self.outputs
                 .entry(proposer_id)
                 .and_modify(|e| e.push(output))
-                .or_insert(Vec::new());
+                .or_insert(vec![output]);
         }
         (output, messages)
     }
@@ -91,7 +88,7 @@ impl TestNetwork {
             for i in 0..num_nodes {
                 agreements.insert(NodeId(i), Agreement::new(NodeId(i), num_nodes));
             }
-            (id, TestNode::new(id, num_nodes, agreements))
+            (id, TestNode::new(id, agreements))
         };
         let network = TestNetwork {
             nodes: (0..num_nodes).map(NodeId).map(make_node).collect(),
@@ -164,7 +161,13 @@ fn test_agreement(mut network: TestNetwork) -> BTreeMap<NodeId, TestNode> {
     // Pick the first node with a non-empty queue.
     network.pick_node();
 
-    while network.nodes.values().any(|node| node.outputs.is_empty()) {
+    // Precompute the node IDs for checking loop termination.
+    let node_ids: Vec<NodeId> = network.nodes.keys().cloned().collect();
+
+    while network.nodes.values().any(|node| {
+        let output_ids: Vec<NodeId> = node.outputs.keys().cloned().collect();
+        output_ids != node_ids
+    }) {
         let (NodeId(id), output) = network.step();
         if let Some(value) = output {
             debug!("Node {} output {}", id, value);
