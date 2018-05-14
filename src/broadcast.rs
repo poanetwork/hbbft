@@ -1,14 +1,14 @@
-use merkle::proof::{Lemma, Positioned, Proof};
-use merkle::MerkleTree;
-use proto::*;
-use reed_solomon_erasure as rse;
-use reed_solomon_erasure::ReedSolomon;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
-use std::fmt::{self, Debug};
+use std::fmt::{self, Debug, Formatter};
 use std::hash::Hash;
 use std::iter;
 
+use merkle::proof::{Lemma, Positioned, Proof};
+use merkle::MerkleTree;
+use reed_solomon_erasure::{self as rse, ReedSolomon};
+
 use messaging::{Target, TargetedMessage};
+use proto::{HexBytes, HexList, HexProof};
 
 type MessageQueue<NodeUid> = VecDeque<TargetedMessage<BroadcastMessage, NodeUid>>;
 
@@ -21,8 +21,8 @@ pub enum BroadcastMessage {
     Ready(Vec<u8>),
 }
 
-impl fmt::Debug for BroadcastMessage {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+impl Debug for BroadcastMessage {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         match *self {
             BroadcastMessage::Value(ref v) => write!(f, "Value({:?})", HexProof(&v)),
             BroadcastMessage::Echo(ref v) => write!(f, "Echo({:?})", HexProof(&v)),
@@ -503,12 +503,16 @@ pub fn index_of_lemma(lemma: &Lemma, n: usize) -> usize {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use merkle::MerkleTree;
+    use ring::digest::SHA256;
+
+    use super::index_of_lemma;
+
     #[test]
     fn test_index_of_lemma() {
         for &n in &[3, 4, 13, 16, 127, 128, 129, 255] {
             let shards: Vec<[u8; 1]> = (0..n).map(|i| [i as u8]).collect();
-            let mtree = MerkleTree::from_vec(&::ring::digest::SHA256, shards);
+            let mtree = MerkleTree::from_vec(&SHA256, shards);
             for (i, val) in mtree.iter().enumerate() {
                 let p = mtree.gen_proof(val.clone()).expect("generate proof");
                 let idx = index_of_lemma(&p.lemma, n);

@@ -1,10 +1,11 @@
 //! Protobuf message IO task structure.
 
-use protobuf::{self, Message};
-use std::io::{Read, Write};
+use std::cmp;
+use std::io::{self, Read, Write};
 use std::marker::PhantomData;
 use std::net::TcpStream;
-use std::{cmp, io};
+
+use protobuf::{self, CodedOutputStream, Message, ProtobufError};
 
 /// A magic key to put right before each message. An atavism of primitive serial
 /// protocols.
@@ -19,7 +20,7 @@ pub enum Error {
     DecodeError,
     FrameStartMismatch,
     // ProtocolError,
-    ProtobufError(protobuf::ProtobufError),
+    ProtobufError(ProtobufError),
 }
 
 impl From<io::Error> for Error {
@@ -28,8 +29,8 @@ impl From<io::Error> for Error {
     }
 }
 
-impl From<protobuf::ProtobufError> for Error {
-    fn from(err: protobuf::ProtobufError) -> Error {
+impl From<ProtobufError> for Error {
+    fn from(err: ProtobufError) -> Error {
         Error::ProtobufError(err)
     }
 }
@@ -67,7 +68,7 @@ pub struct ProtoIo<S: Read + Write, M> {
 }
 
 impl<M> ProtoIo<TcpStream, M> {
-    pub fn try_clone(&self) -> Result<Self, ::std::io::Error> {
+    pub fn try_clone(&self) -> Result<Self, io::Error> {
         Ok(ProtoIo {
             stream: self.stream.try_clone()?,
             buffer: [0; 1024 * 4],
@@ -112,7 +113,7 @@ impl<S: Read + Write, M: Message> ProtoIo<S, M>
     pub fn send(&mut self, message: &M) -> Result<(), Error> {
         let mut buffer: [u8; 4] = [0; 4];
         // Wrap stream
-        let mut stream = protobuf::CodedOutputStream::new(&mut self.stream);
+        let mut stream = CodedOutputStream::new(&mut self.stream);
         // Write magic number
         encode_u32_to_be(FRAME_START, &mut buffer[0..4])?;
         stream.write_raw_bytes(&buffer)?;
@@ -129,10 +130,11 @@ impl<S: Read + Write, M: Message> ProtoIo<S, M>
 
 #[cfg(test)]
 mod tests {
+    use std::io::Cursor;
+
+    use super::ProtoIo;
     use broadcast::BroadcastMessage;
     use proto::message::BroadcastProto;
-    use proto_io::*;
-    use std::io::Cursor;
 
     #[test]
     fn encode_decode_message() {

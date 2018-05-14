@@ -7,21 +7,40 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::fmt::{Debug, Display};
 use std::hash::Hash;
 
-use agreement;
-use agreement::{Agreement, AgreementMessage};
-
-use broadcast;
-use broadcast::{Broadcast, BroadcastMessage};
-
+use agreement::{self, Agreement, AgreementMessage};
+use broadcast::{self, Broadcast, BroadcastMessage};
 use messaging::{Target, TargetedMessage};
 
 // TODO: Make this a generic argument of `Broadcast`.
 type ProposedValue = Vec<u8>;
+
 // Type of output from the Common Subset message handler.
 type CommonSubsetOutput<NodeUid> = (
     Option<HashSet<ProposedValue>>,
     VecDeque<TargetedMessage<Message<NodeUid>, NodeUid>>,
 );
+
+#[derive(Clone, Debug)]
+pub enum Error {
+    UnexpectedMessage,
+    NotImplemented,
+    NoSuchBroadcastInstance,
+    NoSuchAgreementInstance,
+    Broadcast(broadcast::Error),
+    Agreement(agreement::Error),
+}
+
+impl From<broadcast::Error> for Error {
+    fn from(err: broadcast::Error) -> Error {
+        Error::Broadcast(err)
+    }
+}
+
+impl From<agreement::Error> for Error {
+    fn from(err: agreement::Error) -> Error {
+        Error::Agreement(err)
+    }
+}
 
 /// Message from Common Subset to remote nodes.
 pub enum Message<NodeUid> {
@@ -298,27 +317,5 @@ impl<NodeUid: Clone + Debug + Display + Eq + Hash + Ord> CommonSubset<NodeUid> {
         } else {
             None
         }
-    }
-}
-
-#[derive(Clone, Debug)]
-pub enum Error {
-    UnexpectedMessage,
-    NotImplemented,
-    NoSuchBroadcastInstance,
-    NoSuchAgreementInstance,
-    Broadcast(broadcast::Error),
-    Agreement(agreement::Error),
-}
-
-impl From<broadcast::Error> for Error {
-    fn from(err: broadcast::Error) -> Error {
-        Error::Broadcast(err)
-    }
-}
-
-impl From<agreement::Error> for Error {
-    fn from(err: agreement::Error) -> Error {
-        Error::Agreement(err)
     }
 }

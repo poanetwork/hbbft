@@ -6,9 +6,9 @@
 #![feature(optin_builtin_traits)]
 
 extern crate bincode;
+extern crate itertools;
 #[macro_use]
 extern crate log;
-extern crate itertools;
 extern crate merkle;
 extern crate protobuf;
 extern crate reed_solomon_erasure;

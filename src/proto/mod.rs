@@ -1,18 +1,23 @@
 //! Construction of messages from protobuf buffers.
+
 pub mod message;
+
+use std::fmt::{self, Debug, Display, Formatter};
+
+use merkle::proof::{Lemma, Positioned, Proof};
+use ring::digest::Algorithm;
 
 use agreement::AgreementMessage;
 use broadcast::BroadcastMessage;
-use merkle::proof::{Lemma, Positioned, Proof};
-use proto::message::*;
-use ring::digest::Algorithm;
-use std::fmt;
+use proto::message::{
+    AgreementProto, BroadcastProto, EchoProto, LemmaProto, ProofProto, ReadyProto, ValueProto,
+};
 
 /// Wrapper for a byte array, whose `Debug` implementation outputs shortened hexadecimal strings.
 pub struct HexBytes<'a>(pub &'a [u8]);
 
-impl<'a> fmt::Debug for HexBytes<'a> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+impl<'a> Debug for HexBytes<'a> {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         if self.0.len() > 6 {
             for byte in &self.0[..3] {
                 write!(f, "{:02x}", byte)?;
@@ -34,8 +39,8 @@ impl<'a> fmt::Debug for HexBytes<'a> {
 /// strings.
 pub struct HexList<'a, T: 'a>(pub &'a [T]);
 
-impl<'a, T: AsRef<[u8]>> fmt::Debug for HexList<'a, T> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+impl<'a, T: AsRef<[u8]>> Debug for HexList<'a, T> {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         let v: Vec<_> = self.0.iter().map(|t| HexBytes(t.as_ref())).collect();
         write!(f, "{:?}", v)
     }
@@ -43,8 +48,8 @@ impl<'a, T: AsRef<[u8]>> fmt::Debug for HexList<'a, T> {
 
 pub struct HexProof<'a, T: 'a>(pub &'a Proof<T>);
 
-impl<'a, T: AsRef<[u8]>> fmt::Debug for HexProof<'a, T> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+impl<'a, T: AsRef<[u8]>> Debug for HexProof<'a, T> {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         write!(
             f,
             "Proof {{ algorithm: {:?}, root_hash: {:?}, lemma for leaf #{}, value: {:?} }}",
@@ -56,15 +61,15 @@ impl<'a, T: AsRef<[u8]>> fmt::Debug for HexProof<'a, T> {
     }
 }
 
-impl From<message::BroadcastProto> for BroadcastMessage {
-    fn from(proto: message::BroadcastProto) -> BroadcastMessage {
+impl From<BroadcastProto> for BroadcastMessage {
+    fn from(proto: BroadcastProto) -> BroadcastMessage {
         BroadcastMessage::from_proto(proto, &::ring::digest::SHA256)
             .expect("invalid broadcast message")
     }
 }
 
-impl From<BroadcastMessage> for message::BroadcastProto {
-    fn from(msg: BroadcastMessage) -> message::BroadcastProto {
+impl From<BroadcastMessage> for BroadcastProto {
+    fn from(msg: BroadcastMessage) -> BroadcastProto {
         msg.into_proto()
     }
 }
@@ -113,8 +118,8 @@ impl BroadcastMessage {
 }
 
 impl AgreementMessage {
-    pub fn into_proto(self) -> message::AgreementProto {
-        let mut p = message::AgreementProto::new();
+    pub fn into_proto(self) -> AgreementProto {
+        let mut p = AgreementProto::new();
         match self {
             AgreementMessage::BVal((e, b)) => {
                 p.set_epoch(e);
@@ -130,7 +135,7 @@ impl AgreementMessage {
 
     // TODO: Re-enable lint once implemented.
     #[cfg_attr(feature = "cargo-clippy", allow(needless_pass_by_value))]
-    pub fn from_proto(mp: message::AgreementProto) -> Option<Self> {
+    pub fn from_proto(mp: AgreementProto) -> Option<Self> {
         let epoch = mp.get_epoch();
         if mp.has_bval() {
             Some(AgreementMessage::BVal((epoch, mp.get_bval())))
@@ -266,8 +271,8 @@ fn path_of_lemma(mut lemma: &Lemma) -> BinaryPath {
     }
 }
 
-impl fmt::Display for BinaryPath {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+impl Display for BinaryPath {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         for b in &self.0 {
             if *b {
                 write!(f, "1")?;
