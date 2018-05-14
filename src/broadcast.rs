@@ -1,14 +1,14 @@
-use merkle::proof::{Lemma, Positioned, Proof};
-use merkle::MerkleTree;
-use proto::*;
-use reed_solomon_erasure as rse;
-use reed_solomon_erasure::ReedSolomon;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
-use std::fmt::{self, Debug};
+use std::fmt::{self, Debug, Formatter};
 use std::hash::Hash;
 use std::iter;
 
+use merkle::MerkleTree;
+use merkle::proof::{Lemma, Positioned, Proof};
+use reed_solomon_erasure::{self as rse, ReedSolomon};
+
 use messaging::{Target, TargetedMessage};
+use proto::{HexBytes, HexList, HexProof};
 
 type MessageQueue<NodeUid> = VecDeque<TargetedMessage<BroadcastMessage, NodeUid>>;
 
@@ -21,8 +21,8 @@ pub enum BroadcastMessage {
     Ready(Vec<u8>),
 }
 
-impl fmt::Debug for BroadcastMessage {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+impl Debug for BroadcastMessage {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         match *self {
             BroadcastMessage::Value(ref v) => write!(f, "Value({:?})", HexProof(&v)),
             BroadcastMessage::Echo(ref v) => write!(f, "Echo({:?})", HexProof(&v)),

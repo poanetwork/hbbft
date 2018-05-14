@@ -9,6 +9,40 @@ use serde::Serialize;
 use common_subset::{self, CommonSubset};
 use messaging::TargetedMessage;
 
+/// A Honey Badger error.
+pub enum Error {
+    OwnIdMissing,
+    CommonSubset(common_subset::Error),
+    Bincode(Box<bincode::ErrorKind>),
+}
+
+impl From<common_subset::Error> for Error {
+    fn from(err: common_subset::Error) -> Error {
+        Error::CommonSubset(err)
+    }
+}
+
+impl From<Box<bincode::ErrorKind>> for Error {
+    fn from(err: Box<bincode::ErrorKind>) -> Error {
+        Error::Bincode(err)
+    }
+}
+
+type HoneyBadgerOutput<T, N> = (Option<Batch<T>>, Vec<TargetedMessage<Message<N>, N>>);
+
+/// A batch of transactions the algorithm has output.
+pub struct Batch<T> {
+    pub epoch: u64,
+    pub transactions: Vec<T>,
+}
+
+/// A message sent to or received from another node's Honey Badger instance.
+pub enum Message<N> {
+    /// A message belonging to the common subset algorithm in the given epoch.
+    CommonSubset(u64, common_subset::Message<N>),
+    // TODO: Decryption share.
+}
+
 /// An instance of the Honey Badger Byzantine fault tolerant consensus algorithm.
 pub struct HoneyBadger<T, N: Eq + Hash + Ord + Clone + Display> {
     /// The buffer of transactions that have not yet been included in any batch.
@@ -130,39 +164,5 @@ where
             None
         };
         Ok((output, msgs))
-    }
-}
-
-type HoneyBadgerOutput<T, N> = (Option<Batch<T>>, Vec<TargetedMessage<Message<N>, N>>);
-
-/// A batch of transactions the algorithm has output.
-pub struct Batch<T> {
-    pub epoch: u64,
-    pub transactions: Vec<T>,
-}
-
-/// A message sent to or received from another node's Honey Badger instance.
-pub enum Message<N> {
-    /// A message belonging to the common subset algorithm in the given epoch.
-    CommonSubset(u64, common_subset::Message<N>),
-    // TODO: Decryption share.
-}
-
-/// A Honey Badger error.
-pub enum Error {
-    OwnIdMissing,
-    CommonSubset(common_subset::Error),
-    Bincode(Box<bincode::ErrorKind>),
-}
-
-impl From<common_subset::Error> for Error {
-    fn from(err: common_subset::Error) -> Error {
-        Error::CommonSubset(err)
-    }
-}
-
-impl From<Box<bincode::ErrorKind>> for Error {
-    fn from(err: Box<bincode::ErrorKind>) -> Error {
-        Error::Bincode(err)
     }
 }

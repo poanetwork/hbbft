@@ -1,8 +1,9 @@
 //! Binary Byzantine agreement protocol from a common coin protocol.
 
-use itertools::Itertools;
 use std::collections::{BTreeSet, HashMap, VecDeque};
 use std::hash::Hash;
+
+use itertools::Itertools;
 
 /// Type of output from the Agreement message handler. The first component is
 /// the value on which the Agreement has decided, also called "output" in the
