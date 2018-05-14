@@ -94,7 +94,7 @@ pub struct Broadcast<N> {
     num_nodes: usize,
     num_faulty_nodes: usize,
     data_shard_num: usize,
-    coding: ReedSolomon,
+    coding: Coding,
     /// Whether we have already multicast `Echo`.
     echo_sent: bool,
     /// Whether we have already multicast `Ready`.
@@ -170,7 +170,7 @@ impl<N: Eq + Debug + Clone + Ord> Broadcast<N> {
         let num_faulty_nodes = (num_nodes - 1) / 3;
         let parity_shard_num = 2 * num_faulty_nodes;
         let data_shard_num = num_nodes - parity_shard_num;
-        let coding = ReedSolomon::new(data_shard_num, parity_shard_num)?;
+        let coding = Coding::new(data_shard_num, parity_shard_num)?;
 
         Ok(Broadcast {
             our_id,
@@ -427,6 +427,64 @@ impl<N: Eq + Debug + Clone + Ord> Broadcast<N> {
     }
 }
 
+/// A wrapper for `ReedSolomon` that doesn't panic if there are no parity shards.
+enum Coding {
+    /// A `ReedSolomon` instance with at least one parity shard.
+    ReedSolomon(Box<ReedSolomon>),
+    /// A no-op replacement that doesn't encode or decode anything.
+    Trivial(usize),
+}
+
+impl Coding {
+    /// Creates a new `Coding` instance with the given number of shards.
+    fn new(data_shard_num: usize, parity_shard_num: usize) -> Result<Self, Error> {
+        Ok(if parity_shard_num > 0 {
+            let rs = ReedSolomon::new(data_shard_num, parity_shard_num)?;
+            Coding::ReedSolomon(Box::new(rs))
+        } else {
+            Coding::Trivial(data_shard_num)
+        })
+    }
+
+    /// Returns the number of data shards.
+    fn data_shard_count(&self) -> usize {
+        match *self {
+            Coding::ReedSolomon(ref rs) => rs.data_shard_count(),
+            Coding::Trivial(dsc) => dsc,
+        }
+    }
+
+    /// Returns the number of parity shards.
+    fn parity_shard_count(&self) -> usize {
+        match *self {
+            Coding::ReedSolomon(ref rs) => rs.parity_shard_count(),
+            Coding::Trivial(_) => 0,
+        }
+    }
+
+    /// Constructs (and overwrites) the parity shards.
+    fn encode(&self, slices: &mut [&mut [u8]]) -> Result<(), Error> {
+        match *self {
+            Coding::ReedSolomon(ref rs) => rs.encode(slices)?,
+            Coding::Trivial(_) => (),
+        }
+        Ok(())
+    }
+
+    /// If enough shards are present, reconstructs the missing ones.
+    fn reconstruct_shards(&self, shards: &mut [Option<Box<[u8]>>]) -> Result<(), Error> {
+        match *self {
+            Coding::ReedSolomon(ref rs) => rs.reconstruct_shards(shards)?,
+            Coding::Trivial(_) => {
+                if shards.iter().any(Option::is_none) {
+                    return Err(rse::Error::TooFewShardsPresent.into());
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
 /// Errors returned by the broadcast instance.
 #[derive(Debug, Clone)]
 pub enum Error {
@@ -447,7 +505,7 @@ impl From<rse::Error> for Error {
 
 fn decode_from_shards<T>(
     leaf_values: &mut [Option<Box<[u8]>>],
-    coding: &ReedSolomon,
+    coding: &Coding,
     data_shard_num: usize,
     root_hash: &[u8],
 ) -> Result<T, Error>

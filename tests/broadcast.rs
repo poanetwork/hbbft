@@ -9,7 +9,7 @@ extern crate rand;
 
 use rand::Rng;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
-use std::fmt;
+use std::{fmt, iter};
 
 use hbbft::broadcast::{Broadcast, BroadcastMessage};
 use hbbft::messaging::{DistAlgorithm, Target, TargetedMessage};
@@ -49,6 +49,12 @@ impl<D: DistAlgorithm> TestNode<D> {
         self.algo
             .handle_message(&from_id, msg)
             .expect("handling message");
+        self.outputs.extend(self.algo.next_output());
+    }
+
+    /// Inputs a value into the instance.
+    fn input(&mut self, input: D::Input) {
+        self.algo.input(input).expect("input");
         self.outputs.extend(self.algo.next_output());
     }
 }
@@ -171,7 +177,10 @@ impl Adversary<Broadcast<NodeUid>> for ProposeAdversary {
             .chain(self.good_nodes.iter())
             .cloned()
             .collect();
-        let id = *self.adv_nodes.iter().next().unwrap();
+        let id = match self.adv_nodes.iter().next() {
+            Some(id) => *id,
+            None => return vec![],
+        };
         let mut bc = Broadcast::new(id, id, node_ids).expect("broadcast instance");
         bc.input(b"Fake news".to_vec()).expect("propose");
         bc.message_iter().map(|msg| (id, msg)).collect()
@@ -264,7 +273,7 @@ impl<A: Adversary<Broadcast<NodeUid>>> TestNetwork<A, Broadcast<NodeUid>> {
     fn input(&mut self, proposer_id: NodeUid, value: ProposedValue) {
         let msgs: Vec<_> = {
             let node = self.nodes.get_mut(&proposer_id).expect("proposer instance");
-            node.algo.input(value).expect("propose");
+            node.input(value);
             node.algo.message_iter().collect()
         };
         self.dispatch_messages(proposer_id, msgs);
@@ -292,6 +301,28 @@ fn test_broadcast<A: Adversary<Broadcast<NodeUid>>>(
     }
 }
 
+fn test_broadcast_different_sizes<A, F>(new_adversary: F, proposed_value: &[u8])
+where
+    A: Adversary<Broadcast<NodeUid>>,
+    F: Fn(usize, usize) -> A,
+{
+    let mut rng = rand::thread_rng();
+    let sizes = (1..6)
+        .chain(iter::once(rng.gen_range(6, 20)))
+        .chain(iter::once(rng.gen_range(30, 50)));
+    for size in sizes {
+        let num_faulty_nodes = (size - 1) / 3;
+        let num_good_nodes = size - num_faulty_nodes;
+        println!(
+            "Network size: {} good nodes, {} faulty nodes",
+            num_good_nodes, num_faulty_nodes
+        );
+        let adversary = new_adversary(num_good_nodes, num_faulty_nodes);
+        let network = TestNetwork::new(num_good_nodes, num_faulty_nodes, adversary);
+        test_broadcast(network, proposed_value);
+    }
+}
+
 #[test]
 fn test_8_broadcast_equal_leaves_silent() {
     let adversary = SilentAdversary::new(MessageScheduler::Random);
@@ -301,49 +332,37 @@ fn test_8_broadcast_equal_leaves_silent() {
 }
 
 #[test]
-fn test_13_broadcast_nodes_random_delivery_silent() {
-    let adversary = SilentAdversary::new(MessageScheduler::Random);
-    test_broadcast(TestNetwork::new(13, 0, adversary), b"Foo");
+fn test_broadcast_random_delivery_silent() {
+    let new_adversary = |_: usize, _: usize| SilentAdversary::new(MessageScheduler::Random);
+    test_broadcast_different_sizes(new_adversary, b"Foo");
 }
 
 #[test]
-fn test_4_broadcast_nodes_random_delivery_silent() {
-    let adversary = SilentAdversary::new(MessageScheduler::Random);
-    test_broadcast(TestNetwork::new(4, 0, adversary), b"Foo");
+fn test_broadcast_nodes_first_delivery_silent() {
+    let new_adversary = |_: usize, _: usize| SilentAdversary::new(MessageScheduler::First);
+    test_broadcast_different_sizes(new_adversary, b"Foo");
 }
 
 #[test]
-fn test_11_5_broadcast_nodes_random_delivery_silent() {
-    let adversary = SilentAdversary::new(MessageScheduler::Random);
-    test_broadcast(TestNetwork::new(11, 5, adversary), b"Foo");
+fn test_broadcast_nodes_random_delivery_adv_propose() {
+    let new_adversary = |num_good_nodes: usize, num_faulty_nodes: usize| {
+        let good_nodes: BTreeSet<NodeUid> = (0..num_good_nodes).map(NodeUid).collect();
+        let adv_nodes: BTreeSet<NodeUid> = (num_good_nodes..(num_good_nodes + num_faulty_nodes))
+            .map(NodeUid)
+            .collect();
+        ProposeAdversary::new(MessageScheduler::Random, good_nodes, adv_nodes)
+    };
+    test_broadcast_different_sizes(new_adversary, b"Foo");
 }
 
 #[test]
-fn test_11_5_broadcast_nodes_first_delivery_silent() {
-    let adversary = SilentAdversary::new(MessageScheduler::First);
-    test_broadcast(TestNetwork::new(11, 5, adversary), b"Foo");
-}
-
-#[test]
-fn test_3_1_broadcast_nodes_random_delivery_adv_propose() {
-    let good_nodes: BTreeSet<NodeUid> = (0..3).map(NodeUid).collect();
-    let adv_nodes: BTreeSet<NodeUid> = (3..4).map(NodeUid).collect();
-    let adversary = ProposeAdversary::new(MessageScheduler::Random, good_nodes, adv_nodes);
-    test_broadcast(TestNetwork::new(3, 1, adversary), b"Foo");
-}
-
-#[test]
-fn test_11_5_broadcast_nodes_random_delivery_adv_propose() {
-    let good_nodes: BTreeSet<NodeUid> = (0..11).map(NodeUid).collect();
-    let adv_nodes: BTreeSet<NodeUid> = (11..16).map(NodeUid).collect();
-    let adversary = ProposeAdversary::new(MessageScheduler::Random, good_nodes, adv_nodes);
-    test_broadcast(TestNetwork::new(11, 5, adversary), b"Foo");
-}
-
-#[test]
-fn test_11_5_broadcast_nodes_first_delivery_adv_propose() {
-    let good_nodes: BTreeSet<NodeUid> = (0..11).map(NodeUid).collect();
-    let adv_nodes: BTreeSet<NodeUid> = (11..16).map(NodeUid).collect();
-    let adversary = ProposeAdversary::new(MessageScheduler::First, good_nodes, adv_nodes);
-    test_broadcast(TestNetwork::new(11, 5, adversary), b"Foo");
+fn test_broadcast_nodes_first_delivery_adv_propose() {
+    let new_adversary = |num_good_nodes: usize, num_faulty_nodes: usize| {
+        let good_nodes: BTreeSet<NodeUid> = (0..num_good_nodes).map(NodeUid).collect();
+        let adv_nodes: BTreeSet<NodeUid> = (num_good_nodes..(num_good_nodes + num_faulty_nodes))
+            .map(NodeUid)
+            .collect();
+        ProposeAdversary::new(MessageScheduler::First, good_nodes, adv_nodes)
+    };
+    test_broadcast_different_sizes(new_adversary, b"Foo");
 }
