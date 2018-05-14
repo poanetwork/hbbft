@@ -503,12 +503,16 @@ pub fn index_of_lemma(lemma: &Lemma, n: usize) -> usize {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use merkle::MerkleTree;
+    use ring::digest::SHA256;
+
+    use super::index_of_lemma;
+
     #[test]
     fn test_index_of_lemma() {
         for &n in &[3, 4, 13, 16, 127, 128, 129, 255] {
             let shards: Vec<[u8; 1]> = (0..n).map(|i| [i as u8]).collect();
-            let mtree = MerkleTree::from_vec(&::ring::digest::SHA256, shards);
+            let mtree = MerkleTree::from_vec(&SHA256, shards);
             for (i, val) in mtree.iter().enumerate() {
                 let p = mtree.gen_proof(val.clone()).expect("generate proof");
                 let idx = index_of_lemma(&p.lemma, n);
