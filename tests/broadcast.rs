@@ -174,7 +174,7 @@ impl Adversary for ProposeAdversary {
             .chain(self.good_nodes.iter().cloned())
             .collect();
         let id = *self.adv_nodes.iter().next().unwrap();
-        let bc = Broadcast::new(id, id, node_ids).expect("broadcast instance");
+        let mut bc = Broadcast::new(id, id, node_ids).expect("broadcast instance");
         let msgs = bc.propose_value(value.to_vec()).expect("propose");
         msgs.into_iter().map(|msg| (id, msg)).collect()
     }
@@ -261,7 +261,9 @@ impl<A: Adversary> TestNetwork<A> {
 
     /// Makes the node `proposer_id` propose a value.
     fn propose_value(&mut self, proposer_id: NodeId, value: ProposedValue) {
-        let msgs = self.nodes[&proposer_id]
+        let msgs = self.nodes
+            .get_mut(&proposer_id)
+            .expect("proposer instance")
             .broadcast
             .propose_value(value)
             .expect("propose");

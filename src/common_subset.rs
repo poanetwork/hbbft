@@ -103,15 +103,16 @@ impl<NodeUid: Clone + Debug + Display + Eq + Hash + Ord> CommonSubset<NodeUid> {
     /// Common Subset input message handler. It receives a value for broadcast
     /// and redirects it to the corresponding broadcast instance.
     pub fn send_proposed_value(
-        &self,
+        &mut self,
         value: ProposedValue,
     ) -> Result<VecDeque<TargetedMessage<Message<NodeUid>, NodeUid>>, Error> {
         // Upon receiving input v_i , input v_i to RBC_i. See Figure 2.
-        if let Some(instance) = self.broadcast_instances.get(&self.uid) {
+        if let Some(instance) = self.broadcast_instances.get_mut(&self.uid) {
+            let uid = self.uid.clone();
             Ok(instance
                 .propose_value(value)?
                 .into_iter()
-                .map(|msg| msg.map(|b_msg| Message::Broadcast(self.uid.clone(), b_msg)))
+                .map(|msg| msg.map(|b_msg| Message::Broadcast(uid.clone(), b_msg)))
                 .collect())
         } else {
             Err(Error::NoSuchBroadcastInstance)
@@ -162,7 +163,7 @@ impl<NodeUid: Clone + Debug + Display + Eq + Hash + Ord> CommonSubset<NodeUid> {
             VecDeque<TargetedMessage<Message<NodeUid>, NodeUid>>,
             Error,
         > = {
-            if let Some(broadcast_instance) = self.broadcast_instances.get(proposer_id) {
+            if let Some(broadcast_instance) = self.broadcast_instances.get_mut(proposer_id) {
                 broadcast_instance
                     .handle_broadcast_message(sender_id, bmessage)
                     .map(|(opt_value, queue)| {

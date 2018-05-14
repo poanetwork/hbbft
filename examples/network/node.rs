@@ -123,7 +123,7 @@ impl<T: Clone + Debug + AsRef<[u8]> + PartialEq + Send + Sync + From<Vec<u8>> + 
             // corresponding to this instance, and no dedicated comms task. The
             // node index is 0.
             let broadcast_handle = scope.spawn(move || {
-                let broadcast = Broadcast::new(our_id, proposer_id, (0..num_nodes).collect())
+                let mut broadcast = Broadcast::new(our_id, proposer_id, (0..num_nodes).collect())
                     .expect("failed to instantiate broadcast");
 
                 if let Some(v) = value {
