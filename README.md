@@ -10,10 +10,12 @@ in Rust. This is a modular library of consensus. There are
 
 # Requirements
 
-To build and run `hbbft`, you must have Google's Protocol Buffer Compiler,
-`protoc` binary, located somewhere in your `$PATH`. You must be using
-Protocol Buffer Compiler version 3 or greater. Running any of the following
-install methods will save a `protoc` binary at `/usr/local/bin/protoc`.
+`hbbft` has optional protobuf support. To use protobuf, enable the feature
+`serialization-protobuf` in your `Cargo.toml`, and make sure you have
+Google's Protocol Buffer Compiler, `protoc` binary, located somewhere in
+your `$PATH`. You must be using Protocol Buffer Compiler version 3 or greater.
+Running any of the following install methods will save a `protoc` binary at
+`/usr/local/bin/protoc`.
 
 *Note:* as of writing this, the latest stable release of `protoc` is
 v3.5.1. You can find out what is the latest compiler version is

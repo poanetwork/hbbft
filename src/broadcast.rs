@@ -1,12 +1,12 @@
 use merkle::proof::{Lemma, Positioned, Proof};
 use merkle::MerkleTree;
-use proto::*;
 use reed_solomon_erasure as rse;
 use reed_solomon_erasure::ReedSolomon;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fmt::{self, Debug};
 use std::hash::Hash;
 use std::iter;
+use util::{HexBytes, HexList, HexProof};
 
 use messaging::{Target, TargetedMessage};
 
