@@ -67,6 +67,10 @@ impl<NodeUid: Clone + Eq + Hash> Agreement<NodeUid> {
         }
     }
 
+    pub fn our_id(&self) -> &NodeUid {
+        &self.uid
+    }
+
     /// Algorithm has terminated.
     pub fn terminated(&self) -> bool {
         self.terminated
