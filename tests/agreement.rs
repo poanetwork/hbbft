@@ -37,10 +37,7 @@ struct TestNode {
 }
 
 impl TestNode {
-    fn new(
-        id: NodeId,
-        agreements: BTreeMap<NodeId, Agreement<NodeId>>,
-    ) -> TestNode {
+    fn new(id: NodeId, agreements: BTreeMap<NodeId, Agreement<NodeId>>) -> TestNode {
         TestNode {
             id,
             agreements,
