@@ -85,6 +85,8 @@ impl<NodeUid: Clone + Eq + Hash> Agreement<NodeUid> {
 
         // Set the initial estimated value to the input value.
         self.estimated = Some(input);
+        // Record the input value as sent.
+        self.sent_bval.insert(input);
         // Receive the BVAL message locally.
         self.received_bval
             .entry(self.uid.clone())
@@ -156,13 +158,15 @@ impl<NodeUid: Clone + Eq + Hash> Agreement<NodeUid> {
         // upon receiving BVAL_r(b) messages from f + 1 nodes, if
         // BVAL_r(b) has not been sent, multicast BVAL_r(b)
         else if count_bval == self.num_faulty_nodes + 1 && !self.sent_bval.contains(&b) {
+            // Record the value `b` as sent.
             self.sent_bval.insert(b);
-            outgoing.push_back(AgreementMessage::BVal(self.epoch, b));
             // Receive the BVAL message locally.
             self.received_bval
                 .entry(self.uid.clone())
                 .or_insert_with(BTreeSet::new)
                 .insert(b);
+            // Multicast BVAL.
+            outgoing.push_back(AgreementMessage::BVal(self.epoch, b));
             Ok((None, outgoing))
         } else {
             Ok((None, outgoing))
@@ -228,6 +232,7 @@ impl<NodeUid: Clone + Eq + Hash> Agreement<NodeUid> {
 
         // Start the next epoch.
         self.bin_values.clear();
+        self.sent_bval.clear();
         self.received_aux.clear();
         self.sent_bval.clear();
         self.epoch += 1;
