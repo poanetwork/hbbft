@@ -140,11 +140,12 @@ impl<NodeUid: Clone + Eq + Hash> Agreement<NodeUid> {
         // upon receiving BVAL_r(b) messages from 2f + 1 nodes,
         // bin_values_r := bin_values_r ∪ {b}
         if count_bval == 2 * self.num_faulty_nodes + 1 {
+            let bin_values_was_empty = self.bin_values.is_empty();
             self.bin_values.insert(b);
 
             // wait until bin_values_r != 0, then multicast AUX_r(w)
             // where w ∈ bin_values_r
-            if self.bin_values.len() == 1 {
+            if bin_values_was_empty {
                 // Send an AUX message at most once per epoch.
                 outgoing.push_back(AgreementMessage::Aux(self.epoch, b));
                 // Receive the AUX message locally.
