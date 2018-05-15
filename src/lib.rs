@@ -28,4 +28,4 @@ pub mod messaging;
 pub mod proto;
 #[cfg(feature = "serialization-protobuf")]
 pub mod proto_io;
-mod util;
+mod fmt;
