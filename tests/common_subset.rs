@@ -5,7 +5,7 @@ extern crate hbbft;
 extern crate log;
 extern crate env_logger;
 
-use std::collections::{BTreeMap, HashSet, VecDeque};
+use std::collections::{BTreeMap, HashSet, HashMap, VecDeque};
 
 use hbbft::common_subset;
 use hbbft::common_subset::CommonSubset;
@@ -29,7 +29,7 @@ struct TestNode {
     /// Queue of tuples of a sender ID and a message.
     queue: VecDeque<(NodeUid, common_subset::Message<NodeUid>)>,
     /// The output of the Common Subset algorithm, if there is one.
-    decision: Option<HashSet<ProposedValue>>,
+    decision: Option<HashMap<NodeUid, ProposedValue>>,
 }
 
 impl TestNode {
@@ -42,7 +42,7 @@ impl TestNode {
         }
     }
 
-    fn handle_message(&mut self) -> (Option<HashSet<Vec<u8>>>, OutputQueue) {
+    fn handle_message(&mut self) -> (Option<HashMap<NodeUid, Vec<u8>>>, OutputQueue) {
         let (sender_id, message) = self.queue
             .pop_front()
             .expect("popping a message off the queue");
@@ -114,7 +114,7 @@ impl TestNetwork {
         id
     }
 
-    fn step(&mut self) -> (NodeUid, Option<HashSet<ProposedValue>>) {
+    fn step(&mut self) -> (NodeUid, Option<HashMap<NodeUid, ProposedValue>>) {
         let sender_id = self.pick_node();
         let (output, messages) = self.nodes.get_mut(&sender_id).unwrap().handle_message();
         let messages = messages
@@ -126,8 +126,7 @@ impl TestNetwork {
     }
 
     /// Make Node 0 propose a value.
-    fn send_proposed_value(&mut self, value: ProposedValue) {
-        let sender_id = NodeUid(0);
+    fn send_proposed_value(&mut self, sender_id: NodeUid, value: ProposedValue) {
         let messages = self.nodes
             .get_mut(&sender_id)
             .unwrap()
@@ -164,14 +163,22 @@ fn test_common_subset_4_nodes() {
     let proposed_value = Vec::from("Fake news");
     let all_ids: HashSet<NodeUid> = (0..4).map(NodeUid).collect();
     let mut network = TestNetwork::new(&all_ids);
+    let expected_node_decision: HashMap<NodeUid, ProposedValue> = all_ids
+        .iter()
+        .map(|id| (id.clone(), proposed_value.clone()))
+        .collect();
 
-    network.send_proposed_value(proposed_value.clone());
+    network.send_proposed_value(NodeUid(0), proposed_value.clone());
+    network.send_proposed_value(NodeUid(1), proposed_value.clone());
+    network.send_proposed_value(NodeUid(2), proposed_value.clone());
+    network.send_proposed_value(NodeUid(3), proposed_value.clone());
+
     let nodes = test_common_subset(network);
 
     for node in nodes.values() {
         assert_eq!(
             node.decision,
-            Some(vec![proposed_value.clone()].into_iter().collect())
+            Some(expected_node_decision.clone())
         );
     }
 }

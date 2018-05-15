@@ -138,14 +138,16 @@ where
             return Ok(());
         }
         let (cs_out, cs_msgs) = self.common_subset.handle_message(sender_id, message)?;
+
         for targeted_msg in cs_msgs {
             let msg = targeted_msg.map(|cs_msg| Message::CommonSubset(epoch, cs_msg));
             self.messages.push_back(msg);
         }
+        // FIXME: Handle the node IDs in `ser_batches`.
         let batches: Vec<Vec<T>> = if let Some(ser_batches) = cs_out {
             ser_batches
                 .into_iter()
-                .map(|ser_batch| bincode::deserialize(&ser_batch))
+                .map(|(_, ser_batch)| bincode::deserialize(&ser_batch))
                 .collect::<Result<_, _>>()?
         } else {
             return Ok(());

@@ -2,6 +2,7 @@
 
 use itertools::Itertools;
 use std::collections::{BTreeSet, HashMap, VecDeque};
+use std::fmt::Debug;
 use std::hash::Hash;
 
 /// Type of output from the Agreement message handler. The first component is
@@ -20,7 +21,7 @@ pub enum AgreementMessage {
     Aux(u32, bool),
 }
 
-/// Binary Agreement instance.
+/// Binary Agreement instance
 pub struct Agreement<NodeUid> {
     /// The UID of the corresponding proposer node.
     uid: NodeUid,
@@ -49,7 +50,7 @@ pub struct Agreement<NodeUid> {
     terminated: bool,
 }
 
-impl<NodeUid: Clone + Eq + Hash> Agreement<NodeUid> {
+impl<NodeUid: Clone + Debug + Eq + Hash> Agreement<NodeUid> {
     pub fn new(uid: NodeUid, num_nodes: usize) -> Self {
         let num_faulty_nodes = (num_nodes - 1) / 3;
 
@@ -222,6 +223,7 @@ impl<NodeUid: Clone + Eq + Hash> Agreement<NodeUid> {
             return (None, Vec::new());
         }
 
+        debug!("{:?} try_coin in epoch {}", self.uid, self.epoch);
         // FIXME: Implement the Common Coin algorithm. At the moment the
         // coin value is common across different nodes but not random.
         let coin = (self.epoch % 2) == 0;
@@ -230,13 +232,17 @@ impl<NodeUid: Clone + Eq + Hash> Agreement<NodeUid> {
         // value b is output in some round r, and the value Coin_r' = b for
         // some round r' > r."
         self.terminated = self.terminated || self.output == Some(coin);
+        if self.terminated {
+            debug!("Agreement instance {:?} terminated", self.uid);
+        }
 
         // Start the next epoch.
         self.bin_values.clear();
+        self.received_bval.clear();
         self.sent_bval.clear();
         self.received_aux.clear();
-        self.sent_bval.clear();
         self.epoch += 1;
+        debug!("Agreement instance {:?} started epoch {}", self.uid, self.epoch);
 
         let decision = if vals.len() != 1 {
             self.estimated = Some(coin);
@@ -250,6 +256,7 @@ impl<NodeUid: Clone + Eq + Hash> Agreement<NodeUid> {
             if self.output.is_none() && b == coin {
                 // Output the agreement value.
                 self.output = Some(b);
+                debug!("Agreement instance {:?} output: {}", self.uid, b);
                 self.output
             } else {
                 None
