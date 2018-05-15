@@ -289,8 +289,10 @@ impl<NodeUid: Clone + Debug + Eq + Hash + Ord> CommonSubset<NodeUid> {
                 .filter(|(k, _)| delivered_1.get(k).is_some())
                 .map(|(k, v)| (k.clone(), v.clone()))
                 .collect();
-            debug!("Broadcast results among the Agreement instances that delivered 1: {:?}",
-                   broadcast_results);
+            debug!(
+                "Broadcast results among the Agreement instances that delivered 1: {:?}",
+                broadcast_results
+            );
 
             if delivered_1.len() == broadcast_results.len() {
                 debug!("Agreement instances completed with {:?}", broadcast_results);

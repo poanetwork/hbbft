@@ -242,7 +242,10 @@ impl<NodeUid: Clone + Debug + Eq + Hash> Agreement<NodeUid> {
         self.sent_bval.clear();
         self.received_aux.clear();
         self.epoch += 1;
-        debug!("Agreement instance {:?} started epoch {}", self.uid, self.epoch);
+        debug!(
+            "Agreement instance {:?} started epoch {}",
+            self.uid, self.epoch
+        );
 
         let decision = if vals.len() != 1 {
             self.estimated = Some(coin);

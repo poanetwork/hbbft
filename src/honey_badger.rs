@@ -146,8 +146,8 @@ where
         // FIXME: Handle the node IDs in `ser_batches`.
         let batches: Vec<Vec<T>> = if let Some(ser_batches) = cs_out {
             ser_batches
-                .into_iter()
-                .map(|(_, ser_batch)| bincode::deserialize(&ser_batch))
+                .values()
+                .map(|ser_batch| bincode::deserialize(&ser_batch))
                 .collect::<Result<_, _>>()?
         } else {
             return Ok(());

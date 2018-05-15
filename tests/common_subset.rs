@@ -5,7 +5,7 @@ extern crate hbbft;
 extern crate log;
 extern crate env_logger;
 
-use std::collections::{BTreeMap, HashSet, HashMap, VecDeque};
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 
 use hbbft::common_subset;
 use hbbft::common_subset::CommonSubset;
@@ -119,7 +119,7 @@ impl TestNetwork {
         let (output, messages) = self.nodes.get_mut(&sender_id).unwrap().handle_message();
         let messages = messages
             .into_iter()
-            .map(|TargetedMessage { target: _, message }| message)
+            .map(|TargetedMessage { message, .. }| message)
             .collect();
         self.dispatch_messages(sender_id, messages);
         (sender_id, output)
@@ -137,7 +137,7 @@ impl TestNetwork {
             sender_id,
             messages
                 .into_iter()
-                .map(|TargetedMessage { target: _, message }| message)
+                .map(|TargetedMessage { message, .. }| message)
                 .collect(),
         );
     }
@@ -165,7 +165,7 @@ fn test_common_subset_4_nodes() {
     let mut network = TestNetwork::new(&all_ids);
     let expected_node_decision: HashMap<NodeUid, ProposedValue> = all_ids
         .iter()
-        .map(|id| (id.clone(), proposed_value.clone()))
+        .map(|id| (*id, proposed_value.clone()))
         .collect();
 
     network.send_proposed_value(NodeUid(0), proposed_value.clone());
@@ -176,9 +176,6 @@ fn test_common_subset_4_nodes() {
     let nodes = test_common_subset(network);
 
     for node in nodes.values() {
-        assert_eq!(
-            node.decision,
-            Some(expected_node_decision.clone())
-        );
+        assert_eq!(node.decision, Some(expected_node_decision.clone()));
     }
 }
