@@ -15,9 +15,9 @@ type AgreementOutput = (Option<bool>, VecDeque<AgreementMessage>);
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum AgreementMessage {
     /// BVAL message with an epoch.
-    BVal((u32, bool)),
+    BVal(u32, bool),
     /// AUX message with an epoch.
-    Aux((u32, bool)),
+    Aux(u32, bool),
 }
 
 /// Binary Agreement instance.
@@ -91,7 +91,7 @@ impl<NodeUid: Clone + Eq + Hash> Agreement<NodeUid> {
             .or_insert_with(BTreeSet::new)
             .insert(input);
         // Multicast BVAL
-        Ok(AgreementMessage::BVal((self.epoch, input)))
+        Ok(AgreementMessage::BVal(self.epoch, input))
     }
 
     /// Acceptance check to be performed before setting the input value.
@@ -112,13 +112,11 @@ impl<NodeUid: Clone + Eq + Hash> Agreement<NodeUid> {
             // The algorithm instance has already terminated.
             _ if self.terminated => Err(Error::Terminated),
 
-            AgreementMessage::BVal((epoch, b)) if epoch == self.epoch => {
+            AgreementMessage::BVal(epoch, b) if epoch == self.epoch => {
                 self.handle_bval(sender_id, b)
             }
 
-            AgreementMessage::Aux((epoch, b)) if epoch == self.epoch => {
-                self.handle_aux(sender_id, b)
-            }
+            AgreementMessage::Aux(epoch, b) if epoch == self.epoch => self.handle_aux(sender_id, b),
 
             // Epoch does not match. Ignore the message.
             _ => Ok((None, VecDeque::new())),
@@ -146,7 +144,7 @@ impl<NodeUid: Clone + Eq + Hash> Agreement<NodeUid> {
             // where w ∈ bin_values_r
             if self.bin_values.len() == 1 {
                 // Send an AUX message at most once per epoch.
-                outgoing.push_back(AgreementMessage::Aux((self.epoch, b)));
+                outgoing.push_back(AgreementMessage::Aux(self.epoch, b));
                 // Receive the AUX message locally.
                 self.received_aux.insert(self.uid.clone(), b);
             }
@@ -158,7 +156,8 @@ impl<NodeUid: Clone + Eq + Hash> Agreement<NodeUid> {
         // upon receiving BVAL_r(b) messages from f + 1 nodes, if
         // BVAL_r(b) has not been sent, multicast BVAL_r(b)
         else if count_bval == self.num_faulty_nodes + 1 && !self.sent_bval.contains(&b) {
-            outgoing.push_back(AgreementMessage::BVal((self.epoch, b)));
+            self.sent_bval.insert(b);
+            outgoing.push_back(AgreementMessage::BVal(self.epoch, b));
             // Receive the BVAL message locally.
             self.received_bval
                 .entry(self.uid.clone())
@@ -211,11 +210,11 @@ impl<NodeUid: Clone + Eq + Hash> Agreement<NodeUid> {
     /// to compute the next decision estimate and outputs the optional decision
     /// value.  The function may start the next epoch. In that case, it also
     /// returns a message for broadcast.
-    fn try_coin(&mut self) -> (Option<bool>, VecDeque<AgreementMessage>) {
+    fn try_coin(&mut self) -> (Option<bool>, Vec<AgreementMessage>) {
         let (count_aux, vals) = self.count_aux();
         if count_aux < self.num_nodes - self.num_faulty_nodes {
             // Continue waiting for the (N - f) AUX messages.
-            return (None, VecDeque::new());
+            return (None, Vec::new());
         }
 
         // FIXME: Implement the Common Coin algorithm. At the moment the
@@ -230,6 +229,7 @@ impl<NodeUid: Clone + Eq + Hash> Agreement<NodeUid> {
         // Start the next epoch.
         self.bin_values.clear();
         self.received_aux.clear();
+        self.sent_bval.clear();
         self.epoch += 1;
 
         let decision = if vals.len() != 1 {
@@ -250,14 +250,10 @@ impl<NodeUid: Clone + Eq + Hash> Agreement<NodeUid> {
             }
         };
 
-        (
-            decision,
-            vec![AgreementMessage::BVal((
-                self.epoch,
-                self.estimated.unwrap(),
-            ))].into_iter()
-                .collect(),
-        )
+        let b = self.estimated.unwrap();
+        self.sent_bval.insert(b);
+        let bval_msg = AgreementMessage::BVal(self.epoch, b);
+        (decision, vec![bval_msg])
     }
 }
 
