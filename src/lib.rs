@@ -10,15 +10,22 @@ extern crate bincode;
 extern crate log;
 extern crate itertools;
 extern crate merkle;
+#[cfg(feature = "serialization-protobuf")]
 extern crate protobuf;
 extern crate reed_solomon_erasure;
 extern crate ring;
 extern crate serde;
+#[cfg(feature = "serialization-serde")]
+#[macro_use]
+extern crate serde_derive;
 
 pub mod agreement;
 pub mod broadcast;
 pub mod common_subset;
 pub mod honey_badger;
 pub mod messaging;
+#[cfg(feature = "serialization-protobuf")]
 pub mod proto;
+#[cfg(feature = "serialization-protobuf")]
 pub mod proto_io;
+mod fmt;

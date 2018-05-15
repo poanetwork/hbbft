@@ -142,6 +142,7 @@ pub struct Batch<T> {
 }
 
 /// A message sent to or received from another node's Honey Badger instance.
+#[cfg_attr(feature = "serialization-serde", derive(Serialize))]
 pub enum Message<N> {
     /// A message belonging to the common subset algorithm in the given epoch.
     CommonSubset(u64, common_subset::Message<N>),
