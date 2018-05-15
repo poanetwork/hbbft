@@ -100,7 +100,7 @@ pub struct Broadcast<N> {
     /// Whether we have already multicast `Ready`.
     ready_sent: bool,
     /// Whether we have already output a value.
-    has_output: bool,
+    decided: bool,
     /// The proofs we have received via `Echo` messages, by sender ID.
     echos: BTreeMap<N, Proof<Vec<u8>>>,
     /// The root hashes we received via `Ready` messages, by sender ID.
@@ -154,7 +154,7 @@ impl<N: Eq + Debug + Clone + Ord> DistAlgorithm for Broadcast<N> {
     }
 
     fn terminated(&self) -> bool {
-        self.has_output
+        self.decided
     }
 
     fn our_id(&self) -> &N {
@@ -182,7 +182,7 @@ impl<N: Eq + Debug + Clone + Ord> Broadcast<N> {
             coding,
             echo_sent: false,
             ready_sent: false,
-            has_output: false,
+            decided: false,
             echos: BTreeMap::new(),
             readys: BTreeMap::new(),
             messages: VecDeque::new(),
@@ -351,14 +351,14 @@ impl<N: Eq + Debug + Clone + Ord> Broadcast<N> {
     /// Checks whether the condition for output are met for this hash, and if so, sets the output
     /// value.
     fn compute_output(&mut self, hash: &[u8]) -> Result<(), Error> {
-        if self.has_output || self.count_readys(hash) <= 2 * self.num_faulty_nodes
+        if self.decided || self.count_readys(hash) <= 2 * self.num_faulty_nodes
             || self.count_echos(hash) <= self.num_faulty_nodes
         {
             return Ok(());
         }
 
         // Upon receiving 2f + 1 matching Ready(h) messages, wait for N − 2f Echo messages.
-        self.has_output = true;
+        self.decided = true;
         let mut leaf_values: Vec<Option<Box<[u8]>>> = self.all_uids
             .iter()
             .map(|id| {

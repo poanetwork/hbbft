@@ -49,13 +49,13 @@ impl<D: DistAlgorithm> TestNode<D> {
         self.algo
             .handle_message(&from_id, msg)
             .expect("handling message");
-        self.outputs.extend(self.algo.next_output());
+        self.outputs.extend(self.algo.output_iter());
     }
 
     /// Inputs a value into the instance.
     fn input(&mut self, input: D::Input) {
         self.algo.input(input).expect("input");
-        self.outputs.extend(self.algo.next_output());
+        self.outputs.extend(self.algo.output_iter());
     }
 }
 

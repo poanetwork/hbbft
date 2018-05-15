@@ -89,6 +89,14 @@ pub trait DistAlgorithm {
     {
         MessageIter { algorithm: self }
     }
+
+    /// Returns an iterator over the algorithm's outputs.
+    fn output_iter(&mut self) -> OutputIter<Self>
+    where
+        Self: Sized,
+    {
+        OutputIter { algorithm: self }
+    }
 }
 
 /// An iterator over a distributed algorithm's outgoing messages.
@@ -101,5 +109,18 @@ impl<'a, D: DistAlgorithm + 'a> Iterator for MessageIter<'a, D> {
 
     fn next(&mut self) -> Option<Self::Item> {
         self.algorithm.next_message()
+    }
+}
+
+/// An iterator over a distributed algorithm's pending outputs.
+pub struct OutputIter<'a, D: DistAlgorithm + 'a> {
+    algorithm: &'a mut D,
+}
+
+impl<'a, D: DistAlgorithm + 'a> Iterator for OutputIter<'a, D> {
+    type Item = D::Output;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.algorithm.next_output()
     }
 }
