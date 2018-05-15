@@ -4,7 +4,7 @@
 #![allow(unused)]
 
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::fmt::{Debug, Display};
+use std::fmt::Debug;
 use std::hash::Hash;
 
 use agreement;
@@ -25,7 +25,7 @@ type CommonSubsetOutput<NodeUid> = (
 
 /// Message from Common Subset to remote nodes.
 #[cfg_attr(feature = "serialization-serde", derive(Serialize))]
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum Message<NodeUid> {
     /// A message for the broadcast algorithm concerning the set element proposed by the given node.
     Broadcast(NodeUid, BroadcastMessage),
@@ -67,7 +67,7 @@ pub struct CommonSubset<NodeUid: Eq + Hash + Ord> {
     agreement_results: HashMap<NodeUid, bool>,
 }
 
-impl<NodeUid: Clone + Debug + Display + Eq + Hash + Ord> CommonSubset<NodeUid> {
+impl<NodeUid: Clone + Debug + Eq + Hash + Ord> CommonSubset<NodeUid> {
     pub fn new(uid: NodeUid, all_uids: &HashSet<NodeUid>) -> Result<Self, Error> {
         let num_nodes = all_uids.len();
         let num_faulty_nodes = (num_nodes - 1) / 3;
