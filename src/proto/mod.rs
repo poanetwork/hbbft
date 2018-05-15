@@ -67,11 +67,11 @@ impl AgreementMessage {
     pub fn into_proto(self) -> message::AgreementProto {
         let mut p = message::AgreementProto::new();
         match self {
-            AgreementMessage::BVal((e, b)) => {
+            AgreementMessage::BVal(e, b) => {
                 p.set_epoch(e);
                 p.set_bval(b);
             }
-            AgreementMessage::Aux((e, b)) => {
+            AgreementMessage::Aux(e, b) => {
                 p.set_epoch(e);
                 p.set_aux(b);
             }
@@ -84,9 +84,9 @@ impl AgreementMessage {
     pub fn from_proto(mp: message::AgreementProto) -> Option<Self> {
         let epoch = mp.get_epoch();
         if mp.has_bval() {
-            Some(AgreementMessage::BVal((epoch, mp.get_bval())))
+            Some(AgreementMessage::BVal(epoch, mp.get_bval()))
         } else if mp.has_aux() {
-            Some(AgreementMessage::Aux((epoch, mp.get_aux())))
+            Some(AgreementMessage::Aux(epoch, mp.get_aux()))
         } else {
             None
         }
