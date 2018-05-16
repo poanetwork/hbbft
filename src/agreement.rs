@@ -5,11 +5,7 @@ use std::collections::{BTreeSet, HashMap, VecDeque};
 use std::fmt::Debug;
 use std::hash::Hash;
 
-/// Type of output from the Agreement message handler. The first component is
-/// the value on which the Agreement has decided, also called "output" in the
-/// HoneyadgerBFT paper. The second component is a queue of messages to be sent
-/// to remote nodes as a result of handling the incomming message.
-type AgreementOutput = (Option<bool>, VecDeque<AgreementMessage>);
+use messaging::{DistAlgorithm, Target, TargetedMessage};
 
 /// Messages sent during the binary Byzantine agreement stage.
 #[cfg_attr(feature = "serialization-serde", derive(Serialize))]
@@ -48,6 +44,62 @@ pub struct Agreement<NodeUid> {
     /// determines that all the remote nodes have reached agreement, it sets the
     /// `terminated` flag and accepts no more incoming messages.
     terminated: bool,
+    /// The outgoing message queue.
+    messages: VecDeque<AgreementMessage>,
+}
+
+impl<NodeUid: Clone + Debug + Eq + Hash + Ord> DistAlgorithm for Agreement<NodeUid> {
+    type NodeUid = NodeUid;
+    type Input = bool;
+    type Output = bool;
+    type Message = AgreementMessage;
+    type Error = Error;
+
+    fn input(&mut self, input: Self::Input) -> Result<(), Self::Error> {
+        self.set_input(input)
+    }
+
+    /// Receive input from a remote node.
+    fn handle_message(
+        &mut self,
+        sender_id: &Self::NodeUid,
+        message: Self::Message,
+    ) -> Result<(), Self::Error> {
+        match message {
+            // The algorithm instance has already terminated.
+            _ if self.terminated => Err(Error::Terminated),
+
+            AgreementMessage::BVal(epoch, b) if epoch == self.epoch => {
+                self.handle_bval(sender_id, b)
+            }
+
+            AgreementMessage::Aux(epoch, b) if epoch == self.epoch => self.handle_aux(sender_id, b),
+
+            // Epoch does not match. Ignore the message.
+            _ => Ok(()),
+        }
+    }
+
+    /// Take the next Agreement message for multicast to all other nodes.
+    fn next_message(&mut self) -> Option<TargetedMessage<Self::Message, Self::NodeUid>> {
+        self.messages
+            .pop_front()
+            .map(|msg| Target::All.message(msg))
+    }
+
+    /// Consume the output. Once consumed, the output stays `None` forever.
+    fn next_output(&mut self) -> Option<Self::Output> {
+        self.output.take()
+    }
+
+    /// Whether the algorithm has terminated.
+    fn terminated(&self) -> bool {
+        self.terminated
+    }
+
+    fn our_id(&self) -> &Self::NodeUid {
+        &self.uid
+    }
 }
 
 impl<NodeUid: Clone + Debug + Eq + Hash> Agreement<NodeUid> {
@@ -66,21 +118,13 @@ impl<NodeUid: Clone + Debug + Eq + Hash> Agreement<NodeUid> {
             estimated: None,
             output: None,
             terminated: false,
+            messages: VecDeque::new(),
         }
     }
 
-    pub fn our_id(&self) -> &NodeUid {
-        &self.uid
-    }
-
-    /// Algorithm has terminated.
-    pub fn terminated(&self) -> bool {
-        self.terminated
-    }
-
     /// Sets the input value for agreement.
-    pub fn set_input(&mut self, input: bool) -> Result<AgreementMessage, Error> {
-        if self.epoch != 0 {
+    pub fn set_input(&mut self, input: bool) -> Result<(), Error> {
+        if self.epoch != 0 || self.estimated.is_some() {
             return Err(Error::InputNotAccepted);
         }
 
@@ -94,7 +138,9 @@ impl<NodeUid: Clone + Debug + Eq + Hash> Agreement<NodeUid> {
             .or_insert_with(BTreeSet::new)
             .insert(input);
         // Multicast BVAL
-        Ok(AgreementMessage::BVal(self.epoch, input))
+        self.messages
+            .push_back(AgreementMessage::BVal(self.epoch, input));
+        Ok(())
     }
 
     /// Acceptance check to be performed before setting the input value.
@@ -102,33 +148,7 @@ impl<NodeUid: Clone + Debug + Eq + Hash> Agreement<NodeUid> {
         self.epoch == 0 && self.estimated.is_none()
     }
 
-    /// Receive input from a remote node.
-    ///
-    /// Outputs an optional agreement result and a queue of agreement messages
-    /// to remote nodes. There can be up to 2 messages.
-    pub fn handle_agreement_message(
-        &mut self,
-        sender_id: &NodeUid,
-        message: &AgreementMessage,
-    ) -> Result<AgreementOutput, Error> {
-        match *message {
-            // The algorithm instance has already terminated.
-            _ if self.terminated => Err(Error::Terminated),
-
-            AgreementMessage::BVal(epoch, b) if epoch == self.epoch => {
-                self.handle_bval(sender_id, b)
-            }
-
-            AgreementMessage::Aux(epoch, b) if epoch == self.epoch => self.handle_aux(sender_id, b),
-
-            // Epoch does not match. Ignore the message.
-            _ => Ok((None, VecDeque::new())),
-        }
-    }
-
-    fn handle_bval(&mut self, sender_id: &NodeUid, b: bool) -> Result<AgreementOutput, Error> {
-        let mut outgoing = VecDeque::new();
-
+    fn handle_bval(&mut self, sender_id: &NodeUid, b: bool) -> Result<(), Error> {
         self.received_bval
             .entry(sender_id.clone())
             .or_insert_with(BTreeSet::new)
@@ -148,14 +168,15 @@ impl<NodeUid: Clone + Debug + Eq + Hash> Agreement<NodeUid> {
             // where w ∈ bin_values_r
             if bin_values_was_empty {
                 // Send an AUX message at most once per epoch.
-                outgoing.push_back(AgreementMessage::Aux(self.epoch, b));
+                self.messages
+                    .push_back(AgreementMessage::Aux(self.epoch, b));
                 // Receive the AUX message locally.
                 self.received_aux.insert(self.uid.clone(), b);
             }
 
             let (decision, maybe_message) = self.try_coin();
-            outgoing.extend(maybe_message);
-            Ok((decision, outgoing))
+            self.messages.extend(maybe_message);
+            self.output = decision;
         }
         // upon receiving BVAL_r(b) messages from f + 1 nodes, if
         // BVAL_r(b) has not been sent, multicast BVAL_r(b)
@@ -168,23 +189,20 @@ impl<NodeUid: Clone + Debug + Eq + Hash> Agreement<NodeUid> {
                 .or_insert_with(BTreeSet::new)
                 .insert(b);
             // Multicast BVAL.
-            outgoing.push_back(AgreementMessage::BVal(self.epoch, b));
-            Ok((None, outgoing))
-        } else {
-            Ok((None, outgoing))
+            self.messages
+                .push_back(AgreementMessage::BVal(self.epoch, b));
         }
+        Ok(())
     }
 
-    fn handle_aux(&mut self, sender_id: &NodeUid, b: bool) -> Result<AgreementOutput, Error> {
+    fn handle_aux(&mut self, sender_id: &NodeUid, b: bool) -> Result<(), Error> {
         self.received_aux.insert(sender_id.clone(), b);
-        let mut outgoing = VecDeque::new();
         if !self.bin_values.is_empty() {
             let (decision, maybe_message) = self.try_coin();
-            outgoing.extend(maybe_message);
-            Ok((decision, outgoing))
-        } else {
-            Ok((None, outgoing))
+            self.messages.extend(maybe_message);
+            self.output = decision;
         }
+        Ok(())
     }
 
     /// AUX_r messages such that the set of values carried by those messages is
