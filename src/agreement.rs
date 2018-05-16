@@ -2,6 +2,7 @@
 
 use itertools::Itertools;
 use std::collections::{BTreeSet, HashMap, VecDeque};
+use std::fmt::Debug;
 use std::hash::Hash;
 
 /// Type of output from the Agreement message handler. The first component is
@@ -20,7 +21,7 @@ pub enum AgreementMessage {
     Aux(u32, bool),
 }
 
-/// Binary Agreement instance.
+/// Binary Agreement instance
 pub struct Agreement<NodeUid> {
     /// The UID of the corresponding proposer node.
     uid: NodeUid,
@@ -49,7 +50,7 @@ pub struct Agreement<NodeUid> {
     terminated: bool,
 }
 
-impl<NodeUid: Clone + Eq + Hash> Agreement<NodeUid> {
+impl<NodeUid: Clone + Debug + Eq + Hash> Agreement<NodeUid> {
     pub fn new(uid: NodeUid, num_nodes: usize) -> Self {
         let num_faulty_nodes = (num_nodes - 1) / 3;
 
@@ -85,6 +86,8 @@ impl<NodeUid: Clone + Eq + Hash> Agreement<NodeUid> {
 
         // Set the initial estimated value to the input value.
         self.estimated = Some(input);
+        // Record the input value as sent.
+        self.sent_bval.insert(input);
         // Receive the BVAL message locally.
         self.received_bval
             .entry(self.uid.clone())
@@ -138,11 +141,12 @@ impl<NodeUid: Clone + Eq + Hash> Agreement<NodeUid> {
         // upon receiving BVAL_r(b) messages from 2f + 1 nodes,
         // bin_values_r := bin_values_r ∪ {b}
         if count_bval == 2 * self.num_faulty_nodes + 1 {
+            let bin_values_was_empty = self.bin_values.is_empty();
             self.bin_values.insert(b);
 
             // wait until bin_values_r != 0, then multicast AUX_r(w)
             // where w ∈ bin_values_r
-            if self.bin_values.len() == 1 {
+            if bin_values_was_empty {
                 // Send an AUX message at most once per epoch.
                 outgoing.push_back(AgreementMessage::Aux(self.epoch, b));
                 // Receive the AUX message locally.
@@ -156,13 +160,15 @@ impl<NodeUid: Clone + Eq + Hash> Agreement<NodeUid> {
         // upon receiving BVAL_r(b) messages from f + 1 nodes, if
         // BVAL_r(b) has not been sent, multicast BVAL_r(b)
         else if count_bval == self.num_faulty_nodes + 1 && !self.sent_bval.contains(&b) {
+            // Record the value `b` as sent.
             self.sent_bval.insert(b);
-            outgoing.push_back(AgreementMessage::BVal(self.epoch, b));
             // Receive the BVAL message locally.
             self.received_bval
                 .entry(self.uid.clone())
                 .or_insert_with(BTreeSet::new)
                 .insert(b);
+            // Multicast BVAL.
+            outgoing.push_back(AgreementMessage::BVal(self.epoch, b));
             Ok((None, outgoing))
         } else {
             Ok((None, outgoing))
@@ -217,6 +223,7 @@ impl<NodeUid: Clone + Eq + Hash> Agreement<NodeUid> {
             return (None, Vec::new());
         }
 
+        debug!("{:?} try_coin in epoch {}", self.uid, self.epoch);
         // FIXME: Implement the Common Coin algorithm. At the moment the
         // coin value is common across different nodes but not random.
         let coin = (self.epoch % 2) == 0;
@@ -225,12 +232,20 @@ impl<NodeUid: Clone + Eq + Hash> Agreement<NodeUid> {
         // value b is output in some round r, and the value Coin_r' = b for
         // some round r' > r."
         self.terminated = self.terminated || self.output == Some(coin);
+        if self.terminated {
+            debug!("Agreement instance {:?} terminated", self.uid);
+        }
 
         // Start the next epoch.
         self.bin_values.clear();
-        self.received_aux.clear();
+        self.received_bval.clear();
         self.sent_bval.clear();
+        self.received_aux.clear();
         self.epoch += 1;
+        debug!(
+            "Agreement instance {:?} started epoch {}",
+            self.uid, self.epoch
+        );
 
         let decision = if vals.len() != 1 {
             self.estimated = Some(coin);
@@ -244,6 +259,7 @@ impl<NodeUid: Clone + Eq + Hash> Agreement<NodeUid> {
             if self.output.is_none() && b == coin {
                 // Output the agreement value.
                 self.output = Some(b);
+                debug!("Agreement instance {:?} output: {}", self.uid, b);
                 self.output
             } else {
                 None

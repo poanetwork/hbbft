@@ -4,7 +4,7 @@
 #![allow(unused)]
 
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::fmt::{Debug, Display};
+use std::fmt::Debug;
 use std::hash::Hash;
 
 use agreement;
@@ -19,13 +19,13 @@ use messaging::{DistAlgorithm, Target, TargetedMessage};
 type ProposedValue = Vec<u8>;
 // Type of output from the Common Subset message handler.
 type CommonSubsetOutput<NodeUid> = (
-    Option<HashSet<ProposedValue>>,
+    Option<HashMap<NodeUid, ProposedValue>>,
     VecDeque<TargetedMessage<Message<NodeUid>, NodeUid>>,
 );
 
 /// Message from Common Subset to remote nodes.
 #[cfg_attr(feature = "serialization-serde", derive(Serialize))]
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum Message<NodeUid> {
     /// A message for the broadcast algorithm concerning the set element proposed by the given node.
     Broadcast(NodeUid, BroadcastMessage),
@@ -67,7 +67,7 @@ pub struct CommonSubset<NodeUid: Eq + Hash + Ord> {
     agreement_results: HashMap<NodeUid, bool>,
 }
 
-impl<NodeUid: Clone + Debug + Display + Eq + Hash + Ord> CommonSubset<NodeUid> {
+impl<NodeUid: Clone + Debug + Eq + Hash + Ord> CommonSubset<NodeUid> {
     pub fn new(uid: NodeUid, all_uids: &HashSet<NodeUid>) -> Result<Self, Error> {
         let num_nodes = all_uids.len();
         let num_faulty_nodes = (num_nodes - 1) / 3;
@@ -225,7 +225,7 @@ impl<NodeUid: Clone + Debug + Display + Eq + Hash + Ord> CommonSubset<NodeUid> {
 
         // Process Agreement outputs.
         if let Some(b) = output {
-            outgoing.append(&mut self.on_agreement_result(proposer_id, b)?);
+            outgoing.append(&mut self.on_agreement_output(proposer_id, b)?);
         }
 
         // Check whether Agreement has completed.
@@ -236,15 +236,16 @@ impl<NodeUid: Clone + Debug + Display + Eq + Hash + Ord> CommonSubset<NodeUid> {
         ))
     }
 
-    /// Callback to be invoked on receipt of a returned value of the Agreement
+    /// Callback to be invoked on receipt of the decision value of the Agreement
     /// instance `uid`.
-    fn on_agreement_result(
+    fn on_agreement_output(
         &mut self,
         element_proposer_id: &NodeUid,
         result: bool,
     ) -> Result<VecDeque<AgreementMessage>, Error> {
         self.agreement_results
             .insert(element_proposer_id.clone(), result);
+        debug!("Updated Agreement results: {:?}", self.agreement_results);
         if !result || self.count_true() < self.num_nodes - self.num_faulty_nodes {
             return Ok(VecDeque::new());
         }
@@ -265,7 +266,7 @@ impl<NodeUid: Clone + Debug + Display + Eq + Hash + Ord> CommonSubset<NodeUid> {
         self.agreement_results.values().filter(|v| **v).count()
     }
 
-    fn try_agreement_completion(&self) -> Option<HashSet<ProposedValue>> {
+    fn try_agreement_completion(&self) -> Option<HashMap<NodeUid, ProposedValue>> {
         // Once all instances of BA have completed, let C ⊂ [1..N] be
         // the indexes of each BA that delivered 1. Wait for the output
         // v_j for each RBC_j such that j∈C. Finally output ∪ j∈C v_j.
@@ -273,20 +274,28 @@ impl<NodeUid: Clone + Debug + Display + Eq + Hash + Ord> CommonSubset<NodeUid> {
             .values()
             .all(|instance| instance.terminated())
         {
+            debug!("All Agreement instances have terminated");
             // All instances of Agreement that delivered `true` (or "1" in the paper).
             let delivered_1: HashSet<&NodeUid> = self.agreement_results
                 .iter()
                 .filter(|(_, v)| **v)
                 .map(|(k, _)| k)
                 .collect();
+            debug!("Agreement instances that delivered 1: {:?}", delivered_1);
+
             // Results of Broadcast instances in `delivered_1`
-            let broadcast_results: HashSet<ProposedValue> = self.broadcast_results
+            let broadcast_results: HashMap<NodeUid, ProposedValue> = self.broadcast_results
                 .iter()
                 .filter(|(k, _)| delivered_1.get(k).is_some())
-                .map(|(_, v)| v.clone())
+                .map(|(k, v)| (k.clone(), v.clone()))
                 .collect();
+            debug!(
+                "Broadcast results among the Agreement instances that delivered 1: {:?}",
+                broadcast_results
+            );
 
             if delivered_1.len() == broadcast_results.len() {
+                debug!("Agreement instances completed with {:?}", broadcast_results);
                 Some(broadcast_results)
             } else {
                 None
