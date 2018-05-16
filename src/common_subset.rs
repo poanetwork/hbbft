@@ -9,10 +9,9 @@ use std::hash::Hash;
 
 use agreement;
 use agreement::{Agreement, AgreementMessage};
-
 use broadcast;
 use broadcast::{Broadcast, BroadcastMessage};
-
+use fmt::HexBytes;
 use messaging::{DistAlgorithm, Target, TargetedMessage};
 
 // TODO: Make this a generic argument of `Broadcast`.
@@ -65,6 +64,47 @@ pub struct CommonSubset<NodeUid: Eq + Hash + Ord> {
     agreement_instances: HashMap<NodeUid, Agreement<NodeUid>>,
     broadcast_results: HashMap<NodeUid, ProposedValue>,
     agreement_results: HashMap<NodeUid, bool>,
+    messages: VecDeque<TargetedMessage<Message<NodeUid>, NodeUid>>,
+    output: Option<HashMap<NodeUid, ProposedValue>>,
+}
+
+impl<NodeUid: Clone + Debug + Eq + Hash + Ord> DistAlgorithm for CommonSubset<NodeUid> {
+    type NodeUid = NodeUid;
+    type Input = ProposedValue;
+    type Output = HashMap<NodeUid, ProposedValue>;
+    type Message = Message<NodeUid>;
+    type Error = Error;
+
+    fn input(&mut self, input: Self::Input) -> Result<(), Self::Error> {
+        self.send_proposed_value(input)
+    }
+
+    fn handle_message(
+        &mut self,
+        sender_id: &Self::NodeUid,
+        message: Self::Message,
+    ) -> Result<(), Self::Error> {
+        match message {
+            Message::Broadcast(p_id, b_msg) => self.handle_broadcast(sender_id, &p_id, b_msg),
+            Message::Agreement(p_id, a_msg) => self.handle_agreement(sender_id, &p_id, &a_msg),
+        }
+    }
+
+    fn next_message(&mut self) -> Option<TargetedMessage<Self::Message, Self::NodeUid>> {
+        self.messages.pop_front()
+    }
+
+    fn next_output(&mut self) -> Option<Self::Output> {
+        self.output.take()
+    }
+
+    fn terminated(&self) -> bool {
+        self.messages.is_empty() && self.agreement_instances.values().all(Agreement::terminated)
+    }
+
+    fn our_id(&self) -> &Self::NodeUid {
+        &self.uid
+    }
 }
 
 impl<NodeUid: Clone + Debug + Eq + Hash + Ord> CommonSubset<NodeUid> {
@@ -99,141 +139,111 @@ impl<NodeUid: Clone + Debug + Eq + Hash + Ord> CommonSubset<NodeUid> {
             agreement_instances,
             broadcast_results: HashMap::new(),
             agreement_results: HashMap::new(),
+            messages: VecDeque::new(),
+            output: None,
         })
     }
 
     /// Common Subset input message handler. It receives a value for broadcast
     /// and redirects it to the corresponding broadcast instance.
-    pub fn send_proposed_value(
-        &mut self,
-        value: ProposedValue,
-    ) -> Result<VecDeque<TargetedMessage<Message<NodeUid>, NodeUid>>, Error> {
+    pub fn send_proposed_value(&mut self, value: ProposedValue) -> Result<(), Error> {
         // Upon receiving input v_i , input v_i to RBC_i. See Figure 2.
         if let Some(instance) = self.broadcast_instances.get_mut(&self.uid) {
             instance.input(value)?;
             let uid = self.uid.clone();
-            Ok(instance
-                .message_iter()
-                .map(|msg| msg.map(|b_msg| Message::Broadcast(uid.clone(), b_msg)))
-                .collect())
+            self.messages.extend(
+                instance
+                    .message_iter()
+                    .map(|msg| msg.map(|b_msg| Message::Broadcast(uid.clone(), b_msg))),
+            );
         } else {
-            Err(Error::NoSuchBroadcastInstance)
+            return Err(Error::NoSuchBroadcastInstance);
         }
+        self.try_agreement_completion();
+        Ok(())
     }
 
     /// Upon delivery of v_j from RBC_j, if input has not yet been provided to
     /// BA_j, then provide input 1 to BA_j. See Figure 11.
-    fn on_broadcast_result(&mut self, uid: &NodeUid) -> Result<Option<AgreementMessage>, Error> {
+    fn on_broadcast_result(&mut self, uid: &NodeUid) -> Result<(), Error> {
         if let Some(agreement_instance) = self.agreement_instances.get_mut(&uid) {
             if agreement_instance.accepts_input() {
-                Ok(Some(agreement_instance.set_input(true)?))
-            } else {
-                Ok(None)
+                let msg = agreement_instance.set_input(true)?;
+                self.messages
+                    .push_back(Target::All.message(Message::Agreement(uid.clone(), msg)));
             }
         } else {
-            Err(Error::NoSuchBroadcastInstance)
+            return Err(Error::NoSuchBroadcastInstance);
         }
-    }
-
-    /// Receives a message form a remote node `sender_id`, and returns an optional result of the
-    /// Common Subset algorithm - a set of proposed values - and a queue of messages to be sent to
-    /// remote nodes, or an error.
-    pub fn handle_message(
-        &mut self,
-        sender_id: &NodeUid,
-        message: Message<NodeUid>,
-    ) -> Result<CommonSubsetOutput<NodeUid>, Error> {
-        match message {
-            Message::Broadcast(p_id, b_msg) => self.handle_broadcast(sender_id, &p_id, b_msg),
-            Message::Agreement(p_id, a_msg) => self.handle_agreement(sender_id, &p_id, &a_msg),
-        }
+        self.try_agreement_completion();
+        Ok(())
     }
 
     /// Receives a broadcast message from a remote node `sender_id` concerning a
-    /// value proposed by the node `proposer_id`. The output contains an
-    /// optional result of the Common Subset algorithm - a set of proposed
-    /// values - and a queue of messages to be sent to remote nodes, or an
-    /// error.
+    /// value proposed by the node `proposer_id`.
     fn handle_broadcast(
         &mut self,
         sender_id: &NodeUid,
         proposer_id: &NodeUid,
         bmessage: BroadcastMessage,
-    ) -> Result<CommonSubsetOutput<NodeUid>, Error> {
-        let mut instance_result = None;
-        let input_result: Result<
-            VecDeque<TargetedMessage<Message<NodeUid>, NodeUid>>,
-            Error,
-        > = {
-            if let Some(broadcast_instance) = self.broadcast_instances.get_mut(proposer_id) {
-                broadcast_instance.handle_message(sender_id, bmessage)?;
-                instance_result = broadcast_instance.next_output();
-                Ok(broadcast_instance
+    ) -> Result<(), Error> {
+        let value;
+        if let Some(broadcast_instance) = self.broadcast_instances.get_mut(proposer_id) {
+            broadcast_instance.handle_message(sender_id, bmessage)?;
+            self.messages.extend(
+                broadcast_instance
                     .message_iter()
-                    .map(|msg| msg.map(|b_msg| Message::Broadcast(proposer_id.clone(), b_msg)))
-                    .collect())
-            } else {
-                Err(Error::NoSuchBroadcastInstance)
-            }
-        };
-        let mut opt_message: Option<AgreementMessage> = None;
-        if let Some(value) = instance_result {
-            self.broadcast_results.insert(proposer_id.clone(), value);
-            opt_message = self.on_broadcast_result(proposer_id)?;
+                    .map(|msg| msg.map(|b_msg| Message::Broadcast(proposer_id.clone(), b_msg))),
+            );
+            value = match broadcast_instance.next_output() {
+                None => return Ok(()),
+                Some(result) => result,
+            };
+        } else {
+            return Err(Error::NoSuchBroadcastInstance);
         }
-        input_result.map(|mut queue| {
-            if let Some(agreement_message) = opt_message {
-                // Append the message to agreement nodes to the common output queue.
-                queue.push_back(
-                    Target::All.message(Message::Agreement(proposer_id.clone(), agreement_message)),
-                );
-            }
-            (None, queue)
-        })
+        self.broadcast_results.insert(proposer_id.clone(), value);
+        self.on_broadcast_result(proposer_id)
     }
 
     /// Receives an agreement message from a remote node `sender_id` concerning
-    /// a value proposed by the node `proposer_id`. The output contains an
-    /// optional result of the Common Subset algorithm - a set of proposed
-    /// values - and a queue of messages to be sent to remote nodes, or an
-    /// error.
+    /// a value proposed by the node `proposer_id`.
     fn handle_agreement(
         &mut self,
         sender_id: &NodeUid,
         proposer_id: &NodeUid,
         amessage: &AgreementMessage,
-    ) -> Result<CommonSubsetOutput<NodeUid>, Error> {
-        // The result defaults to error.
-        let mut result = Err(Error::NoSuchAgreementInstance);
-
+    ) -> Result<(), Error> {
+        let input_result;
         // Send the message to the local instance of Agreement
         if let Some(agreement_instance) = self.agreement_instances.get_mut(proposer_id) {
             // Optional output of agreement and outgoing agreement
             // messages to remote nodes.
-            result = if agreement_instance.terminated() {
+            if agreement_instance.terminated() {
                 // This instance has terminated and does not accept input.
-                Ok((None, VecDeque::new()))
-            } else {
-                // Send the message to the agreement instance.
-                agreement_instance
-                    .handle_agreement_message(sender_id, &amessage)
-                    .map_err(Error::from)
+                return Ok(());
             }
+            // Send the message to the agreement instance.
+            let (opt_output, msgs) =
+                agreement_instance.handle_agreement_message(sender_id, &amessage)?;
+            self.messages.extend(
+                msgs.into_iter().map(|a_msg| {
+                    Target::All.message(Message::Agreement(proposer_id.clone(), a_msg))
+                }),
+            );
+            input_result = opt_output;
+        } else {
+            debug!("Proposer {:?} does not exist.", proposer_id);
+            return Ok(());
         }
 
-        let (output, mut outgoing) = result?;
-
-        // Process Agreement outputs.
-        if let Some(b) = output {
-            outgoing.append(&mut self.on_agreement_output(proposer_id, b)?);
+        if let Some(output) = input_result {
+            // Process Agreement outputs.
+            self.on_agreement_output(proposer_id, output)?;
         }
-
         // Check whether Agreement has completed.
-        let into_msg = |a_msg| Target::All.message(Message::Agreement(proposer_id.clone(), a_msg));
-        Ok((
-            self.try_agreement_completion(),
-            outgoing.into_iter().map(into_msg).collect(),
-        ))
+        self.try_agreement_completion();
+        Ok(())
     }
 
     /// Callback to be invoked on receipt of the decision value of the Agreement
@@ -242,23 +252,28 @@ impl<NodeUid: Clone + Debug + Eq + Hash + Ord> CommonSubset<NodeUid> {
         &mut self,
         element_proposer_id: &NodeUid,
         result: bool,
-    ) -> Result<VecDeque<AgreementMessage>, Error> {
+    ) -> Result<(), Error> {
         self.agreement_results
             .insert(element_proposer_id.clone(), result);
-        debug!("Updated Agreement results: {:?}", self.agreement_results);
+        debug!(
+            "{:?} Updated Agreement results: {:?}",
+            self.uid, self.agreement_results
+        );
         if !result || self.count_true() < self.num_nodes - self.num_faulty_nodes {
-            return Ok(VecDeque::new());
+            return Ok(());
         }
 
         // Upon delivery of value 1 from at least N − f instances of BA, provide
         // input 0 to each instance of BA that has not yet been provided input.
-        let mut outgoing = VecDeque::new();
-        for instance in self.agreement_instances.values_mut() {
-            if instance.accepts_input() {
-                outgoing.push_back(instance.set_input(false)?);
+        for agreement_instance in self.agreement_instances.values_mut() {
+            if agreement_instance.accepts_input() {
+                let msg = agreement_instance.set_input(false)?;
+                let uid = agreement_instance.our_id().clone();
+                self.messages
+                    .push_back(Target::All.message(Message::Agreement(uid, msg)));
             }
         }
-        Ok(outgoing)
+        Ok(())
     }
 
     /// Returns the number of agreement instances that have decided "yes".
@@ -266,42 +281,35 @@ impl<NodeUid: Clone + Debug + Eq + Hash + Ord> CommonSubset<NodeUid> {
         self.agreement_results.values().filter(|v| **v).count()
     }
 
-    fn try_agreement_completion(&self) -> Option<HashMap<NodeUid, ProposedValue>> {
+    fn try_agreement_completion(&mut self) {
         // Once all instances of BA have completed, let C ⊂ [1..N] be
         // the indexes of each BA that delivered 1. Wait for the output
         // v_j for each RBC_j such that j∈C. Finally output ∪ j∈C v_j.
-        if self.agreement_instances
-            .values()
-            .all(|instance| instance.terminated())
-        {
-            debug!("All Agreement instances have terminated");
-            // All instances of Agreement that delivered `true` (or "1" in the paper).
-            let delivered_1: HashSet<&NodeUid> = self.agreement_results
-                .iter()
-                .filter(|(_, v)| **v)
-                .map(|(k, _)| k)
-                .collect();
-            debug!("Agreement instances that delivered 1: {:?}", delivered_1);
+        if self.agreement_results.len() < self.num_nodes {
+            return;
+        }
+        debug!("{:?} All Agreement instances have terminated", self.uid);
+        // All instances of Agreement that delivered `true` (or "1" in the paper).
+        let delivered_1: HashSet<&NodeUid> = self.agreement_results
+            .iter()
+            .filter(|(_, v)| **v)
+            .map(|(k, _)| k)
+            .collect();
+        debug!("Agreement instances that delivered 1: {:?}", delivered_1);
 
-            // Results of Broadcast instances in `delivered_1`
-            let broadcast_results: HashMap<NodeUid, ProposedValue> = self.broadcast_results
-                .iter()
-                .filter(|(k, _)| delivered_1.get(k).is_some())
-                .map(|(k, v)| (k.clone(), v.clone()))
-                .collect();
-            debug!(
-                "Broadcast results among the Agreement instances that delivered 1: {:?}",
-                broadcast_results
-            );
+        // Results of Broadcast instances in `delivered_1`
+        let broadcast_results: HashMap<NodeUid, ProposedValue> = self.broadcast_results
+            .iter()
+            .filter(|(k, _)| delivered_1.contains(k))
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
 
-            if delivered_1.len() == broadcast_results.len() {
-                debug!("Agreement instances completed with {:?}", broadcast_results);
-                Some(broadcast_results)
-            } else {
-                None
+        if delivered_1.len() == broadcast_results.len() {
+            debug!("{:?} Agreement instances completed:", self.uid);
+            for (uid, result) in &broadcast_results {
+                debug!("    {:?} → {:?}", uid, HexBytes(&result));
             }
-        } else {
-            None
+            self.output = Some(broadcast_results)
         }
     }
 }
