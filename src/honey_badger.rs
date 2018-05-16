@@ -1,9 +1,11 @@
-use std::collections::{HashSet, VecDeque};
-use std::fmt::{Debug, Display};
+use std::collections::btree_map::Entry;
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
+use std::fmt::Debug;
 use std::hash::Hash;
-use std::iter;
+use std::{cmp, iter};
 
 use bincode;
+use rand;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 
@@ -11,15 +13,14 @@ use common_subset::{self, CommonSubset};
 use messaging::{DistAlgorithm, TargetedMessage};
 
 /// An instance of the Honey Badger Byzantine fault tolerant consensus algorithm.
-pub struct HoneyBadger<T, N: Eq + Hash + Ord + Clone + Display> {
-    /// The buffer of transactions that have not yet been included in any batch.
+pub struct HoneyBadger<T, N: Eq + Hash + Ord + Clone> {
+    /// The buffer of transactions that have not yet been included in any output batch.
     buffer: VecDeque<T>,
-    /// The current epoch, i.e. the number of batches that have been output so far.
+    /// The earliest epoch from which we have not yet received output.
     epoch: u64,
-    /// The Asynchronous Common Subset instance that decides which nodes' transactions to include.
-    // TODO: Common subset could be optimized to output before it is allowed to terminate. In that
-    // case, we would need to keep track of one or two previous instances, too.
-    common_subset: CommonSubset<N>,
+    /// The Asynchronous Common Subset instance that decides which nodes' transactions to include,
+    /// indexed by epoch.
+    common_subsets: BTreeMap<u64, CommonSubset<N>>,
     /// This node's ID.
     id: N,
     /// The set of all node IDs of the participants (including ourselves).
@@ -36,8 +37,8 @@ pub struct HoneyBadger<T, N: Eq + Hash + Ord + Clone + Display> {
 
 impl<T, N> DistAlgorithm for HoneyBadger<T, N>
 where
-    T: Ord + Serialize + DeserializeOwned,
-    N: Eq + Hash + Ord + Clone + Display + Debug,
+    T: Ord + Serialize + DeserializeOwned + Debug,
+    N: Eq + Hash + Ord + Clone + Debug,
 {
     type NodeUid = N;
     type Input = T;
@@ -78,52 +79,73 @@ where
 }
 
 // TODO: Use a threshold encryption scheme to encrypt the proposed transactions.
-// TODO: We only contribute a proposal to the next round once we have `batch_size` buffered
-// transactions. This should be more configurable: `min_batch_size`, `max_batch_size` and maybe a
-// timeout? The paper assumes that all nodes will often have more or less the same set of
-// transactions in the buffer; if the sets are disjoint on average, we can just send our whole
-// buffer instead of 1/n of it.
 impl<T, N> HoneyBadger<T, N>
 where
-    T: Ord + Serialize + DeserializeOwned,
-    N: Eq + Hash + Ord + Clone + Display + Debug,
+    T: Ord + Serialize + DeserializeOwned + Debug,
+    N: Eq + Hash + Ord + Clone + Debug,
 {
     /// Returns a new Honey Badger instance with the given parameters, starting at epoch `0`.
-    pub fn new<I>(id: N, all_uids_iter: I, batch_size: usize) -> Result<Self, Error>
+    pub fn new<I, TI>(id: N, all_uids_iter: I, batch_size: usize, txs: TI) -> Result<Self, Error>
     where
         I: IntoIterator<Item = N>,
+        TI: IntoIterator<Item = T>,
     {
         let all_uids: HashSet<N> = all_uids_iter.into_iter().collect();
         if !all_uids.contains(&id) {
             return Err(Error::OwnIdMissing);
         }
-        Ok(HoneyBadger {
-            buffer: VecDeque::new(),
+        let mut honey_badger = HoneyBadger {
+            buffer: txs.into_iter().collect(),
             epoch: 0,
-            common_subset: CommonSubset::new(id.clone(), &all_uids)?,
+            common_subsets: BTreeMap::new(),
             id,
             batch_size,
             all_uids,
             messages: VecDeque::new(),
             output: VecDeque::new(),
-        })
+        };
+        honey_badger.propose()?;
+        Ok(honey_badger)
     }
 
     /// Adds transactions into the buffer.
-    pub fn add_transactions<I>(&mut self, txs: I) -> Result<(), Error>
-    where
-        I: IntoIterator<Item = T>,
-    {
+    pub fn add_transactions<I: IntoIterator<Item = T>>(&mut self, txs: I) -> Result<(), Error> {
         self.buffer.extend(txs);
-        if self.buffer.len() < self.batch_size {
-            return Ok(());
-        }
-        let share = bincode::serialize(&self.buffer)?;
-        for targeted_msg in self.common_subset.send_proposed_value(share)? {
-            let msg = targeted_msg.map(|cs_msg| Message::CommonSubset(self.epoch, cs_msg));
+        Ok(())
+    }
+
+    /// Proposes a new batch in the current epoch.
+    fn propose(&mut self) -> Result<(), Error> {
+        let proposal = self.choose_transactions()?;
+        let cs = match self.common_subsets.entry(self.epoch) {
+            Entry::Occupied(entry) => entry.into_mut(),
+            Entry::Vacant(entry) => {
+                entry.insert(CommonSubset::new(self.id.clone(), &self.all_uids)?)
+            }
+        };
+        cs.input(proposal)?;
+        for targeted_msg in cs.message_iter() {
+            let epoch = self.epoch;
+            let msg = targeted_msg.map(|cs_msg| Message::CommonSubset(epoch, cs_msg));
             self.messages.push_back(msg);
         }
         Ok(())
+    }
+
+    /// Returns a random choice of `batch_size / all_uids.len()` buffered transactions, and
+    /// serializes them.
+    fn choose_transactions(&self) -> Result<Vec<u8>, Error> {
+        let mut rng = rand::thread_rng();
+        let amount = cmp::max(1, self.batch_size / self.all_uids.len());
+        let sample = match rand::seq::sample_iter(&mut rng, &self.buffer, amount) {
+            Ok(choice) => choice,
+            Err(choice) => choice, // Fewer than `amount` were available, which is fine.
+        };
+        debug!(
+            "{:?} Proposing in epoch {}: {:?}",
+            self.id, self.epoch, sample
+        );
+        Ok(bincode::serialize(&sample)?)
     }
 
     /// Handles a message for the common subset sub-algorithm.
@@ -133,47 +155,96 @@ where
         epoch: u64,
         message: common_subset::Message<N>,
     ) -> Result<(), Error> {
-        if epoch != self.epoch {
-            // TODO: Do we need to cache messages for future epochs?
-            return Ok(());
+        {
+            // Borrow the instance for `epoch`, or create it.
+            let cs = match self.common_subsets.entry(epoch) {
+                Entry::Occupied(entry) => entry.into_mut(),
+                Entry::Vacant(entry) => {
+                    if epoch < self.epoch {
+                        return Ok(()); // Epoch has already terminated. Message is obsolete.
+                    } else {
+                        entry.insert(CommonSubset::new(self.id.clone(), &self.all_uids)?)
+                    }
+                }
+            };
+            // Handle the message and put the outgoing messages into the queue.
+            cs.handle_message(sender_id, message)?;
+            for targeted_msg in cs.message_iter() {
+                let msg = targeted_msg.map(|cs_msg| Message::CommonSubset(epoch, cs_msg));
+                self.messages.push_back(msg);
+            }
         }
-        let (cs_out, cs_msgs) = self.common_subset.handle_message(sender_id, message)?;
-
-        for targeted_msg in cs_msgs {
-            let msg = targeted_msg.map(|cs_msg| Message::CommonSubset(epoch, cs_msg));
-            self.messages.push_back(msg);
+        // If this is the current epoch, the message could cause a new output.
+        if epoch == self.epoch {
+            self.process_output()?;
         }
-        // FIXME: Handle the node IDs in `ser_batches`.
-        let batches: Vec<Vec<T>> = if let Some(ser_batches) = cs_out {
-            ser_batches
-                .values()
-                .map(|ser_batch| bincode::deserialize(&ser_batch))
-                .collect::<Result<_, _>>()?
-        } else {
-            return Ok(());
-        };
-        let mut transactions: Vec<T> = batches.into_iter().flat_map(|txs| txs).collect();
-        transactions.sort();
-        self.epoch += 1;
-        self.common_subset = CommonSubset::new(self.id.clone(), &self.all_uids)?;
-        self.add_transactions(None)?;
-        self.output.push_back(Batch {
-            epoch,
-            transactions,
-        });
+        self.remove_terminated(epoch);
         Ok(())
+    }
+
+    /// Checks whether the current epoch has output, and if it does, advances the epoch and
+    /// proposes a new batch.
+    fn process_output(&mut self) -> Result<(), Error> {
+        let old_epoch = self.epoch;
+        while let Some(ser_batches) = self.take_current_output() {
+            // Deserialize the output.
+            let transactions: BTreeSet<T> = ser_batches
+                .into_iter()
+                .map(|(_, ser_batch)| bincode::deserialize::<Vec<T>>(&ser_batch))
+                .collect::<Result<Vec<Vec<T>>, _>>()?
+                .into_iter()
+                .flat_map(|txs| txs)
+                .collect();
+            // Remove the output transactions from our buffer.
+            self.buffer.retain(|tx| !transactions.contains(tx));
+            debug!(
+                "{:?} Epoch {} output {:?}",
+                self.id, self.epoch, transactions
+            );
+            // Queue the output and advance the epoch.
+            self.output.push_back(Batch {
+                epoch: self.epoch,
+                transactions,
+            });
+            self.epoch += 1;
+        }
+        // If we have moved to a new epoch, propose a new batch of transactions.
+        if self.epoch > old_epoch {
+            self.propose()?;
+        }
+        Ok(())
+    }
+
+    /// Returns the output of the current epoch's `CommonSubset` instance, if any.
+    fn take_current_output(&mut self) -> Option<HashMap<N, Vec<u8>>> {
+        self.common_subsets
+            .get_mut(&self.epoch)
+            .and_then(CommonSubset::next_output)
+    }
+
+    /// Removes all `CommonSubset` instances from _past_ epochs that have terminated.
+    fn remove_terminated(&mut self, from_epoch: u64) {
+        for epoch in from_epoch..self.epoch {
+            if self.common_subsets
+                .get(&epoch)
+                .map_or(false, CommonSubset::terminated)
+            {
+                debug!("{:?} Epoch {} has terminated.", self.id, epoch);
+                self.common_subsets.remove(&epoch);
+            }
+        }
     }
 }
 
 /// A batch of transactions the algorithm has output.
 pub struct Batch<T> {
     pub epoch: u64,
-    pub transactions: Vec<T>,
+    pub transactions: BTreeSet<T>,
 }
 
 /// A message sent to or received from another node's Honey Badger instance.
 #[cfg_attr(feature = "serialization-serde", derive(Serialize))]
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Message<N> {
     /// A message belonging to the common subset algorithm in the given epoch.
     CommonSubset(u64, common_subset::Message<N>),

@@ -9,7 +9,7 @@ use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 
 use hbbft::common_subset;
 use hbbft::common_subset::CommonSubset;
-use hbbft::messaging::{Target, TargetedMessage};
+use hbbft::messaging::{DistAlgorithm, Target, TargetedMessage};
 
 type ProposedValue = Vec<u8>;
 
@@ -45,9 +45,11 @@ impl TestNode {
         let (sender_id, message) = self.queue
             .pop_front()
             .expect("popping a message off the queue");
-        let (output, messages) = self.cs
+        self.cs
             .handle_message(&sender_id, message)
             .expect("handling a Common Subset message");
+        let output = self.cs.next_output();
+        let messages = self.cs.message_iter().collect();
         debug!("{:?} produced messages: {:?}", self.id, messages);
         if let Some(ref decision) = output {
             self.decision = Some(decision.clone());
@@ -133,12 +135,11 @@ impl TestNetwork {
 
     /// Make Node 0 propose a value.
     fn send_proposed_value(&mut self, sender_id: NodeUid, value: ProposedValue) {
-        let messages = self.nodes
-            .get_mut(&sender_id)
-            .unwrap()
-            .cs
-            .send_proposed_value(value)
-            .expect("send proposed value");
+        let messages = {
+            let cs = &mut self.nodes.get_mut(&sender_id).unwrap().cs;
+            cs.send_proposed_value(value).expect("send proposed value");
+            cs.message_iter().collect()
+        };
         self.dispatch_messages(sender_id, messages);
     }
 }
@@ -149,7 +150,7 @@ fn test_common_subset(mut network: TestNetwork) -> BTreeMap<NodeUid, TestNode> {
     // Pick the first node with a non-empty queue.
     network.pick_node();
 
-    while network.nodes.values().any(|node| node.decision.is_none()) {
+    while network.nodes.values().any(|node| !node.cs.terminated()) {
         let (NodeUid(id), output) = network.step();
         if let Some(decision) = output {
             debug!("Node {} output {:?}", id, decision);
