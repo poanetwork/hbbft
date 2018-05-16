@@ -223,26 +223,37 @@ impl<NodeUid: Clone + Debug + Eq + Hash + Ord> CommonSubset<NodeUid> {
 
         let (output, mut outgoing) = result?;
 
+        let mut outgoing_undecided = VecDeque::new();
         // Process Agreement outputs.
         if let Some(b) = output {
-            outgoing.append(&mut self.on_agreement_output(proposer_id, b)?);
+            outgoing_undecided = self.on_agreement_output(proposer_id, b)?;
         }
 
         // Check whether Agreement has completed.
-        let into_msg = |a_msg| Target::All.message(Message::Agreement(proposer_id.clone(), a_msg));
-        Ok((
-            self.try_agreement_completion(),
-            outgoing.into_iter().map(into_msg).collect(),
-        ))
+        let into_targeted =
+            |a_msg| Target::All.message(Message::Agreement(proposer_id.clone(), a_msg));
+        let into_targeted_pair = |(id, a_msg)| Target::All.message(Message::Agreement(id, a_msg));
+        let mut outgoing_targeted: VecDeque<TargetedMessage<Message<NodeUid>, NodeUid>> =
+            outgoing.into_iter().map(into_targeted).collect();
+        let mut outgoing_undecided_targeted: VecDeque<
+            TargetedMessage<Message<NodeUid>, NodeUid>,
+        > = outgoing_undecided
+            .into_iter()
+            .map(into_targeted_pair)
+            // .map(|(id, a_msg)| Target::All.message(
+            //     Message::Agreement(id.clone(), a_msg)))
+            .collect();
+        outgoing_targeted.append(&mut outgoing_undecided_targeted);
+        Ok((self.try_agreement_completion(), outgoing_targeted))
     }
 
     /// Callback to be invoked on receipt of the decision value of the Agreement
-    /// instance `uid`.
+    /// instance `uid`. Outputs a queue of targeted agreement messages.
     fn on_agreement_output(
         &mut self,
         element_proposer_id: &NodeUid,
         result: bool,
-    ) -> Result<VecDeque<AgreementMessage>, Error> {
+    ) -> Result<VecDeque<(NodeUid, AgreementMessage)>, Error> {
         self.agreement_results
             .insert(element_proposer_id.clone(), result);
         debug!("Updated Agreement results: {:?}", self.agreement_results);
@@ -252,10 +263,11 @@ impl<NodeUid: Clone + Debug + Eq + Hash + Ord> CommonSubset<NodeUid> {
 
         // Upon delivery of value 1 from at least N − f instances of BA, provide
         // input 0 to each instance of BA that has not yet been provided input.
+        debug!("More than 2/3 of BA instances delivered \"true\"");
         let mut outgoing = VecDeque::new();
-        for instance in self.agreement_instances.values_mut() {
+        for (id, instance) in &mut self.agreement_instances {
             if instance.accepts_input() {
-                outgoing.push_back(instance.set_input(false)?);
+                outgoing.push_back((id.clone(), instance.set_input(false)?));
             }
         }
         Ok(outgoing)

@@ -159,22 +159,21 @@ fn test_common_subset(mut network: TestNetwork) -> BTreeMap<NodeUid, TestNode> {
 }
 
 #[test]
-fn test_common_subset_4_nodes_same_proposed_value() {
+fn test_common_subset_3_out_of_4_nodes_propose() {
     let proposed_value = Vec::from("Fake news");
     let all_ids: HashSet<NodeUid> = (0..4).map(NodeUid).collect();
     let mut network = TestNetwork::new(&all_ids);
-    let expected_node_decision: HashMap<NodeUid, ProposedValue> = all_ids
+
+    let proposing_ids: HashSet<NodeUid> = (0..3).map(NodeUid).collect();
+    let expected_node_decision: HashMap<NodeUid, ProposedValue> = proposing_ids
         .iter()
         .map(|id| (*id, proposed_value.clone()))
         .collect();
-
-    network.send_proposed_value(NodeUid(0), proposed_value.clone());
-    network.send_proposed_value(NodeUid(1), proposed_value.clone());
-    network.send_proposed_value(NodeUid(2), proposed_value.clone());
-    network.send_proposed_value(NodeUid(3), proposed_value.clone());
+    for id in proposing_ids {
+        network.send_proposed_value(id, proposed_value.clone());
+    }
 
     let nodes = test_common_subset(network);
-
     for node in nodes.values() {
         assert_eq!(node.decision, Some(expected_node_decision.clone()));
     }

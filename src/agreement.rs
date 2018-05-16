@@ -84,6 +84,7 @@ impl<NodeUid: Clone + Debug + Eq + Hash> Agreement<NodeUid> {
             return Err(Error::InputNotAccepted);
         }
 
+        debug!("{:?} input: {}", self.uid, input);
         // Set the initial estimated value to the input value.
         self.estimated = Some(input);
         // Record the input value as sent.
@@ -93,6 +94,7 @@ impl<NodeUid: Clone + Debug + Eq + Hash> Agreement<NodeUid> {
             .entry(self.uid.clone())
             .or_insert_with(BTreeSet::new)
             .insert(input);
+        debug!("{:?} received BVAL: {:?}", self.uid, self.received_bval);
         // Multicast BVAL
         Ok(AgreementMessage::BVal(self.epoch, input))
     }
