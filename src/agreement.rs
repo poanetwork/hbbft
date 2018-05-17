@@ -5,11 +5,7 @@ use std::collections::{BTreeSet, HashMap, VecDeque};
 use std::fmt::Debug;
 use std::hash::Hash;
 
-/// Type of output from the Agreement message handler. The first component is
-/// the value on which the Agreement has decided, also called "output" in the
-/// HoneyadgerBFT paper. The second component is a queue of messages to be sent
-/// to remote nodes as a result of handling the incomming message.
-type AgreementOutput = (Option<bool>, VecDeque<AgreementMessage>);
+use messaging::{DistAlgorithm, Target, TargetedMessage};
 
 /// Messages sent during the binary Byzantine agreement stage.
 #[cfg_attr(feature = "serialization-serde", derive(Serialize))]
@@ -42,12 +38,74 @@ pub struct Agreement<NodeUid> {
     /// and then never changed. That is, no instance of Binary Agreement can
     /// decide on two different values of output.
     output: Option<bool>,
+    /// A permanent, latching copy of the output value. This copy is required because `output` can
+    /// be consumed using `DistAlgorithm::next_output` immediately after the instance finishing to
+    /// handle a message, in which case it would otherwise be unknown whether the output value was
+    /// ever there at all. While the output value will still be required in a later epoch to decide
+    /// the termination state.
+    decision: Option<bool>,
     /// Termination flag. The Agreement instance doesn't terminate immediately
     /// upon deciding on the agreed value. This is done in order to help other
     /// nodes decide despite asynchrony of communication. Once the instance
     /// determines that all the remote nodes have reached agreement, it sets the
     /// `terminated` flag and accepts no more incoming messages.
     terminated: bool,
+    /// The outgoing message queue.
+    messages: VecDeque<AgreementMessage>,
+}
+
+impl<NodeUid: Clone + Debug + Eq + Hash + Ord> DistAlgorithm for Agreement<NodeUid> {
+    type NodeUid = NodeUid;
+    type Input = bool;
+    type Output = bool;
+    type Message = AgreementMessage;
+    type Error = Error;
+
+    fn input(&mut self, input: Self::Input) -> Result<(), Self::Error> {
+        self.set_input(input)
+    }
+
+    /// Receive input from a remote node.
+    fn handle_message(
+        &mut self,
+        sender_id: &Self::NodeUid,
+        message: Self::Message,
+    ) -> Result<(), Self::Error> {
+        match message {
+            // The algorithm instance has already terminated.
+            _ if self.terminated => Err(Error::Terminated),
+
+            AgreementMessage::BVal(epoch, b) if epoch == self.epoch => {
+                self.handle_bval(sender_id, b)
+            }
+
+            AgreementMessage::Aux(epoch, b) if epoch == self.epoch => self.handle_aux(sender_id, b),
+
+            // Epoch does not match. Ignore the message.
+            _ => Ok(()),
+        }
+    }
+
+    /// Take the next Agreement message for multicast to all other nodes.
+    fn next_message(&mut self) -> Option<TargetedMessage<Self::Message, Self::NodeUid>> {
+        self.messages
+            .pop_front()
+            .map(|msg| Target::All.message(msg))
+    }
+
+    /// Consume the output. Once consumed, the output stays `None` forever.
+    fn next_output(&mut self) -> Option<Self::Output> {
+        self.output.take()
+    }
+
+    /// Whether the algorithm has terminated.
+    fn terminated(&self) -> bool {
+        self.terminated
+    }
+
+    fn our_id(&self) -> &Self::NodeUid {
+        &self.uid
+    }
 }
 
 impl<NodeUid: Clone + Debug + Eq + Hash> Agreement<NodeUid> {
@@ -65,22 +123,15 @@ impl<NodeUid: Clone + Debug + Eq + Hash> Agreement<NodeUid> {
             received_aux: HashMap::new(),
             estimated: None,
             output: None,
+            decision: None,
             terminated: false,
+            messages: VecDeque::new(),
         }
     }
 
-    pub fn our_id(&self) -> &NodeUid {
-        &self.uid
-    }
-
-    /// Algorithm has terminated.
-    pub fn terminated(&self) -> bool {
-        self.terminated
-    }
-
     /// Sets the input value for agreement.
-    pub fn set_input(&mut self, input: bool) -> Result<AgreementMessage, Error> {
-        if self.epoch != 0 {
+    pub fn set_input(&mut self, input: bool) -> Result<(), Error> {
+        if self.epoch != 0 || self.estimated.is_some() {
             return Err(Error::InputNotAccepted);
         }
 
@@ -94,7 +145,9 @@ impl<NodeUid: Clone + Debug + Eq + Hash> Agreement<NodeUid> {
             .or_insert_with(BTreeSet::new)
             .insert(input);
         // Multicast BVAL
-        Ok(AgreementMessage::BVal(self.epoch, input))
+        self.messages
+            .push_back(AgreementMessage::BVal(self.epoch, input));
+        Ok(())
     }
 
     /// Acceptance check to be performed before setting the input value.
@@ -102,33 +155,7 @@ impl<NodeUid: Clone + Debug + Eq + Hash> Agreement<NodeUid> {
         self.epoch == 0 && self.estimated.is_none()
     }
 
-    /// Receive input from a remote node.
-    ///
-    /// Outputs an optional agreement result and a queue of agreement messages
-    /// to remote nodes. There can be up to 2 messages.
-    pub fn handle_agreement_message(
-        &mut self,
-        sender_id: &NodeUid,
-        message: &AgreementMessage,
-    ) -> Result<AgreementOutput, Error> {
-        match *message {
-            // The algorithm instance has already terminated.
-            _ if self.terminated => Err(Error::Terminated),
-
-            AgreementMessage::BVal(epoch, b) if epoch == self.epoch => {
-                self.handle_bval(sender_id, b)
-            }
-
-            AgreementMessage::Aux(epoch, b) if epoch == self.epoch => self.handle_aux(sender_id, b),
-
-            // Epoch does not match. Ignore the message.
-            _ => Ok((None, VecDeque::new())),
-        }
-    }
-
-    fn handle_bval(&mut self, sender_id: &NodeUid, b: bool) -> Result<AgreementOutput, Error> {
-        let mut outgoing = VecDeque::new();
-
+    fn handle_bval(&mut self, sender_id: &NodeUid, b: bool) -> Result<(), Error> {
         self.received_bval
             .entry(sender_id.clone())
             .or_insert_with(BTreeSet::new)
@@ -148,14 +175,13 @@ impl<NodeUid: Clone + Debug + Eq + Hash> Agreement<NodeUid> {
             // where w ∈ bin_values_r
             if bin_values_was_empty {
                 // Send an AUX message at most once per epoch.
-                outgoing.push_back(AgreementMessage::Aux(self.epoch, b));
+                self.messages
+                    .push_back(AgreementMessage::Aux(self.epoch, b));
                 // Receive the AUX message locally.
                 self.received_aux.insert(self.uid.clone(), b);
             }
 
-            let (decision, maybe_message) = self.try_coin();
-            outgoing.extend(maybe_message);
-            Ok((decision, outgoing))
+            self.try_coin();
         }
         // upon receiving BVAL_r(b) messages from f + 1 nodes, if
         // BVAL_r(b) has not been sent, multicast BVAL_r(b)
@@ -168,23 +194,18 @@ impl<NodeUid: Clone + Debug + Eq + Hash> Agreement<NodeUid> {
                 .or_insert_with(BTreeSet::new)
                 .insert(b);
             // Multicast BVAL.
-            outgoing.push_back(AgreementMessage::BVal(self.epoch, b));
-            Ok((None, outgoing))
-        } else {
-            Ok((None, outgoing))
+            self.messages
+                .push_back(AgreementMessage::BVal(self.epoch, b));
         }
+        Ok(())
     }
 
-    fn handle_aux(&mut self, sender_id: &NodeUid, b: bool) -> Result<AgreementOutput, Error> {
+    fn handle_aux(&mut self, sender_id: &NodeUid, b: bool) -> Result<(), Error> {
         self.received_aux.insert(sender_id.clone(), b);
-        let mut outgoing = VecDeque::new();
         if !self.bin_values.is_empty() {
-            let (decision, maybe_message) = self.try_coin();
-            outgoing.extend(maybe_message);
-            Ok((decision, outgoing))
-        } else {
-            Ok((None, outgoing))
+            self.try_coin();
         }
+        Ok(())
     }
 
     /// AUX_r messages such that the set of values carried by those messages is
@@ -216,11 +237,11 @@ impl<NodeUid: Clone + Debug + Eq + Hash> Agreement<NodeUid> {
     /// to compute the next decision estimate and outputs the optional decision
     /// value.  The function may start the next epoch. In that case, it also
     /// returns a message for broadcast.
-    fn try_coin(&mut self) -> (Option<bool>, Vec<AgreementMessage>) {
+    fn try_coin(&mut self) {
         let (count_aux, vals) = self.count_aux();
         if count_aux < self.num_nodes - self.num_faulty_nodes {
             // Continue waiting for the (N - f) AUX messages.
-            return (None, Vec::new());
+            return;
         }
 
         debug!("{:?} try_coin in epoch {}", self.uid, self.epoch);
@@ -231,7 +252,7 @@ impl<NodeUid: Clone + Debug + Eq + Hash> Agreement<NodeUid> {
         // Check the termination condition: "continue looping until both a
         // value b is output in some round r, and the value Coin_r' = b for
         // some round r' > r."
-        self.terminated = self.terminated || self.output == Some(coin);
+        self.terminated = self.terminated || self.decision == Some(coin);
         if self.terminated {
             debug!("Agreement instance {:?} terminated", self.uid);
         }
@@ -247,29 +268,27 @@ impl<NodeUid: Clone + Debug + Eq + Hash> Agreement<NodeUid> {
             self.uid, self.epoch
         );
 
-        let decision = if vals.len() != 1 {
+        if vals.len() != 1 {
             self.estimated = Some(coin);
-            None
         } else {
             // NOTE: `vals` has exactly one element due to `vals.len() == 1`
             let v: Vec<bool> = vals.into_iter().collect();
             let b = v[0];
             self.estimated = Some(b);
             // Outputting a value is allowed only once.
-            if self.output.is_none() && b == coin {
+            if self.decision.is_none() && b == coin {
                 // Output the agreement value.
                 self.output = Some(b);
+                // Latch the decided state.
+                self.decision = Some(b);
                 debug!("Agreement instance {:?} output: {}", self.uid, b);
-                self.output
-            } else {
-                None
             }
         };
 
         let b = self.estimated.unwrap();
         self.sent_bval.insert(b);
-        let bval_msg = AgreementMessage::BVal(self.epoch, b);
-        (decision, vec![bval_msg])
+        self.messages
+            .push_back(AgreementMessage::BVal(self.epoch, b));
     }
 }
 
