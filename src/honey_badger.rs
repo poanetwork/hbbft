@@ -15,7 +15,7 @@ use messaging::{DistAlgorithm, TargetedMessage};
 /// An instance of the Honey Badger Byzantine fault tolerant consensus algorithm.
 pub struct HoneyBadger<T, N: Eq + Hash + Ord + Clone> {
     /// The buffer of transactions that have not yet been included in any output batch.
-    buffer: VecDeque<T>,
+    buffer: Vec<T>,
     /// The earliest epoch from which we have not yet received output.
     epoch: u64,
     /// The Asynchronous Common Subset instance that decides which nodes' transactions to include,
@@ -137,7 +137,8 @@ where
     fn choose_transactions(&self) -> Result<Vec<u8>, Error> {
         let mut rng = rand::thread_rng();
         let amount = cmp::max(1, self.batch_size / self.all_uids.len());
-        let sample = match rand::seq::sample_iter(&mut rng, &self.buffer, amount) {
+        let batch_size = cmp::min(self.batch_size, self.buffer.len());
+        let sample = match rand::seq::sample_iter(&mut rng, &self.buffer[..batch_size], amount) {
             Ok(choice) => choice,
             Err(choice) => choice, // Fewer than `amount` were available, which is fine.
         };
@@ -237,6 +238,7 @@ where
 }
 
 /// A batch of transactions the algorithm has output.
+#[derive(Clone)]
 pub struct Batch<T> {
     pub epoch: u64,
     pub transactions: BTreeSet<T>,

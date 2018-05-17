@@ -177,30 +177,24 @@ where
         Q: IntoIterator<Item = TargetedMessage<D::Message, NodeUid>> + Debug,
     {
         for msg in msgs {
-            match msg {
-                TargetedMessage {
-                    target: Target::All,
-                    ref message,
-                } => {
+            match msg.target {
+                Target::All => {
                     for node in self.nodes.values_mut() {
                         if node.id != sender_id {
-                            node.queue.push_back((sender_id, message.clone()))
+                            node.queue.push_back((sender_id, msg.message.clone()))
                         }
                     }
-                    self.adversary.push_message(sender_id, msg.clone());
+                    self.adversary.push_message(sender_id, msg);
                 }
-                TargetedMessage {
-                    target: Target::Node(to_id),
-                    ref message,
-                } => {
+                Target::Node(to_id) => {
                     if self.adv_nodes.contains(&to_id) {
-                        self.adversary.push_message(sender_id, msg.clone());
+                        self.adversary.push_message(sender_id, msg);
                     } else {
                         self.nodes
                             .get_mut(&to_id)
                             .unwrap()
                             .queue
-                            .push_back((sender_id, message.clone()));
+                            .push_back((sender_id, msg.message));
                     }
                 }
             }
@@ -227,7 +221,7 @@ where
     /// Inputs a value in node `id`.
     pub fn input(&mut self, id: NodeUid, value: D::Input) {
         let msgs: Vec<_> = {
-            let node = self.nodes.get_mut(&id).expect("proposer instance");
+            let node = self.nodes.get_mut(&id).expect("input instance");
             node.input(value);
             node.algo.message_iter().collect()
         };
