@@ -38,6 +38,12 @@ pub struct Agreement<NodeUid> {
     /// and then never changed. That is, no instance of Binary Agreement can
     /// decide on two different values of output.
     output: Option<bool>,
+    /// A permanent, latching copy of the output value. This copy is required because `output` can
+    /// be consumed using `DistAlgorithm::next_output` immediately after the instance finishing to
+    /// handle a message, in which case it would otherwise be unknown whether the output value was
+    /// ever there at all. While the output value will still be required in a later epoch to decide
+    /// the termination state.
+    decision: Option<bool>,
     /// Termination flag. The Agreement instance doesn't terminate immediately
     /// upon deciding on the agreed value. This is done in order to help other
     /// nodes decide despite asynchrony of communication. Once the instance
@@ -117,6 +123,7 @@ impl<NodeUid: Clone + Debug + Eq + Hash> Agreement<NodeUid> {
             received_aux: HashMap::new(),
             estimated: None,
             output: None,
+            decision: None,
             terminated: false,
             messages: VecDeque::new(),
         }
@@ -174,9 +181,7 @@ impl<NodeUid: Clone + Debug + Eq + Hash> Agreement<NodeUid> {
                 self.received_aux.insert(self.uid.clone(), b);
             }
 
-            let (decision, maybe_message) = self.try_coin();
-            self.messages.extend(maybe_message);
-            self.output = decision;
+            self.try_coin();
         }
         // upon receiving BVAL_r(b) messages from f + 1 nodes, if
         // BVAL_r(b) has not been sent, multicast BVAL_r(b)
@@ -198,9 +203,7 @@ impl<NodeUid: Clone + Debug + Eq + Hash> Agreement<NodeUid> {
     fn handle_aux(&mut self, sender_id: &NodeUid, b: bool) -> Result<(), Error> {
         self.received_aux.insert(sender_id.clone(), b);
         if !self.bin_values.is_empty() {
-            let (decision, maybe_message) = self.try_coin();
-            self.messages.extend(maybe_message);
-            self.output = decision;
+            self.try_coin();
         }
         Ok(())
     }
@@ -234,11 +237,11 @@ impl<NodeUid: Clone + Debug + Eq + Hash> Agreement<NodeUid> {
     /// to compute the next decision estimate and outputs the optional decision
     /// value.  The function may start the next epoch. In that case, it also
     /// returns a message for broadcast.
-    fn try_coin(&mut self) -> (Option<bool>, Vec<AgreementMessage>) {
+    fn try_coin(&mut self) {
         let (count_aux, vals) = self.count_aux();
         if count_aux < self.num_nodes - self.num_faulty_nodes {
             // Continue waiting for the (N - f) AUX messages.
-            return (None, Vec::new());
+            return;
         }
 
         debug!("{:?} try_coin in epoch {}", self.uid, self.epoch);
@@ -249,7 +252,7 @@ impl<NodeUid: Clone + Debug + Eq + Hash> Agreement<NodeUid> {
         // Check the termination condition: "continue looping until both a
         // value b is output in some round r, and the value Coin_r' = b for
         // some round r' > r."
-        self.terminated = self.terminated || self.output == Some(coin);
+        self.terminated = self.terminated || self.decision == Some(coin);
         if self.terminated {
             debug!("Agreement instance {:?} terminated", self.uid);
         }
@@ -286,8 +289,13 @@ impl<NodeUid: Clone + Debug + Eq + Hash> Agreement<NodeUid> {
 
         let b = self.estimated.unwrap();
         self.sent_bval.insert(b);
-        let bval_msg = AgreementMessage::BVal(self.epoch, b);
-        (decision, vec![bval_msg])
+        self.messages
+            .push_back(AgreementMessage::BVal(self.epoch, b));
+        self.output = decision;
+        // Latch the decided state.
+        if decision.is_some() {
+            self.decision = decision;
+        }
     }
 }
 

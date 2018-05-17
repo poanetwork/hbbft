@@ -99,6 +99,10 @@ impl<NodeUid: Clone + Debug + Eq + Hash + Ord> DistAlgorithm for CommonSubset<No
     }
 
     fn terminated(&self) -> bool {
+        debug!(
+            "Termination check. Terminated Agreement instances: {:?}",
+            self.agreement_instances.values().all(Agreement::terminated)
+        );
         self.messages.is_empty() && self.agreement_instances.values().all(Agreement::terminated)
     }
 
@@ -169,10 +173,11 @@ impl<NodeUid: Clone + Debug + Eq + Hash + Ord> CommonSubset<NodeUid> {
         if let Some(agreement_instance) = self.agreement_instances.get_mut(&uid) {
             if agreement_instance.accepts_input() {
                 agreement_instance.set_input(true)?;
-                if let Some(msg) = agreement_instance.next_message() {
-                    self.messages
-                        .push_back(msg.map(|a_msg| Message::Agreement(uid.clone(), a_msg)));
-                }
+                self.messages.extend(
+                    agreement_instance
+                        .message_iter()
+                        .map(|msg| msg.map(|a_msg| Message::Agreement(uid.clone(), a_msg))),
+                );
             }
         } else {
             return Err(Error::NoSuchBroadcastInstance);
@@ -227,14 +232,15 @@ impl<NodeUid: Clone + Debug + Eq + Hash + Ord> CommonSubset<NodeUid> {
             }
             // Send the message to the agreement instance.
             agreement_instance.handle_message(sender_id, amessage.clone())?;
-            while let Some(msg) = agreement_instance.next_message() {
-                self.messages
-                    .push_back(msg.map(|a_msg| Message::Agreement(proposer_id.clone(), a_msg)));
-            }
+            self.messages.extend(
+                agreement_instance
+                    .message_iter()
+                    .map(|msg| msg.map(|a_msg| Message::Agreement(proposer_id.clone(), a_msg))),
+            );
             input_result = agreement_instance.next_output();
         } else {
             debug!("Proposer {:?} does not exist.", proposer_id);
-            return Ok(());
+            return Err(Error::NoSuchAgreementInstance);
         }
 
         if let Some(output) = input_result {
@@ -268,11 +274,12 @@ impl<NodeUid: Clone + Debug + Eq + Hash + Ord> CommonSubset<NodeUid> {
         for agreement_instance in self.agreement_instances.values_mut() {
             if agreement_instance.accepts_input() {
                 agreement_instance.set_input(false)?;
-                if let Some(msg) = agreement_instance.next_message() {
-                    self.messages.push_back(msg.map(|a_msg| {
-                        Message::Agreement(agreement_instance.our_id().clone(), a_msg)
-                    }));
-                }
+                let uid = agreement_instance.our_id().clone();
+                self.messages.extend(
+                    agreement_instance
+                        .message_iter()
+                        .map(|msg| msg.map(|a_msg| Message::Agreement(uid.clone(), a_msg))),
+                );
             }
         }
         Ok(())

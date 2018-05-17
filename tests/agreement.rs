@@ -53,8 +53,8 @@ impl TestNode {
         let (sender_id, message) = self.queue
             .pop_front()
             .expect("popping a message off the queue");
-        let (output, messages) = self.agreement
-            .handle_agreement_message(&sender_id, &message)
+        self.agreement
+            .handle_message(&sender_id, &message)
             .expect("handling an agreement message");
         debug!("{:?} produced messages: {:?}", self.id, messages);
         if let Some(output) = output {
