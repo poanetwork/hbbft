@@ -1,11 +1,8 @@
 use fmt::{HexBytes, HexList, HexProof};
-use merkle::proof::{Lemma, Positioned, Proof};
-use merkle::MerkleTree;
+use merkle::{MerkleTree, Proof};
 use reed_solomon_erasure as rse;
 use reed_solomon_erasure::ReedSolomon;
 use ring::digest;
-#[cfg(feature = "serialization-serde")]
-use serde::{Deserialize, Deserializer};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fmt::{self, Debug};
 use std::iter;
@@ -14,27 +11,15 @@ use messaging::{DistAlgorithm, Target, TargetedMessage};
 
 /// The three kinds of message sent during the reliable broadcast stage of the
 /// consensus algorithm.
-#[cfg_attr(feature = "serialization-serde", derive(Serialize))]
+#[cfg_attr(feature = "serialization-serde", derive(Serialize, Deserialize))]
 #[derive(Clone, PartialEq)]
 pub enum BroadcastMessage {
-    #[cfg_attr(feature = "serialization-serde", serde(deserialize_with = "deserialize_proof"))]
     Value(Proof<Vec<u8>>),
-    #[cfg_attr(feature = "serialization-serde", serde(deserialize_with = "deserialize_proof"))]
     Echo(Proof<Vec<u8>>),
     Ready(Vec<u8>),
 }
 
-#[cfg(feature = "serialization-serde")]
-#[allow(unused)]
-fn deserialize_proof<'de, D>(d: D) -> Result<Proof<Vec<u8>>, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let data: ::merkle::proof::ProofData<Vec<u8>> = Deserialize::deserialize(d)?;
-    Ok(data.into_proof(&digest::SHA256))
-}
-
-impl fmt::Debug for BroadcastMessage {
+impl Debug for BroadcastMessage {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
             BroadcastMessage::Value(ref v) => write!(f, "Value({:?})", HexProof(&v)),
@@ -381,11 +366,6 @@ impl<N: Eq + Debug + Clone + Ord> Broadcast<N> {
         self.all_uids.iter().position(|id| id == node_id)
     }
 
-    /// Returns the index of this proof's leave in the Merkle tree.
-    fn index_of_proof(&self, proof: &Proof<Vec<u8>>) -> usize {
-        index_of_lemma(&proof.lemma, self.num_nodes)
-    }
-
     /// Returns `true` if the proof is valid and has the same index as the node ID. Otherwise
     /// logs an info message.
     fn validate_proof(&self, p: &Proof<Vec<u8>>, id: &N) -> bool {
@@ -397,7 +377,7 @@ impl<N: Eq + Debug + Clone + Ord> Broadcast<N> {
             );
             false
         } else if self.index_of_node(id) != Some(p.value[0] as usize)
-            || self.index_of_proof(&p) != p.value[0] as usize
+            || p.index(self.num_nodes) != p.value[0] as usize
         {
             info!(
                 "Node {:?} received proof for wrong position: {:?}.",
@@ -555,34 +535,4 @@ where
     debug!("Glued data shards {:?}", HexBytes(&t[1..(payload_len + 1)]));
 
     t[1..(payload_len + 1)].to_vec().into()
-}
-
-/// Computes the Merkle tree leaf index of a value in a given lemma.
-pub fn index_of_lemma(lemma: &Lemma, n: usize) -> usize {
-    let m = n.next_power_of_two();
-    match (lemma.sub_lemma.as_ref(), lemma.sibling_hash.as_ref()) {
-        (None, Some(&Positioned::Right(_))) | (None, None) => 0,
-        (None, Some(&Positioned::Left(_))) => 1,
-        (Some(l), None) => index_of_lemma(l, n),
-        (Some(l), Some(&Positioned::Left(_))) => (m >> 1) + index_of_lemma(l, n - (m >> 1)),
-        (Some(l), Some(&Positioned::Right(_))) => index_of_lemma(l, m >> 1),
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_index_of_lemma() {
-        for &n in &[3, 4, 13, 16, 127, 128, 129, 255] {
-            let shards: Vec<[u8; 1]> = (0..n).map(|i| [i as u8]).collect();
-            let mtree = MerkleTree::from_vec(&digest::SHA256, shards);
-            for (i, val) in mtree.iter().enumerate() {
-                let p = mtree.gen_proof(val.clone()).expect("generate proof");
-                let idx = index_of_lemma(&p.lemma, n);
-                assert_eq!(i, idx, "Wrong index {} for leaf {}/{}.", idx, i, n);
-            }
-        }
-    }
 }
