@@ -21,26 +21,27 @@ extern crate env_logger;
 use std::collections::{BTreeMap, VecDeque};
 
 use hbbft::agreement::{Agreement, AgreementMessage};
+use hbbft::messaging::{DistAlgorithm, Target, TargetedMessage};
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-struct NodeId(usize);
+struct NodeUid(usize);
 
 /// The queue of messages of a particular Agreement instance.
-type InstanceQueue = VecDeque<AgreementMessage>;
+type MessageQueue = VecDeque<TargetedMessage<AgreementMessage, NodeUid>>;
 
 struct TestNode {
     /// Sender ID.
-    id: NodeId,
+    id: NodeUid,
     /// The only agreement instance.
-    agreement: Agreement<NodeId>,
+    agreement: Agreement<NodeUid>,
     /// Queue of tuples of a sender ID and a message.
-    queue: VecDeque<(NodeId, AgreementMessage)>,
+    queue: VecDeque<(NodeUid, AgreementMessage)>,
     /// All outputs
     outputs: Vec<bool>,
 }
 
 impl TestNode {
-    fn new(id: NodeId, agreement: Agreement<NodeId>) -> TestNode {
+    fn new(id: NodeUid, agreement: Agreement<NodeUid>) -> TestNode {
         TestNode {
             id,
             agreement,
@@ -49,46 +50,63 @@ impl TestNode {
         }
     }
 
-    fn handle_message(&mut self) -> (Option<bool>, InstanceQueue) {
+    fn handle_message(&mut self) -> (Option<bool>, MessageQueue) {
+        let output;
         let (sender_id, message) = self.queue
             .pop_front()
             .expect("popping a message off the queue");
         self.agreement
-            .handle_message(&sender_id, &message)
+            .handle_message(&sender_id, message)
             .expect("handling an agreement message");
-        debug!("{:?} produced messages: {:?}", self.id, messages);
-        if let Some(output) = output {
-            self.outputs.push(output);
+        if let Some(b) = self.agreement.next_output() {
+            self.outputs.push(b);
+            output = Some(b);
+        } else {
+            output = None;
         }
+        let messages = self.agreement.message_iter().collect();
+        debug!("{:?} produced messages: {:?}", self.id, messages);
         (output, messages)
     }
 }
 
 struct TestNetwork {
-    nodes: BTreeMap<NodeId, TestNode>,
+    nodes: BTreeMap<NodeUid, TestNode>,
     /// The next node to handle a message in its queue.
-    scheduled_node_id: NodeId,
+    scheduled_node_id: NodeUid,
 }
 
 impl TestNetwork {
     fn new(num_nodes: usize) -> TestNetwork {
         // Make a node with an Agreement instance associated with the proposer node 0.
-        let make_node = |id: NodeId| (id, TestNode::new(id, Agreement::new(NodeId(0), num_nodes)));
+        let make_node =
+            |id: NodeUid| (id, TestNode::new(id, Agreement::new(NodeUid(0), num_nodes)));
         TestNetwork {
-            nodes: (0..num_nodes).map(NodeId).map(make_node).collect(),
-            scheduled_node_id: NodeId(0),
+            nodes: (0..num_nodes).map(NodeUid).map(make_node).collect(),
+            scheduled_node_id: NodeUid(0),
         }
     }
 
-    fn dispatch_messages(&mut self, sender_id: NodeId, messages: InstanceQueue) {
+    fn dispatch_messages(&mut self, sender_id: NodeUid, messages: MessageQueue) {
         for message in messages {
-            for (id, node) in &mut self.nodes {
-                if *id != sender_id {
-                    debug!(
-                        "Dispatching from {:?} to {:?}: {:?}",
-                        sender_id, id, message
-                    );
-                    node.queue.push_back((sender_id, message.clone()));
+            match message {
+                TargetedMessage {
+                    target: Target::Node(id),
+                    message,
+                } => {
+                    let node = self.nodes.get_mut(&id).expect("finding recipient node");
+                    node.queue.push_back((sender_id, message));
+                }
+                TargetedMessage {
+                    target: Target::All,
+                    message,
+                } => {
+                    // Multicast the message to other nodes.
+                    let _: Vec<()> = self.nodes
+                        .iter_mut()
+                        .filter(|(id, _)| **id != sender_id)
+                        .map(|(_, node)| node.queue.push_back((sender_id, message.clone())))
+                        .collect();
                 }
             }
         }
@@ -96,7 +114,7 @@ impl TestNetwork {
 
     // Gets a node for receiving a message and picks the next node with a
     // non-empty message queue in a cyclic order.
-    fn pick_node(&mut self) -> NodeId {
+    fn pick_node(&mut self) -> NodeUid {
         let id = self.scheduled_node_id;
         // Try a node with a higher ID for fairness.
         if let Some(next_id) = self.nodes
@@ -117,32 +135,33 @@ impl TestNetwork {
         id
     }
 
-    fn step(&mut self) -> (NodeId, Option<bool>) {
+    fn step(&mut self) -> (NodeUid, Option<bool>) {
         let sender_id = self.pick_node();
         let (output, messages) = self.nodes.get_mut(&sender_id).unwrap().handle_message();
         self.dispatch_messages(sender_id, messages);
         (sender_id, output)
     }
 
-    fn set_input(&mut self, sender_id: NodeId, input: bool) {
-        let message = self.nodes
-            .get_mut(&sender_id)
-            .unwrap()
-            .agreement
-            .set_input(input)
-            .expect("set input");
-        self.dispatch_messages(sender_id, VecDeque::from(vec![message]));
+    fn set_input(&mut self, sender_id: NodeUid, input: bool) {
+        let messages = {
+            let instance = &mut self.nodes.get_mut(&sender_id).unwrap().agreement;
+
+            instance.set_input(input).expect("set input");
+            instance.message_iter().collect()
+        };
+
+        self.dispatch_messages(sender_id, messages);
     }
 }
 
-fn test_agreement(mut network: TestNetwork) -> BTreeMap<NodeId, TestNode> {
+fn test_agreement(mut network: TestNetwork) -> BTreeMap<NodeUid, TestNode> {
     let _ = env_logger::try_init();
 
     // Pick the first node with a non-empty queue.
     network.pick_node();
 
     while network.nodes.values().any(|node| node.outputs.is_empty()) {
-        let (NodeId(id), output) = network.step();
+        let (NodeUid(id), output) = network.step();
         if let Some(value) = output {
             debug!("Node {} output {}", id, value);
         }
@@ -156,10 +175,10 @@ fn test_agreement(mut network: TestNetwork) -> BTreeMap<NodeId, TestNode> {
 fn test_agreement_and_validity_with_1_late_node() {
     let mut network = TestNetwork::new(4);
 
-    network.set_input(NodeId(0), true);
-    network.set_input(NodeId(1), true);
-    network.set_input(NodeId(2), true);
-    network.set_input(NodeId(3), false);
+    network.set_input(NodeUid(0), true);
+    network.set_input(NodeUid(1), true);
+    network.set_input(NodeUid(2), true);
+    network.set_input(NodeUid(3), false);
 
     let nodes = test_agreement(network);
 
