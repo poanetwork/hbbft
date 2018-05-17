@@ -12,7 +12,7 @@ use agreement::{Agreement, AgreementMessage};
 use broadcast;
 use broadcast::{Broadcast, BroadcastMessage};
 use fmt::HexBytes;
-use messaging::{DistAlgorithm, MessageIter, OutputIter, Target, TargetedMessage};
+use messaging::{DistAlgorithm, Target, TargetedMessage};
 
 // TODO: Make this a generic argument of `Broadcast`.
 type ProposedValue = Vec<u8>;

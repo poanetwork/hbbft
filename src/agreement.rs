@@ -268,22 +268,20 @@ impl<NodeUid: Clone + Debug + Eq + Hash> Agreement<NodeUid> {
             self.uid, self.epoch
         );
 
-        let decision = if vals.len() != 1 {
+        if vals.len() != 1 {
             self.estimated = Some(coin);
-            None
         } else {
             // NOTE: `vals` has exactly one element due to `vals.len() == 1`
             let v: Vec<bool> = vals.into_iter().collect();
             let b = v[0];
             self.estimated = Some(b);
             // Outputting a value is allowed only once.
-            if self.output.is_none() && b == coin {
+            if self.decision.is_none() && b == coin {
                 // Output the agreement value.
                 self.output = Some(b);
+                // Latch the decided state.
+                self.decision = Some(b);
                 debug!("Agreement instance {:?} output: {}", self.uid, b);
-                self.output
-            } else {
-                None
             }
         };
 
@@ -291,11 +289,6 @@ impl<NodeUid: Clone + Debug + Eq + Hash> Agreement<NodeUid> {
         self.sent_bval.insert(b);
         self.messages
             .push_back(AgreementMessage::BVal(self.epoch, b));
-        self.output = decision;
-        // Latch the decided state.
-        if decision.is_some() {
-            self.decision = decision;
-        }
     }
 }
 
