@@ -8,6 +8,13 @@ An implementation of the paper
 in Rust. This is a modular library of consensus. There are
 [examples](./examples/README.md) illustrating the use of this algorithm.
 
+**This is work in progress.** Parts of the algorithm are still missing
+or incomplete.
+
+An example is included to run a simulation of a network:
+
+    $ cargo run --example simulation -- --nodes 10 --faulty 1 --txs 1000 --batch 100
+
 # Requirements
 
 `hbbft` has optional protobuf support. To use protobuf, enable the feature
