@@ -3,7 +3,7 @@
 // TODO: This module is work in progress. Remove this attribute when it's not needed anymore.
 #![allow(unused)]
 
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fmt::Debug;
 use std::hash::Hash;
 
@@ -18,7 +18,7 @@ use messaging::{DistAlgorithm, Target, TargetedMessage};
 type ProposedValue = Vec<u8>;
 // Type of output from the Common Subset message handler.
 type CommonSubsetOutput<NodeUid> = (
-    Option<HashMap<NodeUid, ProposedValue>>,
+    Option<BTreeMap<NodeUid, ProposedValue>>,
     VecDeque<TargetedMessage<Message<NodeUid>, NodeUid>>,
 );
 
@@ -60,18 +60,18 @@ pub struct CommonSubset<NodeUid: Eq + Hash + Ord> {
     uid: NodeUid,
     num_nodes: usize,
     num_faulty_nodes: usize,
-    broadcast_instances: HashMap<NodeUid, Broadcast<NodeUid>>,
-    agreement_instances: HashMap<NodeUid, Agreement<NodeUid>>,
-    broadcast_results: HashMap<NodeUid, ProposedValue>,
-    agreement_results: HashMap<NodeUid, bool>,
+    broadcast_instances: BTreeMap<NodeUid, Broadcast<NodeUid>>,
+    agreement_instances: BTreeMap<NodeUid, Agreement<NodeUid>>,
+    broadcast_results: BTreeMap<NodeUid, ProposedValue>,
+    agreement_results: BTreeMap<NodeUid, bool>,
     messages: VecDeque<TargetedMessage<Message<NodeUid>, NodeUid>>,
-    output: Option<HashMap<NodeUid, ProposedValue>>,
+    output: Option<BTreeMap<NodeUid, ProposedValue>>,
 }
 
 impl<NodeUid: Clone + Debug + Eq + Hash + Ord> DistAlgorithm for CommonSubset<NodeUid> {
     type NodeUid = NodeUid;
     type Input = ProposedValue;
-    type Output = HashMap<NodeUid, ProposedValue>;
+    type Output = BTreeMap<NodeUid, ProposedValue>;
     type Message = Message<NodeUid>;
     type Error = Error;
 
@@ -112,12 +112,12 @@ impl<NodeUid: Clone + Debug + Eq + Hash + Ord> DistAlgorithm for CommonSubset<No
 }
 
 impl<NodeUid: Clone + Debug + Eq + Hash + Ord> CommonSubset<NodeUid> {
-    pub fn new(uid: NodeUid, all_uids: &HashSet<NodeUid>) -> Result<Self, Error> {
+    pub fn new(uid: NodeUid, all_uids: &BTreeSet<NodeUid>) -> Result<Self, Error> {
         let num_nodes = all_uids.len();
         let num_faulty_nodes = (num_nodes - 1) / 3;
 
         // Create all broadcast instances.
-        let mut broadcast_instances: HashMap<NodeUid, Broadcast<NodeUid>> = HashMap::new();
+        let mut broadcast_instances: BTreeMap<NodeUid, Broadcast<NodeUid>> = BTreeMap::new();
         for uid0 in all_uids {
             broadcast_instances.insert(
                 uid0.clone(),
@@ -130,7 +130,7 @@ impl<NodeUid: Clone + Debug + Eq + Hash + Ord> CommonSubset<NodeUid> {
         }
 
         // Create all agreement instances.
-        let mut agreement_instances: HashMap<NodeUid, Agreement<NodeUid>> = HashMap::new();
+        let mut agreement_instances: BTreeMap<NodeUid, Agreement<NodeUid>> = BTreeMap::new();
         for uid0 in all_uids {
             agreement_instances.insert(uid0.clone(), Agreement::new(uid0.clone(), num_nodes));
         }
@@ -141,8 +141,8 @@ impl<NodeUid: Clone + Debug + Eq + Hash + Ord> CommonSubset<NodeUid> {
             num_faulty_nodes,
             broadcast_instances,
             agreement_instances,
-            broadcast_results: HashMap::new(),
-            agreement_results: HashMap::new(),
+            broadcast_results: BTreeMap::new(),
+            agreement_results: BTreeMap::new(),
             messages: VecDeque::new(),
             output: None,
         })
@@ -299,7 +299,7 @@ impl<NodeUid: Clone + Debug + Eq + Hash + Ord> CommonSubset<NodeUid> {
         }
         debug!("{:?} All Agreement instances have terminated", self.uid);
         // All instances of Agreement that delivered `true` (or "1" in the paper).
-        let delivered_1: HashSet<&NodeUid> = self.agreement_results
+        let delivered_1: BTreeSet<&NodeUid> = self.agreement_results
             .iter()
             .filter(|(_, v)| **v)
             .map(|(k, _)| k)
@@ -307,7 +307,7 @@ impl<NodeUid: Clone + Debug + Eq + Hash + Ord> CommonSubset<NodeUid> {
         debug!("Agreement instances that delivered 1: {:?}", delivered_1);
 
         // Results of Broadcast instances in `delivered_1`
-        let broadcast_results: HashMap<NodeUid, ProposedValue> = self.broadcast_results
+        let broadcast_results: BTreeMap<NodeUid, ProposedValue> = self.broadcast_results
             .iter()
             .filter(|(k, _)| delivered_1.contains(k))
             .map(|(k, v)| (k.clone(), v.clone()))
