@@ -1,4 +1,4 @@
-use merkle::proof::{Lemma, Positioned, Proof};
+use merkle::Proof;
 use std::fmt;
 
 /// Wrapper for a byte array, whose `Debug` implementation outputs shortened hexadecimal strings.
@@ -40,43 +40,10 @@ impl<'a, T: AsRef<[u8]>> fmt::Debug for HexProof<'a, T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
-            "Proof {{ algorithm: {:?}, root_hash: {:?}, lemma for leaf #{}, value: {:?} }}",
+            "Proof {{ algorithm: {:?}, root_hash: {:?}, value: {:?}, .. }}",
             self.0.algorithm,
             HexBytes(&self.0.root_hash),
-            path_of_lemma(&self.0.lemma),
             HexBytes(&self.0.value.as_ref())
         )
-    }
-}
-
-/// The path of a lemma in a Merkle tree
-struct BinaryPath(Vec<bool>);
-
-/// The path of the lemma, as a binary string
-fn path_of_lemma(mut lemma: &Lemma) -> BinaryPath {
-    let mut result = Vec::new();
-    loop {
-        match lemma.sibling_hash {
-            None => (),
-            Some(Positioned::Left(_)) => result.push(true),
-            Some(Positioned::Right(_)) => result.push(false),
-        }
-        lemma = match lemma.sub_lemma.as_ref() {
-            Some(lemma) => lemma,
-            None => return BinaryPath(result),
-        }
-    }
-}
-
-impl fmt::Display for BinaryPath {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        for b in &self.0 {
-            if *b {
-                write!(f, "1")?;
-            } else {
-                write!(f, "0")?;
-            }
-        }
-        Ok(())
     }
 }

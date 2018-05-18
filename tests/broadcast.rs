@@ -107,7 +107,7 @@ where
     for size in sizes {
         let num_faulty_nodes = (size - 1) / 3;
         let num_good_nodes = size - num_faulty_nodes;
-        println!(
+        info!(
             "Network size: {} good nodes, {} faulty nodes",
             num_good_nodes, num_faulty_nodes
         );

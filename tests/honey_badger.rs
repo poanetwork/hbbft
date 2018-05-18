@@ -97,8 +97,6 @@ fn test_honey_badger_random_delivery_silent() {
     test_honey_badger_different_sizes(new_adversary, 10);
 }
 
-// TODO: This test is flaky. Debug.
-#[ignore]
 #[test]
 fn test_honey_badger_first_delivery_silent() {
     let new_adversary = |_: usize, _: usize| SilentAdversary::new(MessageScheduler::First);
