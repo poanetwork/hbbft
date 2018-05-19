@@ -137,12 +137,12 @@ impl<NodeUid: Clone + Debug + Eq + Hash + Ord> CommonSubset<NodeUid> {
 
         // Create all broadcast instances.
         let mut broadcast_instances: BTreeMap<NodeUid, Broadcast<NodeUid>> = BTreeMap::new();
-        for uid0 in all_uids {
+        for proposer_id in all_uids {
             broadcast_instances.insert(
-                uid0.clone(),
+                proposer_id.clone(),
                 Broadcast::new(
                     uid.clone(),
-                    uid0.clone(),
+                    proposer_id.clone(),
                     all_uids.iter().cloned().collect(),
                 )?,
             );
@@ -150,8 +150,8 @@ impl<NodeUid: Clone + Debug + Eq + Hash + Ord> CommonSubset<NodeUid> {
 
         // Create all agreement instances.
         let mut agreement_instances: BTreeMap<NodeUid, Agreement<NodeUid>> = BTreeMap::new();
-        for uid0 in all_uids {
-            agreement_instances.insert(uid0.clone(), Agreement::new(uid.clone(), num_nodes));
+        for proposer_id in all_uids.iter().cloned() {
+            agreement_instances.insert(proposer_id, Agreement::new(uid.clone(), num_nodes));
         }
 
         Ok(CommonSubset {
