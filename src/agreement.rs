@@ -29,7 +29,7 @@ impl AgreementMessage {
 
 /// Binary Agreement instance
 pub struct Agreement<NodeUid> {
-    /// The UID of the corresponding proposer node.
+    /// This node's ID.
     uid: NodeUid,
     num_nodes: usize,
     num_faulty_nodes: usize,

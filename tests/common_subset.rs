@@ -44,7 +44,10 @@ fn test_common_subset<A: Adversary<CommonSubset<NodeUid>>>(
         expected = Some(node.outputs()[0].clone());
     }
     let output = expected.unwrap();
+    // The Common Subset algorithm guarantees that more than two thirds of the proposed elements
+    // are in the set.
     assert!(output.len() * 3 > inputs.len() * 2);
+    // Verify that the set's elements match the proposed values.
     for (id, value) in output {
         assert_eq!(inputs[&id], value);
     }
