@@ -29,7 +29,7 @@ impl AgreementMessage {
 
 /// Binary Agreement instance
 pub struct Agreement<NodeUid> {
-    /// The UID of the corresponding proposer node.
+    /// This node's ID.
     uid: NodeUid,
     num_nodes: usize,
     num_faulty_nodes: usize,
@@ -187,18 +187,11 @@ impl<NodeUid: Clone + Debug + Eq + Hash + Ord> Agreement<NodeUid> {
             // where w ∈ bin_values_r
             if bin_values_was_empty {
                 // Send an AUX message at most once per epoch.
-                self.messages
-                    .push_back(AgreementMessage::Aux(self.epoch, b));
-                // Receive the AUX message locally.
-                let our_uid = self.uid.clone();
-                self.handle_aux(&our_uid, b)?;
+                self.send_aux(b)?;
             }
-
-            self.try_coin()?;
-        }
-        // upon receiving BVAL_r(b) messages from f + 1 nodes, if
-        // BVAL_r(b) has not been sent, multicast BVAL_r(b)
-        else if count_bval == self.num_faulty_nodes + 1 && !self.sent_bval.contains(&b) {
+        } else if count_bval == self.num_faulty_nodes + 1 && !self.sent_bval.contains(&b) {
+            // upon receiving BVAL_r(b) messages from f + 1 nodes, if
+            // BVAL_r(b) has not been sent, multicast BVAL_r(b)
             self.send_bval(b)?;
         }
         Ok(())
@@ -217,10 +210,16 @@ impl<NodeUid: Clone + Debug + Eq + Hash + Ord> Agreement<NodeUid> {
 
     fn handle_aux(&mut self, sender_id: &NodeUid, b: bool) -> Result<(), Error> {
         self.received_aux.insert(sender_id.clone(), b);
-        if !self.bin_values.is_empty() {
-            self.try_coin()?;
-        }
-        Ok(())
+        self.try_coin()
+    }
+
+    fn send_aux(&mut self, b: bool) -> Result<(), Error> {
+        // Multicast AUX.
+        self.messages
+            .push_back(AgreementMessage::Aux(self.epoch, b));
+        // Receive the AUX message locally.
+        let our_uid = self.uid.clone();
+        self.handle_aux(&our_uid, b)
     }
 
     /// AUX_r messages such that the set of values carried by those messages is
@@ -253,6 +252,9 @@ impl<NodeUid: Clone + Debug + Eq + Hash + Ord> Agreement<NodeUid> {
     /// value.  The function may start the next epoch. In that case, it also
     /// returns a message for broadcast.
     fn try_coin(&mut self) -> Result<(), Error> {
+        if self.bin_values.is_empty() {
+            return Ok(());
+        }
         let (count_aux, vals) = self.count_aux();
         if count_aux < self.num_nodes - self.num_faulty_nodes {
             // Continue waiting for the (N - f) AUX messages.
@@ -288,8 +290,7 @@ impl<NodeUid: Clone + Debug + Eq + Hash + Ord> Agreement<NodeUid> {
             self.estimated = Some(coin);
         } else {
             // NOTE: `vals` has exactly one element due to `vals.len() == 1`
-            let v: Vec<bool> = vals.into_iter().collect();
-            let b = v[0];
+            let b = vals.into_iter().next().unwrap();
             self.estimated = Some(b);
             // Outputting a value is allowed only once.
             if self.decision.is_none() && b == coin {

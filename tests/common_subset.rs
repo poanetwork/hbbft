@@ -9,11 +9,11 @@ extern crate rand;
 mod network;
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::iter;
 
 use hbbft::common_subset::CommonSubset;
-use hbbft::messaging::DistAlgorithm;
 
-use network::{Adversary, MessageScheduler, NodeUid, SilentAdversary, TestNetwork};
+use network::{Adversary, MessageScheduler, NodeUid, SilentAdversary, TestNetwork, TestNode};
 
 type ProposedValue = Vec<u8>;
 
@@ -22,7 +22,6 @@ fn test_common_subset<A: Adversary<CommonSubset<NodeUid>>>(
     inputs: &BTreeMap<NodeUid, ProposedValue>,
 ) {
     let ids: Vec<NodeUid> = network.nodes.keys().cloned().collect();
-    let mut decided_nodes: BTreeSet<NodeUid> = BTreeSet::new();
 
     for id in ids {
         if let Some(value) = inputs.get(&id) {
@@ -31,21 +30,26 @@ fn test_common_subset<A: Adversary<CommonSubset<NodeUid>>>(
     }
 
     // Terminate when all good nodes do.
-    while network
-        .nodes
-        .values()
-        .any(|node| network.adv_nodes.contains(&node.algo.our_id()) || node.algo.terminated())
-    {
-        let id = network.step();
-        if let Some(output) = network.nodes[&id].outputs().iter().next() {
-            assert_eq!(inputs, output);
-            debug!("Node {:?} decided: {:?}", id, output);
-
-            // Test uniqueness of output of the good nodes.
-            if !network.adv_nodes.contains(&id) {
-                assert!(!decided_nodes.insert(id));
-            }
+    while !network.nodes.values().all(TestNode::terminated) {
+        network.step();
+    }
+    // Verify that all instances output the same set.
+    let mut expected = None;
+    for node in network.nodes.values() {
+        if let Some(output) = expected.as_ref() {
+            assert!(iter::once(output).eq(node.outputs()));
+            continue;
         }
+        assert_eq!(1, node.outputs().len());
+        expected = Some(node.outputs()[0].clone());
+    }
+    let output = expected.unwrap();
+    // The Common Subset algorithm guarantees that more than two thirds of the proposed elements
+    // are in the set.
+    assert!(output.len() * 3 > inputs.len() * 2);
+    // Verify that the set's elements match the proposed values.
+    for (id, value) in output {
+        assert_eq!(inputs[&id], value);
     }
 }
 

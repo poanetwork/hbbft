@@ -82,12 +82,12 @@ fn test_broadcast<A: Adversary<Broadcast<NodeUid>>>(
     network.input(NodeUid(0), proposed_value.to_vec());
 
     // Handle messages in random order until all nodes have output the proposed value.
-    while network.nodes.values().any(|node| node.outputs().is_empty()) {
-        let id = network.step();
-        if !network.nodes[&id].outputs().is_empty() {
-            assert_eq!(vec![proposed_value.to_vec()], network.nodes[&id].outputs());
-            debug!("Node {:?} received", id);
-        }
+    while !network.nodes.values().all(TestNode::terminated) {
+        network.step();
+    }
+    // Verify that all instances output the proposed value.
+    for node in network.nodes.values() {
+        assert!(iter::once(&proposed_value.to_vec()).eq(node.outputs()));
     }
 }
 

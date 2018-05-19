@@ -72,9 +72,7 @@ where
         .chain(iter::once(rng.gen_range(6, 10)))
         .chain(iter::once(rng.gen_range(11, 15)));
     for size in sizes {
-        // TODO: Fix `CommonSubset` to tolerate faulty nodes.
-        // let num_faulty_nodes = (size - 1) / 3;
-        let num_faulty_nodes = 0;
+        let num_faulty_nodes = (size - 1) / 3;
         let num_good_nodes = size - num_faulty_nodes;
         info!(
             "Network size: {} good nodes, {} faulty nodes",
