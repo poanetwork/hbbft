@@ -27,7 +27,7 @@ use std::iter;
 use rand::Rng;
 
 use hbbft::agreement::Agreement;
-use network::{Adversary, MessageScheduler, NodeUid, SilentAdversary, TestNetwork};
+use network::{Adversary, MessageScheduler, NodeUid, SilentAdversary, TestNetwork, TestNode};
 
 fn test_agreement<A: Adversary<Agreement<NodeUid>>>(
     mut network: TestNetwork<A, Agreement<NodeUid>>,
@@ -39,13 +39,17 @@ fn test_agreement<A: Adversary<Agreement<NodeUid>>>(
     }
 
     // Handle messages in random order until all nodes have output the proposed value.
-    while network.nodes.values().any(|node| node.outputs().is_empty()) {
-        let id = network.step();
-        if let Some(&b) = network.nodes[&id].outputs().iter().next() {
-            if let Some(expected) = input {
-                assert_eq!(expected, b);
-            }
-            debug!("Node {:?} decided: {}", id, b);
+    while !network.nodes.values().all(TestNode::terminated) {
+        network.step();
+    }
+    // Verify that all instances output the same value.
+    let mut expected = input;
+    for node in network.nodes.values() {
+        if let Some(b) = expected {
+            assert!(iter::once(&b).eq(node.outputs()));
+        } else {
+            assert_eq!(1, node.outputs().len());
+            expected = Some(node.outputs()[0]);
         }
     }
 }
@@ -80,13 +84,13 @@ where
 }
 
 #[test]
-fn test_agreement_random_silent_all_true() {
+fn test_agreement_random_silent() {
     let new_adversary = |_: usize, _: usize| SilentAdversary::new(MessageScheduler::Random);
     test_agreement_different_sizes(new_adversary);
 }
 
 #[test]
-fn test_agreement_first_silent_all_true() {
+fn test_agreement_first_silent() {
     let new_adversary = |_: usize, _: usize| SilentAdversary::new(MessageScheduler::First);
     test_agreement_different_sizes(new_adversary);
 }

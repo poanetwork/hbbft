@@ -14,7 +14,7 @@ pub struct TestNode<D: DistAlgorithm> {
     /// This node's own ID.
     id: D::NodeUid,
     /// The instance of the broadcast algorithm.
-    pub algo: D,
+    algo: D,
     /// Incoming messages from other nodes that this node has not yet handled.
     pub queue: VecDeque<(D::NodeUid, D::Message)>,
     /// The values this node has output so far.
@@ -25,6 +25,12 @@ impl<D: DistAlgorithm> TestNode<D> {
     /// Returns the list of outputs received by this node.
     pub fn outputs(&self) -> &[D::Output] {
         &self.outputs
+    }
+
+    /// Returns whether the algorithm has terminated.
+    #[allow(unused)] // Not used in all tests.
+    pub fn terminated(&self) -> bool {
+        self.algo.terminated()
     }
 
     /// Creates a new test node with the given broadcast instance.

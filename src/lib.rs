@@ -6,6 +6,8 @@
 #![feature(optin_builtin_traits)]
 
 extern crate bincode;
+#[macro_use(Deref, DerefMut)]
+extern crate derive_deref;
 #[macro_use]
 extern crate log;
 extern crate itertools;

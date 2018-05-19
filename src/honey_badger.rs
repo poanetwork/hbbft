@@ -30,7 +30,7 @@ pub struct HoneyBadger<T, N: Eq + Hash + Ord + Clone> {
     // `num_nodes * num_nodes * log(num_nodes)`.
     batch_size: usize,
     /// The messages that need to be sent to other nodes.
-    messages: VecDeque<TargetedMessage<Message<N>, N>>,
+    messages: MessageQueue<N>,
     /// The outputs from completed epochs.
     output: VecDeque<Batch<T>>,
 }
@@ -101,7 +101,7 @@ where
             id,
             batch_size,
             all_uids,
-            messages: VecDeque::new(),
+            messages: MessageQueue(VecDeque::new()),
             output: VecDeque::new(),
         };
         honey_badger.propose()?;
@@ -124,11 +124,7 @@ where
             }
         };
         cs.input(proposal)?;
-        for targeted_msg in cs.message_iter() {
-            let epoch = self.epoch;
-            let msg = targeted_msg.map(|cs_msg| Message::CommonSubset(epoch, cs_msg));
-            self.messages.push_back(msg);
-        }
+        self.messages.extend_with_epoch(self.epoch, cs);
         Ok(())
     }
 
@@ -170,10 +166,7 @@ where
             };
             // Handle the message and put the outgoing messages into the queue.
             cs.handle_message(sender_id, message)?;
-            for targeted_msg in cs.message_iter() {
-                let msg = targeted_msg.map(|cs_msg| Message::CommonSubset(epoch, cs_msg));
-                self.messages.push_back(msg);
-            }
+            self.messages.extend_with_epoch(epoch, cs);
         }
         // If this is the current epoch, the message could cause a new output.
         if epoch == self.epoch {
@@ -251,6 +244,20 @@ pub enum Message<N> {
     /// A message belonging to the common subset algorithm in the given epoch.
     CommonSubset(u64, common_subset::Message<N>),
     // TODO: Decryption share.
+}
+
+/// The queue of outgoing messages in a `HoneyBadger` instance.
+#[derive(Deref, DerefMut)]
+struct MessageQueue<N>(VecDeque<TargetedMessage<Message<N>, N>>);
+
+impl<N: Clone + Debug + Eq + Hash + Ord> MessageQueue<N> {
+    /// Appends to the queue the messages from `cs`, wrapped with `epoch`.
+    fn extend_with_epoch(&mut self, epoch: u64, cs: &mut CommonSubset<N>) {
+        let convert = |msg: TargetedMessage<common_subset::Message<N>, N>| {
+            msg.map(|cs_msg| Message::CommonSubset(epoch, cs_msg))
+        };
+        self.extend(cs.message_iter().map(convert));
+    }
 }
 
 /// A Honey Badger error.
