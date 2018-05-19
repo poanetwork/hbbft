@@ -14,7 +14,7 @@ pub struct TestNode<D: DistAlgorithm> {
     /// This node's own ID.
     id: D::NodeUid,
     /// The instance of the broadcast algorithm.
-    algo: D,
+    pub algo: D,
     /// Incoming messages from other nodes that this node has not yet handled.
     pub queue: VecDeque<(D::NodeUid, D::Message)>,
     /// The values this node has output so far.
@@ -136,7 +136,7 @@ impl<D: DistAlgorithm> Adversary<D> for SilentAdversary {
 /// A collection of `TestNode`s representing a network.
 pub struct TestNetwork<A: Adversary<D>, D: DistAlgorithm> {
     pub nodes: BTreeMap<D::NodeUid, TestNode<D>>,
-    adv_nodes: BTreeSet<D::NodeUid>,
+    pub adv_nodes: BTreeSet<D::NodeUid>,
     adversary: A,
 }
 

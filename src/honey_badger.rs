@@ -1,5 +1,5 @@
 use std::collections::btree_map::Entry;
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fmt::Debug;
 use std::hash::Hash;
 use std::{cmp, iter};
@@ -24,7 +24,7 @@ pub struct HoneyBadger<T, N: Eq + Hash + Ord + Clone> {
     /// This node's ID.
     id: N,
     /// The set of all node IDs of the participants (including ourselves).
-    all_uids: HashSet<N>,
+    all_uids: BTreeSet<N>,
     /// The target number of transactions to be included in each batch.
     // TODO: Do experiments and recommend a batch size. It should be proportional to
     // `num_nodes * num_nodes * log(num_nodes)`.
@@ -90,7 +90,7 @@ where
         I: IntoIterator<Item = N>,
         TI: IntoIterator<Item = T>,
     {
-        let all_uids: HashSet<N> = all_uids_iter.into_iter().collect();
+        let all_uids: BTreeSet<N> = all_uids_iter.into_iter().collect();
         if !all_uids.contains(&id) {
             return Err(Error::OwnIdMissing);
         }
@@ -217,7 +217,7 @@ where
     }
 
     /// Returns the output of the current epoch's `CommonSubset` instance, if any.
-    fn take_current_output(&mut self) -> Option<HashMap<N, Vec<u8>>> {
+    fn take_current_output(&mut self) -> Option<BTreeMap<N, Vec<u8>>> {
         self.common_subsets
             .get_mut(&self.epoch)
             .and_then(CommonSubset::next_output)
