@@ -85,7 +85,7 @@ impl<'a, P: Message + 'a, M: Into<P> + From<P> + Send + 'a> CommsTask<'a, P, M> 
                             message: message.into(),
                         }).unwrap();
                     }
-                    Err(proto_io::Error::ProtobufError(e)) => {
+                    Err(proto_io::Error::Protobuf(e)) => {
                         warn!("Node {} - Protobuf error {}", node_index, e)
                     }
                     Err(e) => {

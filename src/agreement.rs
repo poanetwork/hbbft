@@ -8,6 +8,17 @@ use std::mem;
 
 use messaging::{DistAlgorithm, Target, TargetedMessage};
 
+error_chain!{
+    types {
+        Error, ErrorKind, ResultExt, AgreementResult;
+    }
+
+    errors {
+        InputNotAccepted
+        Terminated
+    }
+}
+
 /// Messages sent during the binary Byzantine agreement stage.
 #[cfg_attr(feature = "serialization-serde", derive(Serialize))]
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -74,7 +85,7 @@ impl<NodeUid: Clone + Debug + Eq + Hash + Ord> DistAlgorithm for Agreement<NodeU
     type Message = AgreementMessage;
     type Error = Error;
 
-    fn input(&mut self, input: Self::Input) -> Result<(), Self::Error> {
+    fn input(&mut self, input: Self::Input) -> AgreementResult<()> {
         self.set_input(input)
     }
 
@@ -83,9 +94,9 @@ impl<NodeUid: Clone + Debug + Eq + Hash + Ord> DistAlgorithm for Agreement<NodeU
         &mut self,
         sender_id: &Self::NodeUid,
         message: Self::Message,
-    ) -> Result<(), Self::Error> {
+    ) -> AgreementResult<()> {
         if self.terminated {
-            return Err(Error::Terminated);
+            return Err(ErrorKind::Terminated.into());
         }
         if message.epoch() < self.epoch {
             return Ok(()); // Message is obsolete: We are already in a later epoch.
@@ -146,9 +157,9 @@ impl<NodeUid: Clone + Debug + Eq + Hash + Ord> Agreement<NodeUid> {
     }
 
     /// Sets the input value for agreement.
-    pub fn set_input(&mut self, input: bool) -> Result<(), Error> {
+    pub fn set_input(&mut self, input: bool) -> AgreementResult<()> {
         if self.epoch != 0 || self.estimated.is_some() {
-            return Err(Error::InputNotAccepted);
+            return Err(ErrorKind::InputNotAccepted.into());
         }
         if self.num_nodes == 1 {
             self.decision = Some(input);
@@ -167,7 +178,7 @@ impl<NodeUid: Clone + Debug + Eq + Hash + Ord> Agreement<NodeUid> {
         self.epoch == 0 && self.estimated.is_none()
     }
 
-    fn handle_bval(&mut self, sender_id: &NodeUid, b: bool) -> Result<(), Error> {
+    fn handle_bval(&mut self, sender_id: &NodeUid, b: bool) -> AgreementResult<()> {
         self.received_bval
             .entry(sender_id.clone())
             .or_insert_with(BTreeSet::new)
@@ -197,7 +208,7 @@ impl<NodeUid: Clone + Debug + Eq + Hash + Ord> Agreement<NodeUid> {
         Ok(())
     }
 
-    fn send_bval(&mut self, b: bool) -> Result<(), Error> {
+    fn send_bval(&mut self, b: bool) -> AgreementResult<()> {
         // Record the value `b` as sent.
         self.sent_bval.insert(b);
         // Multicast BVAL.
@@ -208,12 +219,12 @@ impl<NodeUid: Clone + Debug + Eq + Hash + Ord> Agreement<NodeUid> {
         self.handle_bval(&our_uid, b)
     }
 
-    fn handle_aux(&mut self, sender_id: &NodeUid, b: bool) -> Result<(), Error> {
+    fn handle_aux(&mut self, sender_id: &NodeUid, b: bool) -> AgreementResult<()> {
         self.received_aux.insert(sender_id.clone(), b);
         self.try_coin()
     }
 
-    fn send_aux(&mut self, b: bool) -> Result<(), Error> {
+    fn send_aux(&mut self, b: bool) -> AgreementResult<()> {
         // Multicast AUX.
         self.messages
             .push_back(AgreementMessage::Aux(self.epoch, b));
@@ -251,7 +262,7 @@ impl<NodeUid: Clone + Debug + Eq + Hash + Ord> Agreement<NodeUid> {
     /// to compute the next decision estimate and outputs the optional decision
     /// value.  The function may start the next epoch. In that case, it also
     /// returns a message for broadcast.
-    fn try_coin(&mut self) -> Result<(), Error> {
+    fn try_coin(&mut self) -> AgreementResult<()> {
         if self.bin_values.is_empty() {
             return Ok(());
         }
@@ -310,10 +321,4 @@ impl<NodeUid: Clone + Debug + Eq + Hash + Ord> Agreement<NodeUid> {
         }
         Ok(())
     }
-}
-
-#[derive(Clone, Debug)]
-pub enum Error {
-    Terminated,
-    InputNotAccepted,
 }

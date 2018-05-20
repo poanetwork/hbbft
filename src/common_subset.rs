@@ -14,6 +14,25 @@ use broadcast::{Broadcast, BroadcastMessage};
 use fmt::HexBytes;
 use messaging::{DistAlgorithm, Target, TargetedMessage};
 
+error_chain!{
+    types {
+        Error, ErrorKind, ResultExt, CommonSubsetResult;
+    }
+
+    links {
+        Agreement(agreement::Error, agreement::ErrorKind);
+        Broadcast(broadcast::Error, broadcast::ErrorKind);
+    }
+
+    errors {
+        MultipleAgreementResults
+        NoSuchAgreementInstance
+        NoSuchBroadcastInstance
+        NotImplemented
+        UnexpectedMessage
+    }
+}
+
 // TODO: Make this a generic argument of `Broadcast`.
 type ProposedValue = Vec<u8>;
 // Type of output from the Common Subset message handler.
@@ -98,7 +117,7 @@ impl<NodeUid: Clone + Debug + Eq + Hash + Ord> DistAlgorithm for CommonSubset<No
     type Message = Message<NodeUid>;
     type Error = Error;
 
-    fn input(&mut self, input: Self::Input) -> Result<(), Self::Error> {
+    fn input(&mut self, input: Self::Input) -> CommonSubsetResult<()> {
         self.send_proposed_value(input)
     }
 
@@ -106,7 +125,7 @@ impl<NodeUid: Clone + Debug + Eq + Hash + Ord> DistAlgorithm for CommonSubset<No
         &mut self,
         sender_id: &Self::NodeUid,
         message: Self::Message,
-    ) -> Result<(), Self::Error> {
+    ) -> CommonSubsetResult<()> {
         match message {
             Message::Broadcast(p_id, b_msg) => self.handle_broadcast(sender_id, &p_id, b_msg),
             Message::Agreement(p_id, a_msg) => self.handle_agreement(sender_id, &p_id, a_msg),
@@ -131,7 +150,7 @@ impl<NodeUid: Clone + Debug + Eq + Hash + Ord> DistAlgorithm for CommonSubset<No
 }
 
 impl<NodeUid: Clone + Debug + Eq + Hash + Ord> CommonSubset<NodeUid> {
-    pub fn new(uid: NodeUid, all_uids: &BTreeSet<NodeUid>) -> Result<Self, Error> {
+    pub fn new(uid: NodeUid, all_uids: &BTreeSet<NodeUid>) -> CommonSubsetResult<Self> {
         let num_nodes = all_uids.len();
         let num_faulty_nodes = (num_nodes - 1) / 3;
 
@@ -170,7 +189,7 @@ impl<NodeUid: Clone + Debug + Eq + Hash + Ord> CommonSubset<NodeUid> {
 
     /// Common Subset input message handler. It receives a value for broadcast
     /// and redirects it to the corresponding broadcast instance.
-    pub fn send_proposed_value(&mut self, value: ProposedValue) -> Result<(), Error> {
+    pub fn send_proposed_value(&mut self, value: ProposedValue) -> CommonSubsetResult<()> {
         let uid = self.uid.clone();
         // Upon receiving input v_i , input v_i to RBC_i. See Figure 2.
         self.process_broadcast(&uid, |bc| bc.input(value))
@@ -183,7 +202,7 @@ impl<NodeUid: Clone + Debug + Eq + Hash + Ord> CommonSubset<NodeUid> {
         sender_id: &NodeUid,
         proposer_id: &NodeUid,
         bmessage: BroadcastMessage,
-    ) -> Result<(), Error> {
+    ) -> CommonSubsetResult<()> {
         self.process_broadcast(proposer_id, |bc| bc.handle_message(sender_id, bmessage))
     }
 
@@ -194,7 +213,7 @@ impl<NodeUid: Clone + Debug + Eq + Hash + Ord> CommonSubset<NodeUid> {
         sender_id: &NodeUid,
         proposer_id: &NodeUid,
         amessage: AgreementMessage,
-    ) -> Result<(), Error> {
+    ) -> CommonSubsetResult<()> {
         // Send the message to the local instance of Agreement
         self.process_agreement(proposer_id, |agreement| {
             agreement.handle_message(sender_id, amessage)
@@ -203,14 +222,14 @@ impl<NodeUid: Clone + Debug + Eq + Hash + Ord> CommonSubset<NodeUid> {
 
     /// Upon delivery of v_j from RBC_j, if input has not yet been provided to
     /// BA_j, then provide input 1 to BA_j. See Figure 11.
-    fn process_broadcast<F>(&mut self, proposer_id: &NodeUid, f: F) -> Result<(), Error>
+    fn process_broadcast<F>(&mut self, proposer_id: &NodeUid, f: F) -> CommonSubsetResult<()>
     where
         F: FnOnce(&mut Broadcast<NodeUid>) -> Result<(), broadcast::Error>,
     {
         let value = {
             let broadcast = self.broadcast_instances
                 .get_mut(proposer_id)
-                .ok_or(Error::NoSuchBroadcastInstance)?;
+                .ok_or(ErrorKind::NoSuchBroadcastInstance)?;
             f(broadcast)?;
             self.messages.extend_broadcast(&proposer_id, broadcast);
             if let Some(output) = broadcast.next_output() {
@@ -231,14 +250,14 @@ impl<NodeUid: Clone + Debug + Eq + Hash + Ord> CommonSubset<NodeUid> {
 
     /// Callback to be invoked on receipt of the decision value of the Agreement
     /// instance `uid`.
-    fn process_agreement<F>(&mut self, proposer_id: &NodeUid, f: F) -> Result<(), Error>
+    fn process_agreement<F>(&mut self, proposer_id: &NodeUid, f: F) -> CommonSubsetResult<()>
     where
         F: FnOnce(&mut Agreement<NodeUid>) -> Result<(), agreement::Error>,
     {
         let value = {
             let agreement = self.agreement_instances
                 .get_mut(proposer_id)
-                .ok_or(Error::NoSuchAgreementInstance)?;
+                .ok_or(ErrorKind::NoSuchAgreementInstance)?;
             if agreement.terminated() {
                 return Ok(());
             }
@@ -254,7 +273,7 @@ impl<NodeUid: Clone + Debug + Eq + Hash + Ord> CommonSubset<NodeUid> {
             .insert(proposer_id.clone(), value)
             .is_some()
         {
-            return Err(Error::MultipleAgreementResults);
+            return Err(ErrorKind::MultipleAgreementResults.into());
         }
         debug!(
             "{:?} Updated Agreement results: {:?}",
@@ -270,7 +289,7 @@ impl<NodeUid: Clone + Debug + Eq + Hash + Ord> CommonSubset<NodeUid> {
                     self.messages.extend_agreement(uid, agreement);
                     if let Some(output) = agreement.next_output() {
                         if self.agreement_results.insert(uid.clone(), output).is_some() {
-                            return Err(Error::MultipleAgreementResults);
+                            return Err(ErrorKind::MultipleAgreementResults.into());
                         }
                     }
                 }
@@ -319,28 +338,5 @@ impl<NodeUid: Clone + Debug + Eq + Hash + Ord> CommonSubset<NodeUid> {
             self.decided = true;
             self.output = Some(broadcast_results)
         }
-    }
-}
-
-#[derive(Clone, Debug)]
-pub enum Error {
-    UnexpectedMessage,
-    NotImplemented,
-    NoSuchBroadcastInstance,
-    NoSuchAgreementInstance,
-    MultipleAgreementResults,
-    Broadcast(broadcast::Error),
-    Agreement(agreement::Error),
-}
-
-impl From<broadcast::Error> for Error {
-    fn from(err: broadcast::Error) -> Error {
-        Error::Broadcast(err)
-    }
-}
-
-impl From<agreement::Error> for Error {
-    fn from(err: agreement::Error) -> Error {
-        Error::Agreement(err)
     }
 }

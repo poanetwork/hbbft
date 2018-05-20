@@ -1,6 +1,6 @@
 //! Protobuf message IO task structure.
 
-use protobuf::{self, Message};
+use protobuf::{self, Message, ProtobufError};
 use std::io::{Read, Write};
 use std::marker::PhantomData;
 use std::net::TcpStream;
@@ -12,31 +12,26 @@ use std::{cmp, io};
 /// TODO: Replace it with a proper handshake at connection initiation.
 const FRAME_START: u32 = 0x2C0F_FEE5;
 
-#[derive(Debug)]
-pub enum Error {
-    IoError(io::Error),
-    EncodeError,
-    DecodeError,
-    FrameStartMismatch,
-    // ProtocolError,
-    ProtobufError(protobuf::ProtobufError),
-}
+error_chain!{
+    types {
+        Error, ErrorKind, ResultExt, ProtoIoResult;
+    }
 
-impl From<io::Error> for Error {
-    fn from(err: io::Error) -> Error {
-        Error::IoError(err)
+    foreign_links {
+        Io(io::Error);
+        Protobuf(ProtobufError);
+    }
+
+    errors {
+        Decode
+        Encode
+        FrameStartMismatch
     }
 }
 
-impl From<protobuf::ProtobufError> for Error {
-    fn from(err: protobuf::ProtobufError) -> Error {
-        Error::ProtobufError(err)
-    }
-}
-
-fn encode_u32_to_be(value: u32, buffer: &mut [u8]) -> Result<(), Error> {
+fn encode_u32_to_be(value: u32, buffer: &mut [u8]) -> ProtoIoResult<()> {
     if buffer.len() < 4 {
-        return Err(Error::EncodeError);
+        return Err(ErrorKind::Encode.into());
     }
     let value = value.to_le();
     buffer[0] = ((value & 0xFF00_0000) >> 24) as u8;
@@ -46,9 +41,9 @@ fn encode_u32_to_be(value: u32, buffer: &mut [u8]) -> Result<(), Error> {
     Ok(())
 }
 
-fn decode_u32_from_be(buffer: &[u8]) -> Result<u32, Error> {
+fn decode_u32_from_be(buffer: &[u8]) -> ProtoIoResult<u32> {
     if buffer.len() < 4 {
-        return Err(Error::DecodeError);
+        return Err(ErrorKind::Decode.into());
     }
     let mut result = u32::from(buffer[0]);
     result <<= 8;
@@ -88,11 +83,11 @@ impl<S: Read + Write, M: Message> ProtoIo<S, M>
         }
     }
 
-    pub fn recv(&mut self) -> Result<M, Error> {
+    pub fn recv(&mut self) -> ProtoIoResult<M> {
         self.stream.read_exact(&mut self.buffer[0..4])?;
         let frame_start = decode_u32_from_be(&self.buffer[0..4])?;
         if frame_start != FRAME_START {
-            return Err(Error::FrameStartMismatch);
+            return Err(ErrorKind::FrameStartMismatch.into());
         };
         self.stream.read_exact(&mut self.buffer[0..4])?;
         let size = decode_u32_from_be(&self.buffer[0..4])? as usize;
@@ -106,10 +101,10 @@ impl<S: Read + Write, M: Message> ProtoIo<S, M>
             message_v.extend_from_slice(slice);
         }
 
-        protobuf::parse_from_bytes(&message_v).map_err(Error::ProtobufError)
+        protobuf::parse_from_bytes(&message_v).map_err(|e| e.into())
     }
 
-    pub fn send(&mut self, message: &M) -> Result<(), Error> {
+    pub fn send(&mut self, message: &M) -> ProtoIoResult<()> {
         let mut buffer: [u8; 4] = [0; 4];
         // Wrap stream
         let mut stream = protobuf::CodedOutputStream::new(&mut self.stream);

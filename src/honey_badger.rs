@@ -12,6 +12,25 @@ use serde::Serialize;
 use common_subset::{self, CommonSubset};
 use messaging::{DistAlgorithm, TargetedMessage};
 
+error_chain!{
+    types {
+        Error, ErrorKind, ResultExt, HoneyBadgerResult;
+    }
+
+    links {
+        CommonSubset(common_subset::Error, common_subset::ErrorKind);
+    }
+
+    foreign_links {
+        Bincode(Box<bincode::ErrorKind>);
+    }
+
+    errors {
+        OwnIdMissing
+        UnknownSender
+    }
+}
+
 /// An instance of the Honey Badger Byzantine fault tolerant consensus algorithm.
 pub struct HoneyBadger<T, N: Eq + Hash + Ord + Clone> {
     /// The buffer of transactions that have not yet been included in any output batch.
@@ -46,13 +65,13 @@ where
     type Message = Message<N>;
     type Error = Error;
 
-    fn input(&mut self, input: Self::Input) -> Result<(), Self::Error> {
+    fn input(&mut self, input: Self::Input) -> HoneyBadgerResult<()> {
         self.add_transactions(iter::once(input))
     }
 
-    fn handle_message(&mut self, sender_id: &N, message: Self::Message) -> Result<(), Self::Error> {
+    fn handle_message(&mut self, sender_id: &N, message: Self::Message) -> HoneyBadgerResult<()> {
         if !self.all_uids.contains(sender_id) {
-            return Err(Error::UnknownSender);
+            return Err(ErrorKind::UnknownSender.into());
         }
         match message {
             Message::CommonSubset(epoch, cs_msg) => {
@@ -85,14 +104,14 @@ where
     N: Eq + Hash + Ord + Clone + Debug,
 {
     /// Returns a new Honey Badger instance with the given parameters, starting at epoch `0`.
-    pub fn new<I, TI>(id: N, all_uids_iter: I, batch_size: usize, txs: TI) -> Result<Self, Error>
+    pub fn new<I, TI>(id: N, all_uids_iter: I, batch_size: usize, txs: TI) -> HoneyBadgerResult<Self>
     where
         I: IntoIterator<Item = N>,
         TI: IntoIterator<Item = T>,
     {
         let all_uids: BTreeSet<N> = all_uids_iter.into_iter().collect();
         if !all_uids.contains(&id) {
-            return Err(Error::OwnIdMissing);
+            return Err(ErrorKind::OwnIdMissing.into());
         }
         let mut honey_badger = HoneyBadger {
             buffer: txs.into_iter().collect(),
@@ -109,13 +128,13 @@ where
     }
 
     /// Adds transactions into the buffer.
-    pub fn add_transactions<I: IntoIterator<Item = T>>(&mut self, txs: I) -> Result<(), Error> {
+    pub fn add_transactions<I: IntoIterator<Item = T>>(&mut self, txs: I) -> HoneyBadgerResult<()> {
         self.buffer.extend(txs);
         Ok(())
     }
 
     /// Proposes a new batch in the current epoch.
-    fn propose(&mut self) -> Result<(), Error> {
+    fn propose(&mut self) -> HoneyBadgerResult<()> {
         let proposal = self.choose_transactions()?;
         let cs = match self.common_subsets.entry(self.epoch) {
             Entry::Occupied(entry) => entry.into_mut(),
@@ -130,7 +149,7 @@ where
 
     /// Returns a random choice of `batch_size / all_uids.len()` buffered transactions, and
     /// serializes them.
-    fn choose_transactions(&self) -> Result<Vec<u8>, Error> {
+    fn choose_transactions(&self) -> HoneyBadgerResult<Vec<u8>> {
         let mut rng = rand::thread_rng();
         let amount = cmp::max(1, self.batch_size / self.all_uids.len());
         let batch_size = cmp::min(self.batch_size, self.buffer.len());
@@ -151,7 +170,7 @@ where
         sender_id: &N,
         epoch: u64,
         message: common_subset::Message<N>,
-    ) -> Result<(), Error> {
+    ) -> HoneyBadgerResult<()> {
         {
             // Borrow the instance for `epoch`, or create it.
             let cs = match self.common_subsets.entry(epoch) {
@@ -257,26 +276,5 @@ impl<N: Clone + Debug + Eq + Hash + Ord> MessageQueue<N> {
             msg.map(|cs_msg| Message::CommonSubset(epoch, cs_msg))
         };
         self.extend(cs.message_iter().map(convert));
-    }
-}
-
-/// A Honey Badger error.
-#[derive(Debug)]
-pub enum Error {
-    OwnIdMissing,
-    UnknownSender,
-    CommonSubset(common_subset::Error),
-    Bincode(Box<bincode::ErrorKind>),
-}
-
-impl From<common_subset::Error> for Error {
-    fn from(err: common_subset::Error) -> Error {
-        Error::CommonSubset(err)
-    }
-}
-
-impl From<Box<bincode::ErrorKind>> for Error {
-    fn from(err: Box<bincode::ErrorKind>) -> Error {
-        Error::Bincode(err)
     }
 }

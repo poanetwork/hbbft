@@ -9,6 +9,25 @@ use std::iter;
 
 use messaging::{DistAlgorithm, Target, TargetedMessage};
 
+error_chain!{
+    types {
+        Error, ErrorKind, ResultExt, BroadcastResult;
+    }
+
+    foreign_links {
+        ReedSolomon(rse::Error);
+    }
+
+    errors {
+        InstanceCannotPropose
+        NotImplemented
+        ProofConstructionFailed
+        RootHashMismatch
+        Threading
+        UnknownSender
+    }
+}
+
 /// The three kinds of message sent during the reliable broadcast stage of the
 /// consensus algorithm.
 #[cfg_attr(feature = "serialization-serde", derive(Serialize, Deserialize))]
@@ -105,9 +124,9 @@ impl<N: Eq + Debug + Clone + Ord> DistAlgorithm for Broadcast<N> {
     type Message = BroadcastMessage;
     type Error = Error;
 
-    fn input(&mut self, input: Self::Input) -> Result<(), Self::Error> {
+    fn input(&mut self, input: Self::Input) -> BroadcastResult<()> {
         if self.our_id != self.proposer_id {
-            return Err(Error::InstanceCannotPropose);
+            return Err(ErrorKind::InstanceCannotPropose.into());
         }
         // Split the value into chunks/shards, encode them with erasure codes.
         // Assemble a Merkle tree from data and parity shards. Take all proofs
@@ -119,9 +138,9 @@ impl<N: Eq + Debug + Clone + Ord> DistAlgorithm for Broadcast<N> {
         self.handle_value(&our_id, proof)
     }
 
-    fn handle_message(&mut self, sender_id: &N, message: Self::Message) -> Result<(), Self::Error> {
+    fn handle_message(&mut self, sender_id: &N, message: Self::Message) -> BroadcastResult<()> {
         if !self.all_uids.contains(sender_id) {
-            return Err(Error::UnknownSender);
+            return Err(ErrorKind::UnknownSender.into());
         }
         match message {
             BroadcastMessage::Value(p) => self.handle_value(sender_id, p),
@@ -150,7 +169,7 @@ impl<N: Eq + Debug + Clone + Ord> DistAlgorithm for Broadcast<N> {
 impl<N: Eq + Debug + Clone + Ord> Broadcast<N> {
     /// Creates a new broadcast instance to be used by node `our_id` which expects a value proposal
     /// from node `proposer_id`.
-    pub fn new(our_id: N, proposer_id: N, all_uids: BTreeSet<N>) -> Result<Self, Error> {
+    pub fn new(our_id: N, proposer_id: N, all_uids: BTreeSet<N>) -> BroadcastResult<Self> {
         let num_nodes = all_uids.len();
         let num_faulty_nodes = (num_nodes - 1) / 3;
         let parity_shard_num = 2 * num_faulty_nodes;
@@ -180,7 +199,7 @@ impl<N: Eq + Debug + Clone + Ord> Broadcast<N> {
     /// scheme. The returned value contains the shard assigned to this
     /// node. That shard doesn't need to be sent anywhere. It gets recorded in
     /// the broadcast instance.
-    fn send_shards(&mut self, mut value: Vec<u8>) -> Result<Proof<Vec<u8>>, Error> {
+    fn send_shards(&mut self, mut value: Vec<u8>) -> BroadcastResult<Proof<Vec<u8>>> {
         let data_shard_num = self.coding.data_shard_count();
         let parity_shard_num = self.coding.parity_shard_count();
 
@@ -229,14 +248,14 @@ impl<N: Eq + Debug + Clone + Ord> Broadcast<N> {
         let mtree = MerkleTree::from_vec(&digest::SHA256, shards_t);
 
         // Default result in case of `gen_proof` error.
-        let mut result = Err(Error::ProofConstructionFailed);
+        let mut result = Err(ErrorKind::ProofConstructionFailed.into());
         assert_eq!(self.num_nodes, mtree.iter().count());
 
         // Send each proof to a node.
         for (leaf_value, uid) in mtree.iter().zip(&self.all_uids) {
             let proof = mtree
                 .gen_proof(leaf_value.to_vec())
-                .ok_or(Error::ProofConstructionFailed)?;
+                .ok_or(ErrorKind::ProofConstructionFailed)?;
             if *uid == self.our_id {
                 // The proof is addressed to this node.
                 result = Ok(proof);
@@ -251,7 +270,7 @@ impl<N: Eq + Debug + Clone + Ord> Broadcast<N> {
     }
 
     /// Handles a received echo and verifies the proof it contains.
-    fn handle_value(&mut self, sender_id: &N, p: Proof<Vec<u8>>) -> Result<(), Error> {
+    fn handle_value(&mut self, sender_id: &N, p: Proof<Vec<u8>>) -> BroadcastResult<()> {
         // If the sender is not the proposer, this is not the first `Value` or the proof is invalid,
         // ignore.
         if *sender_id != self.proposer_id {
@@ -279,7 +298,7 @@ impl<N: Eq + Debug + Clone + Ord> Broadcast<N> {
     }
 
     /// Handles a received `Echo` message.
-    fn handle_echo(&mut self, sender_id: &N, p: Proof<Vec<u8>>) -> Result<(), Error> {
+    fn handle_echo(&mut self, sender_id: &N, p: Proof<Vec<u8>>) -> BroadcastResult<()> {
         // If the proof is invalid or the sender has already sent `Echo`, ignore.
         if self.echos.contains_key(sender_id) {
             info!(
@@ -310,7 +329,7 @@ impl<N: Eq + Debug + Clone + Ord> Broadcast<N> {
     }
 
     /// Handles a received `Ready` message.
-    fn handle_ready(&mut self, sender_id: &N, hash: &[u8]) -> Result<(), Error> {
+    fn handle_ready(&mut self, sender_id: &N, hash: &[u8]) -> BroadcastResult<()> {
         // If the sender has already sent a `Ready` before, ignore.
         if self.readys.contains_key(sender_id) {
             info!(
@@ -335,7 +354,7 @@ impl<N: Eq + Debug + Clone + Ord> Broadcast<N> {
 
     /// Checks whether the condition for output are met for this hash, and if so, sets the output
     /// value.
-    fn compute_output(&mut self, hash: &[u8]) -> Result<(), Error> {
+    fn compute_output(&mut self, hash: &[u8]) -> BroadcastResult<()> {
         if self.decided || self.count_readys(hash) <= 2 * self.num_faulty_nodes
             || self.count_echos(hash) <= self.num_faulty_nodes
         {
@@ -417,7 +436,7 @@ enum Coding {
 
 impl Coding {
     /// Creates a new `Coding` instance with the given number of shards.
-    fn new(data_shard_num: usize, parity_shard_num: usize) -> Result<Self, Error> {
+    fn new(data_shard_num: usize, parity_shard_num: usize) -> BroadcastResult<Self> {
         Ok(if parity_shard_num > 0 {
             let rs = ReedSolomon::new(data_shard_num, parity_shard_num)?;
             Coding::ReedSolomon(Box::new(rs))
@@ -443,7 +462,7 @@ impl Coding {
     }
 
     /// Constructs (and overwrites) the parity shards.
-    fn encode(&self, slices: &mut [&mut [u8]]) -> Result<(), Error> {
+    fn encode(&self, slices: &mut [&mut [u8]]) -> BroadcastResult<()> {
         match *self {
             Coding::ReedSolomon(ref rs) => rs.encode(slices)?,
             Coding::Trivial(_) => (),
@@ -452,7 +471,7 @@ impl Coding {
     }
 
     /// If enough shards are present, reconstructs the missing ones.
-    fn reconstruct_shards(&self, shards: &mut [Option<Box<[u8]>>]) -> Result<(), Error> {
+    fn reconstruct_shards(&self, shards: &mut [Option<Box<[u8]>>]) -> BroadcastResult<()> {
         match *self {
             Coding::ReedSolomon(ref rs) => rs.reconstruct_shards(shards)?,
             Coding::Trivial(_) => {
@@ -465,30 +484,12 @@ impl Coding {
     }
 }
 
-/// Errors returned by the broadcast instance.
-#[derive(Debug, Clone)]
-pub enum Error {
-    RootHashMismatch,
-    Threading,
-    ProofConstructionFailed,
-    ReedSolomon(rse::Error),
-    InstanceCannotPropose,
-    NotImplemented,
-    UnknownSender,
-}
-
-impl From<rse::Error> for Error {
-    fn from(err: rse::Error) -> Error {
-        Error::ReedSolomon(err)
-    }
-}
-
 fn decode_from_shards<T>(
     leaf_values: &mut [Option<Box<[u8]>>],
     coding: &Coding,
     data_shard_num: usize,
     root_hash: &[u8],
-) -> Result<T, Error>
+) -> BroadcastResult<T>
 where
     T: From<Vec<u8>>,
 {
@@ -513,7 +514,7 @@ where
         // NOTE: The paper does not define the meaning of *abort*. But it is
         // sensible not to continue trying to reconstruct the tree after this
         // point. This instance must have received incorrect shards.
-        Err(Error::RootHashMismatch)
+        Err(ErrorKind::RootHashMismatch.into())
     } else {
         // Reconstruct the value from the data shards.
         Ok(glue_shards(mtree, data_shard_num))
