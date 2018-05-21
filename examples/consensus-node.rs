@@ -48,7 +48,8 @@ fn parse_args() -> Args {
             None
         },
         bind_address: args.get_str("--bind-address").parse().unwrap(),
-        remote_addresses: args.get_vec("--remote-address")
+        remote_addresses: args
+            .get_vec("--remote-address")
             .iter()
             .map(|s| s.parse().unwrap())
             .collect(),

@@ -183,7 +183,8 @@ impl<NodeUid: Clone + Debug + Eq + Hash + Ord> Agreement<NodeUid> {
             .entry(sender_id.clone())
             .or_insert_with(BTreeSet::new)
             .insert(b);
-        let count_bval = self.received_bval
+        let count_bval = self
+            .received_bval
             .values()
             .filter(|values| values.contains(&b))
             .count();
@@ -244,7 +245,8 @@ impl<NodeUid: Clone + Debug + Eq + Hash + Ord> Agreement<NodeUid> {
     /// can, however, expect every good node to send an AUX value that will
     /// eventually end up in our bin_values.
     fn count_aux(&self) -> (usize, BTreeSet<bool>) {
-        let (vals_cnt, vals) = self.received_aux
+        let (vals_cnt, vals) = self
+            .received_aux
             .values()
             .filter(|b| self.bin_values.contains(b))
             .tee();

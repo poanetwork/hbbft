@@ -355,7 +355,8 @@ impl<N: Eq + Debug + Clone + Ord> Broadcast<N> {
     /// Checks whether the condition for output are met for this hash, and if so, sets the output
     /// value.
     fn compute_output(&mut self, hash: &[u8]) -> BroadcastResult<()> {
-        if self.decided || self.count_readys(hash) <= 2 * self.num_faulty_nodes
+        if self.decided
+            || self.count_readys(hash) <= 2 * self.num_faulty_nodes
             || self.count_echos(hash) <= self.num_faulty_nodes
         {
             return Ok(());
@@ -363,7 +364,8 @@ impl<N: Eq + Debug + Clone + Ord> Broadcast<N> {
 
         // Upon receiving 2f + 1 matching Ready(h) messages, wait for N − 2f Echo messages.
         self.decided = true;
-        let mut leaf_values: Vec<Option<Box<[u8]>>> = self.all_uids
+        let mut leaf_values: Vec<Option<Box<[u8]>>> = self
+            .all_uids
             .iter()
             .map(|id| {
                 self.echos.get(id).and_then(|p| {

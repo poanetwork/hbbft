@@ -104,7 +104,12 @@ where
     N: Eq + Hash + Ord + Clone + Debug,
 {
     /// Returns a new Honey Badger instance with the given parameters, starting at epoch `0`.
-    pub fn new<I, TI>(id: N, all_uids_iter: I, batch_size: usize, txs: TI) -> HoneyBadgerResult<Self>
+    pub fn new<I, TI>(
+        id: N,
+        all_uids_iter: I,
+        batch_size: usize,
+        txs: TI,
+    ) -> HoneyBadgerResult<Self>
     where
         I: IntoIterator<Item = N>,
         TI: IntoIterator<Item = T>,
@@ -238,7 +243,8 @@ where
     /// Removes all `CommonSubset` instances from _past_ epochs that have terminated.
     fn remove_terminated(&mut self, from_epoch: u64) {
         for epoch in from_epoch..self.epoch {
-            if self.common_subsets
+            if self
+                .common_subsets
                 .get(&epoch)
                 .map_or(false, CommonSubset::terminated)
             {
