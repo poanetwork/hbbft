@@ -7,12 +7,13 @@ authors = ["Vladimir Komendantskiy <komendantsky@gmail.com>"]
 bincode = "1.0.0"
 derive_deref = "1.0.1"
 env_logger = "0.5.10"
+error-chain = "0.11.0"
 itertools = "0.7"
 log = "0.4.1"
 merkle = { git = "https://github.com/afck/merkle.rs", branch = "public-proof" }
 protobuf = { version = "2.0.0", optional = true }
 rand = "0.4.2"
-reed-solomon-erasure = "3.0"
+reed-solomon-erasure = "3.1.0"
 ring = "^0.12"
 serde = "1.0.55"
 serde_derive = { version = "1.0.55", optional = true }
