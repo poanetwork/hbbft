@@ -181,12 +181,14 @@ where
 
     /// Handles a queued message in one of the nodes with the earliest timestamp.
     pub fn step(&mut self) -> NodeUid {
-        let min_time = self.nodes
+        let min_time = self
+            .nodes
             .values()
             .filter_map(TestNode::next_event_time)
             .min()
             .expect("no more messages in queue");
-        let min_ids: Vec<NodeUid> = self.nodes
+        let min_ids: Vec<NodeUid> = self
+            .nodes
             .iter()
             .filter(|(_, node)| node.next_event_time() == Some(min_time))
             .map(|(id, _)| *id)
@@ -220,7 +222,8 @@ impl EpochInfo {
         }
         // TODO: Once bandwidth, CPU time and/or randomized lag are simulated, `min_t` and `max_t`
         // will probably differ. Print both.
-        let (_min_t, max_t) = self.nodes
+        let (_min_t, max_t) = self
+            .nodes
             .values()
             .map(|&(time, _)| time)
             .minmax()

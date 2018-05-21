@@ -227,7 +227,8 @@ impl<NodeUid: Clone + Debug + Eq + Hash + Ord> CommonSubset<NodeUid> {
         F: FnOnce(&mut Broadcast<NodeUid>) -> Result<(), broadcast::Error>,
     {
         let value = {
-            let broadcast = self.broadcast_instances
+            let broadcast = self
+                .broadcast_instances
                 .get_mut(proposer_id)
                 .ok_or(ErrorKind::NoSuchBroadcastInstance)?;
             f(broadcast)?;
@@ -255,7 +256,8 @@ impl<NodeUid: Clone + Debug + Eq + Hash + Ord> CommonSubset<NodeUid> {
         F: FnOnce(&mut Agreement<NodeUid>) -> Result<(), agreement::Error>,
     {
         let value = {
-            let agreement = self.agreement_instances
+            let agreement = self
+                .agreement_instances
                 .get_mut(proposer_id)
                 .ok_or(ErrorKind::NoSuchAgreementInstance)?;
             if agreement.terminated() {
@@ -269,7 +271,8 @@ impl<NodeUid: Clone + Debug + Eq + Hash + Ord> CommonSubset<NodeUid> {
                 return Ok(());
             }
         };
-        if self.agreement_results
+        if self
+            .agreement_results
             .insert(proposer_id.clone(), value)
             .is_some()
         {
@@ -316,7 +319,8 @@ impl<NodeUid: Clone + Debug + Eq + Hash + Ord> CommonSubset<NodeUid> {
         }
         debug!("{:?} All Agreement instances have terminated", self.uid);
         // All instances of Agreement that delivered `true` (or "1" in the paper).
-        let delivered_1: BTreeSet<&NodeUid> = self.agreement_results
+        let delivered_1: BTreeSet<&NodeUid> = self
+            .agreement_results
             .iter()
             .filter(|(_, v)| **v)
             .map(|(k, _)| k)
@@ -324,7 +328,8 @@ impl<NodeUid: Clone + Debug + Eq + Hash + Ord> CommonSubset<NodeUid> {
         debug!("Agreement instances that delivered 1: {:?}", delivered_1);
 
         // Results of Broadcast instances in `delivered_1`
-        let broadcast_results: BTreeMap<NodeUid, ProposedValue> = self.broadcast_results
+        let broadcast_results: BTreeMap<NodeUid, ProposedValue> = self
+            .broadcast_results
             .iter()
             .filter(|(k, _)| delivered_1.contains(k))
             .map(|(k, v)| (k.clone(), v.clone()))

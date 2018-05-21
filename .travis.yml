@@ -1,5 +1,6 @@
 language: rust
-rust: nightly-2018-04-19
+rust:
+    - nightly-2018-05-19
 cache: cargo
 addons:
   apt:
@@ -12,18 +13,16 @@ before_install:
   - protoc --version
   - rm protoc-3.5.1-linux-x86_64.zip
   - rustup component add rustfmt-preview
-  - cargo install clippy -f --vers=0.0.195
+  - cargo install clippy -f --vers=0.0.202
 env:
   global:
     - RUST_BACKTRACE=1
     - RUSTFLAGS="-D warnings"
 script:
-  # TODO: This currently fails, claiming that `src/proto/message.rs` does not
-  #       exist. Re-enable once the problem is resolved.
-  # - cargo fmt -- --write-mode=diff
   - cargo clippy -- -D clippy
   - cargo clippy --tests -- -D clippy
   - cargo clippy --features="serialization-protobuf serialization-serde" -- -D clippy
   - cargo clippy --features="serialization-protobuf serialization-serde" --tests -- -D clippy
+  - cargo fmt -- --check
   - cargo check --tests
   - cargo test

@@ -55,7 +55,8 @@ impl Adversary<Broadcast<NodeUid>> for ProposeAdversary {
             return vec![];
         }
         self.has_sent = true;
-        let node_ids: BTreeSet<NodeUid> = self.adv_nodes
+        let node_ids: BTreeSet<NodeUid> = self
+            .adv_nodes
             .iter()
             .chain(self.good_nodes.iter())
             .cloned()
