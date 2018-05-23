@@ -1,7 +1,7 @@
 //! Construction of messages from protobuf buffers.
 pub mod message;
 
-use agreement::AgreementMessage;
+use agreement::{AgreementMessage, BinValues};
 use broadcast::BroadcastMessage;
 use merkle::proof::{Lemma, Positioned, Proof};
 use proto::message::*;
@@ -75,6 +75,16 @@ impl AgreementMessage {
                 p.set_epoch(e);
                 p.set_aux(b);
             }
+            AgreementMessage::Conf(e, v) => {
+                p.set_epoch(e);
+                let bin_values = match v {
+                    BinValues::None => 0,
+                    BinValues::False => 1,
+                    BinValues::True => 2,
+                    BinValues::Both => 3,
+                };
+                p.set_conf(bin_values);
+            }
         }
         p
     }
@@ -87,6 +97,14 @@ impl AgreementMessage {
             Some(AgreementMessage::BVal(epoch, mp.get_bval()))
         } else if mp.has_aux() {
             Some(AgreementMessage::Aux(epoch, mp.get_aux()))
+        } else if mp.has_conf() {
+            match mp.get_conf() {
+                0 => Some(BinValues::None),
+                1 => Some(BinValues::False),
+                2 => Some(BinValues::True),
+                3 => Some(BinValues::Both),
+                _ => None,
+            }.map(|bin_values| AgreementMessage::Conf(epoch, bin_values))
         } else {
             None
         }

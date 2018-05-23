@@ -48,5 +48,6 @@ message AgreementProto {
   oneof payload {
     bool bval = 2;
     bool aux = 3;
+    uint32 conf = 4;
   }
 }
