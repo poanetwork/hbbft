@@ -24,7 +24,7 @@ error_chain!{
 /// A lattice-valued description of the state of `bin_values`, essentially the same as the set of
 /// subsets of `bool`.
 #[cfg_attr(feature = "serialization-serde", derive(Serialize))]
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum BinValues {
     None,
     False,
@@ -94,12 +94,12 @@ impl BinValues {
         }
     }
 
-    pub fn is_subset(&self, other: &BinValues) -> bool {
+    pub fn is_subset(&self, other: BinValues) -> bool {
         match self {
             BinValues::None => true,
-            BinValues::False if *other == BinValues::False || *other == BinValues::Both => true,
-            BinValues::True if *other == BinValues::True || *other == BinValues::Both => true,
-            BinValues::Both if *other == BinValues::Both => true,
+            BinValues::False if other == BinValues::False || other == BinValues::Both => true,
+            BinValues::True if other == BinValues::True || other == BinValues::Both => true,
+            BinValues::Both if other == BinValues::Both => true,
             _ => false,
         }
     }
@@ -110,6 +110,12 @@ impl BinValues {
             BinValues::True => Some(true),
             _ => None,
         }
+    }
+}
+
+impl Default for BinValues {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -308,7 +314,7 @@ impl<NodeUid: Clone + Debug + Eq + Hash + Ord> Agreement<NodeUid> {
         // upon receiving BVAL_r(b) messages from 2f + 1 nodes,
         // bin_values_r := bin_values_r ∪ {b}
         if count_bval == 2 * self.num_faulty_nodes + 1 {
-            let previous_bin_values = self.bin_values.clone();
+            let previous_bin_values = self.bin_values;
             let _bin_values_changed = self.bin_values.insert(b);
 
             // wait until bin_values_r != 0, then multicast AUX_r(w)
@@ -345,15 +351,15 @@ impl<NodeUid: Clone + Debug + Eq + Hash + Ord> Agreement<NodeUid> {
             return Ok(());
         }
 
-        let v = &self.bin_values.clone();
+        let v = self.bin_values;
         // Multicast CONF.
         self.messages
-            .push_back(AgreementMessage::Conf(self.epoch, v.clone()));
+            .push_back(AgreementMessage::Conf(self.epoch, v));
         // Trigger the start of the CONF round.
-        self.sent_conf = Some(v.clone());
+        self.sent_conf = Some(v);
         // Receive the CONF message locally.
         let our_uid = self.uid.clone();
-        self.handle_conf(&our_uid, v.clone())
+        self.handle_conf(&our_uid, v)
     }
 
     /// Waits until at least (N − f) AUX_r messages have been received, such that
@@ -380,8 +386,8 @@ impl<NodeUid: Clone + Debug + Eq + Hash + Ord> Agreement<NodeUid> {
 
     fn handle_conf(&mut self, sender_id: &NodeUid, v: BinValues) -> AgreementResult<()> {
         self.received_conf.insert(sender_id.clone(), v);
-        if let Some(sent_conf) = self.sent_conf.clone() {
-            let (count_vals, vals) = self.count_conf(&sent_conf);
+        if let Some(sent_conf) = self.sent_conf {
+            let (count_vals, vals) = self.count_conf(sent_conf);
             if count_vals < self.num_nodes - self.num_faulty_nodes {
                 // Continue waiting for (N - f) CONF messages
                 return Ok(());
@@ -424,7 +430,7 @@ impl<NodeUid: Clone + Debug + Eq + Hash + Ord> Agreement<NodeUid> {
 
     /// Counts the number of received CONF messages. The argument `sent_conf` contains the values
     /// committed committed previously at the start of the CONF round.
-    fn count_conf(&self, sent_conf: &BinValues) -> (usize, BinValues) {
+    fn count_conf(&self, sent_conf: BinValues) -> (usize, BinValues) {
         let (vals_cnt, vals) = self
             .received_conf
             .values()
