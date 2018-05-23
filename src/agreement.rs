@@ -3,7 +3,10 @@
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fmt::Debug;
 use std::hash::Hash;
+use std::iter::FromIterator;
 use std::mem::replace;
+
+use itertools::Itertools;
 
 use messaging::{DistAlgorithm, Target, TargetedMessage};
 
@@ -18,7 +21,8 @@ error_chain!{
     }
 }
 
-/// A lattice-valued description of the state of `bin_values`.
+/// A lattice-valued description of the state of `bin_values`, essentially the same as the set of
+/// subsets of `bool`.
 #[cfg_attr(feature = "serialization-serde", derive(Serialize))]
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum BinValues {
@@ -65,6 +69,21 @@ impl BinValues {
         }
     }
 
+    pub fn union(&mut self, other: BinValues) {
+        match self {
+            BinValues::None => {
+                replace(self, other);
+            }
+            BinValues::False if other == BinValues::True => {
+                replace(self, BinValues::Both);
+            }
+            BinValues::True if other == BinValues::False => {
+                replace(self, BinValues::Both);
+            }
+            _ => {}
+        }
+    }
+
     pub fn contains(&self, b: bool) -> bool {
         match self {
             BinValues::None => false,
@@ -91,6 +110,18 @@ impl BinValues {
             BinValues::True => Some(true),
             _ => None,
         }
+    }
+}
+
+impl FromIterator<BinValues> for BinValues {
+    fn from_iter<I: IntoIterator<Item = BinValues>>(iter: I) -> Self {
+        let mut v = BinValues::new();
+
+        for i in iter {
+            v.union(i);
+        }
+
+        v
     }
 }
 
@@ -156,8 +187,8 @@ pub struct Agreement<NodeUid> {
     terminated: bool,
     /// The outgoing message queue.
     messages: VecDeque<AgreementMessage>,
-    /// Whether the CONF message round has been started in the current epoch.
-    conf_sent: bool,
+    /// The CONF message value in the current epoch.
+    sent_conf: Option<BinValues>,
 }
 
 impl<NodeUid: Clone + Debug + Eq + Hash + Ord> DistAlgorithm for Agreement<NodeUid> {
@@ -237,7 +268,7 @@ impl<NodeUid: Clone + Debug + Eq + Hash + Ord> Agreement<NodeUid> {
             incoming_queue: Vec::new(),
             terminated: false,
             messages: VecDeque::new(),
-            conf_sent: false,
+            sent_conf: None,
         }
     }
 
@@ -278,22 +309,13 @@ impl<NodeUid: Clone + Debug + Eq + Hash + Ord> Agreement<NodeUid> {
         // bin_values_r := bin_values_r ∪ {b}
         if count_bval == 2 * self.num_faulty_nodes + 1 {
             let previous_bin_values = self.bin_values.clone();
-            let bin_values_changed = self.bin_values.insert(b);
+            let _bin_values_changed = self.bin_values.insert(b);
 
             // wait until bin_values_r != 0, then multicast AUX_r(w)
             // where w ∈ bin_values_r
             if previous_bin_values == BinValues::None {
                 // Send an AUX message at most once per epoch.
                 self.send_aux(b)
-            } else if self.conf_sent
-                && bin_values_changed
-                && self.count_conf() >= self.num_nodes - self.num_faulty_nodes
-            {
-                // Respond to a change in `bin_values` from the CONF round. Since BVAL messages
-                // continue getting handled during the CONF round and `bin_values` is still allowed
-                // to change, the value of `count_conf` may increase at this point. The COIN subalgo
-                // has to be invoked without waiting for another CONF message to trigger it.
-                self.invoke_coin()
             } else {
                 Ok(())
             }
@@ -318,17 +340,17 @@ impl<NodeUid: Clone + Debug + Eq + Hash + Ord> Agreement<NodeUid> {
     }
 
     fn send_conf(&mut self) -> AgreementResult<()> {
-        if self.conf_sent {
+        if self.sent_conf.is_some() {
             // Only one CONF message is allowed in an epoch.
             return Ok(());
         }
 
-        // Trigger the start of the CONF round.
-        self.conf_sent = true;
         let v = &self.bin_values.clone();
         // Multicast CONF.
         self.messages
             .push_back(AgreementMessage::Conf(self.epoch, v.clone()));
+        // Trigger the start of the CONF round.
+        self.sent_conf = Some(v.clone());
         // Receive the CONF message locally.
         let our_uid = self.uid.clone();
         self.handle_conf(&our_uid, v.clone())
@@ -341,14 +363,14 @@ impl<NodeUid: Clone + Debug + Eq + Hash + Ord> Agreement<NodeUid> {
     /// of either an AUX_r or a BVAL_r message).
     fn handle_aux(&mut self, sender_id: &NodeUid, b: bool) -> AgreementResult<()> {
         // Perform the AUX message round only if a CONF round hasn't started yet.
-        if self.conf_sent {
+        if self.sent_conf.is_some() {
             return Ok(());
         }
         self.received_aux.insert(sender_id.clone(), b);
         if self.bin_values == BinValues::None {
             return Ok(());
         }
-        if self.count_aux() < self.num_nodes - self.num_faulty_nodes {
+        if self.count_aux().0 < self.num_nodes - self.num_faulty_nodes {
             // Continue waiting for the (N - f) AUX messages.
             return Ok(());
         }
@@ -358,14 +380,16 @@ impl<NodeUid: Clone + Debug + Eq + Hash + Ord> Agreement<NodeUid> {
 
     fn handle_conf(&mut self, sender_id: &NodeUid, v: BinValues) -> AgreementResult<()> {
         self.received_conf.insert(sender_id.clone(), v);
-        if !self.conf_sent {
+        if let Some(sent_conf) = self.sent_conf.clone() {
+            let (count_vals, vals) = self.count_conf(&sent_conf);
+            if count_vals < self.num_nodes - self.num_faulty_nodes {
+                // Continue waiting for (N - f) CONF messages
+                return Ok(());
+            }
+            self.invoke_coin(vals)
+        } else {
             return Ok(());
         }
-        if self.count_conf() < self.num_nodes - self.num_faulty_nodes {
-            // Continue waiting for (N - f) CONF messages
-            return Ok(());
-        }
-        self.invoke_coin()
     }
 
     fn send_aux(&mut self, b: bool) -> AgreementResult<()> {
@@ -387,19 +411,27 @@ impl<NodeUid: Clone + Debug + Eq + Hash + Ord> Agreement<NodeUid> {
     /// so waiting for N - f agreeing messages would not always terminate. We
     /// can, however, expect every good node to send an AUX value that will
     /// eventually end up in our bin_values.
-    fn count_aux(&self) -> usize {
-        self.received_aux
+    fn count_aux(&self) -> (usize, BinValues) {
+        let (vals_cnt, vals) = self
+            .received_aux
             .values()
             .filter(|&&b| self.bin_values.contains(b))
-            .count()
+            .map(|&b| BinValues::single(b))
+            .tee();
+
+        (vals_cnt.count(), vals.collect())
     }
 
-    /// Counts the number of received CONF messages.
-    fn count_conf(&self) -> usize {
-        self.received_conf
+    /// Counts the number of received CONF messages. The argument `sent_conf` contains the values
+    /// committed committed previously at the start of the CONF round.
+    fn count_conf(&self, sent_conf: &BinValues) -> (usize, BinValues) {
+        let (vals_cnt, vals) = self
+            .received_conf
             .values()
-            .filter(|&conf| conf.is_subset(&self.bin_values))
-            .count()
+            .filter(|&conf| conf.is_subset(sent_conf))
+            .tee();
+
+        (vals_cnt.count(), vals.cloned().collect())
     }
 
     fn start_next_epoch(&mut self) {
@@ -408,14 +440,14 @@ impl<NodeUid: Clone + Debug + Eq + Hash + Ord> Agreement<NodeUid> {
         self.sent_bval.clear();
         self.received_aux.clear();
         self.received_conf.clear();
-        self.conf_sent = false;
+        self.sent_conf = None;
         self.epoch += 1;
     }
 
     /// Gets a common coin and uses it to compute the next decision estimate and outputs the
     /// optional decision value.  The function may start the next epoch. In that case, it also
     /// returns a message for broadcast.
-    fn invoke_coin(&mut self) -> AgreementResult<()> {
+    fn invoke_coin(&mut self, vals: BinValues) -> AgreementResult<()> {
         debug!("{:?} invoke_coin in epoch {}", self.uid, self.epoch);
         // FIXME: Implement the Common Coin algorithm. At the moment the
         // coin value is common across different nodes but not random.
@@ -436,7 +468,7 @@ impl<NodeUid: Clone + Debug + Eq + Hash + Ord> Agreement<NodeUid> {
             self.uid, self.epoch
         );
 
-        if let Some(b) = self.bin_values.definite() {
+        if let Some(b) = vals.definite() {
             self.estimated = Some(b);
             // Outputting a value is allowed only once.
             if self.decision.is_none() && b == coin {
