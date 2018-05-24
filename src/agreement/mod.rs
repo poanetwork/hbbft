@@ -1,6 +1,6 @@
 //! Binary Byzantine agreement protocol from a common coin protocol.
 
-mod bin_values;
+pub mod bin_values;
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fmt::Debug;
@@ -38,26 +38,26 @@ pub enum AgreementContent {
 #[cfg_attr(feature = "serialization-serde", derive(Serialize))]
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct AgreementMessage {
-    epoch: u32,
-    content: AgreementContent,
+    pub epoch: u32,
+    pub content: AgreementContent,
 }
 
 impl AgreementMessage {
-    fn bval(epoch: u32, b: bool) -> Self {
+    pub fn bval(epoch: u32, b: bool) -> Self {
         AgreementMessage {
             epoch,
             content: AgreementContent::BVal(b),
         }
     }
 
-    fn aux(epoch: u32, b: bool) -> Self {
+    pub fn aux(epoch: u32, b: bool) -> Self {
         AgreementMessage {
             epoch,
             content: AgreementContent::Aux(b),
         }
     }
 
-    fn conf(epoch: u32, v: BinValues) -> Self {
+    pub fn conf(epoch: u32, v: BinValues) -> Self {
         AgreementMessage {
             epoch,
             content: AgreementContent::Conf(v),
