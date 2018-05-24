@@ -4,8 +4,8 @@ pub mod message;
 use merkle::proof::{Lemma, Positioned, Proof};
 use ring::digest::Algorithm;
 
-use agreement::{AgreementContent, AgreementMessage};
 use agreement::bin_values::BinValues;
+use agreement::{AgreementContent, AgreementMessage};
 use broadcast::BroadcastMessage;
 use proto::message::*;
 
