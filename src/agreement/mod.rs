@@ -1,13 +1,15 @@
 //! Binary Byzantine agreement protocol from a common coin protocol.
 
+mod bin_values;
+
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fmt::Debug;
 use std::hash::Hash;
-use std::iter::FromIterator;
 use std::mem::replace;
 
 use itertools::Itertools;
 
+use agreement::bin_values::BinValues;
 use messaging::{DistAlgorithm, Target, TargetedMessage};
 
 error_chain!{
@@ -21,134 +23,44 @@ error_chain!{
     }
 }
 
-/// A lattice-valued description of the state of `bin_values`, essentially the same as the set of
-/// subsets of `bool`.
 #[cfg_attr(feature = "serialization-serde", derive(Serialize))]
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub enum BinValues {
-    None,
-    False,
-    True,
-    Both,
-}
-
-impl BinValues {
-    pub fn new() -> Self {
-        BinValues::None
-    }
-
-    pub fn clear(&mut self) {
-        replace(self, BinValues::None);
-    }
-
-    fn single(b: bool) -> Self {
-        if b {
-            BinValues::True
-        } else {
-            BinValues::False
-        }
-    }
-
-    /// Inserts a boolean value into the `BinValues` and returns true iff the `BinValues` has
-    /// changed as a result.
-    pub fn insert(&mut self, b: bool) -> bool {
-        match self {
-            BinValues::None => {
-                replace(self, BinValues::single(b));
-                true
-            }
-            BinValues::False if b => {
-                replace(self, BinValues::Both);
-                true
-            }
-            BinValues::True if !b => {
-                replace(self, BinValues::Both);
-                true
-            }
-            _ => false,
-        }
-    }
-
-    pub fn union(&mut self, other: BinValues) {
-        match self {
-            BinValues::None => {
-                replace(self, other);
-            }
-            BinValues::False if other == BinValues::True => {
-                replace(self, BinValues::Both);
-            }
-            BinValues::True if other == BinValues::False => {
-                replace(self, BinValues::Both);
-            }
-            _ => {}
-        }
-    }
-
-    pub fn contains(&self, b: bool) -> bool {
-        match self {
-            BinValues::None => false,
-            BinValues::Both => true,
-            BinValues::False if !b => true,
-            BinValues::True if b => true,
-            _ => false,
-        }
-    }
-
-    pub fn is_subset(&self, other: BinValues) -> bool {
-        match self {
-            BinValues::None => true,
-            BinValues::False if other == BinValues::False || other == BinValues::Both => true,
-            BinValues::True if other == BinValues::True || other == BinValues::Both => true,
-            BinValues::Both if other == BinValues::Both => true,
-            _ => false,
-        }
-    }
-
-    pub fn definite(&self) -> Option<bool> {
-        match self {
-            BinValues::False => Some(false),
-            BinValues::True => Some(true),
-            _ => None,
-        }
-    }
-}
-
-impl Default for BinValues {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl FromIterator<BinValues> for BinValues {
-    fn from_iter<I: IntoIterator<Item = BinValues>>(iter: I) -> Self {
-        let mut v = BinValues::new();
-
-        for i in iter {
-            v.union(i);
-        }
-
-        v
-    }
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum AgreementContent {
+    /// BVAL message with an epoch.
+    BVal(bool),
+    /// AUX message with an epoch.
+    Aux(bool),
+    /// CONF message with an epoch.
+    Conf(BinValues),
 }
 
 /// Messages sent during the binary Byzantine agreement stage.
 #[cfg_attr(feature = "serialization-serde", derive(Serialize))]
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub enum AgreementMessage {
-    /// BVAL message with an epoch.
-    BVal(u32, bool),
-    /// AUX message with an epoch.
-    Aux(u32, bool),
-    /// CONF message with an epoch.
-    Conf(u32, BinValues),
+pub struct AgreementMessage {
+    epoch: u32,
+    content: AgreementContent,
 }
 
 impl AgreementMessage {
-    fn epoch(&self) -> u32 {
-        match *self {
-            AgreementMessage::BVal(epoch, _) => epoch,
-            AgreementMessage::Aux(epoch, _) => epoch,
-            AgreementMessage::Conf(epoch, _) => epoch,
+    fn bval(epoch: u32, b: bool) -> Self {
+        AgreementMessage {
+            epoch,
+            content: AgreementContent::BVal(b),
+        }
+    }
+
+    fn aux(epoch: u32, b: bool) -> Self {
+        AgreementMessage {
+            epoch,
+            content: AgreementContent::Aux(b),
+        }
+    }
+
+    fn conf(epoch: u32, v: BinValues) -> Self {
+        AgreementMessage {
+            epoch,
+            content: AgreementContent::Conf(v),
         }
     }
 }
@@ -162,11 +74,11 @@ pub struct Agreement<NodeUid> {
     epoch: u32,
     /// Bin values. Reset on every epoch update.
     bin_values: BinValues,
-    /// Values received in BVAL messages. Reset on every epoch update.
+    /// Values received in `BVal` messages. Reset on every epoch update.
     received_bval: BTreeMap<NodeUid, BTreeSet<bool>>,
     /// Sent BVAL values. Reset on every epoch update.
     sent_bval: BTreeSet<bool>,
-    /// Values received in AUX messages. Reset on every epoch update.
+    /// Values received in `Aux` messages. Reset on every epoch update.
     received_aux: BTreeMap<NodeUid, bool>,
     /// Received CONF messages. Reset on every epoch update.
     received_conf: BTreeMap<NodeUid, BinValues>,
@@ -193,8 +105,8 @@ pub struct Agreement<NodeUid> {
     terminated: bool,
     /// The outgoing message queue.
     messages: VecDeque<AgreementMessage>,
-    /// The CONF message value in the current epoch.
-    sent_conf: Option<BinValues>,
+    /// Whether the `Conf` message round has started in the current epoch.
+    conf_round: bool,
 }
 
 impl<NodeUid: Clone + Debug + Eq + Hash + Ord> DistAlgorithm for Agreement<NodeUid> {
@@ -217,18 +129,18 @@ impl<NodeUid: Clone + Debug + Eq + Hash + Ord> DistAlgorithm for Agreement<NodeU
         if self.terminated {
             return Err(ErrorKind::Terminated.into());
         }
-        if message.epoch() < self.epoch {
+        if message.epoch < self.epoch {
             return Ok(()); // Message is obsolete: We are already in a later epoch.
         }
-        if message.epoch() > self.epoch {
+        if message.epoch > self.epoch {
             // Message is for a later epoch. We can't handle that yet.
             self.incoming_queue.push((sender_id.clone(), message));
             return Ok(());
         }
-        match message {
-            AgreementMessage::BVal(_, b) => self.handle_bval(sender_id, b),
-            AgreementMessage::Aux(_, b) => self.handle_aux(sender_id, b),
-            AgreementMessage::Conf(_, v) => self.handle_conf(sender_id, v),
+        match message.content {
+            AgreementContent::BVal(b) => self.handle_bval(sender_id, b),
+            AgreementContent::Aux(b) => self.handle_aux(sender_id, b),
+            AgreementContent::Conf(v) => self.handle_conf(sender_id, v),
         }
     }
 
@@ -274,7 +186,7 @@ impl<NodeUid: Clone + Debug + Eq + Hash + Ord> Agreement<NodeUid> {
             incoming_queue: Vec::new(),
             terminated: false,
             messages: VecDeque::new(),
-            sent_conf: None,
+            conf_round: false,
         }
     }
 
@@ -311,23 +223,27 @@ impl<NodeUid: Clone + Debug + Eq + Hash + Ord> Agreement<NodeUid> {
             .filter(|values| values.contains(&b))
             .count();
 
-        // upon receiving BVAL_r(b) messages from 2f + 1 nodes,
-        // bin_values_r := bin_values_r ∪ {b}
+        // upon receiving `BVal(b)` messages from 2f + 1 nodes,
+        // bin_values := bin_values ∪ {b}
         if count_bval == 2 * self.num_faulty_nodes + 1 {
             let previous_bin_values = self.bin_values;
-            let _bin_values_changed = self.bin_values.insert(b);
+            let bin_values_changed = self.bin_values.insert(b);
 
-            // wait until bin_values_r != 0, then multicast AUX_r(w)
-            // where w ∈ bin_values_r
+            // wait until bin_values != 0, then multicast `Aux(w)`
+            // where w ∈ bin_values
             if previous_bin_values == BinValues::None {
-                // Send an AUX message at most once per epoch.
+                // Send an `Aux` message at most once per epoch.
                 self.send_aux(b)
+            } else if bin_values_changed {
+                // If the `Conf` round has already started, a change in `bin_values` can lead to its
+                // end. Try if it has indeed finished.
+                self.try_finish_conf_round()
             } else {
                 Ok(())
             }
         } else if count_bval == self.num_faulty_nodes + 1 && !self.sent_bval.contains(&b) {
-            // upon receiving BVAL_r(b) messages from f + 1 nodes, if
-            // BVAL_r(b) has not been sent, multicast BVAL_r(b)
+            // upon receiving `BVal(b)` messages from f + 1 nodes, if
+            // `BVal(b)` has not been sent, multicast `BVal(b)`
             self.send_bval(b)
         } else {
             Ok(())
@@ -337,104 +253,102 @@ impl<NodeUid: Clone + Debug + Eq + Hash + Ord> Agreement<NodeUid> {
     fn send_bval(&mut self, b: bool) -> AgreementResult<()> {
         // Record the value `b` as sent.
         self.sent_bval.insert(b);
-        // Multicast BVAL.
+        // Multicast `BVal`.
         self.messages
-            .push_back(AgreementMessage::BVal(self.epoch, b));
-        // Receive the BVAL message locally.
+            .push_back(AgreementMessage::bval(self.epoch, b));
+        // Receive the `BVal` message locally.
         let our_uid = self.uid.clone();
         self.handle_bval(&our_uid, b)
     }
 
     fn send_conf(&mut self) -> AgreementResult<()> {
-        if self.sent_conf.is_some() {
-            // Only one CONF message is allowed in an epoch.
+        if self.conf_round {
+            // Only one `Conf` message is allowed in an epoch.
             return Ok(());
         }
 
         let v = self.bin_values;
-        // Multicast CONF.
+        // Multicast `Conf`.
         self.messages
-            .push_back(AgreementMessage::Conf(self.epoch, v));
-        // Trigger the start of the CONF round.
-        self.sent_conf = Some(v);
-        // Receive the CONF message locally.
+            .push_back(AgreementMessage::conf(self.epoch, v));
+        // Trigger the start of the `Conf` round.
+        self.conf_round = true;
+        // Receive the `Conf` message locally.
         let our_uid = self.uid.clone();
         self.handle_conf(&our_uid, v)
     }
 
-    /// Waits until at least (N − f) AUX_r messages have been received, such that
+    /// Waits until at least (N − f) `Aux` messages have been received, such that
     /// the set of values carried by these messages, vals, are a subset of
-    /// bin_values_r (note that bin_values_r may continue to change as BVAL_r
+    /// bin_values (note that bin_values_r may continue to change as `BVal`
     /// messages are received, thus this condition may be triggered upon arrival
-    /// of either an AUX_r or a BVAL_r message).
+    /// of either an `Aux` or a `BVal` message).
     fn handle_aux(&mut self, sender_id: &NodeUid, b: bool) -> AgreementResult<()> {
-        // Perform the AUX message round only if a CONF round hasn't started yet.
-        if self.sent_conf.is_some() {
+        // Perform the `Aux` message round only if a `Conf` round hasn't started yet.
+        if self.conf_round {
             return Ok(());
         }
         self.received_aux.insert(sender_id.clone(), b);
         if self.bin_values == BinValues::None {
             return Ok(());
         }
-        if self.count_aux().0 < self.num_nodes - self.num_faulty_nodes {
-            // Continue waiting for the (N - f) AUX messages.
+        if self.count_aux() < self.num_nodes - self.num_faulty_nodes {
+            // Continue waiting for the (N - f) `Aux` messages.
             return Ok(());
         }
-        // Start the CONF message round.
+        // Start the `Conf` message round.
         self.send_conf()
     }
 
     fn handle_conf(&mut self, sender_id: &NodeUid, v: BinValues) -> AgreementResult<()> {
         self.received_conf.insert(sender_id.clone(), v);
-        if let Some(sent_conf) = self.sent_conf {
-            let (count_vals, vals) = self.count_conf(sent_conf);
+        self.try_finish_conf_round()
+    }
+
+    fn try_finish_conf_round(&mut self) -> AgreementResult<()> {
+        if self.conf_round {
+            let (count_vals, vals) = self.count_conf();
             if count_vals < self.num_nodes - self.num_faulty_nodes {
-                // Continue waiting for (N - f) CONF messages
+                // Continue waiting for (N - f) `Conf` messages
                 return Ok(());
             }
             self.invoke_coin(vals)
         } else {
-            return Ok(());
+            Ok(())
         }
     }
 
     fn send_aux(&mut self, b: bool) -> AgreementResult<()> {
-        // Multicast AUX.
+        // Multicast `Aux`.
         self.messages
-            .push_back(AgreementMessage::Aux(self.epoch, b));
-        // Receive the AUX message locally.
+            .push_back(AgreementMessage::aux(self.epoch, b));
+        // Receive the `Aux` message locally.
         let our_uid = self.uid.clone();
         self.handle_aux(&our_uid, b)
     }
 
-    /// The count of AUX_r messages such that the set of values carried by those messages is a
-    /// subset of bin_values_r. Outputs this subset.
+    /// The count of `Aux` messages such that the set of values carried by those messages is a
+    /// subset of bin_values_r.
     ///
-    /// FIXME: Clarify whether the values of AUX messages should be the same or
-    /// not. It is assumed in `count_aux` that they can differ.
+    /// FIXME: Clarify whether the values of `Aux` messages should be the same or not. It is assumed
+    /// in `count_aux` that they can differ.
     ///
-    /// In general, we can't expect every good node to send the same AUX value,
-    /// so waiting for N - f agreeing messages would not always terminate. We
-    /// can, however, expect every good node to send an AUX value that will
-    /// eventually end up in our bin_values.
-    fn count_aux(&self) -> (usize, BinValues) {
-        let (vals_cnt, vals) = self
-            .received_aux
+    /// In general, we can't expect every good node to send the same `Aux` value, so waiting for N -
+    /// f agreeing messages would not always terminate. We can, however, expect every good node to
+    /// send an `Aux` value that will eventually end up in our bin_values.
+    fn count_aux(&self) -> usize {
+        self.received_aux
             .values()
             .filter(|&&b| self.bin_values.contains(b))
-            .map(|&b| BinValues::single(b))
-            .tee();
-
-        (vals_cnt.count(), vals.collect())
+            .count()
     }
 
-    /// Counts the number of received CONF messages. The argument `sent_conf` contains the values
-    /// committed committed previously at the start of the CONF round.
-    fn count_conf(&self, sent_conf: BinValues) -> (usize, BinValues) {
+    /// Counts the number of received `Conf` messages.
+    fn count_conf(&self) -> (usize, BinValues) {
         let (vals_cnt, vals) = self
             .received_conf
             .values()
-            .filter(|&conf| conf.is_subset(sent_conf))
+            .filter(|&conf| conf.is_subset(self.bin_values))
             .tee();
 
         (vals_cnt.count(), vals.cloned().collect())
@@ -446,7 +360,7 @@ impl<NodeUid: Clone + Debug + Eq + Hash + Ord> Agreement<NodeUid> {
         self.sent_bval.clear();
         self.received_aux.clear();
         self.received_conf.clear();
-        self.sent_conf = None;
+        self.conf_round = false;
         self.epoch += 1;
     }
 
