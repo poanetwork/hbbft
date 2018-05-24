@@ -14,6 +14,7 @@ extern crate error_chain;
 extern crate log;
 extern crate itertools;
 extern crate merkle;
+extern crate pairing;
 #[cfg(feature = "serialization-protobuf")]
 extern crate protobuf;
 extern crate rand;
@@ -27,6 +28,7 @@ extern crate serde_derive;
 pub mod agreement;
 pub mod broadcast;
 pub mod common_subset;
+pub mod crypto;
 mod fmt;
 pub mod honey_badger;
 pub mod messaging;
