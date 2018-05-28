@@ -1,11 +1,13 @@
 //! Construction of messages from protobuf buffers.
 pub mod message;
 
-use agreement::AgreementMessage;
-use broadcast::BroadcastMessage;
 use merkle::proof::{Lemma, Positioned, Proof};
-use proto::message::*;
 use ring::digest::Algorithm;
+
+use agreement::bin_values::BinValues;
+use agreement::{AgreementContent, AgreementMessage};
+use broadcast::BroadcastMessage;
+use proto::message::*;
 
 impl From<message::BroadcastProto> for BroadcastMessage {
     fn from(proto: message::BroadcastProto) -> BroadcastMessage {
@@ -66,14 +68,22 @@ impl BroadcastMessage {
 impl AgreementMessage {
     pub fn into_proto(self) -> message::AgreementProto {
         let mut p = message::AgreementProto::new();
-        match self {
-            AgreementMessage::BVal(e, b) => {
-                p.set_epoch(e);
+        p.set_epoch(self.epoch);
+        match self.content {
+            AgreementContent::BVal(b) => {
                 p.set_bval(b);
             }
-            AgreementMessage::Aux(e, b) => {
-                p.set_epoch(e);
+            AgreementContent::Aux(b) => {
                 p.set_aux(b);
+            }
+            AgreementContent::Conf(v) => {
+                let bin_values = match v {
+                    BinValues::None => 0,
+                    BinValues::False => 1,
+                    BinValues::True => 2,
+                    BinValues::Both => 3,
+                };
+                p.set_conf(bin_values);
             }
         }
         p
@@ -84,9 +94,17 @@ impl AgreementMessage {
     pub fn from_proto(mp: message::AgreementProto) -> Option<Self> {
         let epoch = mp.get_epoch();
         if mp.has_bval() {
-            Some(AgreementMessage::BVal(epoch, mp.get_bval()))
+            Some(AgreementMessage::bval(epoch, mp.get_bval()))
         } else if mp.has_aux() {
-            Some(AgreementMessage::Aux(epoch, mp.get_aux()))
+            Some(AgreementMessage::aux(epoch, mp.get_aux()))
+        } else if mp.has_conf() {
+            match mp.get_conf() {
+                0 => Some(BinValues::None),
+                1 => Some(BinValues::False),
+                2 => Some(BinValues::True),
+                3 => Some(BinValues::Both),
+                _ => None,
+            }.map(|bin_values| AgreementMessage::conf(epoch, bin_values))
         } else {
             None
         }
