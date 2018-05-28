@@ -26,11 +26,11 @@ error_chain!{
 #[cfg_attr(feature = "serialization-serde", derive(Serialize))]
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum AgreementContent {
-    /// BVAL message with an epoch.
+    /// `BVal` message.
     BVal(bool),
-    /// AUX message with an epoch.
+    /// `Aux` message.
     Aux(bool),
-    /// CONF message with an epoch.
+    /// `Conf` message.
     Conf(BinValues),
 }
 
@@ -76,11 +76,11 @@ pub struct Agreement<NodeUid> {
     bin_values: BinValues,
     /// Values received in `BVal` messages. Reset on every epoch update.
     received_bval: BTreeMap<NodeUid, BTreeSet<bool>>,
-    /// Sent BVAL values. Reset on every epoch update.
+    /// Sent `BVal` values. Reset on every epoch update.
     sent_bval: BTreeSet<bool>,
     /// Values received in `Aux` messages. Reset on every epoch update.
     received_aux: BTreeMap<NodeUid, bool>,
-    /// Received CONF messages. Reset on every epoch update.
+    /// Received `Conf` messages. Reset on every epoch update.
     received_conf: BTreeMap<NodeUid, BinValues>,
     /// The estimate of the decision value in the current epoch.
     estimated: Option<bool>,
@@ -330,12 +330,9 @@ impl<NodeUid: Clone + Debug + Eq + Hash + Ord> Agreement<NodeUid> {
     /// The count of `Aux` messages such that the set of values carried by those messages is a
     /// subset of bin_values_r.
     ///
-    /// FIXME: Clarify whether the values of `Aux` messages should be the same or not. It is assumed
-    /// in `count_aux` that they can differ.
-    ///
     /// In general, we can't expect every good node to send the same `Aux` value, so waiting for N -
     /// f agreeing messages would not always terminate. We can, however, expect every good node to
-    /// send an `Aux` value that will eventually end up in our bin_values.
+    /// send an `Aux` value that will eventually end up in our `bin_values`.
     fn count_aux(&self) -> usize {
         self.received_aux
             .values()
