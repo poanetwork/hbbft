@@ -6,6 +6,7 @@
 #![feature(optin_builtin_traits)]
 
 extern crate bincode;
+extern crate byteorder;
 #[macro_use(Deref, DerefMut)]
 extern crate derive_deref;
 #[macro_use]

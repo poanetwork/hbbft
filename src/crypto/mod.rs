@@ -1,5 +1,7 @@
 mod error;
 
+use byteorder::{BigEndian, ByteOrder};
+
 use pairing::{CurveAffine, CurveProjective, Engine, Field, PrimeField};
 use rand::{ChaChaRng, Rand, Rng, SeedableRng};
 use ring::digest;
@@ -13,17 +15,13 @@ where
     <E as Engine>::G2: Rand,
     M: AsRef<[u8]>,
 {
-    let digest = digest::digest(&digest::SHA512, msg.as_ref());
-    // The `pairing` crate's `G2` implements `Rand`. We initialize a seedable RNG with the SHA512
+    let digest = digest::digest(&digest::SHA256, msg.as_ref());
+    // The `pairing` crate's `G2` implements `Rand`. We initialize a seedable RNG with the SHA256
     // digest, and use it to generate the element.
-    let mut msg_u32: Vec<u32> = Vec::with_capacity((digest.as_ref().len() + 3) / 4);
+    let mut msg_u32: Vec<u32> = Vec::with_capacity(256 / 32);
     for chunk in digest.as_ref().chunks(4) {
-        let mut x = u32::from(chunk[0]);
-        for b in chunk.into_iter().skip(1) {
-            x <<= 8;
-            x |= u32::from(*b);
-        }
-        msg_u32.push(x);
+        let word = BigEndian::read_u32(chunk);
+        msg_u32.push(word);
     }
     let mut rng = ChaChaRng::from_seed(&msg_u32);
     rng.gen()
