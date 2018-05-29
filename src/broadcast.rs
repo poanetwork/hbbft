@@ -1,13 +1,15 @@
+use std::collections::{BTreeMap, VecDeque};
+use std::fmt::{self, Debug};
+use std::iter::once;
+use std::rc::Rc;
+
 use fmt::{HexBytes, HexList, HexProof};
 use merkle::{MerkleTree, Proof};
 use reed_solomon_erasure as rse;
 use reed_solomon_erasure::ReedSolomon;
 use ring::digest;
-use std::collections::{BTreeMap, BTreeSet, VecDeque};
-use std::fmt::{self, Debug};
-use std::iter;
 
-use messaging::{DistAlgorithm, Target, TargetedMessage};
+use messaging::{DistAlgorithm, NetworkInfo, Target, TargetedMessage};
 
 error_chain!{
     types {
@@ -89,14 +91,10 @@ impl Debug for BroadcastMessage {
 /// * So a node with `2 * f + 1` `Ready`s and `f + 1` `Echos` will decode and _output_ the value,
 /// knowing that every other good node will eventually do the same.
 pub struct Broadcast<N> {
-    /// The UID of this node.
-    our_id: N,
+    /// Shared network data.
+    netinfo: Rc<NetworkInfo<N>>,
     /// The UID of the sending node.
     proposer_id: N,
-    /// UIDs of all nodes for iteration purposes.
-    all_uids: BTreeSet<N>,
-    num_nodes: usize,
-    num_faulty_nodes: usize,
     data_shard_num: usize,
     coding: Coding,
     /// Whether we have already multicast `Echo`.
@@ -125,21 +123,21 @@ impl<N: Eq + Debug + Clone + Ord> DistAlgorithm for Broadcast<N> {
     type Error = Error;
 
     fn input(&mut self, input: Self::Input) -> BroadcastResult<()> {
-        if self.our_id != self.proposer_id {
+        if *self.netinfo.our_uid() != self.proposer_id {
             return Err(ErrorKind::InstanceCannotPropose.into());
         }
         // Split the value into chunks/shards, encode them with erasure codes.
         // Assemble a Merkle tree from data and parity shards. Take all proofs
         // from this tree and send them, each to its own node.
         let proof = self.send_shards(input)?;
+        let our_uid = &self.netinfo.our_uid().clone();
         // TODO: We'd actually need to return the output here, if it was only one node. Should that
         // use-case be supported?
-        let our_id = self.our_id.clone();
-        self.handle_value(&our_id, proof)
+        self.handle_value(our_uid, proof)
     }
 
     fn handle_message(&mut self, sender_id: &N, message: Self::Message) -> BroadcastResult<()> {
-        if !self.all_uids.contains(sender_id) {
+        if !self.netinfo.all_uids().contains(sender_id) {
             return Err(ErrorKind::UnknownSender.into());
         }
         match message {
@@ -162,26 +160,21 @@ impl<N: Eq + Debug + Clone + Ord> DistAlgorithm for Broadcast<N> {
     }
 
     fn our_id(&self) -> &N {
-        &self.our_id
+        self.netinfo.our_uid()
     }
 }
 
 impl<N: Eq + Debug + Clone + Ord> Broadcast<N> {
     /// Creates a new broadcast instance to be used by node `our_id` which expects a value proposal
     /// from node `proposer_id`.
-    pub fn new(our_id: N, proposer_id: N, all_uids: BTreeSet<N>) -> BroadcastResult<Self> {
-        let num_nodes = all_uids.len();
-        let num_faulty_nodes = (num_nodes - 1) / 3;
-        let parity_shard_num = 2 * num_faulty_nodes;
-        let data_shard_num = num_nodes - parity_shard_num;
+    pub fn new(netinfo: Rc<NetworkInfo<N>>, proposer_id: N) -> BroadcastResult<Self> {
+        let parity_shard_num = 2 * netinfo.num_faulty();
+        let data_shard_num = netinfo.num_nodes() - parity_shard_num;
         let coding = Coding::new(data_shard_num, parity_shard_num)?;
 
         Ok(Broadcast {
-            our_id,
+            netinfo,
             proposer_id,
-            all_uids,
-            num_nodes,
-            num_faulty_nodes,
             data_shard_num,
             coding,
             echo_sent: false,
@@ -240,7 +233,7 @@ impl<N: Eq + Debug + Clone + Ord> Broadcast<N> {
         let shards_t: Vec<Vec<u8>> = shards
             .into_iter()
             .enumerate()
-            .map(|(i, s)| iter::once(i as u8).chain(s.iter().cloned()).collect())
+            .map(|(i, s)| once(i as u8).chain(s.iter().cloned()).collect())
             .collect();
 
         // Convert the Merkle tree into a partial binary tree for later
@@ -249,14 +242,14 @@ impl<N: Eq + Debug + Clone + Ord> Broadcast<N> {
 
         // Default result in case of `gen_proof` error.
         let mut result = Err(ErrorKind::ProofConstructionFailed.into());
-        assert_eq!(self.num_nodes, mtree.iter().count());
+        assert_eq!(self.netinfo.num_nodes(), mtree.iter().count());
 
         // Send each proof to a node.
-        for (leaf_value, uid) in mtree.iter().zip(&self.all_uids) {
+        for (leaf_value, uid) in mtree.iter().zip(self.netinfo.all_uids()) {
             let proof = mtree
                 .gen_proof(leaf_value.to_vec())
                 .ok_or(ErrorKind::ProofConstructionFailed)?;
-            if *uid == self.our_id {
+            if *uid == *self.netinfo.our_uid() {
                 // The proof is addressed to this node.
                 result = Ok(proof);
             } else {
@@ -276,22 +269,27 @@ impl<N: Eq + Debug + Clone + Ord> Broadcast<N> {
         if *sender_id != self.proposer_id {
             info!(
                 "Node {:?} received Value from {:?} instead of {:?}.",
-                self.our_id, sender_id, self.proposer_id
+                self.netinfo.our_uid(),
+                sender_id,
+                self.proposer_id
             );
             return Ok(());
         }
         if self.echo_sent {
-            info!("Node {:?} received multiple Values.", self.our_id);
+            info!(
+                "Node {:?} received multiple Values.",
+                self.netinfo.our_uid()
+            );
             return Ok(());
         }
-        if !self.validate_proof(&p, &self.our_id) {
+        if !self.validate_proof(&p, &self.netinfo.our_uid()) {
             return Ok(());
         }
 
         // Otherwise multicast the proof in an `Echo` message, and handle it ourselves.
         self.echo_sent = true;
-        let our_id = self.our_id.clone();
-        self.handle_echo(&our_id, p.clone())?;
+        let our_uid = &self.netinfo.our_uid().clone();
+        self.handle_echo(our_uid, p.clone())?;
         let echo_msg = Target::All.message(BroadcastMessage::Echo(p));
         self.messages.push_back(echo_msg);
         Ok(())
@@ -303,7 +301,8 @@ impl<N: Eq + Debug + Clone + Ord> Broadcast<N> {
         if self.echos.contains_key(sender_id) {
             info!(
                 "Node {:?} received multiple Echos from {:?}.",
-                self.our_id, sender_id,
+                self.netinfo.our_uid(),
+                sender_id,
             );
             return Ok(());
         }
@@ -316,7 +315,9 @@ impl<N: Eq + Debug + Clone + Ord> Broadcast<N> {
         // Save the proof for reconstructing the tree later.
         self.echos.insert(sender_id.clone(), p);
 
-        if self.ready_sent || self.count_echos(&hash) < self.num_nodes - self.num_faulty_nodes {
+        if self.ready_sent
+            || self.count_echos(&hash) < self.netinfo.num_nodes() - self.netinfo.num_faulty()
+        {
             return self.compute_output(&hash);
         }
 
@@ -324,8 +325,8 @@ impl<N: Eq + Debug + Clone + Ord> Broadcast<N> {
         self.ready_sent = true;
         let ready_msg = Target::All.message(BroadcastMessage::Ready(hash.clone()));
         self.messages.push_back(ready_msg);
-        let our_id = self.our_id.clone();
-        self.handle_ready(&our_id, &hash)
+        let our_uid = &self.netinfo.our_uid().clone();
+        self.handle_ready(our_uid, &hash)
     }
 
     /// Handles a received `Ready` message.
@@ -334,7 +335,8 @@ impl<N: Eq + Debug + Clone + Ord> Broadcast<N> {
         if self.readys.contains_key(sender_id) {
             info!(
                 "Node {:?} received multiple Readys from {:?}.",
-                self.our_id, sender_id
+                self.netinfo.our_uid(),
+                sender_id
             );
             return Ok(());
         }
@@ -343,7 +345,7 @@ impl<N: Eq + Debug + Clone + Ord> Broadcast<N> {
 
         // Upon receiving f + 1 matching Ready(h) messages, if Ready
         // has not yet been sent, multicast Ready(h).
-        if self.count_readys(hash) == self.num_faulty_nodes + 1 && !self.ready_sent {
+        if self.count_readys(hash) == self.netinfo.num_faulty() + 1 && !self.ready_sent {
             // Enqueue a broadcast of a Ready message.
             self.ready_sent = true;
             let ready_msg = Target::All.message(BroadcastMessage::Ready(hash.to_vec()));
@@ -356,8 +358,8 @@ impl<N: Eq + Debug + Clone + Ord> Broadcast<N> {
     /// value.
     fn compute_output(&mut self, hash: &[u8]) -> BroadcastResult<()> {
         if self.decided
-            || self.count_readys(hash) <= 2 * self.num_faulty_nodes
-            || self.count_echos(hash) <= self.num_faulty_nodes
+            || self.count_readys(hash) <= 2 * self.netinfo.num_faulty()
+            || self.count_echos(hash) <= self.netinfo.num_faulty()
         {
             return Ok(());
         }
@@ -365,7 +367,8 @@ impl<N: Eq + Debug + Clone + Ord> Broadcast<N> {
         // Upon receiving 2f + 1 matching Ready(h) messages, wait for N − 2f Echo messages.
         self.decided = true;
         let mut leaf_values: Vec<Option<Box<[u8]>>> = self
-            .all_uids
+            .netinfo
+            .all_uids()
             .iter()
             .map(|id| {
                 self.echos.get(id).and_then(|p| {
@@ -384,7 +387,7 @@ impl<N: Eq + Debug + Clone + Ord> Broadcast<N> {
 
     /// Returns `i` if `node_id` is the `i`-th ID among all participating nodes.
     fn index_of_node(&self, node_id: &N) -> Option<usize> {
-        self.all_uids.iter().position(|id| id == node_id)
+        self.netinfo.all_uids().iter().position(|id| id == node_id)
     }
 
     /// Returns `true` if the proof is valid and has the same index as the node ID. Otherwise
@@ -393,16 +396,16 @@ impl<N: Eq + Debug + Clone + Ord> Broadcast<N> {
         if !p.validate(&p.root_hash) {
             info!(
                 "Node {:?} received invalid proof: {:?}",
-                self.our_id,
+                self.netinfo.our_uid(),
                 HexProof(&p)
             );
             false
         } else if self.index_of_node(id) != Some(p.value[0] as usize)
-            || p.index(self.num_nodes) != p.value[0] as usize
+            || p.index(self.netinfo.num_nodes()) != p.value[0] as usize
         {
             info!(
                 "Node {:?} received proof for wrong position: {:?}.",
-                self.our_id,
+                self.netinfo.our_uid(),
                 HexProof(&p)
             );
             false

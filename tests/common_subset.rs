@@ -9,9 +9,11 @@ extern crate rand;
 mod network;
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::iter;
+use std::iter::once;
+use std::rc::Rc;
 
 use hbbft::common_subset::CommonSubset;
+use hbbft::messaging::NetworkInfo;
 
 use network::{Adversary, MessageScheduler, NodeUid, SilentAdversary, TestNetwork, TestNode};
 
@@ -37,7 +39,7 @@ fn test_common_subset<A: Adversary<CommonSubset<NodeUid>>>(
     let mut expected = None;
     for node in network.nodes.values() {
         if let Some(output) = expected.as_ref() {
-            assert!(iter::once(output).eq(node.outputs()));
+            assert!(once(output).eq(node.outputs()));
             continue;
         }
         assert_eq!(1, node.outputs().len());
@@ -61,8 +63,8 @@ fn new_network<A: Adversary<CommonSubset<NodeUid>>>(
     // This returns an error in all but the first test.
     let _ = env_logger::try_init();
 
-    let new_common_subset = |id, all_ids: BTreeSet<_>| {
-        CommonSubset::new(id, &all_ids).expect("new Common Subset instance")
+    let new_common_subset = |netinfo: Rc<NetworkInfo<NodeUid>>| {
+        CommonSubset::new(netinfo).expect("new Common Subset instance")
     };
     TestNetwork::new(good_num, bad_num, adversary, new_common_subset)
 }

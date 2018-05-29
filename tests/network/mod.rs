@@ -1,9 +1,10 @@
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fmt::Debug;
+use std::rc::Rc;
 
 use rand::{self, Rng};
 
-use hbbft::messaging::{DistAlgorithm, Target, TargetedMessage};
+use hbbft::messaging::{DistAlgorithm, NetworkInfo, Target, TargetedMessage};
 
 /// A node identifier. In the tests, nodes are simply numbered.
 #[derive(Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Clone, Copy)]
@@ -154,10 +155,15 @@ where
     /// `adv_num` nodes.
     pub fn new<F>(good_num: usize, adv_num: usize, adversary: A, new_algo: F) -> TestNetwork<A, D>
     where
-        F: Fn(NodeUid, BTreeSet<NodeUid>) -> D,
+        F: Fn(Rc<NetworkInfo<NodeUid>>) -> D,
     {
         let node_ids: BTreeSet<NodeUid> = (0..(good_num + adv_num)).map(NodeUid).collect();
-        let new_node_by_id = |id: NodeUid| (id, TestNode::new(new_algo(id, node_ids.clone())));
+        let new_node_by_id = |id: NodeUid| {
+            (
+                id,
+                TestNode::new(new_algo(Rc::new(NetworkInfo::new(id, node_ids.clone())))),
+            )
+        };
         let mut network = TestNetwork {
             nodes: (0..good_num).map(NodeUid).map(new_node_by_id).collect(),
             adversary,

@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::fmt::Debug;
 
 /// Message sent by a given source.
@@ -9,10 +10,9 @@ pub struct SourcedMessage<M, N> {
 
 /// Message destination can be either of the two:
 ///
-/// 1) `All`: all nodes if sent to socket tasks, or all local algorithm
-/// instances if received from socket tasks.
+/// 1) `All`: all remote nodes.
 ///
-/// 2) `Node(i)`: node i or local algorithm instances with the node index i.
+/// 2) `Node(id)`: remote node `id`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Target<N> {
     All,
@@ -122,5 +122,49 @@ impl<'a, D: DistAlgorithm + 'a> Iterator for OutputIter<'a, D> {
 
     fn next(&mut self) -> Option<Self::Item> {
         self.algorithm.next_output()
+    }
+}
+
+/// Common data shared between algorithms.
+pub struct NetworkInfo<NodeUid> {
+    our_uid: NodeUid,
+    all_uids: BTreeSet<NodeUid>,
+    num_nodes: usize,
+    num_faulty: usize,
+}
+
+impl<NodeUid: Ord> NetworkInfo<NodeUid> {
+    pub fn new(our_uid: NodeUid, all_uids: BTreeSet<NodeUid>) -> Self {
+        if !all_uids.contains(&our_uid) {
+            panic!("Missing own ID");
+        }
+        let num_nodes = all_uids.len();
+        NetworkInfo {
+            our_uid,
+            all_uids,
+            num_nodes,
+            num_faulty: (num_nodes - 1) / 3,
+        }
+    }
+
+    /// The ID of the node the algorithm runs on.
+    pub fn our_uid(&self) -> &NodeUid {
+        &self.our_uid
+    }
+
+    /// ID of all nodes in the network.
+    pub fn all_uids(&self) -> &BTreeSet<NodeUid> {
+        &self.all_uids
+    }
+
+    /// The total number of nodes.
+    pub fn num_nodes(&self) -> usize {
+        self.num_nodes
+    }
+
+    /// The maximum number of faulty, Byzantine nodes up to which Honey Badger is guaranteed to be
+    /// correct.
+    pub fn num_faulty(&self) -> usize {
+        self.num_faulty
     }
 }
