@@ -133,8 +133,11 @@ pub struct NetworkInfo<NodeUid> {
     num_faulty: usize,
 }
 
-impl<NodeUid> NetworkInfo<NodeUid> {
+impl<NodeUid: Ord> NetworkInfo<NodeUid> {
     pub fn new(our_uid: NodeUid, all_uids: BTreeSet<NodeUid>) -> Self {
+        if !all_uids.contains(&our_uid) {
+            panic!("Missing own ID");
+        }
         let num_nodes = all_uids.len();
         NetworkInfo {
             our_uid,

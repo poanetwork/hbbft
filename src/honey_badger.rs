@@ -27,7 +27,6 @@ error_chain!{
     }
 
     errors {
-        OwnIdMissing
         UnknownSender
     }
 }
@@ -111,9 +110,6 @@ where
     where
         TI: IntoIterator<Item = T>,
     {
-        if !netinfo.all_uids().contains(netinfo.our_uid()) {
-            return Err(ErrorKind::OwnIdMissing.into());
-        }
         let mut honey_badger = HoneyBadger {
             netinfo,
             buffer: txs.into_iter().collect(),
