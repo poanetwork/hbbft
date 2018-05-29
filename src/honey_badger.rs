@@ -2,6 +2,7 @@ use std::collections::btree_map::Entry;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fmt::Debug;
 use std::hash::Hash;
+use std::rc::Rc;
 use std::{cmp, iter};
 
 use bincode;
@@ -10,7 +11,7 @@ use serde::de::DeserializeOwned;
 use serde::Serialize;
 
 use common_subset::{self, CommonSubset};
-use messaging::{DistAlgorithm, TargetedMessage};
+use messaging::{DistAlgorithm, NetworkInfo, TargetedMessage};
 
 error_chain!{
     types {
@@ -33,6 +34,8 @@ error_chain!{
 
 /// An instance of the Honey Badger Byzantine fault tolerant consensus algorithm.
 pub struct HoneyBadger<T, N: Eq + Hash + Ord + Clone> {
+    /// Shared network data.
+    netinfo: Rc<NetworkInfo<N>>,
     /// The buffer of transactions that have not yet been included in any output batch.
     buffer: Vec<T>,
     /// The earliest epoch from which we have not yet received output.
@@ -40,10 +43,6 @@ pub struct HoneyBadger<T, N: Eq + Hash + Ord + Clone> {
     /// The Asynchronous Common Subset instance that decides which nodes' transactions to include,
     /// indexed by epoch.
     common_subsets: BTreeMap<u64, CommonSubset<N>>,
-    /// This node's ID.
-    id: N,
-    /// The set of all node IDs of the participants (including ourselves).
-    all_uids: BTreeSet<N>,
     /// The target number of transactions to be included in each batch.
     // TODO: Do experiments and recommend a batch size. It should be proportional to
     // `num_nodes * num_nodes * log(num_nodes)`.
@@ -70,7 +69,7 @@ where
     }
 
     fn handle_message(&mut self, sender_id: &N, message: Self::Message) -> HoneyBadgerResult<()> {
-        if !self.all_uids.contains(sender_id) {
+        if !self.netinfo.all_uids().contains(sender_id) {
             return Err(ErrorKind::UnknownSender.into());
         }
         match message {
@@ -93,7 +92,7 @@ where
     }
 
     fn our_id(&self) -> &N {
-        &self.id
+        self.netinfo.our_uid()
     }
 }
 
@@ -105,7 +104,7 @@ where
 {
     /// Returns a new Honey Badger instance with the given parameters, starting at epoch `0`.
     pub fn new<I, TI>(
-        id: N,
+        our_uid: N,
         all_uids_iter: I,
         batch_size: usize,
         txs: TI,
@@ -115,16 +114,15 @@ where
         TI: IntoIterator<Item = T>,
     {
         let all_uids: BTreeSet<N> = all_uids_iter.into_iter().collect();
-        if !all_uids.contains(&id) {
+        if !all_uids.contains(&our_uid) {
             return Err(ErrorKind::OwnIdMissing.into());
         }
         let mut honey_badger = HoneyBadger {
+            netinfo: Rc::new(NetworkInfo::new(our_uid, all_uids)),
             buffer: txs.into_iter().collect(),
             epoch: 0,
             common_subsets: BTreeMap::new(),
-            id,
             batch_size,
-            all_uids,
             messages: MessageQueue(VecDeque::new()),
             output: VecDeque::new(),
         };
@@ -143,9 +141,7 @@ where
         let proposal = self.choose_transactions()?;
         let cs = match self.common_subsets.entry(self.epoch) {
             Entry::Occupied(entry) => entry.into_mut(),
-            Entry::Vacant(entry) => {
-                entry.insert(CommonSubset::new(self.id.clone(), &self.all_uids)?)
-            }
+            Entry::Vacant(entry) => entry.insert(CommonSubset::new(self.netinfo.clone())?),
         };
         cs.input(proposal)?;
         self.messages.extend_with_epoch(self.epoch, cs);
@@ -156,7 +152,7 @@ where
     /// serializes them.
     fn choose_transactions(&self) -> HoneyBadgerResult<Vec<u8>> {
         let mut rng = rand::thread_rng();
-        let amount = cmp::max(1, self.batch_size / self.all_uids.len());
+        let amount = cmp::max(1, self.batch_size / self.netinfo.all_uids().len());
         let batch_size = cmp::min(self.batch_size, self.buffer.len());
         let sample = match rand::seq::sample_iter(&mut rng, &self.buffer[..batch_size], amount) {
             Ok(choice) => choice,
@@ -164,7 +160,9 @@ where
         };
         debug!(
             "{:?} Proposing in epoch {}: {:?}",
-            self.id, self.epoch, sample
+            self.netinfo.our_uid(),
+            self.epoch,
+            sample
         );
         Ok(bincode::serialize(&sample)?)
     }
@@ -184,7 +182,7 @@ where
                     if epoch < self.epoch {
                         return Ok(()); // Epoch has already terminated. Message is obsolete.
                     } else {
-                        entry.insert(CommonSubset::new(self.id.clone(), &self.all_uids)?)
+                        entry.insert(CommonSubset::new(self.netinfo.clone())?)
                     }
                 }
             };
@@ -217,7 +215,9 @@ where
             self.buffer.retain(|tx| !transactions.contains(tx));
             debug!(
                 "{:?} Epoch {} output {:?}",
-                self.id, self.epoch, transactions
+                self.netinfo.our_uid(),
+                self.epoch,
+                transactions
             );
             // Queue the output and advance the epoch.
             self.output.push_back(Batch {
@@ -248,7 +248,11 @@ where
                 .get(&epoch)
                 .map_or(false, CommonSubset::terminated)
             {
-                debug!("{:?} Epoch {} has terminated.", self.id, epoch);
+                debug!(
+                    "{:?} Epoch {} has terminated.",
+                    self.netinfo.our_uid(),
+                    epoch
+                );
                 self.common_subsets.remove(&epoch);
             }
         }

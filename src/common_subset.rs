@@ -6,13 +6,14 @@
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fmt::Debug;
 use std::hash::Hash;
+use std::rc::Rc;
 
 use agreement;
 use agreement::{Agreement, AgreementMessage};
 use broadcast;
 use broadcast::{Broadcast, BroadcastMessage};
 use fmt::HexBytes;
-use messaging::{DistAlgorithm, Target, TargetedMessage};
+use messaging::{DistAlgorithm, NetworkInfo, Target, TargetedMessage};
 
 error_chain!{
     types {
@@ -98,15 +99,17 @@ impl<NodeUid: Clone + Debug + Eq + Hash + Ord> MessageQueue<NodeUid> {
 /// * Once all `Agreement` instances have decided, `CommonSubset` returns the set of all proposed
 /// values for which the decision was "yes".
 pub struct CommonSubset<NodeUid: Eq + Hash + Ord> {
-    uid: NodeUid,
-    num_nodes: usize,
-    num_faulty_nodes: usize,
+    /// Shared network information.
+    netinfo: Rc<NetworkInfo<NodeUid>>,
     broadcast_instances: BTreeMap<NodeUid, Broadcast<NodeUid>>,
     agreement_instances: BTreeMap<NodeUid, Agreement<NodeUid>>,
     broadcast_results: BTreeMap<NodeUid, ProposedValue>,
     agreement_results: BTreeMap<NodeUid, bool>,
+    /// Outgoing message queue.
     messages: MessageQueue<NodeUid>,
+    /// The output value of the algorithm.
     output: Option<BTreeMap<NodeUid, ProposedValue>>,
+    /// Whether the instance has decided on a value.
     decided: bool,
 }
 
@@ -145,38 +148,32 @@ impl<NodeUid: Clone + Debug + Eq + Hash + Ord> DistAlgorithm for CommonSubset<No
     }
 
     fn our_id(&self) -> &Self::NodeUid {
-        &self.uid
+        self.netinfo.our_uid()
     }
 }
 
 impl<NodeUid: Clone + Debug + Eq + Hash + Ord> CommonSubset<NodeUid> {
-    pub fn new(uid: NodeUid, all_uids: &BTreeSet<NodeUid>) -> CommonSubsetResult<Self> {
-        let num_nodes = all_uids.len();
-        let num_faulty_nodes = (num_nodes - 1) / 3;
+    pub fn new(netinfo: Rc<NetworkInfo<NodeUid>>) -> CommonSubsetResult<Self> {
+        let num_nodes = netinfo.num_nodes();
+        let num_faulty_nodes = netinfo.num_faulty();
 
         // Create all broadcast instances.
         let mut broadcast_instances: BTreeMap<NodeUid, Broadcast<NodeUid>> = BTreeMap::new();
-        for proposer_id in all_uids {
+        for proposer_id in netinfo.all_uids() {
             broadcast_instances.insert(
                 proposer_id.clone(),
-                Broadcast::new(
-                    uid.clone(),
-                    proposer_id.clone(),
-                    all_uids.iter().cloned().collect(),
-                )?,
+                Broadcast::new(netinfo.clone(), proposer_id.clone())?,
             );
         }
 
         // Create all agreement instances.
         let mut agreement_instances: BTreeMap<NodeUid, Agreement<NodeUid>> = BTreeMap::new();
-        for proposer_id in all_uids.iter().cloned() {
-            agreement_instances.insert(proposer_id, Agreement::new(uid.clone(), num_nodes));
+        for proposer_id in netinfo.all_uids().iter().cloned() {
+            agreement_instances.insert(proposer_id, Agreement::new(netinfo.clone()));
         }
 
         Ok(CommonSubset {
-            uid,
-            num_nodes,
-            num_faulty_nodes,
+            netinfo,
             broadcast_instances,
             agreement_instances,
             broadcast_results: BTreeMap::new(),
@@ -190,7 +187,7 @@ impl<NodeUid: Clone + Debug + Eq + Hash + Ord> CommonSubset<NodeUid> {
     /// Common Subset input message handler. It receives a value for broadcast
     /// and redirects it to the corresponding broadcast instance.
     pub fn send_proposed_value(&mut self, value: ProposedValue) -> CommonSubsetResult<()> {
-        let uid = self.uid.clone();
+        let uid = self.netinfo.our_uid().clone();
         // Upon receiving input v_i , input v_i to RBC_i. See Figure 2.
         self.process_broadcast(&uid, |bc| bc.input(value))
     }
@@ -280,10 +277,11 @@ impl<NodeUid: Clone + Debug + Eq + Hash + Ord> CommonSubset<NodeUid> {
         }
         debug!(
             "{:?} Updated Agreement results: {:?}",
-            self.uid, self.agreement_results
+            self.netinfo.our_uid(),
+            self.agreement_results
         );
 
-        if value && self.count_true() == self.num_nodes - self.num_faulty_nodes {
+        if value && self.count_true() == self.netinfo.num_nodes() - self.netinfo.num_faulty() {
             // Upon delivery of value 1 from at least N − f instances of BA, provide
             // input 0 to each instance of BA that has not yet been provided input.
             for (uid, agreement) in &mut self.agreement_instances {
@@ -308,16 +306,20 @@ impl<NodeUid: Clone + Debug + Eq + Hash + Ord> CommonSubset<NodeUid> {
     }
 
     fn try_agreement_completion(&mut self) {
-        if self.decided || self.count_true() < self.num_nodes - self.num_faulty_nodes {
+        if self.decided || self.count_true() < self.netinfo.num_nodes() - self.netinfo.num_faulty()
+        {
             return;
         }
         // Once all instances of BA have completed, let C ⊂ [1..N] be
         // the indexes of each BA that delivered 1. Wait for the output
         // v_j for each RBC_j such that j∈C. Finally output ∪ j∈C v_j.
-        if self.agreement_results.len() < self.num_nodes {
+        if self.agreement_results.len() < self.netinfo.num_nodes() {
             return;
         }
-        debug!("{:?} All Agreement instances have terminated", self.uid);
+        debug!(
+            "{:?} All Agreement instances have terminated",
+            self.netinfo.our_uid()
+        );
         // All instances of Agreement that delivered `true` (or "1" in the paper).
         let delivered_1: BTreeSet<&NodeUid> = self
             .agreement_results
@@ -336,7 +338,10 @@ impl<NodeUid: Clone + Debug + Eq + Hash + Ord> CommonSubset<NodeUid> {
             .collect();
 
         if delivered_1.len() == broadcast_results.len() {
-            debug!("{:?} Agreement instances completed:", self.uid);
+            debug!(
+                "{:?} Agreement instances completed:",
+                self.netinfo.our_uid()
+            );
             for (uid, result) in &broadcast_results {
                 debug!("    {:?} → {:?}", uid, HexBytes(&result));
             }

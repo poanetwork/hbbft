@@ -9,12 +9,13 @@ extern crate rand;
 mod network;
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::iter;
+use std::iter::once;
+use std::rc::Rc;
 
 use rand::Rng;
 
 use hbbft::broadcast::{Broadcast, BroadcastMessage};
-use hbbft::messaging::{DistAlgorithm, TargetedMessage};
+use hbbft::messaging::{DistAlgorithm, NetworkInfo, TargetedMessage};
 use network::{Adversary, MessageScheduler, NodeUid, SilentAdversary, TestNetwork, TestNode};
 
 /// An adversary that inputs an alternate value.
@@ -65,7 +66,8 @@ impl Adversary<Broadcast<NodeUid>> for ProposeAdversary {
             Some(id) => *id,
             None => return vec![],
         };
-        let mut bc = Broadcast::new(id, id, node_ids).expect("broadcast instance");
+        let netinfo = Rc::new(NetworkInfo::new(id, node_ids));
+        let mut bc = Broadcast::new(netinfo, id).expect("broadcast instance");
         bc.input(b"Fake news".to_vec()).expect("propose");
         bc.message_iter().map(|msg| (id, msg)).collect()
     }
@@ -88,12 +90,12 @@ fn test_broadcast<A: Adversary<Broadcast<NodeUid>>>(
     }
     // Verify that all instances output the proposed value.
     for node in network.nodes.values() {
-        assert!(iter::once(&proposed_value.to_vec()).eq(node.outputs()));
+        assert!(once(&proposed_value.to_vec()).eq(node.outputs()));
     }
 }
 
-fn new_broadcast(id: NodeUid, all_ids: BTreeSet<NodeUid>) -> Broadcast<NodeUid> {
-    Broadcast::new(id, NodeUid(0), all_ids).expect("Instantiate broadcast")
+fn new_broadcast(netinfo: Rc<NetworkInfo<NodeUid>>) -> Broadcast<NodeUid> {
+    Broadcast::new(netinfo, NodeUid(0)).expect("Instantiate broadcast")
 }
 
 fn test_broadcast_different_sizes<A, F>(new_adversary: F, proposed_value: &[u8])
@@ -103,8 +105,8 @@ where
 {
     let mut rng = rand::thread_rng();
     let sizes = (1..6)
-        .chain(iter::once(rng.gen_range(6, 20)))
-        .chain(iter::once(rng.gen_range(30, 50)));
+        .chain(once(rng.gen_range(6, 20)))
+        .chain(once(rng.gen_range(30, 50)));
     for size in sizes {
         let num_faulty_nodes = (size - 1) / 3;
         let num_good_nodes = size - num_faulty_nodes;

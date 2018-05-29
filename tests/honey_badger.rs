@@ -8,12 +8,14 @@ extern crate rand;
 
 mod network;
 
-use std::collections::BTreeSet;
-use std::iter;
+use std::iter::once;
+use std::rc::Rc;
 
 use rand::Rng;
 
 use hbbft::honey_badger::{self, HoneyBadger};
+use hbbft::messaging::NetworkInfo;
+
 use network::{Adversary, MessageScheduler, NodeUid, SilentAdversary, TestNetwork, TestNode};
 
 /// Proposes `num_txs` values and expects nodes to output and order them.
@@ -55,8 +57,10 @@ where
     // TODO: Verify that all nodes output the same epochs.
 }
 
-fn new_honey_badger(id: NodeUid, all_ids: BTreeSet<NodeUid>) -> HoneyBadger<usize, NodeUid> {
-    HoneyBadger::new(id, all_ids, 12, 0..5).expect("Instantiate honey_badger")
+fn new_honey_badger(netinfo: Rc<NetworkInfo<NodeUid>>) -> HoneyBadger<usize, NodeUid> {
+    let our_uid = netinfo.our_uid().clone();
+    let all_uids = netinfo.all_uids().clone();
+    HoneyBadger::new(our_uid, all_uids, 12, 0..5).expect("Instantiate honey_badger")
 }
 
 fn test_honey_badger_different_sizes<A, F>(new_adversary: F, num_txs: usize)
@@ -69,8 +73,8 @@ where
 
     let mut rng = rand::thread_rng();
     let sizes = (4..5)
-        .chain(iter::once(rng.gen_range(6, 10)))
-        .chain(iter::once(rng.gen_range(11, 15)));
+        .chain(once(rng.gen_range(6, 10)))
+        .chain(once(rng.gen_range(11, 15)));
     for size in sizes {
         let num_faulty_nodes = (size - 1) / 3;
         let num_good_nodes = size - num_faulty_nodes;

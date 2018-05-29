@@ -6,11 +6,12 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fmt::Debug;
 use std::hash::Hash;
 use std::mem::replace;
+use std::rc::Rc;
 
 use itertools::Itertools;
 
 use agreement::bin_values::BinValues;
-use messaging::{DistAlgorithm, Target, TargetedMessage};
+use messaging::{DistAlgorithm, NetworkInfo, Target, TargetedMessage};
 
 error_chain!{
     types {
@@ -67,10 +68,9 @@ impl AgreementMessage {
 
 /// Binary Agreement instance
 pub struct Agreement<NodeUid> {
-    /// This node's ID.
-    uid: NodeUid,
-    num_nodes: usize,
-    num_faulty_nodes: usize,
+    /// Shared network information.
+    netinfo: Rc<NetworkInfo<NodeUid>>,
+    /// Agreement algorithm epoch.
     epoch: u32,
     /// Bin values. Reset on every epoch update.
     bin_values: BinValues,
@@ -162,18 +162,14 @@ impl<NodeUid: Clone + Debug + Eq + Hash + Ord> DistAlgorithm for Agreement<NodeU
     }
 
     fn our_id(&self) -> &Self::NodeUid {
-        &self.uid
+        self.netinfo.our_uid()
     }
 }
 
 impl<NodeUid: Clone + Debug + Eq + Hash + Ord> Agreement<NodeUid> {
-    pub fn new(uid: NodeUid, num_nodes: usize) -> Self {
-        let num_faulty_nodes = (num_nodes - 1) / 3;
-
+    pub fn new(netinfo: Rc<NetworkInfo<NodeUid>>) -> Self {
         Agreement {
-            uid,
-            num_nodes,
-            num_faulty_nodes,
+            netinfo,
             epoch: 0,
             bin_values: BinValues::new(),
             received_bval: BTreeMap::new(),
@@ -195,7 +191,7 @@ impl<NodeUid: Clone + Debug + Eq + Hash + Ord> Agreement<NodeUid> {
         if self.epoch != 0 || self.estimated.is_some() {
             return Err(ErrorKind::InputNotAccepted.into());
         }
-        if self.num_nodes == 1 {
+        if self.netinfo.num_nodes() == 1 {
             self.decision = Some(input);
             self.output = Some(input);
             self.terminated = true;
@@ -225,7 +221,7 @@ impl<NodeUid: Clone + Debug + Eq + Hash + Ord> Agreement<NodeUid> {
 
         // upon receiving `BVal(b)` messages from 2f + 1 nodes,
         // bin_values := bin_values ∪ {b}
-        if count_bval == 2 * self.num_faulty_nodes + 1 {
+        if count_bval == 2 * self.netinfo.num_faulty() + 1 {
             let previous_bin_values = self.bin_values;
             let bin_values_changed = self.bin_values.insert(b);
 
@@ -241,7 +237,7 @@ impl<NodeUid: Clone + Debug + Eq + Hash + Ord> Agreement<NodeUid> {
             } else {
                 Ok(())
             }
-        } else if count_bval == self.num_faulty_nodes + 1 && !self.sent_bval.contains(&b) {
+        } else if count_bval == self.netinfo.num_faulty() + 1 && !self.sent_bval.contains(&b) {
             // upon receiving `BVal(b)` messages from f + 1 nodes, if
             // `BVal(b)` has not been sent, multicast `BVal(b)`
             self.send_bval(b)
@@ -257,8 +253,8 @@ impl<NodeUid: Clone + Debug + Eq + Hash + Ord> Agreement<NodeUid> {
         self.messages
             .push_back(AgreementMessage::bval(self.epoch, b));
         // Receive the `BVal` message locally.
-        let our_uid = self.uid.clone();
-        self.handle_bval(&our_uid, b)
+        let our_uid = &self.netinfo.our_uid().clone();
+        self.handle_bval(our_uid, b)
     }
 
     fn send_conf(&mut self) -> AgreementResult<()> {
@@ -274,8 +270,8 @@ impl<NodeUid: Clone + Debug + Eq + Hash + Ord> Agreement<NodeUid> {
         // Trigger the start of the `Conf` round.
         self.conf_round = true;
         // Receive the `Conf` message locally.
-        let our_uid = self.uid.clone();
-        self.handle_conf(&our_uid, v)
+        let our_uid = &self.netinfo.our_uid().clone();
+        self.handle_conf(our_uid, v)
     }
 
     /// Waits until at least (N − f) `Aux` messages have been received, such that
@@ -292,7 +288,7 @@ impl<NodeUid: Clone + Debug + Eq + Hash + Ord> Agreement<NodeUid> {
         if self.bin_values == BinValues::None {
             return Ok(());
         }
-        if self.count_aux() < self.num_nodes - self.num_faulty_nodes {
+        if self.count_aux() < self.netinfo.num_nodes() - self.netinfo.num_faulty() {
             // Continue waiting for the (N - f) `Aux` messages.
             return Ok(());
         }
@@ -308,7 +304,7 @@ impl<NodeUid: Clone + Debug + Eq + Hash + Ord> Agreement<NodeUid> {
     fn try_finish_conf_round(&mut self) -> AgreementResult<()> {
         if self.conf_round {
             let (count_vals, vals) = self.count_conf();
-            if count_vals < self.num_nodes - self.num_faulty_nodes {
+            if count_vals < self.netinfo.num_nodes() - self.netinfo.num_faulty() {
                 // Continue waiting for (N - f) `Conf` messages
                 return Ok(());
             }
@@ -323,8 +319,8 @@ impl<NodeUid: Clone + Debug + Eq + Hash + Ord> Agreement<NodeUid> {
         self.messages
             .push_back(AgreementMessage::aux(self.epoch, b));
         // Receive the `Aux` message locally.
-        let our_uid = self.uid.clone();
-        self.handle_aux(&our_uid, b)
+        let our_uid = &self.netinfo.our_uid().clone();
+        self.handle_aux(our_uid, b)
     }
 
     /// The count of `Aux` messages such that the set of values carried by those messages is a
@@ -365,7 +361,11 @@ impl<NodeUid: Clone + Debug + Eq + Hash + Ord> Agreement<NodeUid> {
     /// optional decision value.  The function may start the next epoch. In that case, it also
     /// returns a message for broadcast.
     fn invoke_coin(&mut self, vals: BinValues) -> AgreementResult<()> {
-        debug!("{:?} invoke_coin in epoch {}", self.uid, self.epoch);
+        debug!(
+            "{:?} invoke_coin in epoch {}",
+            self.netinfo.our_uid(),
+            self.epoch
+        );
         // FIXME: Implement the Common Coin algorithm. At the moment the
         // coin value is common across different nodes but not random.
         let coin = (self.epoch % 2) == 0;
@@ -375,14 +375,15 @@ impl<NodeUid: Clone + Debug + Eq + Hash + Ord> Agreement<NodeUid> {
         // some round r' > r."
         self.terminated = self.terminated || self.decision == Some(coin);
         if self.terminated {
-            debug!("Agreement instance {:?} terminated", self.uid);
+            debug!("Agreement instance {:?} terminated", self.netinfo.our_uid());
             return Ok(());
         }
 
         self.start_next_epoch();
         debug!(
             "Agreement instance {:?} started epoch {}",
-            self.uid, self.epoch
+            self.netinfo.our_uid(),
+            self.epoch
         );
 
         if let Some(b) = vals.definite() {
@@ -393,7 +394,11 @@ impl<NodeUid: Clone + Debug + Eq + Hash + Ord> Agreement<NodeUid> {
                 self.output = Some(b);
                 // Latch the decided state.
                 self.decision = Some(b);
-                debug!("Agreement instance {:?} output: {}", self.uid, b);
+                debug!(
+                    "Agreement instance {:?} output: {}",
+                    self.netinfo.our_uid(),
+                    b
+                );
             }
         } else {
             self.estimated = Some(coin);

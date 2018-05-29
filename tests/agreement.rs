@@ -21,12 +21,14 @@ extern crate rand;
 
 mod network;
 
-use std::collections::BTreeSet;
-use std::iter;
+use std::iter::once;
+use std::rc::Rc;
 
 use rand::Rng;
 
 use hbbft::agreement::Agreement;
+use hbbft::messaging::NetworkInfo;
+
 use network::{Adversary, MessageScheduler, NodeUid, SilentAdversary, TestNetwork, TestNode};
 
 fn test_agreement<A: Adversary<Agreement<NodeUid>>>(
@@ -46,7 +48,7 @@ fn test_agreement<A: Adversary<Agreement<NodeUid>>>(
     let mut expected = input;
     for node in network.nodes.values() {
         if let Some(b) = expected {
-            assert!(iter::once(&b).eq(node.outputs()));
+            assert!(once(&b).eq(node.outputs()));
         } else {
             assert_eq!(1, node.outputs().len());
             expected = Some(node.outputs()[0]);
@@ -64,8 +66,8 @@ where
 
     let mut rng = rand::thread_rng();
     let sizes = (1..6)
-        .chain(iter::once(rng.gen_range(6, 20)))
-        .chain(iter::once(rng.gen_range(30, 50)));
+        .chain(once(rng.gen_range(6, 20)))
+        .chain(once(rng.gen_range(30, 50)));
     for size in sizes {
         let num_faulty_nodes = (size - 1) / 3;
         let num_good_nodes = size - num_faulty_nodes;
@@ -75,7 +77,7 @@ where
         );
         for &input in &[None, Some(false), Some(true)] {
             let adversary = new_adversary(num_good_nodes, num_faulty_nodes);
-            let new_agreement = |id, all_ids: BTreeSet<_>| Agreement::new(id, all_ids.len());
+            let new_agreement = |netinfo: Rc<NetworkInfo<NodeUid>>| Agreement::new(netinfo);
             let network =
                 TestNetwork::new(num_good_nodes, num_faulty_nodes, adversary, new_agreement);
             test_agreement(network, input);
