@@ -11,6 +11,7 @@ extern crate byteorder;
 extern crate derive_deref;
 #[macro_use]
 extern crate error_chain;
+extern crate init_with;
 #[macro_use]
 extern crate log;
 extern crate itertools;

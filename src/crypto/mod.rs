@@ -1,12 +1,16 @@
 mod error;
 
 use byteorder::{BigEndian, ByteOrder};
+use init_with::InitWith;
 
 use pairing::{CurveAffine, CurveProjective, Engine, Field, PrimeField};
 use rand::{ChaChaRng, Rand, Rng, SeedableRng};
 use ring::digest;
 
 use self::error::{ErrorKind, Result};
+
+/// The number of words (`u32`) in a ChaCha RNG seed.
+const CHACHA_RNG_SEED_SIZE: usize = 8;
 
 /// Returns a hash of the given message in `G2`.
 pub fn hash_g2<E, M>(msg: M) -> E::G2
@@ -16,14 +20,10 @@ where
     M: AsRef<[u8]>,
 {
     let digest = digest::digest(&digest::SHA256, msg.as_ref());
-    // The `pairing` crate's `G2` implements `Rand`. We initialize a seedable RNG with the SHA256
-    // digest, and use it to generate the element.
-    let mut msg_u32: Vec<u32> = Vec::with_capacity(256 / 32);
-    for chunk in digest.as_ref().chunks(4) {
-        let word = BigEndian::read_u32(chunk);
-        msg_u32.push(word);
-    }
-    let mut rng = ChaChaRng::from_seed(&msg_u32);
+    let seed = <[u32; CHACHA_RNG_SEED_SIZE]>::init_with_indices(|i| {
+        BigEndian::read_u32(&digest.as_ref()[(4 * i)..(4 * i + 4)])
+    });
+    let mut rng = ChaChaRng::from_seed(&seed);
     rng.gen()
 }
 
