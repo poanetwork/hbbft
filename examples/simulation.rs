@@ -83,6 +83,8 @@ pub struct TestNode<D: DistAlgorithm> {
     queue: VecDeque<TimestampedMessage<D>>,
     /// The values this node has output so far, with timestamps.
     outputs: Vec<(u64, D::Output)>,
+    /// The number of messages this node has handled so far.
+    message_count: usize,
 }
 
 impl<D: DistAlgorithm> TestNode<D> {
@@ -95,6 +97,7 @@ impl<D: DistAlgorithm> TestNode<D> {
             time: 0,
             queue: VecDeque::new(),
             outputs,
+            message_count: 0,
         }
     }
 
@@ -102,6 +105,7 @@ impl<D: DistAlgorithm> TestNode<D> {
     fn handle_message(&mut self) {
         let ts_msg = self.queue.pop_front().expect("message not found");
         self.time = cmp::max(self.time, ts_msg.time);
+        self.message_count += 1;
         self.algo
             .handle_message(&ts_msg.sender_id, ts_msg.message)
             .expect("handling message");
@@ -116,6 +120,11 @@ impl<D: DistAlgorithm> TestNode<D> {
             None => None,
             Some(ts_msg) => Some(cmp::max(ts_msg.time, self.time)),
         }
+    }
+
+    /// Returns the number of messages this node has handled so far.
+    fn message_count(&self) -> usize {
+        self.message_count
     }
 }
 
@@ -202,6 +211,11 @@ where
         self.dispatch_messages(next_id, min_time, msgs);
         next_id
     }
+
+    /// Returns the number of messages that have been handled so far.
+    pub fn message_count(&self) -> usize {
+        self.nodes.values().map(TestNode::message_count).sum()
+    }
 }
 
 /// The timestamped batches for a particular epoch that have already been output.
@@ -212,7 +226,7 @@ struct EpochInfo {
 
 impl EpochInfo {
     /// Adds a batch to this epoch. Prints information if the epoch is complete.
-    fn add(&mut self, id: NodeUid, time: u64, batch: &Batch<usize>, node_num: usize) {
+    fn add(&mut self, id: NodeUid, time: u64, batch: &Batch<usize>, node_num: usize, msgs: usize) {
         if self.nodes.contains_key(&id) {
             return;
         }
@@ -231,10 +245,11 @@ impl EpochInfo {
             .unwrap();
         let txs = batch.transactions.len();
         println!(
-            "{:>5} {:6} {:5}",
+            "{:>5} {:6} {:5} {:7}",
             batch.epoch.to_string().cyan(),
             max_t,
-            txs
+            txs,
+            msgs,
         );
     }
 }
@@ -265,7 +280,7 @@ fn simulate_honey_badger(mut network: TestNetwork<HoneyBadger<usize, NodeUid>>, 
     };
 
     // Handle messages until all nodes have output all transactions.
-    println!("{}", "Epoch   Time   Txs".bold());
+    println!("{}", "Epoch   Time   Txs    Msgs".bold());
     let mut epochs = Vec::new();
     while network.nodes.values_mut().any(node_busy) {
         let id = network.step();
@@ -273,7 +288,8 @@ fn simulate_honey_badger(mut network: TestNetwork<HoneyBadger<usize, NodeUid>>, 
             if epochs.len() <= batch.epoch as usize {
                 epochs.resize(batch.epoch as usize + 1, EpochInfo::default());
             }
-            epochs[batch.epoch as usize].add(id, time, batch, network.nodes.len());
+            let msg_count = network.message_count();
+            epochs[batch.epoch as usize].add(id, time, batch, network.nodes.len(), msg_count);
         }
     }
 }
