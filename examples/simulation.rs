@@ -8,6 +8,7 @@ extern crate serde_derive;
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fmt::Debug;
+use std::rc::Rc;
 use std::{cmp, u64};
 
 use colored::*;
@@ -16,7 +17,7 @@ use itertools::Itertools;
 use rand::Rng;
 
 use hbbft::honey_badger::{self, Batch, HoneyBadger};
-use hbbft::messaging::{DistAlgorithm, Target, TargetedMessage};
+use hbbft::messaging::{DistAlgorithm, NetworkInfo, Target, TargetedMessage};
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 const USAGE: &str = "
@@ -318,8 +319,8 @@ fn main() {
     println!();
     let num_good_nodes = args.flag_n - args.flag_f;
     let new_honey_badger = |id: NodeUid, all_ids: BTreeSet<NodeUid>| {
-        HoneyBadger::new(id, all_ids, args.flag_b, 0..args.flag_txs)
-            .expect("Instantiate honey_badger")
+        let netinfo = Rc::new(NetworkInfo::new(id, all_ids));
+        HoneyBadger::new(netinfo, args.flag_b, 0..args.flag_txs).expect("Instantiate honey_badger")
     };
     let network = TestNetwork::new(num_good_nodes, args.flag_f, new_honey_badger, args.flag_lag);
     simulate_honey_badger(network, args.flag_txs);

@@ -103,22 +103,19 @@ where
     N: Eq + Hash + Ord + Clone + Debug,
 {
     /// Returns a new Honey Badger instance with the given parameters, starting at epoch `0`.
-    pub fn new<I, TI>(
-        our_uid: N,
-        all_uids_iter: I,
+    pub fn new<TI>(
+        netinfo: Rc<NetworkInfo<N>>,
         batch_size: usize,
         txs: TI,
     ) -> HoneyBadgerResult<Self>
     where
-        I: IntoIterator<Item = N>,
         TI: IntoIterator<Item = T>,
     {
-        let all_uids: BTreeSet<N> = all_uids_iter.into_iter().collect();
-        if !all_uids.contains(&our_uid) {
+        if !netinfo.all_uids().contains(netinfo.our_uid()) {
             return Err(ErrorKind::OwnIdMissing.into());
         }
         let mut honey_badger = HoneyBadger {
-            netinfo: Rc::new(NetworkInfo::new(our_uid, all_uids)),
+            netinfo,
             buffer: txs.into_iter().collect(),
             epoch: 0,
             common_subsets: BTreeMap::new(),

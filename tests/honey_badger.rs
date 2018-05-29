@@ -57,13 +57,8 @@ where
     // TODO: Verify that all nodes output the same epochs.
 }
 
-// FIXME: It is possible to pass `netinfo` to `HoneyBadger::new` in the same way it is passed to
-// other algorithms. That way `new_honey_badger` would be unified with `new_agreement`, etc. However
-// a `netinfo` constructor argument would arguably make the top-level interface a bit convoluted.
-#[allow(needless_pass_by_value)]
 fn new_honey_badger(netinfo: Rc<NetworkInfo<NodeUid>>) -> HoneyBadger<usize, NodeUid> {
-    HoneyBadger::new(*netinfo.our_uid(), netinfo.all_uids().clone(), 12, 0..5)
-        .expect("Instantiate honey_badger")
+    HoneyBadger::new(netinfo, 12, 0..5).expect("Instantiate honey_badger")
 }
 
 fn test_honey_badger_different_sizes<A, F>(new_adversary: F, num_txs: usize)
