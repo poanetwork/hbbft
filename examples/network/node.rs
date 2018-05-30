@@ -39,10 +39,11 @@ use std::collections::HashSet;
 use std::fmt::Debug;
 use std::marker::{Send, Sync};
 use std::net::SocketAddr;
+use std::rc::Rc;
 use std::{io, iter, process, thread, time};
 
 use hbbft::broadcast::{Broadcast, BroadcastMessage};
-use hbbft::messaging::{DistAlgorithm, SourcedMessage};
+use hbbft::messaging::{DistAlgorithm, NetworkInfo, SourcedMessage};
 use hbbft::proto::message::BroadcastProto;
 use network::commst;
 use network::connection;
@@ -123,8 +124,9 @@ impl<T: Clone + Debug + AsRef<[u8]> + PartialEq + Send + Sync + From<Vec<u8>> + 
             // corresponding to this instance, and no dedicated comms task. The
             // node index is 0.
             let broadcast_handle = scope.spawn(move || {
-                let mut broadcast = Broadcast::new(our_id, proposer_id, (0..num_nodes).collect())
-                    .expect("failed to instantiate broadcast");
+                let netinfo = Rc::new(NetworkInfo::new(our_id, (0..num_nodes).collect()));
+                let mut broadcast =
+                    Broadcast::new(netinfo, proposer_id).expect("failed to instantiate broadcast");
 
                 if let Some(v) = value {
                     broadcast.input(v.clone().into()).expect("propose value");
