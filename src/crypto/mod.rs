@@ -3,7 +3,7 @@ mod error;
 use byteorder::{BigEndian, ByteOrder};
 use init_with::InitWith;
 use pairing::{CurveAffine, CurveProjective, Engine, Field, PrimeField};
-use rand::{ChaChaRng, Rand, Rng, SeedableRng};
+use rand::{ChaChaRng, OsRng, Rng, SeedableRng};
 use ring::digest;
 
 use self::error::{ErrorKind, Result};
@@ -11,29 +11,13 @@ use self::error::{ErrorKind, Result};
 /// The number of words (`u32`) in a ChaCha RNG seed.
 const CHACHA_RNG_SEED_SIZE: usize = 8;
 
-/// Returns a hash of the given message in `G2`.
-pub fn hash_g2<E, M>(msg: M) -> E::G2
-where
-    E: Engine,
-    <E as Engine>::G2: Rand,
-    M: AsRef<[u8]>,
-{
-    let digest = digest::digest(&digest::SHA256, msg.as_ref());
-    let seed = <[u32; CHACHA_RNG_SEED_SIZE]>::init_with_indices(|i| {
-        BigEndian::read_u32(&digest.as_ref()[(4 * i)..(4 * i + 4)])
-    });
-    let mut rng = ChaChaRng::from_seed(&seed);
-    rng.gen()
-}
+const ERR_OS_RNG: &str = "could not initialize the OS random number generator";
 
 /// A public key, or a public key share.
 #[derive(Debug)]
 pub struct PublicKey<E: Engine>(E::G1);
 
-impl<E: Engine> PartialEq for PublicKey<E>
-where
-    E::G2: PartialEq,
-{
+impl<E: Engine> PartialEq for PublicKey<E> {
     fn eq(&self, other: &PublicKey<E>) -> bool {
         self.0 == other.0
     }
@@ -49,16 +33,31 @@ impl<E: Engine> PublicKey<E> {
     pub fn verify<M: AsRef<[u8]>>(&self, sig: &Signature<E>, msg: M) -> bool {
         self.verify_g2(sig, hash_g2::<E, M>(msg))
     }
+
+    /// Encrypts the message.
+    pub fn encrypt<M: AsRef<[u8]>>(&self, msg: M) -> Ciphertext<E> {
+        let r: E::Fr = OsRng::new().expect(ERR_OS_RNG).gen();
+        let u = E::G1Affine::one().mul(r);
+        let v: Vec<u8> = {
+            let mut g = self.0;
+            g.mul_assign(r);
+            hash_bytes::<E>(g, msg.as_ref().len())
+                .into_iter()
+                .zip(msg.as_ref())
+                .map(|(x, y)| x ^ y)
+                .collect()
+        };
+        let mut w = hash_g1_g2::<E, _>(u, &v);
+        w.mul_assign(r);
+        Ciphertext(u, v, w)
+    }
 }
 
 /// A signature, or a signature share.
 #[derive(Debug)]
 pub struct Signature<E: Engine>(E::G2);
 
-impl<E: Engine> PartialEq for Signature<E>
-where
-    E::G2: PartialEq,
-{
+impl<E: Engine> PartialEq for Signature<E> {
     fn eq(&self, other: &Signature<E>) -> bool {
         self.0 == other.0
     }
@@ -68,10 +67,7 @@ where
 #[derive(Debug)]
 pub struct SecretKey<E: Engine>(E::Fr);
 
-impl<E: Engine> PartialEq for SecretKey<E>
-where
-    E::G2: PartialEq,
-{
+impl<E: Engine> PartialEq for SecretKey<E> {
     fn eq(&self, other: &SecretKey<E>) -> bool {
         self.0 == other.0
     }
@@ -96,6 +92,42 @@ impl<E: Engine> SecretKey<E> {
     /// Signs the given message.
     pub fn sign<M: AsRef<[u8]>>(&self, msg: M) -> Signature<E> {
         self.sign_g2(hash_g2::<E, M>(msg))
+    }
+
+    /// Returns the decrypted text, or `None`, if the ciphertext isn't valid.
+    pub fn decrypt(&self, ct: &Ciphertext<E>) -> Option<Vec<u8>> {
+        if !ct.verify() {
+            return None;
+        }
+        let Ciphertext(ref u, ref v, _) = *ct;
+        let mut g = *u;
+        g.mul_assign(self.0);
+        let decrypted = hash_bytes::<E>(g, v.len())
+            .into_iter()
+            .zip(v)
+            .map(|(x, y)| x ^ y)
+            .collect();
+        Some(decrypted)
+    }
+}
+
+/// An encrypted message.
+#[derive(Debug)]
+pub struct Ciphertext<E: Engine>(E::G1, Vec<u8>, E::G2);
+
+impl<E: Engine> PartialEq for Ciphertext<E> {
+    fn eq(&self, other: &Ciphertext<E>) -> bool {
+        self.0 == other.0 && self.1 == other.1 && self.2 == other.2
+    }
+}
+
+impl<E: Engine> Ciphertext<E> {
+    /// Returns `true` if this is a valid ciphertext. This check is necessary to prevent
+    /// chosen-ciphertext attacks.
+    pub fn verify(&self) -> bool {
+        let Ciphertext(ref u, ref v, ref w) = *self;
+        let hash = hash_g1_g2::<E, _>(*u, v);
+        E::pairing(E::G1Affine::one(), w.into_affine()) == E::pairing(u.into_affine(), hash)
     }
 }
 
@@ -222,6 +254,40 @@ impl<E: Engine> SecretKeySet<E> {
     }
 }
 
+/// Returns a hash of the given message in `G2`.
+fn hash_g2<E: Engine, M: AsRef<[u8]>>(msg: M) -> E::G2 {
+    let digest = digest::digest(&digest::SHA256, msg.as_ref());
+    let seed = <[u32; CHACHA_RNG_SEED_SIZE]>::init_with_indices(|i| {
+        BigEndian::read_u32(&digest.as_ref()[(4 * i)..(4 * i + 4)])
+    });
+    let mut rng = ChaChaRng::from_seed(&seed);
+    rng.gen()
+}
+
+/// Returns a hash of the group element and message, in the second group.
+fn hash_g1_g2<E: Engine, M: AsRef<[u8]>>(g1: E::G1, msg: M) -> E::G2 {
+    // If the message is large, hash it, otherwise copy it.
+    // TODO: Benchmark and optimize the threshold.
+    let mut msg = if msg.as_ref().len() > 64 {
+        let digest = digest::digest(&digest::SHA256, msg.as_ref());
+        digest.as_ref().to_vec()
+    } else {
+        msg.as_ref().to_vec()
+    };
+    msg.extend(g1.into_affine().into_compressed().as_ref());
+    hash_g2::<E, _>(&msg)
+}
+
+/// Returns a hash of the group element with the specified length in bytes.
+fn hash_bytes<E: Engine>(g1: E::G1, len: usize) -> Vec<u8> {
+    let digest = digest::digest(&digest::SHA256, g1.into_affine().into_compressed().as_ref());
+    let seed = <[u32; CHACHA_RNG_SEED_SIZE]>::init_with_indices(|i| {
+        BigEndian::read_u32(&digest.as_ref()[(4 * i)..(4 * i + 4)])
+    });
+    let mut rng = ChaChaRng::from_seed(&seed);
+    rng.gen_iter().take(len).collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -273,6 +339,31 @@ mod tests {
             .collect();
         let sig2 = pk_set.combine_signatures(&sigs2).expect("signatures match");
         assert_eq!(sig, sig2);
+    }
+
+    #[test]
+    fn test_simple_enc() {
+        let mut rng = rand::thread_rng();
+        let sk_bob = SecretKey::<Bls12>::new(&mut rng);
+        let sk_eve = SecretKey::<Bls12>::new(&mut rng);
+        let pk_bob = sk_bob.public_key();
+        let msg = b"Muffins in the canteen today! Don't tell Eve!";
+        let ciphertext = pk_bob.encrypt(&msg[..]);
+        assert!(ciphertext.verify());
+
+        // Bob can decrypt the message.
+        let decrypted = sk_bob.decrypt(&ciphertext).expect("valid ciphertext");
+        assert_eq!(msg[..], decrypted[..]);
+
+        // Eve can't.
+        let decrypted_eve = sk_eve.decrypt(&ciphertext).expect("valid ciphertext");
+        assert_ne!(msg[..], decrypted_eve[..]);
+
+        // Eve tries to trick Bob into decrypting `msg` xor `v`, but it doesn't validate.
+        let Ciphertext(u, v, w) = ciphertext;
+        let fake_ciphertext = Ciphertext::<Bls12>(u, vec![0; v.len()], w);
+        assert!(!fake_ciphertext.verify());
+        assert_eq!(None, sk_bob.decrypt(&fake_ciphertext));
     }
 
     /// Some basic sanity checks for the hash function.
