@@ -2,7 +2,6 @@ mod error;
 
 use byteorder::{BigEndian, ByteOrder};
 use init_with::InitWith;
-
 use pairing::{CurveAffine, CurveProjective, Engine, Field, PrimeField};
 use rand::{ChaChaRng, Rand, Rng, SeedableRng};
 use ring::digest;
@@ -101,10 +100,11 @@ impl<E: Engine> SecretKey<E> {
 }
 
 /// A public key and an associated set of public key shares.
+#[cfg_attr(feature = "serialization-serde", derive(Serialize, Deserialize))]
 pub struct PublicKeySet<E: Engine> {
     /// The coefficients of a polynomial whose value at `0` is the "master key", and value at
     /// `i + 1` is key share number `i`.
-    coeff: Vec<E::G1>,
+    coeff: Vec<PublicKey<E>>,
 }
 
 impl<E: Engine> PublicKeySet<E> {
@@ -115,8 +115,8 @@ impl<E: Engine> PublicKeySet<E> {
     }
 
     /// Returns the public key.
-    pub fn public_key(&self) -> PublicKey<E> {
-        PublicKey(self.coeff[0])
+    pub fn public_key(&self) -> &PublicKey<E> {
+        &self.coeff[0]
     }
 
     /// Returns the `i`-th public key share.
@@ -126,10 +126,10 @@ impl<E: Engine> PublicKeySet<E> {
     {
         let mut x = E::Fr::one();
         x.add_assign(&E::Fr::from_repr(i.into()).expect("invalid index"));
-        let mut pk = *self.coeff.last().expect("at least one coefficient");
+        let mut pk = self.coeff.last().expect("at least one coefficient").0;
         for c in self.coeff.iter().rev().skip(1) {
             pk.mul_assign(x);
-            pk.add_assign(c);
+            pk.add_assign(&c.0);
         }
         PublicKey(pk)
     }
@@ -215,7 +215,7 @@ impl<E: Engine> SecretKeySet<E> {
 
     /// Returns the corresponding public key set. That information can be shared publicly.
     pub fn public_keys(&self) -> PublicKeySet<E> {
-        let to_pub = |c: &E::Fr| E::G1Affine::one().mul(*c);
+        let to_pub = |c: &E::Fr| PublicKey(E::G1Affine::one().mul(*c));
         PublicKeySet {
             coeff: self.coeff.iter().map(to_pub).collect(),
         }
@@ -287,5 +287,83 @@ mod tests {
         assert_eq!(hash(&msg), hash(&msg));
         assert_ne!(hash(&msg), hash(&msg_end0));
         assert_ne!(hash(&msg_end0), hash(&msg_end1));
+    }
+
+    #[cfg(feature = "serialization-serde")]
+    #[test]
+    fn test_serde() {
+        use bincode;
+
+        let mut rng = rand::thread_rng();
+        let sk = SecretKey::<Bls12>::new(&mut rng);
+        let sig = sk.sign("Please sign here: ______");
+        let pk = sk.public_key();
+        let ser_pk = bincode::serialize(&pk).expect("serialize public key");
+        let deser_pk = bincode::deserialize(&ser_pk).expect("deserialize public key");
+        assert_eq!(pk, deser_pk);
+        let ser_sig = bincode::serialize(&sig).expect("serialize signature");
+        let deser_sig = bincode::deserialize(&ser_sig).expect("deserialize signature");
+        assert_eq!(sig, deser_sig);
+    }
+}
+
+#[cfg(feature = "serialization-serde")]
+mod serde {
+    use pairing::{CurveAffine, CurveProjective, EncodedPoint, Engine};
+
+    use super::{PublicKey, Signature};
+    use serde::de::Error as DeserializeError;
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+    const ERR_LEN: &str = "wrong length of deserialized group element";
+    const ERR_CODE: &str = "deserialized bytes don't encode a group element";
+
+    impl<E: Engine> Serialize for PublicKey<E> {
+        fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+            serialize_projective(&self.0, s)
+        }
+    }
+
+    impl<'de, E: Engine> Deserialize<'de> for PublicKey<E> {
+        fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+            Ok(PublicKey(deserialize_projective(d)?))
+        }
+    }
+
+    impl<E: Engine> Serialize for Signature<E> {
+        fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+            serialize_projective(&self.0, s)
+        }
+    }
+
+    impl<'de, E: Engine> Deserialize<'de> for Signature<E> {
+        fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+            Ok(Signature(deserialize_projective(d)?))
+        }
+    }
+
+    /// Serializes the compressed representation of a group element.
+    fn serialize_projective<S, C>(c: &C, s: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+        C: CurveProjective,
+    {
+        c.into_affine().into_compressed().as_ref().serialize(s)
+    }
+
+    /// Deserializes the compressed representation of a group element.
+    fn deserialize_projective<'de, D, C>(d: D) -> Result<C, D::Error>
+    where
+        D: Deserializer<'de>,
+        C: CurveProjective,
+    {
+        let bytes = <Vec<u8>>::deserialize(d)?;
+        if bytes.len() != <C::Affine as CurveAffine>::Compressed::size() {
+            return Err(D::Error::custom(ERR_LEN));
+        }
+        let mut compressed = <C::Affine as CurveAffine>::Compressed::empty();
+        compressed.as_mut().copy_from_slice(&bytes);
+        let to_err = |_| D::Error::custom(ERR_CODE);
+        Ok(compressed.into_affine().map_err(to_err)?.into_projective())
     }
 }

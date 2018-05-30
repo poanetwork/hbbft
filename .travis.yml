@@ -21,8 +21,8 @@ env:
 script:
   - cargo clippy -- -D clippy
   - cargo clippy --tests -- -D clippy
-  - cargo clippy --features="serialization-protobuf serialization-serde" -- -D clippy
-  - cargo clippy --features="serialization-protobuf serialization-serde" --tests -- -D clippy
+  - cargo clippy --all-features -- -D clippy
+  - cargo clippy --all-features --tests -- -D clippy
   - cargo fmt -- --check
-  - cargo check --tests
-  - cargo test
+  - cargo check --tests --all-features
+  - cargo test --all-features
