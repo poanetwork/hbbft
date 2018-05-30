@@ -354,6 +354,18 @@ mod tests {
         let mut rng = rand::thread_rng();
         let sk_set = SecretKeySet::<Bls12>::new(3, &mut rng);
         let pk_set = sk_set.public_keys();
+
+        // Make sure the keys are different, and the first coefficient is the main key.
+        assert_eq!(*pk_set.public_key(), pk_set.coeff[0]);
+        assert_ne!(*pk_set.public_key(), pk_set.public_key_share(0));
+        assert_ne!(*pk_set.public_key(), pk_set.public_key_share(1));
+        assert_ne!(*pk_set.public_key(), pk_set.public_key_share(2));
+
+        // Make sure we don't hand out the main secret key to anyone.
+        assert_ne!(SecretKey(sk_set.coeff[0]), sk_set.secret_key_share(0));
+        assert_ne!(SecretKey(sk_set.coeff[0]), sk_set.secret_key_share(1));
+        assert_ne!(SecretKey(sk_set.coeff[0]), sk_set.secret_key_share(2));
+
         let msg = "Totally real news";
 
         // The threshold is 3, so 4 signature shares will suffice to recreate the share.
@@ -437,7 +449,7 @@ mod tests {
         assert_eq!(msg[..], decrypted[..]);
     }
 
-    /// Some basic sanity checks for the hash function.
+    /// Some basic sanity checks for the `hash_g2` function.
     #[test]
     fn test_hash_g2() {
         let mut rng = rand::thread_rng();
@@ -449,6 +461,37 @@ mod tests {
         assert_eq!(hash(&msg), hash(&msg));
         assert_ne!(hash(&msg), hash(&msg_end0));
         assert_ne!(hash(&msg_end0), hash(&msg_end1));
+    }
+
+    /// Some basic sanity checks for the `hash_g1_g2` function.
+    #[test]
+    fn test_hash_g1_g2() {
+        let mut rng = rand::thread_rng();
+        let msg: Vec<u8> = (0..1000).map(|_| rng.gen()).collect();
+        let msg_end0: Vec<u8> = msg.iter().chain(b"end0").cloned().collect();
+        let msg_end1: Vec<u8> = msg.iter().chain(b"end1").cloned().collect();
+        let g0 = rng.gen();
+        let g1 = rng.gen();
+
+        let hash = hash_g1_g2::<Bls12, _>;
+        assert_eq!(hash(g0, &msg), hash(g0, &msg));
+        assert_ne!(hash(g0, &msg), hash(g0, &msg_end0));
+        assert_ne!(hash(g0, &msg_end0), hash(g0, &msg_end1));
+        assert_ne!(hash(g0, &msg), hash(g1, &msg));
+    }
+
+    /// Some basic sanity checks for the `hash_bytes` function.
+    #[test]
+    fn test_hash_bytes() {
+        let mut rng = rand::thread_rng();
+        let g0 = rng.gen();
+        let g1 = rng.gen();
+        let hash = hash_bytes::<Bls12>;
+        assert_eq!(hash(g0, 5), hash(g0, 5));
+        assert_ne!(hash(g0, 5), hash(g1, 5));
+        assert_eq!(5, hash(g0, 5).len());
+        assert_eq!(6, hash(g0, 6).len());
+        assert_eq!(20, hash(g0, 20).len());
     }
 
     #[cfg(feature = "serialization-serde")]
