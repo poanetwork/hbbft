@@ -26,7 +26,7 @@ impl<E: Engine> PartialEq for PublicKey<E> {
 impl<E: Engine> PublicKey<E> {
     /// Returns `true` if the signature matches the element of `E::G2`.
     pub fn verify_g2<H: Into<E::G2Affine>>(&self, sig: &Signature<E>, hash: H) -> bool {
-        E::pairing(self.0, hash) == E::pairing(E::G1::one(), sig.0)
+        E::pairing(self.0, hash) == E::pairing(E::G1Affine::one(), sig.0)
     }
 
     /// Returns `true` if the signature matches the message.
@@ -34,21 +34,22 @@ impl<E: Engine> PublicKey<E> {
         self.verify_g2(sig, hash_g2::<E, M>(msg))
     }
 
+    /// Returns `true` if the decryption share matches the ciphertext.
+    pub fn verify_decryption_share(&self, share: &DecryptionShare<E>, ct: &Ciphertext<E>) -> bool {
+        let Ciphertext(ref u, ref v, ref w) = *ct;
+        let hash = hash_g1_g2::<E, _>(*u, v);
+        E::pairing(share.0, hash) == E::pairing(self.0, *w)
+    }
+
     /// Encrypts the message.
     pub fn encrypt<M: AsRef<[u8]>>(&self, msg: M) -> Ciphertext<E> {
         let r: E::Fr = OsRng::new().expect(ERR_OS_RNG).gen();
         let u = E::G1Affine::one().mul(r);
         let v: Vec<u8> = {
-            let mut g = self.0;
-            g.mul_assign(r);
-            hash_bytes::<E>(g, msg.as_ref().len())
-                .into_iter()
-                .zip(msg.as_ref())
-                .map(|(x, y)| x ^ y)
-                .collect()
+            let g = self.0.into_affine().mul(r);
+            xor_vec(&hash_bytes::<E>(g, msg.as_ref().len()), msg.as_ref())
         };
-        let mut w = hash_g1_g2::<E, _>(u, &v);
-        w.mul_assign(r);
+        let w = hash_g1_g2::<E, _>(u, &v).into_affine().mul(r);
         Ciphertext(u, v, w)
     }
 }
@@ -100,14 +101,16 @@ impl<E: Engine> SecretKey<E> {
             return None;
         }
         let Ciphertext(ref u, ref v, _) = *ct;
-        let mut g = *u;
-        g.mul_assign(self.0);
-        let decrypted = hash_bytes::<E>(g, v.len())
-            .into_iter()
-            .zip(v)
-            .map(|(x, y)| x ^ y)
-            .collect();
-        Some(decrypted)
+        let g = u.into_affine().mul(self.0);
+        Some(xor_vec(&hash_bytes::<E>(g, v.len()), v))
+    }
+
+    /// Returns a decryption share, or `None`, if the ciphertext isn't valid.
+    pub fn decrypt_share(&self, ct: &Ciphertext<E>) -> Option<DecryptionShare<E>> {
+        if !ct.verify() {
+            return None;
+        }
+        Some(DecryptionShare(ct.0.into_affine().mul(self.0)))
     }
 }
 
@@ -127,7 +130,17 @@ impl<E: Engine> Ciphertext<E> {
     pub fn verify(&self) -> bool {
         let Ciphertext(ref u, ref v, ref w) = *self;
         let hash = hash_g1_g2::<E, _>(*u, v);
-        E::pairing(E::G1Affine::one(), w.into_affine()) == E::pairing(u.into_affine(), hash)
+        E::pairing(E::G1Affine::one(), *w) == E::pairing(*u, hash)
+    }
+}
+
+/// A decryption share. A threshold of decryption shares can be used to decrypt a message.
+#[derive(Debug)]
+pub struct DecryptionShare<E: Engine>(E::G1);
+
+impl<E: Engine> PartialEq for DecryptionShare<E> {
+    fn eq(&self, other: &DecryptionShare<E>) -> bool {
+        self.0 == other.0
     }
 }
 
@@ -166,45 +179,25 @@ impl<E: Engine> PublicKeySet<E> {
         PublicKey(pk)
     }
 
-    /// Verifies that the given signatures are correct and combines them into a signature that can
-    /// be verified with the main public key.
-    pub fn combine_signatures<'a, ITR, IND>(&self, items: ITR) -> Result<Signature<E>>
+    /// Combines the shares into a signature that can be verified with the main public key.
+    pub fn combine_signatures<'a, ITR, IND>(&self, shares: ITR) -> Result<Signature<E>>
     where
         ITR: IntoIterator<Item = (&'a IND, &'a Signature<E>)>,
         IND: Into<<E::Fr as PrimeField>::Repr> + Clone + 'a,
     {
-        let sigs: Vec<_> = items
-            .into_iter()
-            .map(|(i, sig)| {
-                let mut x = E::Fr::one();
-                x.add_assign(&E::Fr::from_repr(i.clone().into()).expect("invalid index"));
-                (x, sig)
-            })
-            .collect();
-        if sigs.len() < self.coeff.len() {
-            return Err(ErrorKind::NotEnoughShares.into());
-        }
-        let mut result = E::G2::zero();
-        let mut indexes = Vec::new();
-        for (x, sig) in sigs.iter().take(self.coeff.len()) {
-            if indexes.contains(x) {
-                return Err(ErrorKind::DuplicateEntry.into());
-            }
-            indexes.push(x.clone());
-            // Compute the value at 0 of the Lagrange polynomial that is `0` at the other data
-            // points but `1` at `x`.
-            let mut l0 = E::Fr::one();
-            for (x0, _) in sigs.iter().take(self.coeff.len()).filter(|(x0, _)| x0 != x) {
-                let mut denom = *x0;
-                denom.sub_assign(x);
-                l0.mul_assign(x0);
-                l0.mul_assign(&denom.inverse().expect("indices are different"));
-            }
-            let mut summand = sig.0;
-            summand.mul_assign(l0);
-            result.add_assign(&summand);
-        }
-        Ok(Signature(result))
+        let samples = shares.into_iter().map(|(i, share)| (i, &share.0));
+        Ok(Signature(interpolate(self.coeff.len(), samples)?))
+    }
+
+    /// Combines the shares to decrypt the ciphertext.
+    pub fn decrypt<'a, ITR, IND>(&self, shares: ITR, ct: &Ciphertext<E>) -> Result<Vec<u8>>
+    where
+        ITR: IntoIterator<Item = (&'a IND, &'a DecryptionShare<E>)>,
+        IND: Into<<E::Fr as PrimeField>::Repr> + Clone + 'a,
+    {
+        let samples = shares.into_iter().map(|(i, share)| (i, &share.0));
+        let g = interpolate(self.coeff.len(), samples)?;
+        Ok(xor_vec(&hash_bytes::<E>(g, ct.1.len()), &ct.1))
     }
 }
 
@@ -235,8 +228,7 @@ impl<E: Engine> SecretKeySet<E> {
     where
         T: Into<<E::Fr as PrimeField>::Repr>,
     {
-        let mut x = E::Fr::one();
-        x.add_assign(&E::Fr::from_repr(i.into()).expect("invalid index"));
+        let x = from_repr_plus_1(i.into());
         let mut pk = *self.coeff.last().expect("at least one coefficient");
         for c in self.coeff.iter().rev().skip(1) {
             pk.mul_assign(&x);
@@ -286,6 +278,53 @@ fn hash_bytes<E: Engine>(g1: E::G1, len: usize) -> Vec<u8> {
     });
     let mut rng = ChaChaRng::from_seed(&seed);
     rng.gen_iter().take(len).collect()
+}
+
+/// Returns the bitwise xor.
+fn xor_vec(x: &[u8], y: &[u8]) -> Vec<u8> {
+    x.iter().zip(y).map(|(a, b)| a ^ b).collect()
+}
+
+/// Given a list of `t` samples `(i - 1, f(i) * g)` for a polynomial `f` of degree `t - 1`, and a
+/// group generator `g`, returns `f(0) * g`.
+pub fn interpolate<'a, C, ITR, IND>(t: usize, items: ITR) -> Result<C>
+where
+    C: CurveProjective,
+    ITR: IntoIterator<Item = (&'a IND, &'a C)>,
+    IND: Into<<C::Scalar as PrimeField>::Repr> + Clone + 'a,
+{
+    let samples: Vec<_> = items
+        .into_iter()
+        .map(|(i, sample)| (from_repr_plus_1::<C::Scalar>(i.clone().into()), sample))
+        .collect();
+    if samples.len() < t {
+        return Err(ErrorKind::NotEnoughShares.into());
+    }
+    let mut result = C::zero();
+    let mut indexes = Vec::new();
+    for (x, sample) in samples.iter().take(t) {
+        if indexes.contains(x) {
+            return Err(ErrorKind::DuplicateEntry.into());
+        }
+        indexes.push(x.clone());
+        // Compute the value at 0 of the Lagrange polynomial that is `0` at the other data
+        // points but `1` at `x`.
+        let mut l0 = C::Scalar::one();
+        for (x0, _) in samples.iter().take(t).filter(|(x0, _)| x0 != x) {
+            let mut denom = *x0;
+            denom.sub_assign(x);
+            l0.mul_assign(x0);
+            l0.mul_assign(&denom.inverse().expect("indices are different"));
+        }
+        result.add_assign(&sample.into_affine().mul(l0));
+    }
+    Ok(result)
+}
+
+fn from_repr_plus_1<F: PrimeField>(repr: F::Repr) -> F {
+    let mut x = F::one();
+    x.add_assign(&F::from_repr(repr).expect("invalid index"));
+    x
 }
 
 #[cfg(test)]
@@ -366,6 +405,38 @@ mod tests {
         assert_eq!(None, sk_bob.decrypt(&fake_ciphertext));
     }
 
+    #[test]
+    fn test_threshold_enc() {
+        let mut rng = rand::thread_rng();
+        let sk_set = SecretKeySet::<Bls12>::new(3, &mut rng);
+        let pk_set = sk_set.public_keys();
+        let msg = b"Totally real news";
+        let ciphertext = pk_set.public_key().encrypt(&msg[..]);
+
+        // The threshold is 3, so 4 signature shares will suffice to decrypt.
+        let shares: BTreeMap<_, _> = [5, 8, 7, 10]
+            .into_iter()
+            .map(|i| {
+                let ski = sk_set.secret_key_share(*i);
+                let share = ski.decrypt_share(&ciphertext).expect("ciphertext is valid");
+                (*i, share)
+            })
+            .collect();
+
+        // Each of the shares is valid matching its public key share.
+        for (i, share) in &shares {
+            pk_set
+                .public_key_share(*i)
+                .verify_decryption_share(share, &ciphertext);
+        }
+
+        // Combined, they can decrypt the message.
+        let decrypted = pk_set
+            .decrypt(&shares, &ciphertext)
+            .expect("decryption shares match");
+        assert_eq!(msg[..], decrypted[..]);
+    }
+
     /// Some basic sanity checks for the hash function.
     #[test]
     fn test_hash_g2() {
@@ -402,7 +473,7 @@ mod tests {
 mod serde {
     use pairing::{CurveAffine, CurveProjective, EncodedPoint, Engine};
 
-    use super::{PublicKey, Signature};
+    use super::{DecryptionShare, PublicKey, Signature};
     use serde::de::Error as DeserializeError;
     use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
@@ -430,6 +501,18 @@ mod serde {
     impl<'de, E: Engine> Deserialize<'de> for Signature<E> {
         fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
             Ok(Signature(deserialize_projective(d)?))
+        }
+    }
+
+    impl<E: Engine> Serialize for DecryptionShare<E> {
+        fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+            serialize_projective(&self.0, s)
+        }
+    }
+
+    impl<'de, E: Engine> Deserialize<'de> for DecryptionShare<E> {
+        fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+            Ok(DecryptionShare(deserialize_projective(d)?))
         }
     }
 
