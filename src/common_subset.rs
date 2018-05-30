@@ -1,8 +1,5 @@
 //! Asynchronous Common Subset algorithm.
 
-// TODO: This module is work in progress. Remove this attribute when it's not needed anymore.
-#![allow(unused)]
-
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fmt::Debug;
 use std::hash::Hash;
@@ -13,7 +10,7 @@ use agreement::{Agreement, AgreementMessage};
 use broadcast;
 use broadcast::{Broadcast, BroadcastMessage};
 use fmt::HexBytes;
-use messaging::{DistAlgorithm, NetworkInfo, Target, TargetedMessage};
+use messaging::{DistAlgorithm, NetworkInfo, TargetedMessage};
 
 error_chain!{
     types {
@@ -34,13 +31,8 @@ error_chain!{
     }
 }
 
-// TODO: Make this a generic argument of `Broadcast`.
+// TODO: Make this a generic argument of `CommonSubset`.
 type ProposedValue = Vec<u8>;
-// Type of output from the Common Subset message handler.
-type CommonSubsetOutput<NodeUid> = (
-    Option<BTreeMap<NodeUid, ProposedValue>>,
-    VecDeque<TargetedMessage<Message<NodeUid>, NodeUid>>,
-);
 
 /// Message from Common Subset to remote nodes.
 #[cfg_attr(feature = "serialization-serde", derive(Serialize))]
@@ -154,9 +146,6 @@ impl<NodeUid: Clone + Debug + Eq + Hash + Ord> DistAlgorithm for CommonSubset<No
 
 impl<NodeUid: Clone + Debug + Eq + Hash + Ord> CommonSubset<NodeUid> {
     pub fn new(netinfo: Rc<NetworkInfo<NodeUid>>) -> CommonSubsetResult<Self> {
-        let num_nodes = netinfo.num_nodes();
-        let num_faulty_nodes = netinfo.num_faulty();
-
         // Create all broadcast instances.
         let mut broadcast_instances: BTreeMap<NodeUid, Broadcast<NodeUid>> = BTreeMap::new();
         for proposer_id in netinfo.all_uids() {
@@ -260,7 +249,7 @@ impl<NodeUid: Clone + Debug + Eq + Hash + Ord> CommonSubset<NodeUid> {
             if agreement.terminated() {
                 return Ok(());
             }
-            f(agreement);
+            f(agreement)?;
             self.messages.extend_agreement(proposer_id, agreement);
             if let Some(output) = agreement.next_output() {
                 output
