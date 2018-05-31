@@ -8,6 +8,7 @@ extern crate rand;
 extern crate serde;
 #[macro_use(Deserialize, Serialize)]
 extern crate serde_derive;
+extern crate signifix;
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::rc::Rc;
@@ -20,6 +21,7 @@ use itertools::Itertools;
 use rand::Rng;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
+use signifix::{metric, TryFrom};
 
 use hbbft::honey_badger::{Batch, HoneyBadger};
 use hbbft::messaging::{DistAlgorithm, NetworkInfo, Target};
@@ -126,6 +128,8 @@ pub struct TestNode<D: DistAlgorithm> {
     outputs: Vec<(Duration, D::Output)>,
     /// The number of messages this node has handled so far.
     message_count: usize,
+    /// The total size of messages this node has handled so far, in bytes.
+    message_size: u64,
     /// The hardware and network quality of this node.
     hw_quality: HwQuality,
 }
@@ -145,6 +149,7 @@ where
             out_queue: VecDeque::new(),
             outputs: Vec::new(),
             message_count: 0,
+            message_size: 0,
             hw_quality,
         };
         node.send_output_and_msgs();
@@ -156,6 +161,7 @@ where
         let ts_msg = self.in_queue.pop_front().expect("message not found");
         self.time = cmp::max(self.time, ts_msg.time);
         self.message_count += 1;
+        self.message_size += ts_msg.message.len() as u64;
         let start = Instant::now();
         let msg = bincode::deserialize::<D::Message>(&ts_msg.message).expect("deserialize");
         self.algo
@@ -205,6 +211,11 @@ where
     /// Returns the number of messages this node has handled so far.
     fn message_count(&self) -> usize {
         self.message_count
+    }
+
+    /// Returns the size of messages this node has handled so far.
+    fn message_size(&self) -> u64 {
+        self.message_size
     }
 
     /// Adds a message into the incoming queue.
@@ -305,6 +316,11 @@ where
     pub fn message_count(&self) -> usize {
         self.nodes.values().map(TestNode::message_count).sum()
     }
+
+    /// Returns the total size of messages that have been handled so far.
+    pub fn message_size(&self) -> u64 {
+        self.nodes.values().map(TestNode::message_size).sum()
+    }
 }
 
 /// The timestamped batches for a particular epoch that have already been output.
@@ -320,19 +336,16 @@ impl EpochInfo {
         id: NodeUid,
         time: Duration,
         batch: &Batch<Transaction>,
-        node_num: usize,
-        msgs: usize,
+        network: &TestNetwork<HoneyBadger<Transaction, NodeUid>>,
     ) {
         if self.nodes.contains_key(&id) {
             return;
         }
         self.nodes.insert(id, (time, batch.clone()));
-        if self.nodes.len() < node_num {
+        if self.nodes.len() < network.nodes.len() {
             return;
         }
-        // TODO: Once bandwidth, CPU time and/or randomized lag are simulated, `min_t` and `max_t`
-        // will probably differ. Print both.
-        let (_min_t, max_t) = self
+        let (min_t, max_t) = self
             .nodes
             .values()
             .map(|&(time, _)| time)
@@ -341,11 +354,14 @@ impl EpochInfo {
             .unwrap();
         let txs = batch.transactions.len();
         println!(
-            "{:>5} {:6} {:5} {:7}",
+            "{:>5} {:6} {:6} {:5} {:9} {:>9}B",
             batch.epoch.to_string().cyan(),
+            min_t.as_secs() * 1000 + max_t.subsec_nanos() as u64 / 1_000_000,
             max_t.as_secs() * 1000 + max_t.subsec_nanos() as u64 / 1_000_000,
             txs,
-            msgs,
+            network.message_count() / network.nodes.len(),
+            metric::Signifix::try_from(network.message_size() / network.nodes.len() as u64)
+                .unwrap(),
         );
     }
 }
@@ -365,7 +381,10 @@ fn simulate_honey_badger(
     };
 
     // Handle messages until all nodes have output all transactions.
-    println!("{}", "Epoch   Time   Txs    Msgs".bold());
+    println!(
+        "{}",
+        "Epoch  Min/Max Time   Txs Msgs/Node  Size/Node".bold()
+    );
     let mut epochs = Vec::new();
     while network.nodes.values_mut().any(node_busy) {
         let id = network.step();
@@ -373,8 +392,7 @@ fn simulate_honey_badger(
             if epochs.len() <= batch.epoch as usize {
                 epochs.resize(batch.epoch as usize + 1, EpochInfo::default());
             }
-            let msg_count = network.message_count();
-            epochs[batch.epoch as usize].add(id, time, batch, network.nodes.len(), msg_count);
+            epochs[batch.epoch as usize].add(id, time, batch, &network);
         }
     }
 }
