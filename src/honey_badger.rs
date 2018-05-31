@@ -199,10 +199,10 @@ where
             // Deserialize the output.
             let transactions: BTreeSet<T> = ser_batches
                 .into_iter()
-                .map(|(_, ser_batch)| bincode::deserialize::<Vec<T>>(&ser_batch))
-                .collect::<Result<Vec<Vec<T>>, _>>()?
-                .into_iter()
-                .flat_map(|txs| txs)
+                .flat_map(|(_, ser_batch)| {
+                    // If serialization fails, the proposer of that batch is faulty. Ignore it.
+                    bincode::deserialize::<Vec<T>>(&ser_batch).unwrap_or_else(|_| Vec::new())
+                })
                 .collect();
             // Remove the output transactions from our buffer.
             self.buffer.retain(|tx| !transactions.contains(tx));
