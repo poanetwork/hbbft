@@ -1,6 +1,7 @@
 extern crate bincode;
 extern crate colored;
 extern crate docopt;
+extern crate env_logger;
 extern crate hbbft;
 extern crate itertools;
 extern crate rand;
@@ -394,6 +395,7 @@ fn parse_args() -> Result<Args, docopt::Error> {
 }
 
 fn main() {
+    env_logger::init();
     let args = parse_args().unwrap_or_else(|e| e.exit());
     if args.flag_n <= 3 * args.flag_f {
         let msg = "Honey Badger only works if less than one third of the nodes are faulty.";

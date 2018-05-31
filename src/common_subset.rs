@@ -111,6 +111,11 @@ impl<NodeUid: Clone + Debug + Eq + Hash + Ord> DistAlgorithm for CommonSubset<No
     type Error = Error;
 
     fn input(&mut self, input: Self::Input) -> CommonSubsetResult<()> {
+        debug!(
+            "{:?} Proposing {:?}",
+            self.netinfo.our_uid(),
+            HexBytes(&input)
+        );
         self.send_proposed_value(input)
     }
 
