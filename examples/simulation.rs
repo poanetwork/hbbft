@@ -358,17 +358,10 @@ fn simulate_honey_badger(
     // Returns `true` if the node has not output all transactions yet.
     // If it has, and has advanced another epoch, it clears all messages for later epochs.
     let node_busy = |node: &mut TestNode<HoneyBadger<Transaction, NodeUid>>| {
-        let mut missing = num_txs;
-        for &(_, ref batch) in &node.outputs {
-            missing -= &batch.transactions.len();
-        }
-        if missing > 0 {
-            return true;
-        }
-        if node.outputs.last().unwrap().1.transactions.is_empty() {
-            node.in_queue.clear();
-        }
-        false
+        node.outputs
+            .iter()
+            .map(|&(_, ref batch)| batch.transactions.len())
+            .sum::<usize>() < num_txs
     };
 
     // Handle messages until all nodes have output all transactions.
