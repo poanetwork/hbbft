@@ -20,7 +20,6 @@ error_chain!{
 
     errors {
         InputNotAccepted
-        Terminated
     }
 }
 
@@ -126,11 +125,8 @@ impl<NodeUid: Clone + Debug + Eq + Hash + Ord> DistAlgorithm for Agreement<NodeU
         sender_id: &Self::NodeUid,
         message: Self::Message,
     ) -> AgreementResult<()> {
-        if self.terminated {
-            return Err(ErrorKind::Terminated.into());
-        }
-        if message.epoch < self.epoch {
-            return Ok(()); // Message is obsolete: We are already in a later epoch.
+        if self.terminated || message.epoch < self.epoch {
+            return Ok(()); // Message is obsolete: We are already in a later epoch or terminated.
         }
         if message.epoch > self.epoch {
             // Message is for a later epoch. We can't handle that yet.
@@ -386,8 +382,7 @@ impl<NodeUid: Clone + Debug + Eq + Hash + Ord> Agreement<NodeUid> {
             self.epoch
         );
 
-        if let Some(b) = vals.definite() {
-            self.estimated = Some(b);
+        let b = if let Some(b) = vals.definite() {
             // Outputting a value is allowed only once.
             if self.decision.is_none() && b == coin {
                 // Output the agreement value.
@@ -400,11 +395,12 @@ impl<NodeUid: Clone + Debug + Eq + Hash + Ord> Agreement<NodeUid> {
                     b
                 );
             }
+            b
         } else {
-            self.estimated = Some(coin);
-        }
+            coin
+        };
 
-        let b = self.estimated.unwrap();
+        self.estimated = Some(b);
         self.send_bval(b)?;
         let queued_msgs = replace(&mut self.incoming_queue, Vec::new());
         for (sender_id, msg) in queued_msgs {
