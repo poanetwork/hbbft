@@ -41,8 +41,8 @@ Options:
   -t <txs>, --txs <txs>   The number of transactions to process [default: 1000]
   -b <b>, --batch <b>     The batch size, i.e. txs per epoch [default: 100]
   -l <lag>, --lag <lag>   The network lag between sending and receiving [default: 100]
-  --bw <bw>               The bandwidth, in Kbit/s [default: 10000]
-  --cpu <cpu>             The CPU time, in percent of this machine's [default: 100]
+  --bw <bw>               The bandwidth, in kbit/s [default: 2000]
+  --cpu <cpu>             The CPU speed, in percent of this machine's [default: 100]
   --tx-size <size>        The size of a transaction, in bytes [default: 10]
 ";
 
@@ -54,7 +54,7 @@ struct Args {
     flag_b: usize,
     flag_lag: u64,
     flag_bw: u32,
-    flag_cpu: u32,
+    flag_cpu: f32,
     flag_tx_size: usize,
 }
 
@@ -397,10 +397,13 @@ fn main() {
     println!("Simulating Honey Badger with:");
     println!("{} nodes, {} faulty", args.flag_n, args.flag_f);
     println!(
-        "{} transactions, ≤{} per epoch",
-        args.flag_txs, args.flag_b
+        "{} transactions, {} bytes each, ≤{} per epoch",
+        args.flag_txs, args.flag_tx_size, args.flag_b
     );
-    println!("Network lag: {}", args.flag_lag);
+    println!(
+        "Network lag: {} ms, bandwidth: {} kbit/s, {:5.2}% CPU speed",
+        args.flag_lag, args.flag_bw, args.flag_cpu
+    );
     println!();
     let num_good_nodes = args.flag_n - args.flag_f;
     let txs = (0..args.flag_txs).map(|_| Transaction::new(args.flag_tx_size));
@@ -411,7 +414,7 @@ fn main() {
     let hw_quality = HwQuality {
         latency: Duration::from_millis(args.flag_lag),
         inv_bw: Duration::new(0, 8_000_000 / args.flag_bw),
-        cpu_factor: args.flag_cpu,
+        cpu_factor: (10_000f32 / args.flag_cpu) as u32,
     };
     let network = TestNetwork::new(num_good_nodes, args.flag_f, new_honey_badger, hw_quality);
     simulate_honey_badger(network, args.flag_txs);
