@@ -33,7 +33,7 @@ error_chain!{
 type ProposedValue = Vec<u8>;
 
 /// Message from Common Subset to remote nodes.
-#[cfg_attr(feature = "serialization-serde", derive(Serialize))]
+#[cfg_attr(feature = "serialization-serde", derive(Serialize, Deserialize))]
 #[derive(Clone, Debug)]
 pub enum Message<NodeUid> {
     /// A message for the broadcast algorithm concerning the set element proposed by the given node.

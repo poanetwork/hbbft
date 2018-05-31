@@ -41,3 +41,4 @@ required-features = [ "serialization-protobuf" ]
 
 [[example]]
 name = "simulation"
+required-features = [ "serialization-serde" ]
