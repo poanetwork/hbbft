@@ -26,8 +26,6 @@ error_chain!{
         MultipleAgreementResults
         NoSuchAgreementInstance
         NoSuchBroadcastInstance
-        NotImplemented
-        UnexpectedMessage
     }
 }
 
