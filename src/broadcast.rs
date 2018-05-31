@@ -498,9 +498,10 @@ fn decode_from_shards(
     root_hash: &[u8],
 ) -> Option<Vec<u8>> {
     // Try to interpolate the Merkle tree using the Reed-Solomon erasure coding scheme.
-    coding
-        .reconstruct_shards(leaf_values)
-        .expect("enough shards are present");
+    if let Err(err) = coding.reconstruct_shards(leaf_values) {
+        debug!("Shard reconstruction failed: {:?}", err); // Faulty proposer
+        return None;
+    }
 
     // Recompute the Merkle tree root.
 
