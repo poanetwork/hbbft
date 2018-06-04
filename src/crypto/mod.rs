@@ -150,6 +150,7 @@ impl<E: Engine> PartialEq for DecryptionShare<E> {
 
 /// A public key and an associated set of public key shares.
 #[cfg_attr(feature = "serialization-serde", derive(Serialize, Deserialize))]
+#[derive(Debug)]
 pub struct PublicKeySet<E: Engine> {
     /// The coefficients of a polynomial whose value at `0` is the "master key", and value at
     /// `i + 1` is key share number `i`.

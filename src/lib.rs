@@ -31,6 +31,7 @@ extern crate serde_derive;
 
 pub mod agreement;
 pub mod broadcast;
+pub mod common_coin;
 pub mod common_subset;
 pub mod crypto;
 mod fmt;

@@ -1,6 +1,10 @@
 use std::collections::BTreeSet;
 use std::fmt::Debug;
 
+use pairing::bls12_381::Bls12;
+
+use crypto::{PublicKeySet, SecretKey};
+
 /// Message sent by a given source.
 #[derive(Clone, Debug)]
 pub struct SourcedMessage<M, N> {
@@ -126,15 +130,23 @@ impl<'a, D: DistAlgorithm + 'a> Iterator for OutputIter<'a, D> {
 }
 
 /// Common data shared between algorithms.
+#[derive(Debug)]
 pub struct NetworkInfo<NodeUid> {
     our_uid: NodeUid,
     all_uids: BTreeSet<NodeUid>,
     num_nodes: usize,
     num_faulty: usize,
+    secret_key: SecretKey<Bls12>,
+    public_key_set: PublicKeySet<Bls12>,
 }
 
 impl<NodeUid: Ord> NetworkInfo<NodeUid> {
-    pub fn new(our_uid: NodeUid, all_uids: BTreeSet<NodeUid>) -> Self {
+    pub fn new(
+        our_uid: NodeUid,
+        all_uids: BTreeSet<NodeUid>,
+        secret_key: SecretKey<Bls12>,
+        public_key_set: PublicKeySet<Bls12>,
+    ) -> Self {
         if !all_uids.contains(&our_uid) {
             panic!("Missing own ID");
         }
@@ -144,6 +156,8 @@ impl<NodeUid: Ord> NetworkInfo<NodeUid> {
             all_uids,
             num_nodes,
             num_faulty: (num_nodes - 1) / 3,
+            secret_key,
+            public_key_set,
         }
     }
 
