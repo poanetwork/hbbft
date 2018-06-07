@@ -85,6 +85,9 @@ impl AgreementMessage {
                 };
                 p.set_conf(bin_values);
             }
+            AgreementContent::Term(b) => {
+                p.set_term(b);
+            }
         }
         p
     }
@@ -94,9 +97,9 @@ impl AgreementMessage {
     pub fn from_proto(mp: message::AgreementProto) -> Option<Self> {
         let epoch = mp.get_epoch();
         if mp.has_bval() {
-            Some(AgreementMessage::bval(epoch, mp.get_bval()))
+            Some(AgreementContent::BVal(mp.get_bval()).with_epoch(epoch))
         } else if mp.has_aux() {
-            Some(AgreementMessage::aux(epoch, mp.get_aux()))
+            Some(AgreementContent::Aux(mp.get_aux()).with_epoch(epoch))
         } else if mp.has_conf() {
             match mp.get_conf() {
                 0 => Some(BinValues::None),
@@ -104,7 +107,9 @@ impl AgreementMessage {
                 2 => Some(BinValues::True),
                 3 => Some(BinValues::Both),
                 _ => None,
-            }.map(|bin_values| AgreementMessage::conf(epoch, bin_values))
+            }.map(|bin_values| AgreementContent::Conf(bin_values).with_epoch(epoch))
+        } else if mp.has_term() {
+            Some(AgreementContent::Term(mp.get_term()).with_epoch(epoch))
         } else {
             None
         }
