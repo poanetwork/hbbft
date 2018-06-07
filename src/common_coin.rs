@@ -18,7 +18,9 @@ error_chain! {
 }
 
 #[derive(Debug)]
-struct CommonCoinMessage {}
+enum CommonCoinMessage {
+    Share(Signature<Bls12>),
+}
 
 #[derive(Debug)]
 struct CommonCoin<N>
@@ -82,5 +84,16 @@ where
             output: None,
             messages: VecDeque::new(),
         }
+    }
+
+    pub fn get_coin<T>(&mut self, nonce: T) -> Result<()>
+    where
+        T: AsRef<[u8]>,
+    {
+        self.messages
+            .push_back(Target::All.message(CommonCoinMessage::Share(
+                self.netinfo.secret_key().sign(nonce),
+            )));
+        Ok(())
     }
 }

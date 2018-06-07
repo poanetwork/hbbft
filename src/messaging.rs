@@ -181,4 +181,12 @@ impl<NodeUid: Ord> NetworkInfo<NodeUid> {
     pub fn num_faulty(&self) -> usize {
         self.num_faulty
     }
+
+    pub fn secret_key(&self) -> &SecretKey<Bls12> {
+        &self.secret_key
+    }
+
+    pub fn public_key_set(&self) -> &PublicKeySet<Bls12> {
+        &self.public_key_set
+    }
 }
