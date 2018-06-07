@@ -352,18 +352,21 @@ impl<NodeUid: Clone + Debug + Eq + Hash + Ord> Agreement<NodeUid> {
     /// f agreeing messages would not always terminate. We can, however, expect every good node to
     /// send an `Aux` value that will eventually end up in our `bin_values`.
     fn count_aux(&self) -> usize {
-        let count_aux = self
+        let mut aux: BTreeMap<_, _> = self
             .received_aux
-            .values()
-            .filter(|&&b| self.bin_values.contains(b))
-            .count();
-        let count_term = self
-            .received_term
-            .values()
-            .filter(|&&b| self.bin_values.contains(b))
-            .count();
+            .iter()
+            .filter(|(_, &b)| self.bin_values.contains(b))
+            .collect();
 
-        count_aux + count_term
+        let term: BTreeMap<_, _> = self
+            .received_term
+            .iter()
+            .filter(|(_, &b)| self.bin_values.contains(b))
+            .collect();
+
+        // Ensure that nodes are not counted twice.
+        aux.extend(term);
+        aux.len()
     }
 
     /// Counts the number of received `Conf` messages.
