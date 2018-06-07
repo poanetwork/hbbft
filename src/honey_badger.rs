@@ -199,10 +199,10 @@ where
             // Deserialize the output.
             let transactions: BTreeSet<T> = ser_batches
                 .into_iter()
-                .map(|(_, ser_batch)| bincode::deserialize::<Vec<T>>(&ser_batch))
-                .collect::<Result<Vec<Vec<T>>, _>>()?
-                .into_iter()
-                .flat_map(|txs| txs)
+                .flat_map(|(_, ser_batch)| {
+                    // If serialization fails, the proposer of that batch is faulty. Ignore it.
+                    bincode::deserialize::<Vec<T>>(&ser_batch).unwrap_or_else(|_| Vec::new())
+                })
                 .collect();
             // Remove the output transactions from our buffer.
             self.buffer.retain(|tx| !transactions.contains(tx));
@@ -260,7 +260,7 @@ pub struct Batch<T> {
 }
 
 /// A message sent to or received from another node's Honey Badger instance.
-#[cfg_attr(feature = "serialization-serde", derive(Serialize))]
+#[cfg_attr(feature = "serialization-serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone)]
 pub enum Message<N> {
     /// A message belonging to the common subset algorithm in the given epoch.

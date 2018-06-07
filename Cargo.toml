@@ -34,6 +34,7 @@ crossbeam = "0.3.2"
 crossbeam-channel = "0.1"
 docopt = "0.8"
 serde_derive = "1.0.55"
+signifix = "0.9"
 
 [[example]]
 name = "consensus-node"
@@ -41,3 +42,4 @@ required-features = [ "serialization-protobuf" ]
 
 [[example]]
 name = "simulation"
+required-features = [ "serialization-serde" ]

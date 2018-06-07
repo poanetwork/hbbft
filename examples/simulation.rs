@@ -1,23 +1,30 @@
+extern crate bincode;
 extern crate colored;
 extern crate docopt;
+extern crate env_logger;
 extern crate hbbft;
 extern crate itertools;
 extern crate rand;
-#[macro_use(Deserialize)]
+extern crate serde;
+#[macro_use(Deserialize, Serialize)]
 extern crate serde_derive;
+extern crate signifix;
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
-use std::fmt::Debug;
 use std::rc::Rc;
+use std::time::{Duration, Instant};
 use std::{cmp, u64};
 
 use colored::*;
 use docopt::Docopt;
 use itertools::Itertools;
 use rand::Rng;
+use serde::de::DeserializeOwned;
+use serde::Serialize;
+use signifix::{metric, TryFrom};
 
-use hbbft::honey_badger::{self, Batch, HoneyBadger};
-use hbbft::messaging::{DistAlgorithm, NetworkInfo, Target, TargetedMessage};
+use hbbft::honey_badger::{Batch, HoneyBadger};
+use hbbft::messaging::{DistAlgorithm, NetworkInfo, Target};
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 const USAGE: &str = "
@@ -29,13 +36,16 @@ Usage:
   benchmark --version
 
 Options:
-  -h, --help             Show this message.
-  --version              Show the version of hbbft.
-  -n <n>, --nodes <n>    The total number of nodes [default: 10]
-  -f <f>, --faulty <f>   The number of faulty nodes [default: 0]
-  -t <txs>, --txs <txs>  The number of transactions to process [default: 1000]
-  -b <b>, --batch <b>    The batch size, i.e. txs per epoch [default: 100]
-  -l <lag>, --lag <lag>  The network lag between sending and receiving [default: 100]
+  -h, --help              Show this message.
+  --version               Show the version of hbbft.
+  -n <n>, --nodes <n>     The total number of nodes [default: 10]
+  -f <f>, --faulty <f>    The number of faulty nodes [default: 0]
+  -t <txs>, --txs <txs>   The number of transactions to process [default: 1000]
+  -b <b>, --batch <b>     The batch size, i.e. txs per epoch [default: 100]
+  -l <lag>, --lag <lag>   The network lag between sending and receiving [default: 100]
+  --bw <bw>               The bandwidth, in kbit/s [default: 2000]
+  --cpu <cpu>             The CPU speed, in percent of this machine's [default: 100]
+  --tx-size <size>        The size of a transaction, in bytes [default: 10]
 ";
 
 #[derive(Deserialize)]
@@ -45,18 +55,32 @@ struct Args {
     flag_txs: usize,
     flag_b: usize,
     flag_lag: u64,
+    flag_bw: u32,
+    flag_cpu: f32,
+    flag_tx_size: usize,
 }
 
 /// A node identifier. In the simulation, nodes are simply numbered.
-#[derive(Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Clone, Copy)]
+#[derive(Serialize, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Clone, Copy)]
 pub struct NodeUid(pub usize);
 
-/// A message with a sender and the timestamp of arrival.
-#[derive(Eq, PartialEq, Ord, PartialOrd, Debug)]
+/// A transaction.
+#[derive(Serialize, Deserialize, Eq, PartialEq, Hash, Ord, PartialOrd, Debug, Clone)]
+pub struct Transaction(pub Vec<u8>);
+
+impl Transaction {
+    fn new(len: usize) -> Transaction {
+        Transaction(rand::thread_rng().gen_iter().take(len).collect())
+    }
+}
+
+/// A serialized message with a sender and the timestamp of arrival.
+#[derive(Eq, PartialEq, Debug)]
 struct TimestampedMessage<D: DistAlgorithm> {
-    time: u64,
+    time: Duration,
     sender_id: D::NodeUid,
-    message: D::Message,
+    target: Target<D::NodeUid>,
+    message: Vec<u8>,
 }
 
 impl<D: DistAlgorithm> Clone for TimestampedMessage<D>
@@ -67,9 +91,23 @@ where
         TimestampedMessage {
             time: self.time,
             sender_id: self.sender_id.clone(),
+            target: self.target.clone(),
             message: self.message.clone(),
         }
     }
+}
+
+/// Performance parameters of a node's hardware and Internet connection. For simplicity, only the
+/// sender's lag and bandwidth are taken into account. (I.e. infinite downstream, limited
+/// upstream.)
+#[derive(Clone, Copy)]
+pub struct HwQuality {
+    /// The network latency. This is added once for every message.
+    latency: Duration,
+    /// The inverse bandwidth, in time per byte.
+    inv_bw: Duration,
+    /// The CPU time multiplier: how much slower, in percent, is this node than your computer?
+    cpu_factor: u32,
 }
 
 /// A "node" running an instance of the algorithm `D`.
@@ -78,46 +116,93 @@ pub struct TestNode<D: DistAlgorithm> {
     id: D::NodeUid,
     /// The instance of the broadcast algorithm.
     algo: D,
-    /// The number of (virtual) milliseconds for which this node has already been simulated.
-    time: u64,
+    /// The duration for which this node's CPU has already been simulated.
+    time: Duration,
+    /// The time when this node last sent data over the network.
+    sent_time: Duration,
     /// Incoming messages from other nodes that this node has not yet handled, with timestamps.
-    queue: VecDeque<TimestampedMessage<D>>,
+    in_queue: VecDeque<TimestampedMessage<D>>,
+    /// Outgoing messages to other nodes, with timestamps.
+    out_queue: VecDeque<TimestampedMessage<D>>,
     /// The values this node has output so far, with timestamps.
-    outputs: Vec<(u64, D::Output)>,
+    outputs: Vec<(Duration, D::Output)>,
     /// The number of messages this node has handled so far.
     message_count: usize,
+    /// The total size of messages this node has handled so far, in bytes.
+    message_size: u64,
+    /// The hardware and network quality of this node.
+    hw_quality: HwQuality,
 }
 
-impl<D: DistAlgorithm> TestNode<D> {
+impl<D: DistAlgorithm> TestNode<D>
+where
+    D::Message: Serialize + DeserializeOwned,
+{
     /// Creates a new test node with the given broadcast instance.
-    fn new(mut algo: D) -> TestNode<D> {
-        let outputs = algo.output_iter().map(|out| (0, out)).collect();
-        TestNode {
+    fn new(algo: D, hw_quality: HwQuality) -> TestNode<D> {
+        let mut node = TestNode {
             id: algo.our_id().clone(),
             algo,
-            time: 0,
-            queue: VecDeque::new(),
-            outputs,
+            time: Duration::default(),
+            sent_time: Duration::default(),
+            in_queue: VecDeque::new(),
+            out_queue: VecDeque::new(),
+            outputs: Vec::new(),
             message_count: 0,
-        }
+            message_size: 0,
+            hw_quality,
+        };
+        node.send_output_and_msgs();
+        node
     }
 
     /// Handles the first message in the node's queue.
     fn handle_message(&mut self) {
-        let ts_msg = self.queue.pop_front().expect("message not found");
+        let ts_msg = self.in_queue.pop_front().expect("message not found");
         self.time = cmp::max(self.time, ts_msg.time);
         self.message_count += 1;
+        self.message_size += ts_msg.message.len() as u64;
+        let start = Instant::now();
+        let msg = bincode::deserialize::<D::Message>(&ts_msg.message).expect("deserialize");
         self.algo
-            .handle_message(&ts_msg.sender_id, ts_msg.message)
+            .handle_message(&ts_msg.sender_id, msg)
             .expect("handling message");
+        self.time += start.elapsed() * self.hw_quality.cpu_factor / 100;
+        self.send_output_and_msgs()
+    }
+
+    /// Handles the algorithm's output and messages.
+    fn send_output_and_msgs(&mut self) {
+        let start = Instant::now();
+        let out_msgs: Vec<_> = self
+            .algo
+            .message_iter()
+            .map(|msg| {
+                (
+                    msg.target,
+                    bincode::serialize(&msg.message).expect("serialize"),
+                )
+            })
+            .collect();
+        self.time += start.elapsed() * self.hw_quality.cpu_factor / 100;
         let time = self.time;
         self.outputs
             .extend(self.algo.output_iter().map(|out| (time, out)));
+        self.sent_time = cmp::max(self.time, self.sent_time);
+        for (target, message) in out_msgs {
+            self.sent_time += self.hw_quality.inv_bw * message.len() as u32;
+            self.out_queue.push_back(TimestampedMessage {
+                time: self.sent_time + self.hw_quality.latency,
+                sender_id: self.id.clone(),
+                target,
+                message,
+            });
+        }
     }
 
     /// Returns the time when the next message can be handled.
-    fn next_event_time(&self) -> Option<u64> {
-        match self.queue.front() {
+    fn next_event_time(&self) -> Option<Duration> {
+        match self.in_queue.front() {
             None => None,
             Some(ts_msg) => Some(cmp::max(ts_msg.time, self.time)),
         }
@@ -127,62 +212,76 @@ impl<D: DistAlgorithm> TestNode<D> {
     fn message_count(&self) -> usize {
         self.message_count
     }
+
+    /// Returns the size of messages this node has handled so far.
+    fn message_size(&self) -> u64 {
+        self.message_size
+    }
+
+    /// Adds a message into the incoming queue.
+    fn add_message(&mut self, msg: TimestampedMessage<D>) {
+        match self.in_queue.iter().position(|other| other.time > msg.time) {
+            None => self.in_queue.push_back(msg),
+            Some(i) => self.in_queue.insert(i, msg),
+        }
+    }
 }
 
 /// A collection of `TestNode`s representing a network.
 pub struct TestNetwork<D: DistAlgorithm> {
     nodes: BTreeMap<D::NodeUid, TestNode<D>>,
-    /// The delay between a message being sent and received.
-    net_lag: u64,
 }
 
 impl<D: DistAlgorithm<NodeUid = NodeUid>> TestNetwork<D>
 where
-    D::Message: Clone,
+    D::Message: Serialize + DeserializeOwned + Clone,
 {
     /// Creates a new network with `good_num` good nodes, and `dead_num` dead nodes.
-    pub fn new<F>(good_num: usize, dead_num: usize, new_algo: F, net_lag: u64) -> TestNetwork<D>
+    pub fn new<F>(
+        good_num: usize,
+        dead_num: usize,
+        new_algo: F,
+        hw_quality: HwQuality,
+    ) -> TestNetwork<D>
     where
         F: Fn(NodeUid, BTreeSet<NodeUid>) -> D,
     {
         let node_ids: BTreeSet<NodeUid> = (0..(good_num + dead_num)).map(NodeUid).collect();
-        let new_node_by_id = |id: NodeUid| (id, TestNode::new(new_algo(id, node_ids.clone())));
+        let new_node_by_id = |id: NodeUid| {
+            (
+                id,
+                TestNode::new(new_algo(id, node_ids.clone()), hw_quality),
+            )
+        };
         let mut network = TestNetwork {
             nodes: (0..good_num).map(NodeUid).map(new_node_by_id).collect(),
-            net_lag,
         };
-        let mut initial_msgs: Vec<(D::NodeUid, u64, Vec<_>)> = Vec::new();
-        for (id, node) in &mut network.nodes {
-            initial_msgs.push((*id, node.time, node.algo.message_iter().collect()));
-        }
-        for (id, time, ts_msgs) in initial_msgs {
-            network.dispatch_messages(id, time, ts_msgs);
-        }
+        let initial_msgs: Vec<_> = network
+            .nodes
+            .values_mut()
+            .flat_map(|node| node.out_queue.drain(..))
+            .collect();
+        network.dispatch_messages(initial_msgs);
         network
     }
 
     /// Pushes the messages into the queues of the corresponding recipients.
-    fn dispatch_messages<Q>(&mut self, sender_id: NodeUid, time: u64, msgs: Q)
+    fn dispatch_messages<Q>(&mut self, msgs: Q)
     where
-        Q: IntoIterator<Item = TargetedMessage<D::Message, NodeUid>> + Debug,
+        Q: IntoIterator<Item = TimestampedMessage<D>>,
     {
-        for msg in msgs {
-            let ts_msg = TimestampedMessage {
-                sender_id,
-                time: time + self.net_lag,
-                message: msg.message,
-            };
-            match msg.target {
+        for ts_msg in msgs {
+            match ts_msg.target {
                 Target::All => {
                     for node in self.nodes.values_mut() {
-                        if node.id != sender_id {
-                            node.queue.push_back(ts_msg.clone())
+                        if node.id != ts_msg.sender_id {
+                            node.add_message(ts_msg.clone())
                         }
                     }
                 }
                 Target::Node(to_id) => {
                     if let Some(node) = self.nodes.get_mut(&to_id) {
-                        node.queue.push_back(ts_msg);
+                        node.add_message(ts_msg);
                     }
                 }
             }
@@ -207,9 +306,9 @@ where
         let msgs: Vec<_> = {
             let node = self.nodes.get_mut(&next_id).unwrap();
             node.handle_message();
-            node.algo.message_iter().collect()
+            node.out_queue.drain(..).collect()
         };
-        self.dispatch_messages(next_id, min_time, msgs);
+        self.dispatch_messages(msgs);
         next_id
     }
 
@@ -217,27 +316,36 @@ where
     pub fn message_count(&self) -> usize {
         self.nodes.values().map(TestNode::message_count).sum()
     }
+
+    /// Returns the total size of messages that have been handled so far.
+    pub fn message_size(&self) -> u64 {
+        self.nodes.values().map(TestNode::message_size).sum()
+    }
 }
 
 /// The timestamped batches for a particular epoch that have already been output.
 #[derive(Clone, Default)]
 struct EpochInfo {
-    nodes: BTreeMap<NodeUid, (u64, Batch<usize>)>,
+    nodes: BTreeMap<NodeUid, (Duration, Batch<Transaction>)>,
 }
 
 impl EpochInfo {
     /// Adds a batch to this epoch. Prints information if the epoch is complete.
-    fn add(&mut self, id: NodeUid, time: u64, batch: &Batch<usize>, node_num: usize, msgs: usize) {
+    fn add(
+        &mut self,
+        id: NodeUid,
+        time: Duration,
+        batch: &Batch<Transaction>,
+        network: &TestNetwork<HoneyBadger<Transaction, NodeUid>>,
+    ) {
         if self.nodes.contains_key(&id) {
             return;
         }
         self.nodes.insert(id, (time, batch.clone()));
-        if self.nodes.len() < node_num {
+        if self.nodes.len() < network.nodes.len() {
             return;
         }
-        // TODO: Once bandwidth, CPU time and/or randomized lag are simulated, `min_t` and `max_t`
-        // will probably differ. Print both.
-        let (_min_t, max_t) = self
+        let (min_t, max_t) = self
             .nodes
             .values()
             .map(|&(time, _)| time)
@@ -246,42 +354,37 @@ impl EpochInfo {
             .unwrap();
         let txs = batch.transactions.len();
         println!(
-            "{:>5} {:6} {:5} {:7}",
+            "{:>5} {:6} {:6} {:5} {:9} {:>9}B",
             batch.epoch.to_string().cyan(),
-            max_t,
+            min_t.as_secs() * 1000 + max_t.subsec_nanos() as u64 / 1_000_000,
+            max_t.as_secs() * 1000 + max_t.subsec_nanos() as u64 / 1_000_000,
             txs,
-            msgs,
+            network.message_count() / network.nodes.len(),
+            metric::Signifix::try_from(network.message_size() / network.nodes.len() as u64)
+                .unwrap(),
         );
     }
 }
 
 /// Proposes `num_txs` values and expects nodes to output and order them.
-fn simulate_honey_badger(mut network: TestNetwork<HoneyBadger<usize, NodeUid>>, num_txs: usize) {
+fn simulate_honey_badger(
+    mut network: TestNetwork<HoneyBadger<Transaction, NodeUid>>,
+    num_txs: usize,
+) {
     // Returns `true` if the node has not output all transactions yet.
     // If it has, and has advanced another epoch, it clears all messages for later epochs.
-    let node_busy = |node: &mut TestNode<HoneyBadger<usize, NodeUid>>| {
-        let mut min_missing = 0;
-        for &(_, ref batch) in &node.outputs {
-            for tx in &batch.transactions {
-                if *tx >= min_missing {
-                    min_missing = tx + 1;
-                }
-            }
-        }
-        if min_missing < num_txs {
-            return true;
-        }
-        if node.outputs.last().unwrap().1.transactions.is_empty() {
-            let last = node.outputs.last().unwrap().1.epoch;
-            node.queue.retain(|ts_msg| match ts_msg.message {
-                honey_badger::Message::CommonSubset(e, _) => e < last,
-            });
-        }
-        false
+    let node_busy = |node: &mut TestNode<HoneyBadger<Transaction, NodeUid>>| {
+        node.outputs
+            .iter()
+            .map(|&(_, ref batch)| batch.transactions.len())
+            .sum::<usize>() < num_txs
     };
 
     // Handle messages until all nodes have output all transactions.
-    println!("{}", "Epoch   Time   Txs    Msgs".bold());
+    println!(
+        "{}",
+        "Epoch  Min/Max Time   Txs Msgs/Node  Size/Node".bold()
+    );
     let mut epochs = Vec::new();
     while network.nodes.values_mut().any(node_busy) {
         let id = network.step();
@@ -289,8 +392,7 @@ fn simulate_honey_badger(mut network: TestNetwork<HoneyBadger<usize, NodeUid>>, 
             if epochs.len() <= batch.epoch as usize {
                 epochs.resize(batch.epoch as usize + 1, EpochInfo::default());
             }
-            let msg_count = network.message_count();
-            epochs[batch.epoch as usize].add(id, time, batch, network.nodes.len(), msg_count);
+            epochs[batch.epoch as usize].add(id, time, batch, &network);
         }
     }
 }
@@ -304,6 +406,7 @@ fn parse_args() -> Result<Args, docopt::Error> {
 }
 
 fn main() {
+    env_logger::init();
     let args = parse_args().unwrap_or_else(|e| e.exit());
     if args.flag_n <= 3 * args.flag_f {
         let msg = "Honey Badger only works if less than one third of the nodes are faulty.";
@@ -312,16 +415,25 @@ fn main() {
     println!("Simulating Honey Badger with:");
     println!("{} nodes, {} faulty", args.flag_n, args.flag_f);
     println!(
-        "{} transactions, ≤{} per epoch",
-        args.flag_txs, args.flag_b
+        "{} transactions, {} bytes each, ≤{} per epoch",
+        args.flag_txs, args.flag_tx_size, args.flag_b
     );
-    println!("Network lag: {}", args.flag_lag);
+    println!(
+        "Network lag: {} ms, bandwidth: {} kbit/s, {:5.2}% CPU speed",
+        args.flag_lag, args.flag_bw, args.flag_cpu
+    );
     println!();
     let num_good_nodes = args.flag_n - args.flag_f;
+    let txs = (0..args.flag_txs).map(|_| Transaction::new(args.flag_tx_size));
     let new_honey_badger = |id: NodeUid, all_ids: BTreeSet<NodeUid>| {
         let netinfo = Rc::new(NetworkInfo::new(id, all_ids));
-        HoneyBadger::new(netinfo, args.flag_b, 0..args.flag_txs).expect("Instantiate honey_badger")
+        HoneyBadger::new(netinfo, args.flag_b, txs.clone()).expect("Instantiate honey_badger")
     };
-    let network = TestNetwork::new(num_good_nodes, args.flag_f, new_honey_badger, args.flag_lag);
+    let hw_quality = HwQuality {
+        latency: Duration::from_millis(args.flag_lag),
+        inv_bw: Duration::new(0, 8_000_000 / args.flag_bw),
+        cpu_factor: (10_000f32 / args.flag_cpu) as u32,
+    };
+    let network = TestNetwork::new(num_good_nodes, args.flag_f, new_honey_badger, hw_quality);
     simulate_honey_badger(network, args.flag_txs);
 }

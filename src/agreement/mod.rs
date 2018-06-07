@@ -23,7 +23,7 @@ error_chain!{
     }
 }
 
-#[cfg_attr(feature = "serialization-serde", derive(Serialize))]
+#[cfg_attr(feature = "serialization-serde", derive(Serialize, Deserialize))]
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum AgreementContent {
     /// `BVal` message.
@@ -35,7 +35,7 @@ pub enum AgreementContent {
 }
 
 /// Messages sent during the binary Byzantine agreement stage.
-#[cfg_attr(feature = "serialization-serde", derive(Serialize))]
+#[cfg_attr(feature = "serialization-serde", derive(Serialize, Deserialize))]
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct AgreementMessage {
     pub epoch: u32,
