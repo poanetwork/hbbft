@@ -49,5 +49,6 @@ message AgreementProto {
     bool bval = 2;
     bool aux = 3;
     uint32 conf = 4;
+    bool term = 5;
   }
 }
