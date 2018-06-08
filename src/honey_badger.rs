@@ -32,7 +32,7 @@ error_chain!{
 }
 
 /// An instance of the Honey Badger Byzantine fault tolerant consensus algorithm.
-pub struct HoneyBadger<T, N: Eq + Hash + Ord + Clone> {
+pub struct HoneyBadger<T, N: Clone + Debug + Eq + Hash + Ord + Clone> {
     /// Shared network data.
     netinfo: Rc<NetworkInfo<N>>,
     /// The buffer of transactions that have not yet been included in any output batch.

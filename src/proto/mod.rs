@@ -7,6 +7,7 @@ use ring::digest::Algorithm;
 use agreement::bin_values::BinValues;
 use agreement::{AgreementContent, AgreementMessage};
 use broadcast::BroadcastMessage;
+use common_coin::CommonCoinMessage;
 use proto::message::*;
 
 impl From<message::BroadcastProto> for BroadcastMessage {

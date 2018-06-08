@@ -1,4 +1,4 @@
-mod error;
+pub mod error;
 pub mod keygen;
 #[cfg(feature = "serialization-serde")]
 mod serde_impl;
@@ -59,12 +59,24 @@ impl<E: Engine> PublicKey<E> {
 }
 
 /// A signature, or a signature share.
-#[derive(Debug)]
+#[derive(Clone, Debug, PartialOrd)]
 pub struct Signature<E: Engine>(E::G2);
 
 impl<E: Engine> PartialEq for Signature<E> {
     fn eq(&self, other: &Signature<E>) -> bool {
         self.0 == other.0
+    }
+}
+
+impl<E: Engine> Signature<E> {
+    pub fn parity(&self) -> bool {
+        2 % self
+            .0
+            .into_affine()
+            .into_uncompressed()
+            .as_ref()
+            .last()
+            .expect("non-empty signature") == 0
     }
 }
 

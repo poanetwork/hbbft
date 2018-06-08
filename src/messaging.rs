@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Debug;
 
 use pairing::bls12_381::Bls12;
@@ -188,5 +188,16 @@ impl<NodeUid: Ord> NetworkInfo<NodeUid> {
 
     pub fn public_key_set(&self) -> &PublicKeySet<Bls12> {
         &self.public_key_set
+    }
+
+    /// The canonical numbering of all nodes.
+    ///
+    /// FIXME: To avoid multiple computations of the same result, caching should be introduced.
+    pub fn node_indices(&self) -> BTreeMap<&NodeUid, u64> {
+        self.all_uids
+            .iter()
+            .enumerate()
+            .map(|(n, id)| (id, n as u64))
+            .collect()
     }
 }
