@@ -50,5 +50,6 @@ message AgreementProto {
     bool aux = 3;
     uint32 conf = 4;
     bool term = 5;
+    bytes coin = 6;
   }
 }

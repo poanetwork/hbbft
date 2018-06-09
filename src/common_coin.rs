@@ -29,6 +29,16 @@ error_chain! {
 #[derive(Clone, Debug, PartialEq)]
 pub struct CommonCoinMessage(Signature<Bls12>);
 
+impl CommonCoinMessage {
+    pub fn new(sig: Signature<Bls12>) -> Self {
+        CommonCoinMessage(sig)
+    }
+
+    pub fn to_sig(&self) -> &Signature<Bls12> {
+        &self.0
+    }
+}
+
 /// A common coin algorithm instance. On input, broadcasts our threshold signature share. Upon
 /// receiving at least `num_faulty + 1` shares, attempts to combine them into a signature. If that
 /// signature is valid, the instance outputs it and terminates; otherwise the instance aborts.
@@ -124,8 +134,7 @@ where
 
     fn get_coin(&mut self) -> Result<()> {
         let share = self.netinfo.secret_key().sign(&self.nonce);
-        self.messages
-            .push_back(CommonCoinMessage(share.clone()));
+        self.messages.push_back(CommonCoinMessage(share.clone()));
         let id = self.netinfo.our_uid().clone();
         self.handle_share(&id, share)
     }
@@ -136,9 +145,19 @@ where
             let pk_i = self.netinfo.public_key_set().public_key_share(*i);
             if !pk_i.verify(&share, &self.nonce) {
                 // Silently ignore the invalid share.
+                debug!(
+                    "{:?} received invalid share from {:?}",
+                    self.netinfo.our_uid(),
+                    sender_id
+                );
                 return Ok(());
             }
 
+            debug!(
+                "{:?} received a valid share from {:?}",
+                self.netinfo.our_uid(),
+                sender_id
+            );
             self.received_shares.insert(sender_id.clone(), share);
             let received_shares = &self.received_shares;
             if received_shares.len() > self.netinfo.num_faulty() {
@@ -161,14 +180,19 @@ where
                     .verify(&sig, &self.nonce)
                 {
                     // Abort
+                    error!(
+                        "{:?} main public key verification failed",
+                        self.netinfo.our_uid()
+                    );
                     self.terminated = true;
-                    return Err(ErrorKind::VerificationFailed.into())
+                    return Err(ErrorKind::VerificationFailed.into());
                 }
 
                 // Output the parity of the verified signature.
                 let parity = sig.parity();
                 self.output = Some(parity);
                 self.terminated = true;
+                debug!("{:?} coin is {}", self.netinfo.our_uid(), parity);
             }
             Ok(())
         } else {

@@ -333,6 +333,7 @@ impl<NodeUid: Clone + Debug + Eq + Hash + Ord> Agreement<NodeUid> {
             // round r, and the value Coin_r' = b for some round r' > r."
             self.terminated = self.terminated || self.decision == Some(coin);
             if self.terminated {
+                debug!("Node {:?} Agreement terminated", self.netinfo.our_uid());
                 return Ok(());
             }
 
