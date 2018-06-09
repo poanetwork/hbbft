@@ -19,17 +19,15 @@ error_chain! {
         UnknownSender {
             description("unknown sender")
         }
-        NotImplemented {
-            description("not implemented")
+        VerificationFailed {
+            description("signature verification failed")
         }
     }
 }
 
 #[cfg_attr(feature = "serialization-serde", derive(Serialize, Deserialize))]
 #[derive(Clone, Debug, PartialEq)]
-pub enum CommonCoinMessage {
-    Share(Signature<Bls12>),
-}
+pub struct CommonCoinMessage(Signature<Bls12>);
 
 /// A common coin algorithm instance. On input, broadcasts our threshold signature share. Upon
 /// receiving at least `num_faulty + 1` shares, attempts to combine them into a signature. If that
@@ -82,7 +80,7 @@ where
     /// Receives input from a remote node.
     fn handle_message(&mut self, sender_id: &Self::NodeUid, message: Self::Message) -> Result<()> {
         // FIXME
-        let CommonCoinMessage::Share(share) = message;
+        let CommonCoinMessage(share) = message;
         self.handle_share(sender_id, share)
     }
 
@@ -127,7 +125,7 @@ where
     fn get_coin(&mut self) -> Result<()> {
         let share = self.netinfo.secret_key().sign(&self.nonce);
         self.messages
-            .push_back(CommonCoinMessage::Share(share.clone()));
+            .push_back(CommonCoinMessage(share.clone()));
         let id = self.netinfo.our_uid().clone();
         self.handle_share(&id, share)
     }
@@ -154,20 +152,23 @@ where
                     .map(|(n, share)| (n, share.unwrap()))
                     .collect();
                 let sig = self.netinfo.public_key_set().combine_signatures(shares)?;
+
                 // Verify the successfully combined signature with the main public key.
-                if self
+                if !self
                     .netinfo
                     .public_key_set()
                     .public_key()
                     .verify(&sig, &self.nonce)
                 {
-                    // Output the parity of the verified signature.
-                    self.output = Some(sig.parity());
-                    self.terminated = true;
-                } else {
                     // Abort
                     self.terminated = true;
+                    return Err(ErrorKind::VerificationFailed.into())
                 }
+
+                // Output the parity of the verified signature.
+                let parity = sig.parity();
+                self.output = Some(parity);
+                self.terminated = true;
             }
             Ok(())
         } else {

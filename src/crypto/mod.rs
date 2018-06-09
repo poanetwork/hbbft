@@ -18,7 +18,7 @@ const CHACHA_RNG_SEED_SIZE: usize = 8;
 const ERR_OS_RNG: &str = "could not initialize the OS random number generator";
 
 /// A public key, or a public key share.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct PublicKey<E: Engine>(E::G1);
 
 impl<E: Engine> PartialEq for PublicKey<E> {
@@ -70,13 +70,11 @@ impl<E: Engine> PartialEq for Signature<E> {
 
 impl<E: Engine> Signature<E> {
     pub fn parity(&self) -> bool {
-        2 % self
-            .0
-            .into_affine()
-            .into_uncompressed()
-            .as_ref()
-            .last()
-            .expect("non-empty signature") == 0
+        let uncomp = self.0.into_affine().into_uncompressed();
+        let bytes = uncomp.as_ref();
+        let parity = 0 == bytes.last().expect("non-empty signature") % 2;
+        debug!("Signature: {:?}, output: {}", bytes, parity);
+        parity
     }
 }
 
@@ -162,7 +160,7 @@ impl<E: Engine> PartialEq for DecryptionShare<E> {
 
 /// A public key and an associated set of public key shares.
 #[cfg_attr(feature = "serialization-serde", derive(Serialize, Deserialize))]
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct PublicKeySet<E: Engine> {
     /// The coefficients of a polynomial whose value at `0` is the "master key", and value at
     /// `i + 1` is key share number `i`.

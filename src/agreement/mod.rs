@@ -324,8 +324,8 @@ impl<NodeUid: Clone + Debug + Eq + Hash + Ord> Agreement<NodeUid> {
         Ok(())
     }
 
-    /// Outputs the optional decision value.  The function may start the next epoch. In that case,
-    /// it also returns a message for broadcast.
+    /// Handles a Common Coin message. If there is output from Common Coin, starts the next
+    /// epoch. The function may output a decision value.
     fn handle_coin(&mut self, sender_id: &NodeUid, msg: CommonCoinMessage) -> AgreementResult<()> {
         self.common_coin.handle_message(sender_id, msg)?;
         if let Some(coin) = self.common_coin.next_output() {

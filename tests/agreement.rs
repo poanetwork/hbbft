@@ -17,6 +17,7 @@ extern crate env_logger;
 extern crate hbbft;
 #[macro_use]
 extern crate log;
+extern crate pairing;
 extern crate rand;
 
 mod network;
