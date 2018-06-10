@@ -328,6 +328,8 @@ impl<NodeUid: Clone + Debug + Eq + Hash + Ord> Agreement<NodeUid> {
     /// epoch. The function may output a decision value.
     fn handle_coin(&mut self, sender_id: &NodeUid, msg: CommonCoinMessage) -> AgreementResult<()> {
         self.common_coin.handle_message(sender_id, msg)?;
+        self.extend_common_coin();
+
         if let Some(coin) = self.common_coin.next_output() {
             // Check the termination condition: "continue looping until both a value b is output in some
             // round r, and the value Coin_r' = b for some round r' > r."
@@ -359,6 +361,16 @@ impl<NodeUid: Clone + Debug + Eq + Hash + Ord> Agreement<NodeUid> {
         Ok(())
     }
 
+    // Propagates Common Coin messages to the top level.
+    fn extend_common_coin(&mut self) {
+        let epoch = self.epoch;
+        self.messages.extend(self.common_coin.message_iter().map(
+            |msg: TargetedMessage<CommonCoinMessage, NodeUid>| {
+                AgreementContent::Coin(Box::new(msg.message)).with_epoch(epoch)
+            },
+        ));
+    }
+
     /// Decides on a value and broadcasts a `Term` message with that value.
     fn decide(&mut self, b: bool) {
         // Output the agreement value.
@@ -386,6 +398,7 @@ impl<NodeUid: Clone + Debug + Eq + Hash + Ord> Agreement<NodeUid> {
             self.conf_vals = vals;
             // Invoke the comon coin.
             self.common_coin.input(())?;
+            self.extend_common_coin();
         }
         Ok(())
     }

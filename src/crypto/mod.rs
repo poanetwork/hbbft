@@ -72,7 +72,8 @@ impl<E: Engine> Signature<E> {
     pub fn parity(&self) -> bool {
         let uncomp = self.0.into_affine().into_uncompressed();
         let bytes = uncomp.as_ref();
-        let parity = 0 == bytes.last().expect("non-empty signature") % 2;
+        let xor_bytes: u8 = bytes.iter().fold(0, |result, byte| result ^ byte);
+        let parity = 0 == xor_bytes % 2;
         debug!("Signature: {:?}, output: {}", bytes, parity);
         parity
     }

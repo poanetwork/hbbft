@@ -89,7 +89,6 @@ where
 
     /// Receives input from a remote node.
     fn handle_message(&mut self, sender_id: &Self::NodeUid, message: Self::Message) -> Result<()> {
-        // FIXME
         let CommonCoinMessage(share) = message;
         self.handle_share(sender_id, share)
     }
