@@ -2,6 +2,7 @@
 
 use std::collections::{BTreeMap, VecDeque};
 use std::fmt::Debug;
+use std::mem::replace;
 use std::rc::Rc;
 
 use pairing::bls12_381::Bls12;
@@ -54,8 +55,12 @@ where
     output: Option<bool>,
     /// Outgoing message queue.
     messages: VecDeque<CommonCoinMessage>,
+    /// Incoming messages buffered before we provide input to the common coin.
+    incoming_queue: VecDeque<(N, Signature<Bls12>)>,
     /// All received threshold signature shares.
     received_shares: BTreeMap<N, Signature<Bls12>>,
+    /// Whether we provided input to the common coin.
+    had_input: bool,
     /// Termination flag.
     terminated: bool,
 }
@@ -73,14 +78,8 @@ where
 
     /// Sends our threshold signature share if not yet sent.
     fn input(&mut self, _input: Self::Input) -> Result<()> {
-        let share_sent = self.received_shares.keys().fold(false, |result, k| {
-            if !result && k == self.netinfo.our_uid() {
-                true
-            } else {
-                result
-            }
-        });
-        if !share_sent {
+        if !self.had_input {
+            self.had_input = true;
             self.get_coin()
         } else {
             Ok(())
@@ -90,6 +89,17 @@ where
     /// Receives input from a remote node.
     fn handle_message(&mut self, sender_id: &Self::NodeUid, message: Self::Message) -> Result<()> {
         let CommonCoinMessage(share) = message;
+
+        if !self.had_input {
+            self.incoming_queue.push_back((sender_id.clone(), share));
+            return Ok(());
+        } else {
+            let queued_msgs = replace(&mut self.incoming_queue, VecDeque::new());
+            for (sender_id, msg) in queued_msgs {
+                self.handle_share(&sender_id, msg)?;
+            }
+        }
+
         self.handle_share(sender_id, share)
     }
 
@@ -126,7 +136,9 @@ where
             nonce,
             output: None,
             messages: VecDeque::new(),
+            incoming_queue: VecDeque::new(),
             received_shares: BTreeMap::new(),
+            had_input: false,
             terminated: false,
         }
     }

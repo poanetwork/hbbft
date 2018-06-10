@@ -457,7 +457,7 @@ impl<NodeUid: Clone + Debug + Eq + Hash + Ord> Agreement<NodeUid> {
         self.conf_round = false;
         self.conf_vals = BinValues::None;
         self.epoch += 1;
-        let nonce = Vec::from(format!("{}", self.epoch));
+        let nonce = Vec::from(format!("Nonce {}", self.epoch));
         self.common_coin = CommonCoin::new(self.netinfo.clone(), nonce);
         debug!(
             "Agreement instance {:?} started epoch {}",
