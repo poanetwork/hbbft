@@ -69,6 +69,8 @@ where
 {
     /// Shared network information.
     netinfo: Rc<NetworkInfo<NodeUid>>,
+    /// Honey Badger algorithm epoch.
+    hb_epoch: u64,
     /// Agreement algorithm epoch.
     epoch: u32,
     /// Bin values. Reset on every epoch update.
@@ -112,7 +114,7 @@ where
     /// Coin instance.
     conf_vals: BinValues,
     /// A common coin instance. It is reset on epoch update.
-    common_coin: CommonCoin<NodeUid, Vec<u8>>,
+    common_coin: CommonCoin<NodeUid, Nonce>,
 }
 
 impl<NodeUid: Clone + Debug + Eq + Hash + Ord> DistAlgorithm for Agreement<NodeUid> {
@@ -172,9 +174,11 @@ impl<NodeUid: Clone + Debug + Eq + Hash + Ord> DistAlgorithm for Agreement<NodeU
 }
 
 impl<NodeUid: Clone + Debug + Eq + Hash + Ord> Agreement<NodeUid> {
-    pub fn new(netinfo: Rc<NetworkInfo<NodeUid>>) -> Self {
+    pub fn new(netinfo: Rc<NetworkInfo<NodeUid>>, hb_epoch: u64) -> Self {
+        let invocation_id = netinfo.invocation_id();
         Agreement {
             netinfo: netinfo.clone(),
+            hb_epoch,
             epoch: 0,
             bin_values: BinValues::new(),
             received_bval: BTreeMap::new(),
@@ -190,7 +194,7 @@ impl<NodeUid: Clone + Debug + Eq + Hash + Ord> Agreement<NodeUid> {
             messages: VecDeque::new(),
             conf_round: false,
             conf_vals: BinValues::None,
-            common_coin: CommonCoin::new(netinfo, vec![0]),
+            common_coin: CommonCoin::new(netinfo, Nonce::new(invocation_id.as_ref(), hb_epoch, 0)),
         }
     }
 
@@ -457,12 +461,34 @@ impl<NodeUid: Clone + Debug + Eq + Hash + Ord> Agreement<NodeUid> {
         self.conf_round = false;
         self.conf_vals = BinValues::None;
         self.epoch += 1;
-        let nonce = Vec::from(format!("Nonce {}", self.epoch));
+        let nonce = Nonce::new(
+            self.netinfo.invocation_id().as_ref(),
+            self.hb_epoch,
+            self.epoch,
+        );
         self.common_coin = CommonCoin::new(self.netinfo.clone(), nonce);
         debug!(
             "Agreement instance {:?} started epoch {}",
             self.netinfo.our_uid(),
             self.epoch
         );
+    }
+}
+
+#[derive(Clone)]
+struct Nonce(Vec<u8>);
+
+impl Nonce {
+    pub fn new(invocation_id: &[u8], hb_epoch: u64, agreement_epoch: u32) -> Self {
+        Nonce(Vec::from(format!(
+            "Nonce for Honey Badger {:?} @ epoch {}:{}",
+            invocation_id, hb_epoch, agreement_epoch
+        )))
+    }
+}
+
+impl AsRef<[u8]> for Nonce {
+    fn as_ref(&self) -> &[u8] {
+        self.0.as_ref()
     }
 }

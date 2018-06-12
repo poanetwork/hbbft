@@ -65,7 +65,7 @@ fn new_network<A: Adversary<CommonSubset<NodeUid>>>(
     let _ = env_logger::try_init();
 
     let new_common_subset = |netinfo: Rc<NetworkInfo<NodeUid>>| {
-        CommonSubset::new(netinfo).expect("new Common Subset instance")
+        CommonSubset::new(netinfo, 0).expect("new Common Subset instance")
     };
     TestNetwork::new(good_num, bad_num, adversary, new_common_subset)
 }

@@ -57,9 +57,10 @@ const GOOD_SAMPLE_SET: f64 = 400.0;
 fn check_coin_distribution(num_samples: usize, count_true: usize, count_false: usize) {
     const EXPECTED_SHARE: f64 = 0.48;
     let max_gain = GOOD_SAMPLE_SET.log2();
-    let gain = (num_samples as f64).log2().min(max_gain);
+    let num_samples_f64 = num_samples as f64;
+    let gain = num_samples_f64.log2().min(max_gain);
     let step = EXPECTED_SHARE / max_gain;
-    let min_throws = (num_samples as f64 * gain * step) as usize;
+    let min_throws = (num_samples_f64 * gain * step) as usize;
     info!(
         "Expecting a minimum of {} throws for each coin side. Throws of true: {}. Throws of false: {}.",
         min_throws, count_true, count_false

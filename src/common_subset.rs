@@ -148,7 +148,7 @@ impl<NodeUid: Clone + Debug + Eq + Hash + Ord> DistAlgorithm for CommonSubset<No
 }
 
 impl<NodeUid: Clone + Debug + Eq + Hash + Ord> CommonSubset<NodeUid> {
-    pub fn new(netinfo: Rc<NetworkInfo<NodeUid>>) -> CommonSubsetResult<Self> {
+    pub fn new(netinfo: Rc<NetworkInfo<NodeUid>>, hb_epoch: u64) -> CommonSubsetResult<Self> {
         // Create all broadcast instances.
         let mut broadcast_instances: BTreeMap<NodeUid, Broadcast<NodeUid>> = BTreeMap::new();
         for proposer_id in netinfo.all_uids() {
@@ -161,7 +161,7 @@ impl<NodeUid: Clone + Debug + Eq + Hash + Ord> CommonSubset<NodeUid> {
         // Create all agreement instances.
         let mut agreement_instances: BTreeMap<NodeUid, Agreement<NodeUid>> = BTreeMap::new();
         for proposer_id in netinfo.all_uids().iter().cloned() {
-            agreement_instances.insert(proposer_id, Agreement::new(netinfo.clone()));
+            agreement_instances.insert(proposer_id, Agreement::new(netinfo.clone(), hb_epoch));
         }
 
         Ok(CommonSubset {

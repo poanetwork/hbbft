@@ -4,6 +4,9 @@ pub mod keygen;
 mod serde_impl;
 
 use self::keygen::{Commitment, Poly};
+
+use std::fmt;
+
 use byteorder::{BigEndian, ByteOrder};
 use init_with::InitWith;
 use pairing::{CurveAffine, CurveProjective, Engine, Field, PrimeField};
@@ -11,6 +14,7 @@ use rand::{ChaChaRng, OsRng, Rng, SeedableRng};
 use ring::digest;
 
 use self::error::{ErrorKind, Result};
+use fmt::HexBytes;
 
 /// The number of words (`u32`) in a ChaCha RNG seed.
 const CHACHA_RNG_SEED_SIZE: usize = 8;
@@ -56,11 +60,24 @@ impl<E: Engine> PublicKey<E> {
         let w = hash_g1_g2::<E, _>(u, &v).into_affine().mul(r);
         Ciphertext(u, v, w)
     }
+
+    /// Returns a byte string representation of the public key.
+    pub fn to_bytes(&self) -> Vec<u8> {
+        self.0.into_affine().into_compressed().as_ref().to_vec()
+    }
 }
 
 /// A signature, or a signature share.
-#[derive(Clone, Debug, PartialOrd)]
+#[derive(Clone, PartialOrd)]
 pub struct Signature<E: Engine>(E::G2);
+
+impl<E: Engine> fmt::Debug for Signature<E> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let uncomp = self.0.into_affine().into_uncompressed();
+        let bytes = uncomp.as_ref();
+        write!(f, "{:?}", HexBytes(bytes))
+    }
+}
 
 impl<E: Engine> PartialEq for Signature<E> {
     fn eq(&self, other: &Signature<E>) -> bool {
@@ -73,8 +90,8 @@ impl<E: Engine> Signature<E> {
         let uncomp = self.0.into_affine().into_uncompressed();
         let bytes = uncomp.as_ref();
         let xor_bytes: u8 = bytes.iter().fold(0, |result, byte| result ^ byte);
-        let parity = 0 == xor_bytes % 2;
-        debug!("Signature: {:?}, output: {}", bytes, parity);
+        let parity = 0 != xor_bytes % 2;
+        debug!("Signature: {:?}, output: {}", HexBytes(bytes), parity);
         parity
     }
 }

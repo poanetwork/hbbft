@@ -200,4 +200,9 @@ impl<NodeUid: Ord> NetworkInfo<NodeUid> {
             .map(|(n, id)| (id, n as u64))
             .collect()
     }
+
+    /// Returns the unique ID of the Honey Badger invocation.
+    pub fn invocation_id(&self) -> Vec<u8> {
+        self.public_key_set.public_key().to_bytes()
+    }
 }
