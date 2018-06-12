@@ -343,8 +343,6 @@ impl<NodeUid: Clone + Debug + Eq + Hash + Ord> Agreement<NodeUid> {
                 return Ok(());
             }
 
-            self.start_next_epoch();
-
             let b = if let Some(b) = self.conf_vals.definite() {
                 // Outputting a value is allowed only once.
                 if self.decision.is_none() && b == coin {
@@ -354,6 +352,8 @@ impl<NodeUid: Clone + Debug + Eq + Hash + Ord> Agreement<NodeUid> {
             } else {
                 coin
             };
+
+            self.start_next_epoch();
 
             self.estimated = Some(b);
             self.send_bval(b)?;

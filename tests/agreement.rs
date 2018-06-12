@@ -84,11 +84,11 @@ where
     }
 }
 
-// #[test]
-// fn test_agreement_random_silent() {
-//     let new_adversary = |_: usize, _: usize| SilentAdversary::new(MessageScheduler::Random);
-//     test_agreement_different_sizes(new_adversary);
-// }
+#[test]
+fn test_agreement_random_silent() {
+    let new_adversary = |_: usize, _: usize| SilentAdversary::new(MessageScheduler::Random);
+    test_agreement_different_sizes(new_adversary);
+}
 
 #[test]
 fn test_agreement_first_silent() {
