@@ -160,7 +160,7 @@ where
         F: Fn(Rc<NetworkInfo<NodeUid>>) -> D,
     {
         let mut rng = rand::thread_rng();
-        let sk_set = SecretKeySet::<Bls12>::new(adv_num, &mut rng);
+        let sk_set = SecretKeySet::<Bls12>::random(adv_num, &mut rng);
         let pk_set = sk_set.public_keys();
 
         let node_ids: BTreeSet<NodeUid> = (0..(good_num + adv_num)).map(NodeUid).collect();

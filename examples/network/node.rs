@@ -35,17 +35,15 @@
 //! consensus node will be the same `result`.
 
 use crossbeam;
-use std::collections::HashSet;
+use std::collections::{BTreeSet, HashSet};
 use std::fmt::Debug;
 use std::marker::{Send, Sync};
 use std::net::SocketAddr;
 use std::rc::Rc;
 use std::{io, iter, process, thread, time};
 
-use pairing::bls12_381::Bls12;
-use rand;
-
 use hbbft::broadcast::{Broadcast, BroadcastMessage};
+use hbbft::crypto::keygen::Poly;
 use hbbft::crypto::SecretKeySet;
 use hbbft::messaging::{DistAlgorithm, NetworkInfo, SourcedMessage};
 use hbbft::proto::message::BroadcastProto;
@@ -101,17 +99,25 @@ impl<T: Clone + Debug + AsRef<[u8]> + PartialEq + Send + Sync + From<Vec<u8>> + 
             .chain(connections.iter().map(|c| c.node_str.clone()))
             .collect();
         node_strs.sort();
-        debug!("Nodes:  {:?}", node_strs);
-        let proposer_id = 0;
         let our_id = node_strs.binary_search(&our_str).unwrap();
-        let num_nodes = connections.len() + 1;
+        let all_ids: BTreeSet<_> = (0..node_strs.len()).collect();
 
-        if value.is_some() != (our_id == proposer_id) {
+        // FIXME: This example doesn't call algorithms that use cryptography. However the keys are
+        // required by the interface to all algorithms in Honey Badger. Therefore we set placeholder
+        // keys here. A fully-featured application would need to take appropriately initialized keys
+        // from elsewhere.
+        let secret_key_set = SecretKeySet::from(Poly::zero());
+        let secret_key = secret_key_set.secret_key_share(our_id as u64);
+        let public_key_set = secret_key_set.public_keys();
+
+        let netinfo = NetworkInfo::new(our_id, all_ids.clone(), secret_key, public_key_set);
+
+        if value.is_some() != (our_id == 0) {
             panic!("Exactly the first node must propose a value.");
         }
 
         // Initialise the message delivery system and obtain TX and RX handles.
-        let messaging: Messaging<BroadcastMessage> = Messaging::new(num_nodes);
+        let messaging: Messaging<BroadcastMessage> = Messaging::new(all_ids.len());
         let rxs_to_comms = messaging.rxs_to_comms();
         let tx_from_comms = messaging.tx_from_comms();
         let rx_to_algo = messaging.rx_to_algo();
@@ -128,18 +134,8 @@ impl<T: Clone + Debug + AsRef<[u8]> + PartialEq + Send + Sync + From<Vec<u8>> + 
             // corresponding to this instance, and no dedicated comms task. The
             // node index is 0.
             let broadcast_handle = scope.spawn(move || {
-                let all_ids = (0..num_nodes).collect();
-                let sk_set =
-                    SecretKeySet::<Bls12>::new((num_nodes - 1) / 3, &mut rand::thread_rng());
-                let pk_set = sk_set.public_keys();
-                let netinfo = Rc::new(NetworkInfo::new(
-                    our_id,
-                    all_ids,
-                    sk_set.secret_key_share(our_id as u64),
-                    pk_set.clone(),
-                ));
                 let mut broadcast =
-                    Broadcast::new(netinfo, proposer_id).expect("failed to instantiate broadcast");
+                    Broadcast::new(Rc::new(netinfo), 0).expect("failed to instantiate broadcast");
 
                 if let Some(v) = value {
                     broadcast.input(v.clone().into()).expect("propose value");
@@ -210,13 +206,6 @@ impl<T: Clone + Debug + AsRef<[u8]> + PartialEq + Send + Sync + From<Vec<u8>> + 
                 .unwrap();
 
             process::exit(0);
-
-            // TODO: Exit cleanly.
-            // match msg_handle.join() {
-            //     Ok(()) => debug!("Messaging stopped OK"),
-            //     Err(e) => debug!("Messaging error: {:?}", e),
-            // }
-            // Err(Error::NotImplemented)
         }) // end of thread scope
     }
 }

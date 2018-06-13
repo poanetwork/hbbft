@@ -72,7 +72,7 @@ impl Adversary<Broadcast<NodeUid>> for ProposeAdversary {
 
         // FIXME: Take the correct, known keys from the network.
         let mut rng = rand::thread_rng();
-        let sk_set = SecretKeySet::<Bls12>::new(self.adv_nodes.len(), &mut rng);
+        let sk_set = SecretKeySet::<Bls12>::random(self.adv_nodes.len(), &mut rng);
         let pk_set = sk_set.public_keys();
 
         let netinfo = Rc::new(NetworkInfo::new(

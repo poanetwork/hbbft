@@ -1,5 +1,7 @@
 pub mod error;
 pub mod keygen;
+#[cfg(feature = "serialization-protobuf")]
+pub mod protobuf_impl;
 #[cfg(feature = "serialization-serde")]
 mod serde_impl;
 
@@ -235,6 +237,12 @@ pub struct SecretKeySet<E: Engine> {
     /// The coefficients of a polynomial whose value at `0` is the "master key", and value at
     /// `i + 1` is key share number `i`.
     poly: Poly<E>,
+}
+
+impl<E: Engine> From<Poly<E>> for SecretKeySet<E> {
+    fn from(poly: Poly<E>) -> SecretKeySet<E> {
+        SecretKeySet { poly }
+    }
 }
 
 impl<E: Engine> SecretKeySet<E> {
@@ -533,101 +541,5 @@ mod tests {
         let ser_sig = bincode::serialize(&sig).expect("serialize signature");
         let deser_sig = bincode::deserialize(&ser_sig).expect("deserialize signature");
         assert_eq!(sig, deser_sig);
-    }
-}
-
-#[cfg(feature = "serialization-serde")]
-mod serde {
-    use pairing::{CurveAffine, CurveProjective, EncodedPoint, Engine};
-
-    use super::{DecryptionShare, PublicKey, Signature};
-    use serde::de::Error as DeserializeError;
-    use serde::{Deserialize, Deserializer, Serialize, Serializer};
-
-    const ERR_LEN: &str = "wrong length of deserialized group element";
-    const ERR_CODE: &str = "deserialized bytes don't encode a group element";
-
-    impl<E: Engine> Serialize for PublicKey<E> {
-        fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
-            serialize_projective(&self.0, s)
-        }
-    }
-
-    impl<'de, E: Engine> Deserialize<'de> for PublicKey<E> {
-        fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-            Ok(PublicKey(deserialize_projective(d)?))
-        }
-    }
-
-    impl<E: Engine> Serialize for Signature<E> {
-        fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
-            serialize_projective(&self.0, s)
-        }
-    }
-
-    impl<'de, E: Engine> Deserialize<'de> for Signature<E> {
-        fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-            Ok(Signature(deserialize_projective(d)?))
-        }
-    }
-
-    impl<E: Engine> Serialize for DecryptionShare<E> {
-        fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
-            serialize_projective(&self.0, s)
-        }
-    }
-
-    impl<'de, E: Engine> Deserialize<'de> for DecryptionShare<E> {
-        fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-            Ok(DecryptionShare(deserialize_projective(d)?))
-        }
-    }
-
-    /// Serializes the compressed representation of a group element.
-    fn serialize_projective<S, C>(c: &C, s: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-        C: CurveProjective,
-    {
-        c.into_affine().into_compressed().as_ref().serialize(s)
-    }
-
-    /// Deserializes the compressed representation of a group element.
-    fn deserialize_projective<'de, D, C>(d: D) -> Result<C, D::Error>
-    where
-        D: Deserializer<'de>,
-        C: CurveProjective,
-    {
-        let bytes = <Vec<u8>>::deserialize(d)?;
-        if bytes.len() != <C::Affine as CurveAffine>::Compressed::size() {
-            return Err(D::Error::custom(ERR_LEN));
-        }
-        let mut compressed = <C::Affine as CurveAffine>::Compressed::empty();
-        compressed.as_mut().copy_from_slice(&bytes);
-        let to_err = |_| D::Error::custom(ERR_CODE);
-        Ok(compressed.into_affine().map_err(to_err)?.into_projective())
-    }
-}
-
-#[cfg(feature = "serialization-protobuf")]
-pub mod proto {
-    use super::Signature;
-    use pairing::{CurveAffine, CurveProjective, EncodedPoint, Engine};
-
-    impl<E: Engine> Signature<E> {
-        pub fn to_vec(&self) -> Vec<u8> {
-            let comp = self.0.into_affine().into_compressed();
-            comp.as_ref().to_vec()
-        }
-
-        pub fn from_bytes(bytes: &[u8]) -> Option<Self> {
-            let mut comp = <E::G2Affine as CurveAffine>::Compressed::empty();
-            comp.as_mut().copy_from_slice(bytes);
-            if let Ok(affine) = comp.into_affine() {
-                Some(Signature(affine.into_projective()))
-            } else {
-                None
-            }
-        }
     }
 }
