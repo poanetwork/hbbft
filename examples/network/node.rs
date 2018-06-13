@@ -42,7 +42,11 @@ use std::net::SocketAddr;
 use std::rc::Rc;
 use std::{io, iter, process, thread, time};
 
+use pairing::bls12_381::Bls12;
+use rand;
+
 use hbbft::broadcast::{Broadcast, BroadcastMessage};
+use hbbft::crypto::SecretKeySet;
 use hbbft::messaging::{DistAlgorithm, NetworkInfo, SourcedMessage};
 use hbbft::proto::message::BroadcastProto;
 use network::commst;
@@ -124,7 +128,16 @@ impl<T: Clone + Debug + AsRef<[u8]> + PartialEq + Send + Sync + From<Vec<u8>> + 
             // corresponding to this instance, and no dedicated comms task. The
             // node index is 0.
             let broadcast_handle = scope.spawn(move || {
-                let netinfo = Rc::new(NetworkInfo::new(our_id, (0..num_nodes).collect()));
+                let all_ids = (0..num_nodes).collect();
+                let sk_set =
+                    SecretKeySet::<Bls12>::new((num_nodes - 1) / 3, &mut rand::thread_rng());
+                let pk_set = sk_set.public_keys();
+                let netinfo = Rc::new(NetworkInfo::new(
+                    our_id,
+                    all_ids,
+                    sk_set.secret_key_share(our_id as u64),
+                    pk_set.clone(),
+                ));
                 let mut broadcast =
                     Broadcast::new(netinfo, proposer_id).expect("failed to instantiate broadcast");
 
