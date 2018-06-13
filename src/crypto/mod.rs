@@ -1,5 +1,9 @@
 mod error;
+pub mod keygen;
+#[cfg(feature = "serialization-serde")]
+mod serde_impl;
 
+use self::keygen::{Commitment, Poly};
 use byteorder::{BigEndian, ByteOrder};
 use init_with::InitWith;
 use pairing::{CurveAffine, CurveProjective, Engine, Field, PrimeField};
@@ -149,34 +153,30 @@ impl<E: Engine> PartialEq for DecryptionShare<E> {
 pub struct PublicKeySet<E: Engine> {
     /// The coefficients of a polynomial whose value at `0` is the "master key", and value at
     /// `i + 1` is key share number `i`.
-    coeff: Vec<PublicKey<E>>,
+    commit: Commitment<E>,
+}
+
+impl<E: Engine> From<Commitment<E>> for PublicKeySet<E> {
+    fn from(commit: Commitment<E>) -> PublicKeySet<E> {
+        PublicKeySet { commit }
+    }
 }
 
 impl<E: Engine> PublicKeySet<E> {
     /// Returns the threshold `t`: any set of `t + 1` signature shares can be combined into a full
     /// signature.
     pub fn threshold(&self) -> usize {
-        self.coeff.len() - 1
+        self.commit.degree()
     }
 
     /// Returns the public key.
-    pub fn public_key(&self) -> &PublicKey<E> {
-        &self.coeff[0]
+    pub fn public_key(&self) -> PublicKey<E> {
+        PublicKey(self.commit.evaluate(0))
     }
 
     /// Returns the `i`-th public key share.
-    pub fn public_key_share<T>(&self, i: T) -> PublicKey<E>
-    where
-        T: Into<<E::Fr as PrimeField>::Repr>,
-    {
-        let mut x = E::Fr::one();
-        x.add_assign(&E::Fr::from_repr(i.into()).expect("invalid index"));
-        let mut pk = self.coeff.last().expect("at least one coefficient").0;
-        for c in self.coeff.iter().rev().skip(1) {
-            pk.mul_assign(x);
-            pk.add_assign(&c.0);
-        }
-        PublicKey(pk)
+    pub fn public_key_share<T: Into<<E::Fr as PrimeField>::Repr>>(&self, i: T) -> PublicKey<E> {
+        PublicKey(self.commit.evaluate(from_repr_plus_1::<E::Fr>(i.into())))
     }
 
     /// Combines the shares into a signature that can be verified with the main public key.
@@ -186,7 +186,7 @@ impl<E: Engine> PublicKeySet<E> {
         IND: Into<<E::Fr as PrimeField>::Repr> + Clone + 'a,
     {
         let samples = shares.into_iter().map(|(i, share)| (i, &share.0));
-        Ok(Signature(interpolate(self.coeff.len(), samples)?))
+        Ok(Signature(interpolate(self.commit.degree() + 1, samples)?))
     }
 
     /// Combines the shares to decrypt the ciphertext.
@@ -196,7 +196,7 @@ impl<E: Engine> PublicKeySet<E> {
         IND: Into<<E::Fr as PrimeField>::Repr> + Clone + 'a,
     {
         let samples = shares.into_iter().map(|(i, share)| (i, &share.0));
-        let g = interpolate(self.coeff.len(), samples)?;
+        let g = interpolate(self.commit.degree() + 1, samples)?;
         Ok(xor_vec(&hash_bytes::<E>(g, ct.1.len()), &ct.1))
     }
 }
@@ -205,44 +205,40 @@ impl<E: Engine> PublicKeySet<E> {
 pub struct SecretKeySet<E: Engine> {
     /// The coefficients of a polynomial whose value at `0` is the "master key", and value at
     /// `i + 1` is key share number `i`.
-    coeff: Vec<E::Fr>,
+    poly: Poly<E>,
 }
 
 impl<E: Engine> SecretKeySet<E> {
     /// Creates a set of secret key shares, where any `threshold + 1` of them can collaboratively
     /// sign and decrypt.
-    pub fn new<R: Rng>(threshold: usize, rng: &mut R) -> Self {
+    pub fn random<R: Rng>(threshold: usize, rng: &mut R) -> Self {
         SecretKeySet {
-            coeff: (0..(threshold + 1)).map(|_| rng.gen()).collect(),
+            poly: Poly::random(threshold, rng),
         }
     }
 
     /// Returns the threshold `t`: any set of `t + 1` signature shares can be combined into a full
     /// signature.
     pub fn threshold(&self) -> usize {
-        self.coeff.len() - 1
+        self.poly.degree()
     }
 
     /// Returns the `i`-th secret key share.
-    pub fn secret_key_share<T>(&self, i: T) -> SecretKey<E>
-    where
-        T: Into<<E::Fr as PrimeField>::Repr>,
-    {
-        let x = from_repr_plus_1(i.into());
-        let mut pk = *self.coeff.last().expect("at least one coefficient");
-        for c in self.coeff.iter().rev().skip(1) {
-            pk.mul_assign(&x);
-            pk.add_assign(c);
-        }
-        SecretKey(pk)
+    pub fn secret_key_share<T: Into<<E::Fr as PrimeField>::Repr>>(&self, i: T) -> SecretKey<E> {
+        SecretKey(self.poly.evaluate(from_repr_plus_1::<E::Fr>(i.into())))
     }
 
     /// Returns the corresponding public key set. That information can be shared publicly.
     pub fn public_keys(&self) -> PublicKeySet<E> {
-        let to_pub = |c: &E::Fr| PublicKey(E::G1Affine::one().mul(*c));
         PublicKeySet {
-            coeff: self.coeff.iter().map(to_pub).collect(),
+            commit: self.poly.commitment(),
         }
+    }
+
+    /// Returns the secret master key.
+    #[cfg(test)]
+    fn secret_key(&self) -> SecretKey<E> {
+        SecretKey(self.poly.evaluate(0))
     }
 }
 
@@ -287,7 +283,7 @@ fn xor_vec(x: &[u8], y: &[u8]) -> Vec<u8> {
 
 /// Given a list of `t` samples `(i - 1, f(i) * g)` for a polynomial `f` of degree `t - 1`, and a
 /// group generator `g`, returns `f(0) * g`.
-pub fn interpolate<'a, C, ITR, IND>(t: usize, items: ITR) -> Result<C>
+fn interpolate<'a, C, ITR, IND>(t: usize, items: ITR) -> Result<C>
 where
     C: CurveProjective,
     ITR: IntoIterator<Item = (&'a IND, &'a C)>,
@@ -352,19 +348,18 @@ mod tests {
     #[test]
     fn test_threshold_sig() {
         let mut rng = rand::thread_rng();
-        let sk_set = SecretKeySet::<Bls12>::new(3, &mut rng);
+        let sk_set = SecretKeySet::<Bls12>::random(3, &mut rng);
         let pk_set = sk_set.public_keys();
 
         // Make sure the keys are different, and the first coefficient is the main key.
-        assert_eq!(*pk_set.public_key(), pk_set.coeff[0]);
-        assert_ne!(*pk_set.public_key(), pk_set.public_key_share(0));
-        assert_ne!(*pk_set.public_key(), pk_set.public_key_share(1));
-        assert_ne!(*pk_set.public_key(), pk_set.public_key_share(2));
+        assert_ne!(pk_set.public_key(), pk_set.public_key_share(0));
+        assert_ne!(pk_set.public_key(), pk_set.public_key_share(1));
+        assert_ne!(pk_set.public_key(), pk_set.public_key_share(2));
 
         // Make sure we don't hand out the main secret key to anyone.
-        assert_ne!(SecretKey(sk_set.coeff[0]), sk_set.secret_key_share(0));
-        assert_ne!(SecretKey(sk_set.coeff[0]), sk_set.secret_key_share(1));
-        assert_ne!(SecretKey(sk_set.coeff[0]), sk_set.secret_key_share(2));
+        assert_ne!(sk_set.secret_key(), sk_set.secret_key_share(0));
+        assert_ne!(sk_set.secret_key(), sk_set.secret_key_share(1));
+        assert_ne!(sk_set.secret_key(), sk_set.secret_key_share(2));
 
         let msg = "Totally real news";
 
@@ -420,7 +415,7 @@ mod tests {
     #[test]
     fn test_threshold_enc() {
         let mut rng = rand::thread_rng();
-        let sk_set = SecretKeySet::<Bls12>::new(3, &mut rng);
+        let sk_set = SecretKeySet::<Bls12>::random(3, &mut rng);
         let pk_set = sk_set.public_keys();
         let msg = b"Totally real news";
         let ciphertext = pk_set.public_key().encrypt(&msg[..]);
@@ -509,78 +504,5 @@ mod tests {
         let ser_sig = bincode::serialize(&sig).expect("serialize signature");
         let deser_sig = bincode::deserialize(&ser_sig).expect("deserialize signature");
         assert_eq!(sig, deser_sig);
-    }
-}
-
-#[cfg(feature = "serialization-serde")]
-mod serde {
-    use pairing::{CurveAffine, CurveProjective, EncodedPoint, Engine};
-
-    use super::{DecryptionShare, PublicKey, Signature};
-    use serde::de::Error as DeserializeError;
-    use serde::{Deserialize, Deserializer, Serialize, Serializer};
-
-    const ERR_LEN: &str = "wrong length of deserialized group element";
-    const ERR_CODE: &str = "deserialized bytes don't encode a group element";
-
-    impl<E: Engine> Serialize for PublicKey<E> {
-        fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
-            serialize_projective(&self.0, s)
-        }
-    }
-
-    impl<'de, E: Engine> Deserialize<'de> for PublicKey<E> {
-        fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-            Ok(PublicKey(deserialize_projective(d)?))
-        }
-    }
-
-    impl<E: Engine> Serialize for Signature<E> {
-        fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
-            serialize_projective(&self.0, s)
-        }
-    }
-
-    impl<'de, E: Engine> Deserialize<'de> for Signature<E> {
-        fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-            Ok(Signature(deserialize_projective(d)?))
-        }
-    }
-
-    impl<E: Engine> Serialize for DecryptionShare<E> {
-        fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
-            serialize_projective(&self.0, s)
-        }
-    }
-
-    impl<'de, E: Engine> Deserialize<'de> for DecryptionShare<E> {
-        fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-            Ok(DecryptionShare(deserialize_projective(d)?))
-        }
-    }
-
-    /// Serializes the compressed representation of a group element.
-    fn serialize_projective<S, C>(c: &C, s: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-        C: CurveProjective,
-    {
-        c.into_affine().into_compressed().as_ref().serialize(s)
-    }
-
-    /// Deserializes the compressed representation of a group element.
-    fn deserialize_projective<'de, D, C>(d: D) -> Result<C, D::Error>
-    where
-        D: Deserializer<'de>,
-        C: CurveProjective,
-    {
-        let bytes = <Vec<u8>>::deserialize(d)?;
-        if bytes.len() != <C::Affine as CurveAffine>::Compressed::size() {
-            return Err(D::Error::custom(ERR_LEN));
-        }
-        let mut compressed = <C::Affine as CurveAffine>::Compressed::empty();
-        compressed.as_mut().copy_from_slice(&bytes);
-        let to_err = |_| D::Error::custom(ERR_CODE);
-        Ok(compressed.into_affine().map_err(to_err)?.into_projective())
     }
 }

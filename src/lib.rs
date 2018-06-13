@@ -4,6 +4,8 @@
 //! honey badger of BFT protocols" after a paper with the same title.
 
 #![feature(optin_builtin_traits)]
+// TODO: Remove this once https://github.com/rust-lang-nursery/error-chain/issues/245 is resolved.
+#![allow(renamed_and_removed_lints)]
 
 extern crate bincode;
 extern crate byteorder;
