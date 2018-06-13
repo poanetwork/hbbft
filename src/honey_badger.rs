@@ -32,16 +32,16 @@ error_chain!{
 }
 
 /// An instance of the Honey Badger Byzantine fault tolerant consensus algorithm.
-pub struct HoneyBadger<T, N: Clone + Debug + Eq + Hash + Ord + Clone> {
+pub struct HoneyBadger<'a, T, N: 'a + Clone + Debug + Eq + Hash + Ord + Clone> {
     /// Shared network data.
-    netinfo: Rc<NetworkInfo<N>>,
+    netinfo: Rc<NetworkInfo<'a, N>>,
     /// The buffer of transactions that have not yet been included in any output batch.
     buffer: Vec<T>,
     /// The earliest epoch from which we have not yet received output.
     epoch: u64,
     /// The Asynchronous Common Subset instance that decides which nodes' transactions to include,
     /// indexed by epoch.
-    common_subsets: BTreeMap<u64, CommonSubset<N>>,
+    common_subsets: BTreeMap<u64, CommonSubset<'a, N>>,
     /// The target number of transactions to be included in each batch.
     // TODO: Do experiments and recommend a batch size. It should be proportional to
     // `num_nodes * num_nodes * log(num_nodes)`.
@@ -52,10 +52,10 @@ pub struct HoneyBadger<T, N: Clone + Debug + Eq + Hash + Ord + Clone> {
     output: VecDeque<Batch<T>>,
 }
 
-impl<T, N> DistAlgorithm for HoneyBadger<T, N>
+impl<'a, T, N> DistAlgorithm for HoneyBadger<'a, T, N>
 where
     T: Ord + Serialize + DeserializeOwned + Debug,
-    N: Eq + Hash + Ord + Clone + Debug,
+    N: 'a + Eq + Hash + Ord + Clone + Debug,
 {
     type NodeUid = N;
     type Input = T;
@@ -96,14 +96,14 @@ where
 }
 
 // TODO: Use a threshold encryption scheme to encrypt the proposed transactions.
-impl<T, N> HoneyBadger<T, N>
+impl<'a, T, N> HoneyBadger<'a, T, N>
 where
     T: Ord + Serialize + DeserializeOwned + Debug,
-    N: Eq + Hash + Ord + Clone + Debug,
+    N: 'a + Eq + Hash + Ord + Clone + Debug,
 {
     /// Returns a new Honey Badger instance with the given parameters, starting at epoch `0`.
     pub fn new<TI>(
-        netinfo: Rc<NetworkInfo<N>>,
+        netinfo: Rc<NetworkInfo<'a, N>>,
         batch_size: usize,
         txs: TI,
     ) -> HoneyBadgerResult<Self>

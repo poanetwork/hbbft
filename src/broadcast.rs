@@ -91,9 +91,9 @@ impl Debug for BroadcastMessage {
 /// eventually be able to decode (i.e. receive at least `f + 1` `Echo` messages).
 /// * So a node with `2 * f + 1` `Ready`s and `f + 1` `Echos` will decode and _output_ the value,
 /// knowing that every other good node will eventually do the same.
-pub struct Broadcast<N> {
+pub struct Broadcast<'a, N: 'a> {
     /// Shared network data.
-    netinfo: Rc<NetworkInfo<N>>,
+    netinfo: Rc<NetworkInfo<'a, N>>,
     /// The UID of the sending node.
     proposer_id: N,
     data_shard_num: usize,
@@ -114,7 +114,7 @@ pub struct Broadcast<N> {
     output: Option<Vec<u8>>,
 }
 
-impl<N: Eq + Debug + Clone + Ord> DistAlgorithm for Broadcast<N> {
+impl<'a, N: 'a + Eq + Debug + Clone + Ord> DistAlgorithm for Broadcast<'a, N> {
     type NodeUid = N;
     // TODO: Allow anything serializable and deserializable, i.e. make this a type parameter
     // T: Serialize + DeserializeOwned
@@ -163,10 +163,10 @@ impl<N: Eq + Debug + Clone + Ord> DistAlgorithm for Broadcast<N> {
     }
 }
 
-impl<N: Eq + Debug + Clone + Ord> Broadcast<N> {
+impl<'a, N: 'a + Eq + Debug + Clone + Ord> Broadcast<'a, N> {
     /// Creates a new broadcast instance to be used by node `our_id` which expects a value proposal
     /// from node `proposer_id`.
-    pub fn new(netinfo: Rc<NetworkInfo<N>>, proposer_id: N) -> BroadcastResult<Self> {
+    pub fn new(netinfo: Rc<NetworkInfo<'a, N>>, proposer_id: N) -> BroadcastResult<Self> {
         let parity_shard_num = 2 * netinfo.num_faulty();
         let data_shard_num = netinfo.num_nodes() - parity_shard_num;
         let coding = Coding::new(data_shard_num, parity_shard_num)?;
@@ -247,7 +247,7 @@ impl<N: Eq + Debug + Clone + Ord> Broadcast<N> {
         assert_eq!(self.netinfo.num_nodes(), mtree.iter().count());
 
         // Send each proof to a node.
-        for (leaf_value, uid) in mtree.iter().zip(self.netinfo.all_uids()) {
+        for (leaf_value, &uid) in mtree.iter().zip(self.netinfo.all_uids()) {
             let proof = mtree
                 .gen_proof(leaf_value.to_vec())
                 .ok_or(ErrorKind::ProofConstructionFailed)?;
@@ -389,7 +389,7 @@ impl<N: Eq + Debug + Clone + Ord> Broadcast<N> {
 
     /// Returns `i` if `node_id` is the `i`-th ID among all participating nodes.
     fn index_of_node(&self, node_id: &N) -> Option<usize> {
-        self.netinfo.all_uids().iter().position(|id| id == node_id)
+        self.netinfo.all_uids().iter().position(|&id| id == node_id)
     }
 
     /// Returns `true` if the proof is valid and has the same index as the node ID. Otherwise

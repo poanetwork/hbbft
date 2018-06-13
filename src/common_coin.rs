@@ -44,11 +44,11 @@ impl CommonCoinMessage {
 /// receiving at least `num_faulty + 1` shares, attempts to combine them into a signature. If that
 /// signature is valid, the instance outputs it and terminates; otherwise the instance aborts.
 #[derive(Debug)]
-pub struct CommonCoin<N, T>
+pub struct CommonCoin<'a, N, T>
 where
-    N: Debug,
+    N: 'a + Debug,
 {
-    netinfo: Rc<NetworkInfo<N>>,
+    netinfo: Rc<NetworkInfo<'a, N>>,
     /// The name of this common coin. It is required to be unique for each common coin round.
     nonce: T,
     /// The result of combination of at least `num_faulty + 1` threshold signature shares.
@@ -65,9 +65,9 @@ where
     terminated: bool,
 }
 
-impl<N, T> DistAlgorithm for CommonCoin<N, T>
+impl<'a, N, T> DistAlgorithm for CommonCoin<'a, N, T>
 where
-    N: Clone + Debug + Ord,
+    N: 'a + Clone + Debug + Ord,
     T: Clone + AsRef<[u8]>,
 {
     type NodeUid = N;
@@ -129,14 +129,14 @@ where
     }
 }
 
-impl<N, T> CommonCoin<N, T>
+impl<'a, N, T> CommonCoin<'a, N, T>
 where
-    N: Clone + Debug + Ord,
+    N: 'a + Clone + Debug + Ord,
     T: Clone + AsRef<[u8]>,
 {
-    pub fn new(netinfo: Rc<NetworkInfo<N>>, nonce: T) -> Self {
+    pub fn new(netinfo: Rc<NetworkInfo<'a, N>>, nonce: T) -> Self {
         CommonCoin {
-            netinfo,
+            netinfo: netinfo.clone(),
             nonce,
             output: None,
             messages: VecDeque::new(),
@@ -155,61 +155,58 @@ where
     }
 
     fn handle_share(&mut self, sender_id: &N, share: Signature<Bls12>) -> Result<()> {
-        let node_indices = self.netinfo.node_indices();
-        if let Some(i) = node_indices.get(sender_id) {
-            let pk_i = self.netinfo.public_key_set().public_key_share(*i);
-            if !pk_i.verify(&share, &self.nonce) {
-                // Silently ignore the invalid share.
-                debug!(
-                    "{:?} received invalid share from {:?}",
-                    self.netinfo.our_uid(),
-                    sender_id
-                );
-                return Ok(());
-            }
+        let i = self.node_idx(sender_id)?;
+        let pk_i = self.netinfo.public_key_set().public_key_share(i as u64);
+        if !pk_i.verify(&share, &self.nonce) {
+            // Silently ignore the invalid share.
+            return Ok(());
+        }
 
-            debug!(
-                "{:?} received a valid share from {:?}",
-                self.netinfo.our_uid(),
-                sender_id
+        self.received_shares.insert(sender_id.clone(), share);
+        if self.received_shares.len() > self.netinfo.num_faulty() {
+            let sig = self.combine_and_verify_sig()?;
+            // Output the parity of the verified signature.
+            let parity = sig.parity();
+            self.output = Some(parity);
+            self.terminated = true;
+        }
+        Ok(())
+    }
+
+    fn combine_and_verify_sig(&self) -> Result<Signature<Bls12>> {
+        // Pass the indices of sender nodes to `combine_signatures`.
+        let ids_shares: BTreeMap<&N, &Signature<Bls12>> = self.received_shares.iter().collect();
+        let ids_u64: BTreeMap<&N, u64> = ids_shares
+            .keys()
+            .map(|&id| (id, self.node_idx(id).unwrap()))
+            .collect();
+        // Convert indices to `u64` which is an interface type for `pairing`.
+        let shares: BTreeMap<&u64, &Signature<Bls12>> = ids_shares
+            .iter()
+            .map(|(id, &share)| (ids_u64.get(id).unwrap(), share))
+            .collect();
+        let sig = self.netinfo.public_key_set().combine_signatures(shares)?;
+
+        if !self
+            .netinfo
+            .public_key_set()
+            .public_key()
+            .verify(&sig, &self.nonce)
+        {
+            // Abort
+            error!(
+                "{:?} main public key verification failed",
+                self.netinfo.our_uid()
             );
-            self.received_shares.insert(sender_id.clone(), share);
-            let received_shares = &self.received_shares;
-            if received_shares.len() > self.netinfo.num_faulty() {
-                // Pass the indices of sender nodes to `combine_signatures`.
-                let shares: BTreeMap<&u64, &Signature<Bls12>> = self
-                    .netinfo
-                    .all_uids()
-                    .iter()
-                    .map(|id| (&node_indices[id], received_shares.get(id)))
-                    .filter(|(_, share)| share.is_some())
-                    .map(|(n, share)| (n, share.unwrap()))
-                    .collect();
-                let sig = self.netinfo.public_key_set().combine_signatures(shares)?;
+            Err(ErrorKind::VerificationFailed.into())
+        } else {
+            Ok(sig)
+        }
+    }
 
-                // Verify the successfully combined signature with the main public key.
-                if !self
-                    .netinfo
-                    .public_key_set()
-                    .public_key()
-                    .verify(&sig, &self.nonce)
-                {
-                    // Abort
-                    error!(
-                        "{:?} main public key verification failed",
-                        self.netinfo.our_uid()
-                    );
-                    self.terminated = true;
-                    return Err(ErrorKind::VerificationFailed.into());
-                }
-
-                // Output the parity of the verified signature.
-                let parity = sig.parity();
-                self.output = Some(parity);
-                self.terminated = true;
-                debug!("{:?} coin is {}", self.netinfo.our_uid(), parity);
-            }
-            Ok(())
+    fn node_idx(&self, id: &N) -> Result<u64> {
+        if let Some(i) = self.netinfo.node_idx(id) {
+            Ok(i as u64)
         } else {
             Err(ErrorKind::UnknownSender.into())
         }

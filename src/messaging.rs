@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 use std::fmt::Debug;
 
 use pairing::bls12_381::Bls12;
@@ -131,19 +131,21 @@ impl<'a, D: DistAlgorithm + 'a> Iterator for OutputIter<'a, D> {
 
 /// Common data shared between algorithms.
 #[derive(Debug)]
-pub struct NetworkInfo<NodeUid> {
-    our_uid: NodeUid,
-    all_uids: BTreeSet<NodeUid>,
+pub struct NetworkInfo<'a, NodeUid: 'a> {
+    our_uid: &'a NodeUid,
+    all_uids: BTreeSet<&'a NodeUid>,
     num_nodes: usize,
     num_faulty: usize,
     secret_key: SecretKey<Bls12>,
     public_key_set: PublicKeySet<Bls12>,
+    /// An ordered list of node IDs for indexing purposes.
+    node_list: Vec<&'a NodeUid>,
 }
 
-impl<NodeUid: Ord> NetworkInfo<NodeUid> {
+impl<'a, NodeUid: 'a + Clone + Ord> NetworkInfo<'a, NodeUid> {
     pub fn new(
-        our_uid: NodeUid,
-        all_uids: BTreeSet<NodeUid>,
+        our_uid: &'a NodeUid,
+        all_uids: BTreeSet<&'a NodeUid>,
         secret_key: SecretKey<Bls12>,
         public_key_set: PublicKeySet<Bls12>,
     ) -> Self {
@@ -153,11 +155,12 @@ impl<NodeUid: Ord> NetworkInfo<NodeUid> {
         let num_nodes = all_uids.len();
         NetworkInfo {
             our_uid,
-            all_uids,
+            all_uids: all_uids.clone(),
             num_nodes,
             num_faulty: (num_nodes - 1) / 3,
             secret_key,
             public_key_set,
+            node_list: all_uids.iter().map(|&id| id).collect(),
         }
     }
 
@@ -167,7 +170,7 @@ impl<NodeUid: Ord> NetworkInfo<NodeUid> {
     }
 
     /// ID of all nodes in the network.
-    pub fn all_uids(&self) -> &BTreeSet<NodeUid> {
+    pub fn all_uids(&self) -> &BTreeSet<&'a NodeUid> {
         &self.all_uids
     }
 
@@ -190,19 +193,13 @@ impl<NodeUid: Ord> NetworkInfo<NodeUid> {
         &self.public_key_set
     }
 
-    /// The canonical numbering of all nodes.
-    ///
-    /// FIXME: To avoid multiple computations of the same result, caching should be introduced.
-    pub fn node_indices(&self) -> BTreeMap<&NodeUid, u64> {
-        self.all_uids
-            .iter()
-            .enumerate()
-            .map(|(n, id)| (id, n as u64))
-            .collect()
-    }
-
     /// Returns the unique ID of the Honey Badger invocation.
     pub fn invocation_id(&self) -> Vec<u8> {
         self.public_key_set.public_key().to_bytes()
+    }
+
+    /// Returns the index of a given node in an ordered list of nodes.
+    pub fn node_idx(&self, id: &NodeUid) -> Option<usize> {
+        self.node_list.binary_search(&id).ok()
     }
 }

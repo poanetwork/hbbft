@@ -88,11 +88,11 @@ impl<NodeUid: Clone + Debug + Eq + Hash + Ord> MessageQueue<NodeUid> {
 /// remaining ones, where we haven't provided input yet.
 /// * Once all `Agreement` instances have decided, `CommonSubset` returns the set of all proposed
 /// values for which the decision was "yes".
-pub struct CommonSubset<NodeUid: Clone + Debug + Eq + Hash + Ord> {
+pub struct CommonSubset<'a, NodeUid: 'a + Clone + Debug + Eq + Hash + Ord> {
     /// Shared network information.
-    netinfo: Rc<NetworkInfo<NodeUid>>,
-    broadcast_instances: BTreeMap<NodeUid, Broadcast<NodeUid>>,
-    agreement_instances: BTreeMap<NodeUid, Agreement<NodeUid>>,
+    netinfo: Rc<NetworkInfo<'a, NodeUid>>,
+    broadcast_instances: BTreeMap<NodeUid, Broadcast<'a, NodeUid>>,
+    agreement_instances: BTreeMap<NodeUid, Agreement<'a, NodeUid>>,
     broadcast_results: BTreeMap<NodeUid, ProposedValue>,
     agreement_results: BTreeMap<NodeUid, bool>,
     /// Outgoing message queue.
@@ -103,7 +103,10 @@ pub struct CommonSubset<NodeUid: Clone + Debug + Eq + Hash + Ord> {
     decided: bool,
 }
 
-impl<NodeUid: Clone + Debug + Eq + Hash + Ord> DistAlgorithm for CommonSubset<NodeUid> {
+impl<'a, NodeUid> DistAlgorithm for CommonSubset<'a, NodeUid>
+where
+    NodeUid: 'a + Clone + Debug + Eq + Hash + Ord,
+{
     type NodeUid = NodeUid;
     type Input = ProposedValue;
     type Output = BTreeMap<NodeUid, ProposedValue>;
@@ -147,11 +150,14 @@ impl<NodeUid: Clone + Debug + Eq + Hash + Ord> DistAlgorithm for CommonSubset<No
     }
 }
 
-impl<NodeUid: Clone + Debug + Eq + Hash + Ord> CommonSubset<NodeUid> {
-    pub fn new(netinfo: Rc<NetworkInfo<NodeUid>>, hb_epoch: u64) -> CommonSubsetResult<Self> {
+impl<'a, NodeUid> CommonSubset<'a, NodeUid>
+where
+    NodeUid: Clone + Debug + Eq + Hash + Ord,
+{
+    pub fn new(netinfo: Rc<NetworkInfo<'a, NodeUid>>, hb_epoch: u64) -> CommonSubsetResult<Self> {
         // Create all broadcast instances.
         let mut broadcast_instances: BTreeMap<NodeUid, Broadcast<NodeUid>> = BTreeMap::new();
-        for proposer_id in netinfo.all_uids() {
+        for &proposer_id in netinfo.all_uids() {
             broadcast_instances.insert(
                 proposer_id.clone(),
                 Broadcast::new(netinfo.clone(), proposer_id.clone())?,
@@ -161,7 +167,10 @@ impl<NodeUid: Clone + Debug + Eq + Hash + Ord> CommonSubset<NodeUid> {
         // Create all agreement instances.
         let mut agreement_instances: BTreeMap<NodeUid, Agreement<NodeUid>> = BTreeMap::new();
         for proposer_id in netinfo.all_uids().iter().cloned() {
-            agreement_instances.insert(proposer_id, Agreement::new(netinfo.clone(), hb_epoch));
+            agreement_instances.insert(
+                proposer_id.clone(),
+                Agreement::new(netinfo.clone(), hb_epoch),
+            );
         }
 
         Ok(CommonSubset {
