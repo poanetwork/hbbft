@@ -116,7 +116,6 @@ where
     }
 }
 
-// TODO: Use a threshold encryption scheme to encrypt the proposed transactions.
 impl<Tx, NodeUid> HoneyBadger<Tx, NodeUid>
 where
     Tx: Serialize + for<'r> Deserialize<'r> + Debug + Hash + Eq,
@@ -569,9 +568,6 @@ impl<Tx, NodeUid: Ord> Batch<Tx, NodeUid> {
 }
 
 /// The content of a `HoneyBadger` message. It should be further annotated with an epoch.
-///
-/// TODO: Store a pointer to the `share` and dereference it at the time of serialization to avoid
-/// cloning shares.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub enum MessageContent<NodeUid> {
     /// A message belonging to the common subset algorithm in the given epoch.
