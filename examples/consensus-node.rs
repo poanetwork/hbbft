@@ -64,6 +64,10 @@ pub fn main() {
     let args: Args = parse_args();
     println!("{:?}", args);
 
-    let node = Node::new(args.bind_address, args.remote_addresses, args.value);
+    let node = Node::new(
+        args.bind_address,
+        args.remote_addresses,
+        args.value,
+    );
     node.run().expect("Node failed");
 }
