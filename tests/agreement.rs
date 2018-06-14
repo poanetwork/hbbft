@@ -23,10 +23,12 @@ extern crate rand;
 mod network;
 
 use std::iter::once;
+use std::rc::Rc;
 
 use rand::Rng;
 
 use hbbft::agreement::Agreement;
+use hbbft::messaging::NetworkInfo;
 
 use network::{Adversary, MessageScheduler, NodeUid, SilentAdversary, TestNetwork, TestNode};
 
@@ -76,7 +78,10 @@ where
         );
         for &input in &[None, Some(false), Some(true)] {
             let adversary = new_adversary(num_good_nodes, num_faulty_nodes);
-            let new_agreement = |netinfo: _| Agreement::new(netinfo, 0);
+            let new_agreement = |netinfo: Rc<NetworkInfo<NodeUid>>| {
+                let proposer_id = *netinfo.clone().our_uid();
+                Agreement::new(netinfo, 0, proposer_id).expect("agreement instance")
+            };
             let network =
                 TestNetwork::new(num_good_nodes, num_faulty_nodes, adversary, new_agreement);
             test_agreement(network, input);

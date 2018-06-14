@@ -25,7 +25,12 @@ error_chain!{
     }
 
     errors {
-        InputNotAccepted
+        UnknownProposer {
+            description("unknown proposer")
+        }
+        InputNotAccepted {
+            description("input not accepted")
+        }
     }
 }
 
@@ -71,6 +76,8 @@ where
     netinfo: Rc<NetworkInfo<NodeUid>>,
     /// Session ID, e.g, the Honey Badger algorithm epoch.
     session_id: u64,
+    /// The ID of the proposer of the value for this agreement instance.
+    proposer_id: NodeUid,
     /// Agreement algorithm epoch.
     epoch: u32,
     /// Bin values. Reset on every epoch update.
@@ -171,29 +178,35 @@ impl<NodeUid: Clone + Debug + Eq + Hash + Ord> DistAlgorithm for Agreement<NodeU
 }
 
 impl<NodeUid: Clone + Debug + Eq + Hash + Ord> Agreement<NodeUid> {
-    pub fn new(netinfo: Rc<NetworkInfo<NodeUid>>, session_id: u64) -> Self {
+    pub fn new(netinfo: Rc<NetworkInfo<NodeUid>>, session_id: u64, proposer_id: NodeUid) -> AgreementResult<Self> {
         let invocation_id = netinfo.invocation_id();
-        Agreement {
-            netinfo: netinfo.clone(),
-            session_id,
-            epoch: 0,
-            bin_values: BinValues::new(),
-            received_bval: BTreeMap::new(),
-            sent_bval: BTreeSet::new(),
-            received_aux: BTreeMap::new(),
-            received_conf: BTreeMap::new(),
-            received_term: BTreeMap::new(),
-            estimated: None,
-            output: None,
-            decision: None,
-            incoming_queue: Vec::new(),
-            terminated: false,
-            messages: VecDeque::new(),
-            conf_round: false,
-            common_coin: CommonCoin::new(
-                netinfo,
-                Nonce::new(invocation_id.as_ref(), session_id, 0),
-            ),
+        if let Some(&proposer_i) = netinfo.node_index(&proposer_id) {
+            Ok(Agreement {
+                netinfo: netinfo.clone(),
+                session_id,
+                proposer_id,
+                epoch: 0,
+                bin_values: BinValues::new(),
+                received_bval: BTreeMap::new(),
+                sent_bval: BTreeSet::new(),
+                received_aux: BTreeMap::new(),
+                received_conf: BTreeMap::new(),
+                received_term: BTreeMap::new(),
+                estimated: None,
+                output: None,
+                decision: None,
+                incoming_queue: Vec::new(),
+                terminated: false,
+                messages: VecDeque::new(),
+                conf_round: false,
+                common_coin: CommonCoin::new(
+                    netinfo,
+                    Nonce::new(invocation_id.as_ref(), session_id, proposer_i, 0),
+                ),
+            })
+        }
+        else {
+            Err(ErrorKind::UnknownProposer.into())
         }
     }
 
@@ -453,12 +466,14 @@ impl<NodeUid: Clone + Debug + Eq + Hash + Ord> Agreement<NodeUid> {
         let nonce = Nonce::new(
             self.netinfo.invocation_id().as_ref(),
             self.session_id,
+            *self.netinfo.node_index(&self.proposer_id).unwrap(),
             self.epoch,
         );
         self.common_coin = CommonCoin::new(self.netinfo.clone(), nonce);
         debug!(
-            "Agreement instance {:?} started epoch {}",
+            "{:?} Agreement instance {:?} started epoch {}",
             self.netinfo.our_uid(),
+            self.proposer_id,
             self.epoch
         );
     }
@@ -468,10 +483,15 @@ impl<NodeUid: Clone + Debug + Eq + Hash + Ord> Agreement<NodeUid> {
 struct Nonce(Vec<u8>);
 
 impl Nonce {
-    pub fn new(invocation_id: &[u8], session_id: u64, agreement_epoch: u32) -> Self {
+    pub fn new(
+        invocation_id: &[u8],
+        session_id: u64,
+        proposer_id: usize,
+        agreement_epoch: u32,
+    ) -> Self {
         Nonce(Vec::from(format!(
-            "Nonce for Honey Badger {:?}@{}:{}",
-            invocation_id, session_id, agreement_epoch
+            "Nonce for Honey Badger {:?}@{}:{}:{}",
+            invocation_id, session_id, agreement_epoch, proposer_id
         )))
     }
 }
