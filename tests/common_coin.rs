@@ -55,7 +55,8 @@ const GOOD_SAMPLE_SET: f64 = 400.0;
 /// sample set. This check assumes logarithmic growth of the expected number of throws of one coin
 /// size.
 fn check_coin_distribution(num_samples: usize, count_true: usize, count_false: usize) {
-    const EXPECTED_SHARE: f64 = 0.48;
+    // Maximum 40% expectation in case of 400 samples or more.
+    const EXPECTED_SHARE: f64 = 0.4;
     let max_gain = GOOD_SAMPLE_SET.log2();
     let num_samples_f64 = num_samples as f64;
     let gain = num_samples_f64.log2().min(max_gain);

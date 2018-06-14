@@ -1,5 +1,6 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeSet, HashMap};
 use std::fmt::Debug;
+use std::hash::Hash;
 
 use pairing::bls12_381::Bls12;
 
@@ -131,16 +132,17 @@ impl<'a, D: DistAlgorithm + 'a> Iterator for OutputIter<'a, D> {
 
 /// Common data shared between algorithms.
 #[derive(Debug)]
-pub struct NetworkInfo<NodeUid> {
+pub struct NetworkInfo<NodeUid: Clone + Eq + Hash> {
     our_uid: NodeUid,
     all_uids: BTreeSet<NodeUid>,
     num_nodes: usize,
     num_faulty: usize,
     secret_key: SecretKey<Bls12>,
     public_key_set: PublicKeySet<Bls12>,
+    node_indices: HashMap<NodeUid, usize>,
 }
 
-impl<NodeUid: Ord> NetworkInfo<NodeUid> {
+impl<NodeUid: Clone + Hash + Ord> NetworkInfo<NodeUid> {
     pub fn new(
         our_uid: NodeUid,
         all_uids: BTreeSet<NodeUid>,
@@ -151,6 +153,12 @@ impl<NodeUid: Ord> NetworkInfo<NodeUid> {
             panic!("Missing own ID");
         }
         let num_nodes = all_uids.len();
+        let node_indices = all_uids
+            .iter()
+            .cloned()
+            .enumerate()
+            .map(|(n, id)| (id, n))
+            .collect();
         NetworkInfo {
             our_uid,
             all_uids,
@@ -158,6 +166,7 @@ impl<NodeUid: Ord> NetworkInfo<NodeUid> {
             num_faulty: (num_nodes - 1) / 3,
             secret_key,
             public_key_set,
+            node_indices,
         }
     }
 
@@ -190,18 +199,17 @@ impl<NodeUid: Ord> NetworkInfo<NodeUid> {
         &self.public_key_set
     }
 
-    /// The canonical numbering of all nodes.
-    ///
-    /// FIXME: To avoid multiple computations of the same result, caching should be introduced.
-    pub fn node_indices(&self) -> BTreeMap<&NodeUid, u64> {
-        self.all_uids
-            .iter()
-            .enumerate()
-            .map(|(n, id)| (id, n as u64))
-            .collect()
+    /// The index of a node in a canonical numbering of all nodes.
+    pub fn node_index(&self, id: &NodeUid) -> Option<&usize> {
+        self.node_indices.get(id)
     }
 
     /// Returns the unique ID of the Honey Badger invocation.
+    ///
+    /// FIXME: Using the public key as the invocation ID either requires agreeing on the keys on
+    /// each invocation, or makes it unsafe to reuse keys for different invocations. A better
+    /// invocation ID would be one that is distributed to all nodes on each invocation and would be
+    /// independent from the public key, so that reusing keys would be safer.
     pub fn invocation_id(&self) -> Vec<u8> {
         self.public_key_set.public_key().to_bytes()
     }

@@ -70,7 +70,7 @@ impl<E: Engine> PublicKey<E> {
 }
 
 /// A signature, or a signature share.
-#[derive(Clone, PartialOrd)]
+#[derive(Clone)]
 pub struct Signature<E: Engine>(E::G2);
 
 impl<E: Engine> fmt::Debug for Signature<E> {

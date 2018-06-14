@@ -1,5 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fmt::Debug;
+use std::hash::Hash;
 use std::rc::Rc;
 
 use pairing::bls12_381::Bls12;
@@ -143,7 +144,10 @@ impl<D: DistAlgorithm> Adversary<D> for SilentAdversary {
 }
 
 /// A collection of `TestNode`s representing a network.
-pub struct TestNetwork<A: Adversary<D>, D: DistAlgorithm> {
+pub struct TestNetwork<A: Adversary<D>, D: DistAlgorithm>
+where
+    <D as DistAlgorithm>::NodeUid: Hash,
+{
     pub nodes: BTreeMap<D::NodeUid, TestNode<D>>,
     pub adv_nodes: BTreeMap<D::NodeUid, Rc<NetworkInfo<D::NodeUid>>>,
     adversary: A,

@@ -65,12 +65,12 @@ pub struct AgreementMessage {
 /// Binary Agreement instance
 pub struct Agreement<NodeUid>
 where
-    NodeUid: Clone + Debug,
+    NodeUid: Clone + Debug + Eq + Hash,
 {
     /// Shared network information.
     netinfo: Rc<NetworkInfo<NodeUid>>,
-    /// Honey Badger algorithm epoch.
-    hb_epoch: u64,
+    /// Session ID, e.g, the Honey Badger algorithm epoch.
+    session_id: u64,
     /// Agreement algorithm epoch.
     epoch: u32,
     /// Bin values. Reset on every epoch update.
@@ -110,9 +110,6 @@ where
     messages: VecDeque<AgreementMessage>,
     /// Whether the `Conf` message round has started in the current epoch.
     conf_round: bool,
-    /// The subset of `bin_values` contained in received `Conf` messages before invoking the Common
-    /// Coin instance.
-    conf_vals: BinValues,
     /// A common coin instance. It is reset on epoch update.
     common_coin: CommonCoin<NodeUid, Nonce>,
 }
@@ -174,11 +171,11 @@ impl<NodeUid: Clone + Debug + Eq + Hash + Ord> DistAlgorithm for Agreement<NodeU
 }
 
 impl<NodeUid: Clone + Debug + Eq + Hash + Ord> Agreement<NodeUid> {
-    pub fn new(netinfo: Rc<NetworkInfo<NodeUid>>, hb_epoch: u64) -> Self {
+    pub fn new(netinfo: Rc<NetworkInfo<NodeUid>>, session_id: u64) -> Self {
         let invocation_id = netinfo.invocation_id();
         Agreement {
             netinfo: netinfo.clone(),
-            hb_epoch,
+            session_id,
             epoch: 0,
             bin_values: BinValues::new(),
             received_bval: BTreeMap::new(),
@@ -193,8 +190,7 @@ impl<NodeUid: Clone + Debug + Eq + Hash + Ord> Agreement<NodeUid> {
             terminated: false,
             messages: VecDeque::new(),
             conf_round: false,
-            conf_vals: BinValues::None,
-            common_coin: CommonCoin::new(netinfo, Nonce::new(invocation_id.as_ref(), hb_epoch, 0)),
+            common_coin: CommonCoin::new(netinfo, Nonce::new(invocation_id.as_ref(), session_id, 0)),
         }
     }
 
@@ -335,15 +331,7 @@ impl<NodeUid: Clone + Debug + Eq + Hash + Ord> Agreement<NodeUid> {
         self.extend_common_coin();
 
         if let Some(coin) = self.common_coin.next_output() {
-            // Check the termination condition: "continue looping until both a value b is output in some
-            // round r, and the value Coin_r' = b for some round r' > r."
-            self.terminated = self.terminated || self.decision == Some(coin);
-            if self.terminated {
-                debug!("Node {:?} Agreement terminated", self.netinfo.our_uid());
-                return Ok(());
-            }
-
-            let b = if let Some(b) = self.conf_vals.definite() {
+            let b = if let Some(b) = self.count_conf().1.definite() {
                 // Outputting a value is allowed only once.
                 if self.decision.is_none() && b == coin {
                     self.decide(b);
@@ -394,12 +382,11 @@ impl<NodeUid: Clone + Debug + Eq + Hash + Ord> Agreement<NodeUid> {
 
     fn try_finish_conf_round(&mut self) -> AgreementResult<()> {
         if self.conf_round {
-            let (count_vals, vals) = self.count_conf();
+            let (count_vals, _) = self.count_conf();
             if count_vals < self.netinfo.num_nodes() - self.netinfo.num_faulty() {
                 // Continue waiting for (N - f) `Conf` messages
                 return Ok(());
             }
-            self.conf_vals = vals;
             // Invoke the comon coin.
             self.common_coin.input(())?;
             self.extend_common_coin();
@@ -459,11 +446,10 @@ impl<NodeUid: Clone + Debug + Eq + Hash + Ord> Agreement<NodeUid> {
         self.received_aux.clear();
         self.received_conf.clear();
         self.conf_round = false;
-        self.conf_vals = BinValues::None;
         self.epoch += 1;
         let nonce = Nonce::new(
             self.netinfo.invocation_id().as_ref(),
-            self.hb_epoch,
+            self.session_id,
             self.epoch,
         );
         self.common_coin = CommonCoin::new(self.netinfo.clone(), nonce);
@@ -479,10 +465,10 @@ impl<NodeUid: Clone + Debug + Eq + Hash + Ord> Agreement<NodeUid> {
 struct Nonce(Vec<u8>);
 
 impl Nonce {
-    pub fn new(invocation_id: &[u8], hb_epoch: u64, agreement_epoch: u32) -> Self {
+    pub fn new(invocation_id: &[u8], session_id: u64, agreement_epoch: u32) -> Self {
         Nonce(Vec::from(format!(
-            "Nonce for Honey Badger {:?} @ epoch {}:{}",
-            invocation_id, hb_epoch, agreement_epoch
+            "Nonce for Honey Badger {:?}@{}:{}",
+            invocation_id, session_id, agreement_epoch
         )))
     }
 }

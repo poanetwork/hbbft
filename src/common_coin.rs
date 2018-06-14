@@ -2,7 +2,7 @@
 
 use std::collections::{BTreeMap, VecDeque};
 use std::fmt::Debug;
-use std::mem::replace;
+use std::hash::Hash;
 use std::rc::Rc;
 
 use pairing::bls12_381::Bls12;
@@ -46,7 +46,7 @@ impl CommonCoinMessage {
 #[derive(Debug)]
 pub struct CommonCoin<N, T>
 where
-    N: Debug,
+    N: Clone + Debug + Eq + Hash,
 {
     netinfo: Rc<NetworkInfo<N>>,
     /// The name of this common coin. It is required to be unique for each common coin round.
@@ -55,8 +55,6 @@ where
     output: Option<bool>,
     /// Outgoing message queue.
     messages: VecDeque<CommonCoinMessage>,
-    /// Incoming messages buffered before we provide input to the common coin.
-    incoming_queue: VecDeque<(N, Signature<Bls12>)>,
     /// All received threshold signature shares.
     received_shares: BTreeMap<N, Signature<Bls12>>,
     /// Whether we provided input to the common coin.
@@ -67,7 +65,7 @@ where
 
 impl<N, T> DistAlgorithm for CommonCoin<N, T>
 where
-    N: Clone + Debug + Ord,
+    N: Clone + Debug + Hash + Ord,
     T: Clone + AsRef<[u8]>,
 {
     type NodeUid = N;
@@ -91,19 +89,7 @@ where
         if self.terminated {
             return Ok(());
         }
-
         let CommonCoinMessage(share) = message;
-
-        if !self.had_input {
-            self.incoming_queue.push_back((sender_id.clone(), share));
-            return Ok(());
-        } else {
-            let queued_msgs = replace(&mut self.incoming_queue, VecDeque::new());
-            for (sender_id, msg) in queued_msgs {
-                self.handle_share(&sender_id, msg)?;
-            }
-        }
-
         self.handle_share(sender_id, share)
     }
 
@@ -131,7 +117,7 @@ where
 
 impl<N, T> CommonCoin<N, T>
 where
-    N: Clone + Debug + Ord,
+    N: Clone + Debug + Hash + Ord,
     T: Clone + AsRef<[u8]>,
 {
     pub fn new(netinfo: Rc<NetworkInfo<N>>, nonce: T) -> Self {
@@ -140,7 +126,6 @@ where
             nonce,
             output: None,
             messages: VecDeque::new(),
-            incoming_queue: VecDeque::new(),
             received_shares: BTreeMap::new(),
             had_input: false,
             terminated: false,
@@ -155,63 +140,54 @@ where
     }
 
     fn handle_share(&mut self, sender_id: &N, share: Signature<Bls12>) -> Result<()> {
-        let node_indices = self.netinfo.node_indices();
-        if let Some(i) = node_indices.get(sender_id) {
-            let pk_i = self.netinfo.public_key_set().public_key_share(*i);
+        if let Some(i) = self.netinfo.node_index(sender_id) {
+            let pk_i = self.netinfo.public_key_set().public_key_share(*i as u64);
             if !pk_i.verify(&share, &self.nonce) {
                 // Silently ignore the invalid share.
-                debug!(
-                    "{:?} received invalid share from {:?}",
-                    self.netinfo.our_uid(),
-                    sender_id
-                );
                 return Ok(());
             }
-
-            debug!(
-                "{:?} received a valid share from {:?}",
-                self.netinfo.our_uid(),
-                sender_id
-            );
             self.received_shares.insert(sender_id.clone(), share);
             let received_shares = &self.received_shares;
-            if received_shares.len() > self.netinfo.num_faulty() {
-                // Pass the indices of sender nodes to `combine_signatures`.
-                let shares: BTreeMap<&u64, &Signature<Bls12>> = self
-                    .netinfo
-                    .all_uids()
-                    .iter()
-                    .map(|id| (&node_indices[id], received_shares.get(id)))
-                    .filter(|(_, share)| share.is_some())
-                    .map(|(n, share)| (n, share.unwrap()))
-                    .collect();
-                let sig = self.netinfo.public_key_set().combine_signatures(shares)?;
-
-                // Verify the successfully combined signature with the main public key.
-                if !self
-                    .netinfo
-                    .public_key_set()
-                    .public_key()
-                    .verify(&sig, &self.nonce)
-                {
-                    // Abort
-                    error!(
-                        "{:?} main public key verification failed",
-                        self.netinfo.our_uid()
-                    );
-                    self.terminated = true;
-                    return Err(ErrorKind::VerificationFailed.into());
-                }
-
+            if self.had_input && received_shares.len() > self.netinfo.num_faulty() {
+                let sig = self.combine_and_verify_sig()?;
                 // Output the parity of the verified signature.
                 let parity = sig.parity();
                 self.output = Some(parity);
                 self.terminated = true;
-                debug!("{:?} coin is {}", self.netinfo.our_uid(), parity);
             }
             Ok(())
         } else {
             Err(ErrorKind::UnknownSender.into())
+        }
+    }
+
+    fn combine_and_verify_sig(&self) -> Result<Signature<Bls12>> {
+        // Pass the indices of sender nodes to `combine_signatures`.
+        let ids_shares: BTreeMap<&N, &Signature<Bls12>> = self.received_shares.iter().collect();
+        let ids_u64: BTreeMap<&N, u64> = ids_shares
+            .keys()
+            .map(|&id| (id, *self.netinfo.node_index(id).unwrap() as u64))
+            .collect();
+        // Convert indices to `u64` which is an interface type for `pairing`.
+        let shares: BTreeMap<&u64, &Signature<Bls12>> = ids_shares
+            .iter()
+            .map(|(id, &share)| (&ids_u64[id], share))
+            .collect();
+        let sig = self.netinfo.public_key_set().combine_signatures(shares)?;
+        if !self
+            .netinfo
+            .public_key_set()
+            .public_key()
+            .verify(&sig, &self.nonce)
+        {
+            // Abort
+            error!(
+                "{:?} main public key verification failed",
+                self.netinfo.our_uid()
+            );
+            Err(ErrorKind::VerificationFailed.into())
+        } else {
+            Ok(sig)
         }
     }
 }
