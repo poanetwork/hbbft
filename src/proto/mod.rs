@@ -7,6 +7,8 @@ use ring::digest::Algorithm;
 use agreement::bin_values::BinValues;
 use agreement::{AgreementContent, AgreementMessage};
 use broadcast::BroadcastMessage;
+use common_coin::CommonCoinMessage;
+use crypto::Signature;
 use proto::message::*;
 
 impl From<message::BroadcastProto> for BroadcastMessage {
@@ -88,6 +90,10 @@ impl AgreementMessage {
             AgreementContent::Term(b) => {
                 p.set_term(b);
             }
+            AgreementContent::Coin(ccm) => {
+                let v = ccm.to_sig().to_vec();
+                p.set_coin(v);
+            }
         }
         p
     }
@@ -110,6 +116,10 @@ impl AgreementMessage {
             }.map(|bin_values| AgreementContent::Conf(bin_values).with_epoch(epoch))
         } else if mp.has_term() {
             Some(AgreementContent::Term(mp.get_term()).with_epoch(epoch))
+        } else if mp.has_coin() {
+            Signature::from_bytes(mp.get_coin()).map(|sig| {
+                AgreementContent::Coin(Box::new(CommonCoinMessage::new(sig))).with_epoch(epoch)
+            })
         } else {
             None
         }

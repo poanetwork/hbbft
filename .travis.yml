@@ -25,4 +25,4 @@ script:
   - cargo clippy --all-features --tests -- -D clippy
   - cargo fmt -- --check
   - cargo check --tests --all-features
-  - cargo test --all-features
+  - cargo test --all-features --release

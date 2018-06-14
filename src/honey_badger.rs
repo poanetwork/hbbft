@@ -32,7 +32,7 @@ error_chain!{
 }
 
 /// An instance of the Honey Badger Byzantine fault tolerant consensus algorithm.
-pub struct HoneyBadger<T, N: Eq + Hash + Ord + Clone> {
+pub struct HoneyBadger<T, N: Clone + Debug + Eq + Hash + Ord + Clone> {
     /// Shared network data.
     netinfo: Rc<NetworkInfo<N>>,
     /// The buffer of transactions that have not yet been included in any output batch.
@@ -134,7 +134,9 @@ where
         let proposal = self.choose_transactions()?;
         let cs = match self.common_subsets.entry(self.epoch) {
             Entry::Occupied(entry) => entry.into_mut(),
-            Entry::Vacant(entry) => entry.insert(CommonSubset::new(self.netinfo.clone())?),
+            Entry::Vacant(entry) => {
+                entry.insert(CommonSubset::new(self.netinfo.clone(), self.epoch)?)
+            }
         };
         cs.input(proposal)?;
         self.messages.extend_with_epoch(self.epoch, cs);
@@ -175,7 +177,7 @@ where
                     if epoch < self.epoch {
                         return Ok(()); // Epoch has already terminated. Message is obsolete.
                     } else {
-                        entry.insert(CommonSubset::new(self.netinfo.clone())?)
+                        entry.insert(CommonSubset::new(self.netinfo.clone(), epoch)?)
                     }
                 }
             };

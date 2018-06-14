@@ -8,15 +8,18 @@ extern crate env_logger;
 extern crate hbbft;
 #[macro_use]
 extern crate log;
+extern crate pairing;
 extern crate protobuf;
 
 mod network;
 
-use docopt::Docopt;
-use network::node::Node;
 use std::collections::HashSet;
 use std::net::SocketAddr;
 use std::vec::Vec;
+
+use docopt::Docopt;
+
+use network::node::Node;
 
 const VERSION: &str = "0.1.0";
 const USAGE: &str = "
@@ -60,6 +63,7 @@ pub fn main() {
     env_logger::init();
     let args: Args = parse_args();
     println!("{:?}", args);
+
     let node = Node::new(args.bind_address, args.remote_addresses, args.value);
     node.run().expect("Node failed");
 }

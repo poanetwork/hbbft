@@ -4,6 +4,7 @@ extern crate docopt;
 extern crate env_logger;
 extern crate hbbft;
 extern crate itertools;
+extern crate pairing;
 extern crate rand;
 extern crate serde;
 #[macro_use(Deserialize, Serialize)]
@@ -18,11 +19,13 @@ use std::{cmp, u64};
 use colored::*;
 use docopt::Docopt;
 use itertools::Itertools;
+use pairing::bls12_381::Bls12;
 use rand::Rng;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use signifix::{metric, TryFrom};
 
+use hbbft::crypto::SecretKeySet;
 use hbbft::honey_badger::{Batch, HoneyBadger};
 use hbbft::messaging::{DistAlgorithm, NetworkInfo, Target};
 
@@ -425,8 +428,15 @@ fn main() {
     println!();
     let num_good_nodes = args.flag_n - args.flag_f;
     let txs = (0..args.flag_txs).map(|_| Transaction::new(args.flag_tx_size));
+    let sk_set = SecretKeySet::<Bls12>::random(args.flag_f, &mut rand::thread_rng());
+    let pk_set = sk_set.public_keys();
     let new_honey_badger = |id: NodeUid, all_ids: BTreeSet<NodeUid>| {
-        let netinfo = Rc::new(NetworkInfo::new(id, all_ids));
+        let netinfo = Rc::new(NetworkInfo::new(
+            id,
+            all_ids,
+            sk_set.secret_key_share(id.0 as u64),
+            pk_set.clone(),
+        ));
         HoneyBadger::new(netinfo, args.flag_b, txs.clone()).expect("Instantiate honey_badger")
     };
     let hw_quality = HwQuality {

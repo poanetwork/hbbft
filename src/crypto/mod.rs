@@ -1,9 +1,14 @@
-mod error;
+pub mod error;
 pub mod keygen;
+#[cfg(feature = "serialization-protobuf")]
+pub mod protobuf_impl;
 #[cfg(feature = "serialization-serde")]
 mod serde_impl;
 
 use self::keygen::{Commitment, Poly};
+
+use std::fmt;
+
 use byteorder::{BigEndian, ByteOrder};
 use init_with::InitWith;
 use pairing::{CurveAffine, CurveProjective, Engine, Field, PrimeField};
@@ -11,6 +16,7 @@ use rand::{ChaChaRng, OsRng, Rng, SeedableRng};
 use ring::digest;
 
 use self::error::{ErrorKind, Result};
+use fmt::HexBytes;
 
 /// The number of words (`u32`) in a ChaCha RNG seed.
 const CHACHA_RNG_SEED_SIZE: usize = 8;
@@ -18,7 +24,7 @@ const CHACHA_RNG_SEED_SIZE: usize = 8;
 const ERR_OS_RNG: &str = "could not initialize the OS random number generator";
 
 /// A public key, or a public key share.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct PublicKey<E: Engine>(E::G1);
 
 impl<E: Engine> PartialEq for PublicKey<E> {
@@ -56,15 +62,39 @@ impl<E: Engine> PublicKey<E> {
         let w = hash_g1_g2::<E, _>(u, &v).into_affine().mul(r);
         Ciphertext(u, v, w)
     }
+
+    /// Returns a byte string representation of the public key.
+    pub fn to_bytes(&self) -> Vec<u8> {
+        self.0.into_affine().into_compressed().as_ref().to_vec()
+    }
 }
 
 /// A signature, or a signature share.
-#[derive(Debug)]
+#[derive(Clone)]
 pub struct Signature<E: Engine>(E::G2);
+
+impl<E: Engine> fmt::Debug for Signature<E> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let uncomp = self.0.into_affine().into_uncompressed();
+        let bytes = uncomp.as_ref();
+        write!(f, "{:?}", HexBytes(bytes))
+    }
+}
 
 impl<E: Engine> PartialEq for Signature<E> {
     fn eq(&self, other: &Signature<E>) -> bool {
         self.0 == other.0
+    }
+}
+
+impl<E: Engine> Signature<E> {
+    pub fn parity(&self) -> bool {
+        let uncomp = self.0.into_affine().into_uncompressed();
+        let bytes = uncomp.as_ref();
+        let xor_bytes: u8 = bytes.iter().fold(0, |result, byte| result ^ byte);
+        let parity = 0 != xor_bytes % 2;
+        debug!("Signature: {:?}, output: {}", HexBytes(bytes), parity);
+        parity
     }
 }
 
@@ -150,6 +180,7 @@ impl<E: Engine> PartialEq for DecryptionShare<E> {
 
 /// A public key and an associated set of public key shares.
 #[cfg_attr(feature = "serialization-serde", derive(Serialize, Deserialize))]
+#[derive(Clone, Debug)]
 pub struct PublicKeySet<E: Engine> {
     /// The coefficients of a polynomial whose value at `0` is the "master key", and value at
     /// `i + 1` is key share number `i`.
@@ -206,6 +237,12 @@ pub struct SecretKeySet<E: Engine> {
     /// The coefficients of a polynomial whose value at `0` is the "master key", and value at
     /// `i + 1` is key share number `i`.
     poly: Poly<E>,
+}
+
+impl<E: Engine> From<Poly<E>> for SecretKeySet<E> {
+    fn from(poly: Poly<E>) -> SecretKeySet<E> {
+        SecretKeySet { poly }
+    }
 }
 
 impl<E: Engine> SecretKeySet<E> {

@@ -11,20 +11,31 @@ use std::rc::Rc;
 use itertools::Itertools;
 
 use agreement::bin_values::BinValues;
+use common_coin;
+use common_coin::{CommonCoin, CommonCoinMessage};
 use messaging::{DistAlgorithm, NetworkInfo, Target, TargetedMessage};
 
 error_chain!{
+    links {
+        CommonCoin(common_coin::Error, common_coin::ErrorKind);
+    }
+
     types {
         Error, ErrorKind, ResultExt, AgreementResult;
     }
 
     errors {
-        InputNotAccepted
+        UnknownProposer {
+            description("unknown proposer")
+        }
+        InputNotAccepted {
+            description("input not accepted")
+        }
     }
 }
 
 #[cfg_attr(feature = "serialization-serde", derive(Serialize, Deserialize))]
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum AgreementContent {
     /// `BVal` message.
     BVal(bool),
@@ -34,6 +45,8 @@ pub enum AgreementContent {
     Conf(BinValues),
     /// `Term` message.
     Term(bool),
+    /// Common Coin message,
+    Coin(Box<CommonCoinMessage>),
 }
 
 impl AgreementContent {
@@ -48,16 +61,23 @@ impl AgreementContent {
 
 /// Messages sent during the binary Byzantine agreement stage.
 #[cfg_attr(feature = "serialization-serde", derive(Serialize, Deserialize))]
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct AgreementMessage {
     pub epoch: u32,
     pub content: AgreementContent,
 }
 
 /// Binary Agreement instance
-pub struct Agreement<NodeUid> {
+pub struct Agreement<NodeUid>
+where
+    NodeUid: Clone + Debug + Eq + Hash,
+{
     /// Shared network information.
     netinfo: Rc<NetworkInfo<NodeUid>>,
+    /// Session ID, e.g, the Honey Badger algorithm epoch.
+    session_id: u64,
+    /// The ID of the proposer of the value for this agreement instance.
+    proposer_id: NodeUid,
     /// Agreement algorithm epoch.
     epoch: u32,
     /// Bin values. Reset on every epoch update.
@@ -97,6 +117,8 @@ pub struct Agreement<NodeUid> {
     messages: VecDeque<AgreementMessage>,
     /// Whether the `Conf` message round has started in the current epoch.
     conf_round: bool,
+    /// A common coin instance. It is reset on epoch update.
+    common_coin: CommonCoin<NodeUid, Nonce>,
 }
 
 impl<NodeUid: Clone + Debug + Eq + Hash + Ord> DistAlgorithm for Agreement<NodeUid> {
@@ -129,6 +151,7 @@ impl<NodeUid: Clone + Debug + Eq + Hash + Ord> DistAlgorithm for Agreement<NodeU
             AgreementContent::Aux(b) => self.handle_aux(sender_id, b),
             AgreementContent::Conf(v) => self.handle_conf(sender_id, v),
             AgreementContent::Term(v) => self.handle_term(sender_id, v),
+            AgreementContent::Coin(msg) => self.handle_coin(sender_id, *msg),
         }
     }
 
@@ -155,23 +178,38 @@ impl<NodeUid: Clone + Debug + Eq + Hash + Ord> DistAlgorithm for Agreement<NodeU
 }
 
 impl<NodeUid: Clone + Debug + Eq + Hash + Ord> Agreement<NodeUid> {
-    pub fn new(netinfo: Rc<NetworkInfo<NodeUid>>) -> Self {
-        Agreement {
-            netinfo,
-            epoch: 0,
-            bin_values: BinValues::new(),
-            received_bval: BTreeMap::new(),
-            sent_bval: BTreeSet::new(),
-            received_aux: BTreeMap::new(),
-            received_conf: BTreeMap::new(),
-            received_term: BTreeMap::new(),
-            estimated: None,
-            output: None,
-            decision: None,
-            incoming_queue: Vec::new(),
-            terminated: false,
-            messages: VecDeque::new(),
-            conf_round: false,
+    pub fn new(
+        netinfo: Rc<NetworkInfo<NodeUid>>,
+        session_id: u64,
+        proposer_id: NodeUid,
+    ) -> AgreementResult<Self> {
+        let invocation_id = netinfo.invocation_id();
+        if let Some(&proposer_i) = netinfo.node_index(&proposer_id) {
+            Ok(Agreement {
+                netinfo: netinfo.clone(),
+                session_id,
+                proposer_id,
+                epoch: 0,
+                bin_values: BinValues::new(),
+                received_bval: BTreeMap::new(),
+                sent_bval: BTreeSet::new(),
+                received_aux: BTreeMap::new(),
+                received_conf: BTreeMap::new(),
+                received_term: BTreeMap::new(),
+                estimated: None,
+                output: None,
+                decision: None,
+                incoming_queue: Vec::new(),
+                terminated: false,
+                messages: VecDeque::new(),
+                conf_round: false,
+                common_coin: CommonCoin::new(
+                    netinfo,
+                    Nonce::new(invocation_id.as_ref(), session_id, proposer_i, 0),
+                ),
+            })
+        } else {
+            Err(ErrorKind::UnknownProposer.into())
         }
     }
 
@@ -305,6 +343,45 @@ impl<NodeUid: Clone + Debug + Eq + Hash + Ord> Agreement<NodeUid> {
         Ok(())
     }
 
+    /// Handles a Common Coin message. If there is output from Common Coin, starts the next
+    /// epoch. The function may output a decision value.
+    fn handle_coin(&mut self, sender_id: &NodeUid, msg: CommonCoinMessage) -> AgreementResult<()> {
+        self.common_coin.handle_message(sender_id, msg)?;
+        self.extend_common_coin();
+
+        if let Some(coin) = self.common_coin.next_output() {
+            let b = if let Some(b) = self.count_conf().1.definite() {
+                // Outputting a value is allowed only once.
+                if self.decision.is_none() && b == coin {
+                    self.decide(b);
+                }
+                b
+            } else {
+                coin
+            };
+
+            self.start_next_epoch();
+
+            self.estimated = Some(b);
+            self.send_bval(b)?;
+            let queued_msgs = replace(&mut self.incoming_queue, Vec::new());
+            for (sender_id, msg) in queued_msgs {
+                self.handle_message(&sender_id, msg)?;
+            }
+        }
+        Ok(())
+    }
+
+    // Propagates Common Coin messages to the top level.
+    fn extend_common_coin(&mut self) {
+        let epoch = self.epoch;
+        self.messages.extend(self.common_coin.message_iter().map(
+            |msg: TargetedMessage<CommonCoinMessage, NodeUid>| {
+                AgreementContent::Coin(Box::new(msg.message)).with_epoch(epoch)
+            },
+        ));
+    }
+
     /// Decides on a value and broadcasts a `Term` message with that value.
     fn decide(&mut self, b: bool) {
         // Output the agreement value.
@@ -324,15 +401,16 @@ impl<NodeUid: Clone + Debug + Eq + Hash + Ord> Agreement<NodeUid> {
 
     fn try_finish_conf_round(&mut self) -> AgreementResult<()> {
         if self.conf_round {
-            let (count_vals, vals) = self.count_conf();
+            let (count_vals, _) = self.count_conf();
             if count_vals < self.netinfo.num_nodes() - self.netinfo.num_faulty() {
                 // Continue waiting for (N - f) `Conf` messages
                 return Ok(());
             }
-            self.invoke_coin(vals)
-        } else {
-            Ok(())
+            // Invoke the comon coin.
+            self.common_coin.input(())?;
+            self.extend_common_coin();
         }
+        Ok(())
     }
 
     fn send_aux(&mut self, b: bool) -> AgreementResult<()> {
@@ -388,52 +466,41 @@ impl<NodeUid: Clone + Debug + Eq + Hash + Ord> Agreement<NodeUid> {
         self.received_conf.clear();
         self.conf_round = false;
         self.epoch += 1;
+        let nonce = Nonce::new(
+            self.netinfo.invocation_id().as_ref(),
+            self.session_id,
+            *self.netinfo.node_index(&self.proposer_id).unwrap(),
+            self.epoch,
+        );
+        self.common_coin = CommonCoin::new(self.netinfo.clone(), nonce);
         debug!(
-            "Agreement instance {:?} started epoch {}",
+            "{:?} Agreement instance {:?} started epoch {}",
             self.netinfo.our_uid(),
+            self.proposer_id,
             self.epoch
         );
     }
+}
 
-    /// Gets a common coin and uses it to compute the next decision estimate and outputs the
-    /// optional decision value.  The function may start the next epoch. In that case, it also
-    /// returns a message for broadcast.
-    fn invoke_coin(&mut self, vals: BinValues) -> AgreementResult<()> {
-        debug!(
-            "{:?} invoke_coin in epoch {}",
-            self.netinfo.our_uid(),
-            self.epoch
-        );
-        // FIXME: Implement the Common Coin algorithm. At the moment the
-        // coin value is common across different nodes but not random.
-        let coin = (self.epoch % 2) == 0;
+#[derive(Clone)]
+struct Nonce(Vec<u8>);
 
-        // Check the termination condition: "continue looping until both a
-        // value b is output in some round r, and the value Coin_r' = b for
-        // some round r' > r."
-        self.terminated = self.terminated || self.decision == Some(coin);
-        if self.terminated {
-            return Ok(());
-        }
+impl Nonce {
+    pub fn new(
+        invocation_id: &[u8],
+        session_id: u64,
+        proposer_id: usize,
+        agreement_epoch: u32,
+    ) -> Self {
+        Nonce(Vec::from(format!(
+            "Nonce for Honey Badger {:?}@{}:{}:{}",
+            invocation_id, session_id, agreement_epoch, proposer_id
+        )))
+    }
+}
 
-        self.start_next_epoch();
-
-        let b = if let Some(b) = vals.definite() {
-            // Outputting a value is allowed only once.
-            if self.decision.is_none() && b == coin {
-                self.decide(b);
-            }
-            b
-        } else {
-            coin
-        };
-
-        self.estimated = Some(b);
-        self.send_bval(b)?;
-        let queued_msgs = replace(&mut self.incoming_queue, Vec::new());
-        for (sender_id, msg) in queued_msgs {
-            self.handle_message(&sender_id, msg)?;
-        }
-        Ok(())
+impl AsRef<[u8]> for Nonce {
+    fn as_ref(&self) -> &[u8] {
+        self.0.as_ref()
     }
 }

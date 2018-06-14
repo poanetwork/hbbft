@@ -1,9 +1,12 @@
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fmt::Debug;
+use std::hash::Hash;
 use std::rc::Rc;
 
+use pairing::bls12_381::Bls12;
 use rand::{self, Rng};
 
+use hbbft::crypto::SecretKeySet;
 use hbbft::messaging::{DistAlgorithm, NetworkInfo, Target, TargetedMessage};
 
 /// A node identifier. In the tests, nodes are simply numbered.
@@ -141,9 +144,12 @@ impl<D: DistAlgorithm> Adversary<D> for SilentAdversary {
 }
 
 /// A collection of `TestNode`s representing a network.
-pub struct TestNetwork<A: Adversary<D>, D: DistAlgorithm> {
+pub struct TestNetwork<A: Adversary<D>, D: DistAlgorithm>
+where
+    <D as DistAlgorithm>::NodeUid: Hash,
+{
     pub nodes: BTreeMap<D::NodeUid, TestNode<D>>,
-    pub adv_nodes: BTreeSet<D::NodeUid>,
+    pub adv_nodes: BTreeMap<D::NodeUid, Rc<NetworkInfo<D::NodeUid>>>,
     adversary: A,
 }
 
@@ -157,17 +163,40 @@ where
     where
         F: Fn(Rc<NetworkInfo<NodeUid>>) -> D,
     {
+        let mut rng = rand::thread_rng();
+        let sk_set = SecretKeySet::<Bls12>::random(adv_num, &mut rng);
+        let pk_set = sk_set.public_keys();
+
         let node_ids: BTreeSet<NodeUid> = (0..(good_num + adv_num)).map(NodeUid).collect();
-        let new_node_by_id = |id: NodeUid| {
+        let new_node_by_id = |NodeUid(i): NodeUid| {
             (
-                id,
-                TestNode::new(new_algo(Rc::new(NetworkInfo::new(id, node_ids.clone())))),
+                NodeUid(i),
+                TestNode::new(new_algo(Rc::new(NetworkInfo::new(
+                    NodeUid(i),
+                    node_ids.clone(),
+                    sk_set.secret_key_share(i as u64),
+                    pk_set.clone(),
+                )))),
+            )
+        };
+        let new_adv_node_by_id = |NodeUid(i): NodeUid| {
+            (
+                NodeUid(i),
+                Rc::new(NetworkInfo::new(
+                    NodeUid(i),
+                    node_ids.clone(),
+                    sk_set.secret_key_share(i as u64),
+                    pk_set.clone(),
+                )),
             )
         };
         let mut network = TestNetwork {
             nodes: (0..good_num).map(NodeUid).map(new_node_by_id).collect(),
             adversary,
-            adv_nodes: (good_num..(good_num + adv_num)).map(NodeUid).collect(),
+            adv_nodes: (good_num..(good_num + adv_num))
+                .map(NodeUid)
+                .map(new_adv_node_by_id)
+                .collect(),
         };
         let msgs = network.adversary.step();
         for (sender_id, msg) in msgs {
@@ -199,7 +228,7 @@ where
                     self.adversary.push_message(sender_id, msg);
                 }
                 Target::Node(to_id) => {
-                    if self.adv_nodes.contains(&to_id) {
+                    if self.adv_nodes.contains_key(&to_id) {
                         self.adversary.push_message(sender_id, msg);
                     } else {
                         self.nodes

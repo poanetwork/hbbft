@@ -4,6 +4,7 @@ extern crate hbbft;
 #[macro_use]
 extern crate log;
 extern crate env_logger;
+extern crate pairing;
 extern crate rand;
 
 mod network;
@@ -12,9 +13,11 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::iter::once;
 use std::rc::Rc;
 
+use pairing::bls12_381::Bls12;
 use rand::Rng;
 
 use hbbft::broadcast::{Broadcast, BroadcastMessage};
+use hbbft::crypto::SecretKeySet;
 use hbbft::messaging::{DistAlgorithm, NetworkInfo, TargetedMessage};
 use network::{Adversary, MessageScheduler, NodeUid, SilentAdversary, TestNetwork, TestNode};
 
@@ -66,7 +69,18 @@ impl Adversary<Broadcast<NodeUid>> for ProposeAdversary {
             Some(id) => *id,
             None => return vec![],
         };
-        let netinfo = Rc::new(NetworkInfo::new(id, node_ids));
+
+        // FIXME: Take the correct, known keys from the network.
+        let mut rng = rand::thread_rng();
+        let sk_set = SecretKeySet::<Bls12>::random(self.adv_nodes.len(), &mut rng);
+        let pk_set = sk_set.public_keys();
+
+        let netinfo = Rc::new(NetworkInfo::new(
+            id,
+            node_ids,
+            sk_set.secret_key_share(0),
+            pk_set,
+        ));
         let mut bc = Broadcast::new(netinfo, id).expect("broadcast instance");
         bc.input(b"Fake news".to_vec()).expect("propose");
         bc.message_iter().map(|msg| (id, msg)).collect()
