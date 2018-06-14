@@ -178,7 +178,11 @@ impl<NodeUid: Clone + Debug + Eq + Hash + Ord> DistAlgorithm for Agreement<NodeU
 }
 
 impl<NodeUid: Clone + Debug + Eq + Hash + Ord> Agreement<NodeUid> {
-    pub fn new(netinfo: Rc<NetworkInfo<NodeUid>>, session_id: u64, proposer_id: NodeUid) -> AgreementResult<Self> {
+    pub fn new(
+        netinfo: Rc<NetworkInfo<NodeUid>>,
+        session_id: u64,
+        proposer_id: NodeUid,
+    ) -> AgreementResult<Self> {
         let invocation_id = netinfo.invocation_id();
         if let Some(&proposer_i) = netinfo.node_index(&proposer_id) {
             Ok(Agreement {
@@ -204,8 +208,7 @@ impl<NodeUid: Clone + Debug + Eq + Hash + Ord> Agreement<NodeUid> {
                     Nonce::new(invocation_id.as_ref(), session_id, proposer_i, 0),
                 ),
             })
-        }
-        else {
+        } else {
             Err(ErrorKind::UnknownProposer.into())
         }
     }
