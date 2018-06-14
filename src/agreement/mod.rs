@@ -190,7 +190,10 @@ impl<NodeUid: Clone + Debug + Eq + Hash + Ord> Agreement<NodeUid> {
             terminated: false,
             messages: VecDeque::new(),
             conf_round: false,
-            common_coin: CommonCoin::new(netinfo, Nonce::new(invocation_id.as_ref(), session_id, 0)),
+            common_coin: CommonCoin::new(
+                netinfo,
+                Nonce::new(invocation_id.as_ref(), session_id, 0),
+            ),
         }
     }
 
