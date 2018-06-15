@@ -3,47 +3,54 @@
 //! An implementation of [The Honey Badger of BFT Protocols](https://eprint.iacr.org/2016/199.pdf),
 //! an asynchronous, Byzantine fault tolerant consensus algorithm.
 //!
-//! This crate only implements the protocol itself and is meant to be instantiated in a number of
-//! nodes known to each other by some unique identifiers (IDs), that are able to exchange
-//! authenticated (e.g. cryptographically signed) messages. The nodes provide a user-defined type
-//! of _input_ - _transactions_ - to the instance, and handle networking:
-//! Messages received from other nodes must be passed into the instance, and messages produced by
-//! the instance need to be sent to the corresponding nodes.
-//! The algorithm's output are _batches_ of transactions. The order and content of these
-//! batches is guaranteed to be the same in all the nodes, as long as enough nodes are honest and
-//! functioning.
 //!
-//! * It is _Byzantine fault tolerant_: It works correctly even if an adversary controls a number
-//! `f` of the nodes, as long as the total number `N` of nodes is greater than `3 * f`. The
-//! adversary is assumed to be unable to break cryptography, but otherwise can send any kind of
-//! message through their nodes.
-//! * It is also _asynchronous_: It does not make timing assumptions about message delivery. The
-//! adversary can even be allowed to fully control the network scheduling, i.e. arbitrarily delay
-//! messages, even those sent from an honest node to another honest node, as long as every message
-//! eventually arrives. In particular, the algorithm is independent of time scales: it works via
-//! fiber optics and via smoke signals, with the same code and the same parameters.
+//! ## Consensus
 //!
-//! Consensus algorithms are a fundamental building block of resilient systems that are distributed
-//! across a number `N > 3 * f` of machines, and that can tolerate any kind of failure (including
-//! complete takeover by an attacker) in up to `f` machines. Use-cases include distributed
-//! databases and blockchains.
+//! Consensus algorithms are fundamental to resilient, distributed systems such as decentralized
+//! databases and blockchains. Byzantine fault tolerant systems can reach consensus with a number
+//! of failed nodes `f` (including complete takeover by an attacker), as long as the total number
+//! `N` of nodes is greater than `3 * f`.
 //!
-//! Honey Badger is modular, and composed of several other algorithms that can also be used
-//! independently. All of them are Byzantine fault tolerant and asynchronous.
+//! The Honey Badger consensus algorithm is both Byzantine fault tolerant and asynchronous. It does
+//! not make timing assumptions about message delivery. An adversary can control network scheduling
+//! and delay messages without impacting consensus, and progress can be made in adverse networking
+//! conditions.
+//!
+//!
+//! ## Crate Implementation
+//!
+//! This protocol does not function in a standalone context, it must be instantiated in an
+//! application that handles networking.
+//!
+//! * The network must contain a number of nodes that are known to each other by some unique
+//! identifiers (IDs) and are able to exchange authenticated (cryptographically signed) messages.
+//!
+//! * The user must define a type of _input_ - the _transactions_ - to the system and nodes must
+//! handle system networking.
+//!
+//! * Messages received from other nodes must be passed into the instance, and messages produced by
+//! the instance sent to corresponding nodes.
+//!
+//! The algorithm outputs _batches_ of transactions. The order and content of these batches is
+//! guaranteed to be the same for all correct nodes, assuming enough nodes (`N > 3 * f`) are
+//! functional and correct.
+//!
 //!
 //! ## Algorithms
 //!
+//! Honey Badger is modular, and composed of several algorithms that can also be used independently.
+//!
 //! [**Honey Badger BFT**](honey_badger/index.html)
 //!
-//! The nodes input any number of _transactions_ (any user-defined type) and outputs a sequence of
+//! The nodes input any number of _transactions_ (any user-defined type) and output a sequence of
 //! _batches_. The batches have sequential numbers (_epochs_) and contain a set of transactions
 //! that were input by the nodes. The sequence and contents of the batches will be the same in all
 //! nodes.
 //!
 //! [**Common Subset**](common_subset/index.html)
 //!
-//! Each node inputs one item. The output is a set of at least `N - f` nodes' items and will be the
-//! same in every node.
+//! Each node inputs one item. The output is a set of at least `N - f` nodes' IDs, together with
+//! their items, and will be the same in every correct node.
 //!
 //! This is the main building block of Honey Badger: In each epoch, every node proposes a number of
 //! transactions. Using the Common Subset protocol, they agree on at least `N - f` of those
@@ -52,25 +59,25 @@
 //! [**Reliable Broadcast**](broadcast/index.html)
 //!
 //! One node, the _proposer_, inputs an item, and every node receives that item as an output. Even
-//! if the proposer is faulty it is guaranteed that either all nodes output the same item or none
-//! at all.
+//! if the proposer is faulty it is guaranteed that either none of the correct nodes output
+//! anything, or all of them have the same output.
 //!
 //! This is used in Common Subset to send each node's proposal to the other nodes.
 //!
 //! [**Binary Agreement**](agreement/index.html)
 //!
-//! Each node inputs a binary value: `true` or `false`. As output, either all nodes receive `true`
-//! or all nodes receive `false`. The output is guaranteed to be a value that was input by at least
-//! one _honest_ node.
+//! Each node inputs a binary value: `true` or `false`. As output, either all correct nodes receive
+//! `true` or all correct nodes receive `false`. The output is guaranteed to be a value that was
+//! input by at least one _correct_ node.
 //!
-//! This is used in Common Subset to decide for each node's proposal whether it should be included
-//! in the subset or not.
+//! This is used in Subset to decide whether each node's proposal should be included in the subset
+//! or not.
 //!
 //! **Common Coin** (TBD)
 //!
 //! Each node inputs `()` to initiate a coin flip. Once `f + 1` nodes have input, either all nodes
 //! receive `true` or all nodes receive `false`. The outcome cannot be known by the adversary
-//! before at least one honest node has provided input, and is uniformly distributed and
+//! before at least one correct node has provided input, and is uniformly distributed and
 //! pseudorandom.
 //!
 //! ## Serialization
