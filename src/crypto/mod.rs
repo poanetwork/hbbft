@@ -8,6 +8,8 @@ mod serde_impl;
 use self::keygen::{Commitment, Poly};
 
 use std::fmt;
+use std::mem;
+use std::ptr;
 
 use byteorder::{BigEndian, ByteOrder};
 use init_with::InitWith;
@@ -105,6 +107,17 @@ pub struct SecretKey<E: Engine>(E::Fr);
 impl<E: Engine> PartialEq for SecretKey<E> {
     fn eq(&self, other: &SecretKey<E>) -> bool {
         self.0 == other.0
+    }
+}
+
+impl<E: Engine> Drop for SecretKey<E> {
+    fn drop(&mut self) {
+        let size = mem::size_of_val(self);
+        unsafe {
+            let p = self as *mut Self;
+            ptr::write_bytes(p as *mut u8, 0, size);
+            ptr::write(p, SecretKey(E::Fr::zero()));
+        }
     }
 }
 
