@@ -108,6 +108,16 @@ impl<E: Engine> PartialEq for SecretKey<E> {
     }
 }
 
+// We implement the `Default` trait to satisfy the trait bound for the
+// type `ClearOnDrop` from the `clear_on_drop` crate. The value produced by
+// `SecretKey::default()` is used to overwrite the zeroed out memory for
+// instances of `ClearOnDrop<SecretKey>` when they go out of scope.
+impl<E: Engine> Default for SecretKey<E> {
+    fn default() -> SecretKey<E> {
+        SecretKey(E::Fr::zero())
+    }
+}
+
 impl<E: Engine> SecretKey<E> {
     /// Creates a new secret key.
     pub fn new<R: Rng>(rng: &mut R) -> Self {
