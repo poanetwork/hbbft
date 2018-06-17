@@ -8,8 +8,6 @@ mod serde_impl;
 use self::keygen::{Commitment, Poly};
 
 use std::fmt;
-use std::mem;
-use std::ptr;
 
 use byteorder::{BigEndian, ByteOrder};
 use init_with::InitWith;
@@ -110,15 +108,13 @@ impl<E: Engine> PartialEq for SecretKey<E> {
     }
 }
 
-// Zero out the memory occupied by each `SecretKey` upon going out of scope.
-impl<E: Engine> Drop for SecretKey<E> {
-    fn drop(&mut self) {
-        let size = mem::size_of_val(self);
-        unsafe {
-            let p = self as *mut Self;
-            ptr::write_bytes(p as *mut u8, 0, size);
-            ptr::write(p, SecretKey(E::Fr::zero()));
-        }
+// We implement the `Default` trait to satisfy the trait bound for the
+// type `ClearOnDrop` from the `clear_on_drop` crate. The value produced by
+// `SecretKey::default()` is used to overwrite the zeroed out memory for
+// instances of `ClearOnDrop<SecretKey>` when they go out of scope.
+impl<E: Engine> Default for SecretKey<E> {
+    fn default() -> SecretKey<E> {
+        SecretKey(E::Fr::zero())
     }
 }
 
@@ -555,20 +551,5 @@ mod tests {
         let ser_sig = bincode::serialize(&sig).expect("serialize signature");
         let deser_sig = bincode::deserialize(&ser_sig).expect("deserialize signature");
         assert_eq!(sig, deser_sig);
-    }
-
-    // Test that the portion of memory occupied by an instance of
-    // `SecretKey` gets overwritten when the instance goes out of scope.
-    #[test]
-    fn test_secret_key_drop() {
-        let p = {
-            let sk: SecretKey<Bls12> = SecretKey(<Bls12 as Engine>::Fr::one());
-            let p = &sk as *const SecretKey<Bls12>;
-            assert_eq!(unsafe { p.read() }, sk);
-            p
-        };
-
-        let expected: SecretKey<Bls12> = SecretKey(<Bls12 as Engine>::Fr::zero());
-        assert_eq!(unsafe { p.read() }, expected);
     }
 }

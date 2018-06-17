@@ -2,6 +2,7 @@ use std::collections::{BTreeSet, HashMap};
 use std::fmt::Debug;
 use std::hash::Hash;
 
+use clear_on_drop::ClearOnDrop;
 use pairing::bls12_381::Bls12;
 
 use crypto::{PublicKeySet, SecretKey};
@@ -212,5 +213,12 @@ impl<NodeUid: Clone + Hash + Ord> NetworkInfo<NodeUid> {
     /// independent from the public key, so that reusing keys would be safer.
     pub fn invocation_id(&self) -> Vec<u8> {
         self.public_key_set.public_key().to_bytes()
+    }
+}
+
+// Overwrites the portion of memory that was allocated for `secret_key`.
+impl<NodeUid: Clone + Eq + Hash> Drop for NetworkInfo<NodeUid> {
+    fn drop(&mut self) {
+        let _ = ClearOnDrop::new(&mut self.secret_key);
     }
 }
