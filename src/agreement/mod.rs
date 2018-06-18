@@ -70,7 +70,7 @@ pub struct AgreementMessage {
 /// Binary Agreement instance
 pub struct Agreement<NodeUid>
 where
-    NodeUid: Clone + Debug + Eq + Hash,
+    NodeUid: Eq + Hash,
 {
     /// Shared network information.
     netinfo: Rc<NetworkInfo<NodeUid>>,

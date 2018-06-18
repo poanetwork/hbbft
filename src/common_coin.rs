@@ -44,11 +44,11 @@ impl CommonCoinMessage {
 /// receiving at least `num_faulty + 1` shares, attempts to combine them into a signature. If that
 /// signature is valid, the instance outputs it and terminates; otherwise the instance aborts.
 #[derive(Debug)]
-pub struct CommonCoin<N, T>
+pub struct CommonCoin<NodeUid, T>
 where
-    N: Clone + Debug + Eq + Hash,
+    NodeUid: Eq + Hash,
 {
-    netinfo: Rc<NetworkInfo<N>>,
+    netinfo: Rc<NetworkInfo<NodeUid>>,
     /// The name of this common coin. It is required to be unique for each common coin round.
     nonce: T,
     /// The result of combination of at least `num_faulty + 1` threshold signature shares.
@@ -56,19 +56,19 @@ where
     /// Outgoing message queue.
     messages: VecDeque<CommonCoinMessage>,
     /// All received threshold signature shares.
-    received_shares: BTreeMap<N, Signature<Bls12>>,
+    received_shares: BTreeMap<NodeUid, Signature<Bls12>>,
     /// Whether we provided input to the common coin.
     had_input: bool,
     /// Termination flag.
     terminated: bool,
 }
 
-impl<N, T> DistAlgorithm for CommonCoin<N, T>
+impl<NodeUid, T> DistAlgorithm for CommonCoin<NodeUid, T>
 where
-    N: Clone + Debug + Hash + Ord,
+    NodeUid: Clone + Debug + Hash + Ord,
     T: Clone + AsRef<[u8]>,
 {
-    type NodeUid = N;
+    type NodeUid = NodeUid;
     type Input = ();
     type Output = bool;
     type Message = CommonCoinMessage;
@@ -115,12 +115,12 @@ where
     }
 }
 
-impl<N, T> CommonCoin<N, T>
+impl<NodeUid, T> CommonCoin<NodeUid, T>
 where
-    N: Clone + Debug + Hash + Ord,
+    NodeUid: Clone + Debug + Hash + Ord,
     T: Clone + AsRef<[u8]>,
 {
-    pub fn new(netinfo: Rc<NetworkInfo<N>>, nonce: T) -> Self {
+    pub fn new(netinfo: Rc<NetworkInfo<NodeUid>>, nonce: T) -> Self {
         CommonCoin {
             netinfo,
             nonce,
@@ -139,7 +139,7 @@ where
         self.handle_share(&id, share)
     }
 
-    fn handle_share(&mut self, sender_id: &N, share: Signature<Bls12>) -> Result<()> {
+    fn handle_share(&mut self, sender_id: &NodeUid, share: Signature<Bls12>) -> Result<()> {
         if let Some(i) = self.netinfo.node_index(sender_id) {
             let pk_i = self.netinfo.public_key_set().public_key_share(*i as u64);
             if !pk_i.verify(&share, &self.nonce) {
@@ -163,8 +163,9 @@ where
 
     fn combine_and_verify_sig(&self) -> Result<Signature<Bls12>> {
         // Pass the indices of sender nodes to `combine_signatures`.
-        let ids_shares: BTreeMap<&N, &Signature<Bls12>> = self.received_shares.iter().collect();
-        let ids_u64: BTreeMap<&N, u64> = ids_shares
+        let ids_shares: BTreeMap<&NodeUid, &Signature<Bls12>> =
+            self.received_shares.iter().collect();
+        let ids_u64: BTreeMap<&NodeUid, u64> = ids_shares
             .keys()
             .map(|&id| (id, *self.netinfo.node_index(id).unwrap() as u64))
             .collect();
