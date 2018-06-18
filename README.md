@@ -1,6 +1,8 @@
 [![Build Status](https://travis-ci.com/poanetwork/hbbft.svg?branch=master)](https://travis-ci.com/poanetwork/hbbft) 
 [![Gitter](https://badges.gitter.im/poanetwork/hbbft.svg)](https://gitter.im/poanetwork/hbbft?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge)
 
+# Honey Badger Byzantine Fault Tolerant (BFT) consensus algorithm
+
 Welcome to a [Rust ](https://www.rust-lang.org/en-US/)library of the Honey Badger Byzantine Fault Tolerant (BFT) consensus algorithm. The research and protocols for this algorithm are explained in detail in "[The Honey Badger of BFT Protocols](https://eprint.iacr.org/2016/199.pdf)" by Miller et al.
 
 This documentation is designed for Rust developers looking to use a resilient consensus algorithm on a distributed network. Following is an overview of HoneyBadger BFT and basic instructions for getting started. 
@@ -21,15 +23,18 @@ In an optimal networking environment, output includes data sent from each node. 
 
 ## Algorithms
 
-- [ ] **Honey Badger:** The top level protocol proceeds in epochs using the protocols below. Encrpytion to provide censorship resistance is in process.
+All algorithms in the protocol are modular and usable. Encryption to provide censorship resistance is currently in process for the top level Honey Badger algorithm.
 
-- [x] **Subset:** Each node inputs data. The nodes agree on a subset of suggested data. 
+- [ ] **[Honey Badger](https://github.com/poanetwork/hbbft/blob/master/src/honey_badger.rs):** The top level protocol proceeds in epochs using the protocols below. 
 
-- [x] **Broadcast:** A proposer node inputs data and every node receives this output.
+- [x] **[Subset](https://github.com/poanetwork/hbbft/blob/master/src/common_subset.rs):** Each node inputs data. The nodes agree on a subset of suggested data. 
 
-- [x] **Binary Agreement:** Each node inputs a binary value. The nodes agree on a value that was input by at least one correct node. 
+- [x] **[Broadcast](https://github.com/poanetwork/hbbft/blob/master/src/broadcast.rs):** A proposer node inputs data and every node receives this output.
 
-- [x] **Coin:** A pseudorandom binary value used by the Binary Agreement protocol.
+- [x] **[Binary Agreement](https://github.com/poanetwork/hbbft/blob/master/src/agreement/mod.rs):** Each node inputs a binary value. The nodes agree on a value that was input by at least one correct node. 
+
+- [x] **[Coin](https://github.com/poanetwork/hbbft/blob/master/src/common_coin.rs):** A pseudorandom binary value used by the Binary Agreement protocol.
+
 
 ##    Current TODOs
 
@@ -62,7 +67,7 @@ $ cargo run --example simulation --features=serialization-serde -- -h
 
 # Contributing
 
-Please look at issues and read [CONTRIBUTING.md](CONTRIBUTING.md) for contribution and pull request protocol.
+Please look at [current issues](https://github.com/poanetwork/hbbft/issues) and read [CONTRIBUTING.md](CONTRIBUTING.md) for contribution and pull request protocol.
 
 # License
 
