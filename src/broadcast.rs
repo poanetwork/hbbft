@@ -1,6 +1,5 @@
 use std::collections::{BTreeMap, VecDeque};
 use std::fmt::{self, Debug};
-use std::hash::Hash;
 use std::iter::once;
 use std::rc::Rc;
 
@@ -92,7 +91,7 @@ impl Debug for BroadcastMessage {
 /// eventually be able to decode (i.e. receive at least `f + 1` `Echo` messages).
 /// * So a node with `2 * f + 1` `Ready`s and `f + 1` `Echos` will decode and _output_ the value,
 /// knowing that every other good node will eventually do the same.
-pub struct Broadcast<NodeUid: Eq + Hash> {
+pub struct Broadcast<NodeUid> {
     /// Shared network data.
     netinfo: Rc<NetworkInfo<NodeUid>>,
     /// The UID of the sending node.
@@ -115,7 +114,7 @@ pub struct Broadcast<NodeUid: Eq + Hash> {
     output: Option<Vec<u8>>,
 }
 
-impl<NodeUid: Eq + Debug + Clone + Hash + Ord> DistAlgorithm for Broadcast<NodeUid> {
+impl<NodeUid: Debug + Clone + Ord> DistAlgorithm for Broadcast<NodeUid> {
     type NodeUid = NodeUid;
     // TODO: Allow anything serializable and deserializable, i.e. make this a type parameter
     // T: Serialize + DeserializeOwned
@@ -168,7 +167,7 @@ impl<NodeUid: Eq + Debug + Clone + Hash + Ord> DistAlgorithm for Broadcast<NodeU
     }
 }
 
-impl<NodeUid: Eq + Debug + Clone + Hash + Ord> Broadcast<NodeUid> {
+impl<NodeUid: Debug + Clone + Ord> Broadcast<NodeUid> {
     /// Creates a new broadcast instance to be used by node `our_id` which expects a value proposal
     /// from node `proposer_id`.
     pub fn new(netinfo: Rc<NetworkInfo<NodeUid>>, proposer_id: NodeUid) -> BroadcastResult<Self> {

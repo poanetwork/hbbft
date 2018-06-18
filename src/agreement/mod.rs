@@ -4,7 +4,6 @@ pub mod bin_values;
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fmt::Debug;
-use std::hash::Hash;
 use std::mem::replace;
 use std::rc::Rc;
 
@@ -68,10 +67,7 @@ pub struct AgreementMessage {
 }
 
 /// Binary Agreement instance
-pub struct Agreement<NodeUid>
-where
-    NodeUid: Eq + Hash,
-{
+pub struct Agreement<NodeUid> {
     /// Shared network information.
     netinfo: Rc<NetworkInfo<NodeUid>>,
     /// Session ID, e.g, the Honey Badger algorithm epoch.
@@ -121,7 +117,7 @@ where
     common_coin: CommonCoin<NodeUid, Nonce>,
 }
 
-impl<NodeUid: Clone + Debug + Eq + Hash + Ord> DistAlgorithm for Agreement<NodeUid> {
+impl<NodeUid: Clone + Debug + Ord> DistAlgorithm for Agreement<NodeUid> {
     type NodeUid = NodeUid;
     type Input = bool;
     type Output = bool;
@@ -177,7 +173,7 @@ impl<NodeUid: Clone + Debug + Eq + Hash + Ord> DistAlgorithm for Agreement<NodeU
     }
 }
 
-impl<NodeUid: Clone + Debug + Eq + Hash + Ord> Agreement<NodeUid> {
+impl<NodeUid: Clone + Debug + Ord> Agreement<NodeUid> {
     pub fn new(
         netinfo: Rc<NetworkInfo<NodeUid>>,
         session_id: u64,
