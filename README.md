@@ -53,6 +53,8 @@ This Rust library requires a distributed network environment to function. Detail
 
 ### Build
 
+Requires `rust` and `cargo`: [installation instructions.](https://www.rust-lang.org/en-US/install.html)
+
 ```
 $ cargo build [--release]
 ```
