@@ -1,6 +1,5 @@
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Debug;
-use std::hash::Hash;
 
 use pairing::bls12_381::Bls12;
 
@@ -132,17 +131,17 @@ impl<'a, D: DistAlgorithm + 'a> Iterator for OutputIter<'a, D> {
 
 /// Common data shared between algorithms.
 #[derive(Debug)]
-pub struct NetworkInfo<NodeUid: Eq + Hash> {
+pub struct NetworkInfo<NodeUid> {
     our_uid: NodeUid,
     all_uids: BTreeSet<NodeUid>,
     num_nodes: usize,
     num_faulty: usize,
     secret_key: SecretKey<Bls12>,
     public_key_set: PublicKeySet<Bls12>,
-    node_indices: HashMap<NodeUid, usize>,
+    node_indices: BTreeMap<NodeUid, usize>,
 }
 
-impl<NodeUid: Clone + Hash + Ord> NetworkInfo<NodeUid> {
+impl<NodeUid: Clone + Ord> NetworkInfo<NodeUid> {
     pub fn new(
         our_uid: NodeUid,
         all_uids: BTreeSet<NodeUid>,

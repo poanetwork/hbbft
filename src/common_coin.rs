@@ -2,7 +2,6 @@
 
 use std::collections::{BTreeMap, VecDeque};
 use std::fmt::Debug;
-use std::hash::Hash;
 use std::rc::Rc;
 
 use pairing::bls12_381::Bls12;
@@ -44,10 +43,7 @@ impl CommonCoinMessage {
 /// receiving at least `num_faulty + 1` shares, attempts to combine them into a signature. If that
 /// signature is valid, the instance outputs it and terminates; otherwise the instance aborts.
 #[derive(Debug)]
-pub struct CommonCoin<NodeUid, T>
-where
-    NodeUid: Eq + Hash,
-{
+pub struct CommonCoin<NodeUid, T> {
     netinfo: Rc<NetworkInfo<NodeUid>>,
     /// The name of this common coin. It is required to be unique for each common coin round.
     nonce: T,
@@ -65,7 +61,7 @@ where
 
 impl<NodeUid, T> DistAlgorithm for CommonCoin<NodeUid, T>
 where
-    NodeUid: Clone + Debug + Hash + Ord,
+    NodeUid: Clone + Debug + Ord,
     T: Clone + AsRef<[u8]>,
 {
     type NodeUid = NodeUid;
@@ -117,7 +113,7 @@ where
 
 impl<NodeUid, T> CommonCoin<NodeUid, T>
 where
-    NodeUid: Clone + Debug + Hash + Ord,
+    NodeUid: Clone + Debug + Ord,
     T: Clone + AsRef<[u8]>,
 {
     pub fn new(netinfo: Rc<NetworkInfo<NodeUid>>, nonce: T) -> Self {

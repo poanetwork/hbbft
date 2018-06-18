@@ -32,7 +32,7 @@ error_chain!{
 }
 
 /// An instance of the Honey Badger Byzantine fault tolerant consensus algorithm.
-pub struct HoneyBadger<Tx, NodeUid: Eq + Hash> {
+pub struct HoneyBadger<Tx, NodeUid> {
     /// Shared network data.
     netinfo: Rc<NetworkInfo<NodeUid>>,
     /// The buffer of transactions that have not yet been included in any output batch.
@@ -55,7 +55,7 @@ pub struct HoneyBadger<Tx, NodeUid: Eq + Hash> {
 impl<Tx, NodeUid> DistAlgorithm for HoneyBadger<Tx, NodeUid>
 where
     Tx: Eq + Hash + Serialize + DeserializeOwned + Debug,
-    NodeUid: Eq + Hash + Ord + Clone + Debug,
+    NodeUid: Ord + Clone + Debug,
 {
     type NodeUid = NodeUid;
     type Input = Tx;
@@ -103,7 +103,7 @@ where
 impl<Tx, NodeUid> HoneyBadger<Tx, NodeUid>
 where
     Tx: Eq + Hash + Serialize + DeserializeOwned + Debug,
-    NodeUid: Eq + Hash + Ord + Clone + Debug,
+    NodeUid: Ord + Clone + Debug,
 {
     /// Returns a new Honey Badger instance with the given parameters, starting at epoch `0`.
     pub fn new<TI>(
@@ -304,7 +304,7 @@ pub enum Message<NodeUid> {
 #[derive(Deref, DerefMut)]
 struct MessageQueue<NodeUid>(VecDeque<TargetedMessage<Message<NodeUid>, NodeUid>>);
 
-impl<NodeUid: Clone + Debug + Eq + Hash + Ord> MessageQueue<NodeUid> {
+impl<NodeUid: Clone + Debug + Ord> MessageQueue<NodeUid> {
     /// Appends to the queue the messages from `cs`, wrapped with `epoch`.
     fn extend_with_epoch(&mut self, epoch: u64, cs: &mut CommonSubset<NodeUid>) {
         let convert = |msg: TargetedMessage<common_subset::Message<NodeUid>, NodeUid>| {
