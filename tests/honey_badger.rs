@@ -33,7 +33,7 @@ where
     let node_busy = |node: &mut TestNode<HoneyBadger<usize, NodeUid>>| {
         let mut min_missing = 0;
         for batch in node.outputs() {
-            for tx in &batch.transactions {
+            for tx in batch.iter() {
                 if *tx >= min_missing {
                     min_missing = tx + 1;
                 }
@@ -42,7 +42,7 @@ where
         if min_missing < num_txs {
             return true;
         }
-        if node.outputs().last().unwrap().transactions.is_empty() {
+        if node.outputs().last().unwrap().is_empty() {
             let last = node.outputs().last().unwrap().epoch;
             node.queue.retain(|(_, ref msg)| match msg {
                 honey_badger::Message::CommonSubset(e, _) => *e < last,

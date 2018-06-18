@@ -88,7 +88,7 @@ impl<NodeUid: Clone + Debug + Eq + Hash + Ord> MessageQueue<NodeUid> {
 /// remaining ones, where we haven't provided input yet.
 /// * Once all `Agreement` instances have decided, `CommonSubset` returns the set of all proposed
 /// values for which the decision was "yes".
-pub struct CommonSubset<NodeUid: Clone + Debug + Eq + Hash + Ord> {
+pub struct CommonSubset<NodeUid: Eq + Hash> {
     /// Shared network information.
     netinfo: Rc<NetworkInfo<NodeUid>>,
     broadcast_instances: BTreeMap<NodeUid, Broadcast<NodeUid>>,

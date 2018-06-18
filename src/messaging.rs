@@ -132,7 +132,7 @@ impl<'a, D: DistAlgorithm + 'a> Iterator for OutputIter<'a, D> {
 
 /// Common data shared between algorithms.
 #[derive(Debug)]
-pub struct NetworkInfo<NodeUid: Clone + Eq + Hash> {
+pub struct NetworkInfo<NodeUid: Eq + Hash> {
     our_uid: NodeUid,
     all_uids: BTreeSet<NodeUid>,
     num_nodes: usize,
