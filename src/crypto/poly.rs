@@ -20,6 +20,7 @@
 // TODO: Expand this explanation and add examples, once the API is complete and stable.
 
 use std::borrow::Borrow;
+use std::hash::{Hash, Hasher};
 use std::{cmp, iter, ops};
 
 use pairing::{CurveAffine, CurveProjective, Engine, Field, PrimeField};
@@ -261,6 +262,15 @@ impl<E: Engine> PartialEq for Commitment<E> {
     }
 }
 
+impl<E: Engine> Hash for Commitment<E> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.coeff.len().hash(state);
+        for c in &self.coeff {
+            c.into_affine().into_compressed().as_ref().hash(state);
+        }
+    }
+}
+
 impl<B: Borrow<Commitment<E>>, E: Engine> ops::AddAssign<B> for Commitment<E> {
     fn add_assign(&mut self, rhs: B) {
         let len = cmp::max(self.coeff.len(), rhs.borrow().coeff.len());
@@ -401,6 +411,15 @@ pub struct BivarCommitment<E: Engine> {
     /// The commitments to the coefficients.
     #[serde(with = "super::serde_impl::projective_vec")]
     coeff: Vec<E::G1>,
+}
+
+impl<E: Engine> Hash for BivarCommitment<E> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.degree.hash(state);
+        for c in &self.coeff {
+            c.into_affine().into_compressed().as_ref().hash(state);
+        }
+    }
 }
 
 impl<E: Engine> BivarCommitment<E> {
