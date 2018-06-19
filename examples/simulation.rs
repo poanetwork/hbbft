@@ -329,7 +329,7 @@ where
 /// The timestamped batches for a particular epoch that have already been output.
 #[derive(Clone, Default)]
 struct EpochInfo {
-    nodes: BTreeMap<NodeUid, (Duration, Batch<Transaction>)>,
+    nodes: BTreeMap<NodeUid, (Duration, Batch<Transaction, NodeUid>)>,
 }
 
 impl EpochInfo {
@@ -338,7 +338,7 @@ impl EpochInfo {
         &mut self,
         id: NodeUid,
         time: Duration,
-        batch: &Batch<Transaction>,
+        batch: &Batch<Transaction, NodeUid>,
         network: &TestNetwork<HoneyBadger<Transaction, NodeUid>>,
     ) {
         if self.nodes.contains_key(&id) {
@@ -355,7 +355,7 @@ impl EpochInfo {
             .minmax()
             .into_option()
             .unwrap();
-        let txs = batch.transactions.len();
+        let txs = batch.len();
         println!(
             "{:>5} {:6} {:6} {:5} {:9} {:>9}B",
             batch.epoch.to_string().cyan(),
@@ -379,7 +379,7 @@ fn simulate_honey_badger(
     let node_busy = |node: &mut TestNode<HoneyBadger<Transaction, NodeUid>>| {
         node.outputs
             .iter()
-            .map(|&(_, ref batch)| batch.transactions.len())
+            .map(|&(_, ref batch)| batch.len())
             .sum::<usize>() < num_txs
     };
 
