@@ -185,7 +185,7 @@ impl Ciphertext {
 }
 
 /// A decryption share. A threshold of decryption shares can be used to decrypt a message.
-#[derive(Deserialize, Serialize, Debug, PartialEq, Eq)]
+#[derive(Clone, Deserialize, Serialize, Debug, PartialEq, Eq)]
 pub struct DecryptionShare(#[serde(with = "serde_impl::projective")] G1);
 
 impl Hash for DecryptionShare {
