@@ -1,11 +1,11 @@
 pub mod error;
-pub mod keygen;
+pub mod poly;
 #[cfg(feature = "serialization-protobuf")]
 pub mod protobuf_impl;
 #[cfg(feature = "serialization-serde")]
 mod serde_impl;
 
-use self::keygen::{Commitment, Poly};
+use self::poly::{Commitment, Poly};
 
 use std::fmt;
 
