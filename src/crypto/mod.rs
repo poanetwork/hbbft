@@ -175,9 +175,10 @@ impl<E: Engine> PartialEq for Ciphertext<E> {
 
 impl<E: Engine> Hash for Ciphertext<E> {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        self.0.into_affine().into_compressed().as_ref().hash(state);
-        self.1.hash(state);
-        self.2.into_affine().into_compressed().as_ref().hash(state);
+        let Ciphertext(ref u, ref v, ref w) = *self;
+        u.into_affine().into_compressed().as_ref().hash(state);
+        v.hash(state);
+        w.into_affine().into_compressed().as_ref().hash(state);
     }
 }
 
