@@ -5,6 +5,7 @@ pub mod protobuf_impl;
 mod serde_impl;
 
 use std::fmt;
+use std::hash::{Hash, Hasher};
 
 use byteorder::{BigEndian, ByteOrder};
 use init_with::InitWith;
@@ -28,6 +29,12 @@ pub struct PublicKey<E: Engine>(#[serde(with = "serde_impl::projective")] E::G1)
 impl<E: Engine> PartialEq for PublicKey<E> {
     fn eq(&self, other: &PublicKey<E>) -> bool {
         self.0 == other.0
+    }
+}
+
+impl<E: Engine> Hash for PublicKey<E> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.0.into_affine().into_compressed().as_ref().hash(state);
     }
 }
 
@@ -82,6 +89,12 @@ impl<E: Engine> fmt::Debug for Signature<E> {
 impl<E: Engine> PartialEq for Signature<E> {
     fn eq(&self, other: &Signature<E>) -> bool {
         self.0 == other.0
+    }
+}
+
+impl<E: Engine> Hash for Signature<E> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.0.into_affine().into_compressed().as_ref().hash(state);
     }
 }
 
@@ -160,6 +173,14 @@ impl<E: Engine> PartialEq for Ciphertext<E> {
     }
 }
 
+impl<E: Engine> Hash for Ciphertext<E> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.0.into_affine().into_compressed().as_ref().hash(state);
+        self.1.hash(state);
+        self.2.into_affine().into_compressed().as_ref().hash(state);
+    }
+}
+
 impl<E: Engine> Ciphertext<E> {
     /// Returns `true` if this is a valid ciphertext. This check is necessary to prevent
     /// chosen-ciphertext attacks.
@@ -180,8 +201,14 @@ impl<E: Engine> PartialEq for DecryptionShare<E> {
     }
 }
 
+impl<E: Engine> Hash for DecryptionShare<E> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.0.into_affine().into_compressed().as_ref().hash(state);
+    }
+}
+
 /// A public key and an associated set of public key shares.
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, Hash)]
 pub struct PublicKeySet<E: Engine> {
     /// The coefficients of a polynomial whose value at `0` is the "master key", and value at
     /// `i + 1` is key share number `i`.
