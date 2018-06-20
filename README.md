@@ -13,7 +13,7 @@ or incomplete.
 
 An example is included to run a simulation of a network:
 
-    $ cargo run --example simulation --features=serialization-serde -- -h
+    $ cargo run --example simulation -- -h
 
 # Building
 

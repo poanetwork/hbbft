@@ -43,7 +43,7 @@ use std::rc::Rc;
 use std::{io, iter, process, thread, time};
 
 use hbbft::broadcast::{Broadcast, BroadcastMessage};
-use hbbft::crypto::keygen::Poly;
+use hbbft::crypto::poly::Poly;
 use hbbft::crypto::SecretKeySet;
 use hbbft::messaging::{DistAlgorithm, NetworkInfo, SourcedMessage};
 use hbbft::proto::message::BroadcastProto;

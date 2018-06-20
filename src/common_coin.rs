@@ -25,8 +25,7 @@ error_chain! {
     }
 }
 
-#[cfg_attr(feature = "serialization-serde", derive(Serialize, Deserialize))]
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct CommonCoinMessage(Signature<Bls12>);
 
 impl CommonCoinMessage {

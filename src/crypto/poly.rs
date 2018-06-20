@@ -248,11 +248,10 @@ impl<E: Engine> Poly<E> {
 }
 
 /// A commitment to a univariate polynomial.
-#[derive(Debug, Clone)]
-#[cfg_attr(feature = "serialization-serde", derive(Serialize, Deserialize))]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Commitment<E: Engine> {
     /// The coefficients of the polynomial.
-    #[cfg_attr(feature = "serialization-serde", serde(with = "super::serde_impl::projective_vec"))]
+    #[serde(with = "super::serde_impl::projective_vec")]
     coeff: Vec<E::G1>,
 }
 
@@ -395,13 +394,12 @@ impl<E: Engine> BivarPoly<E> {
 }
 
 /// A commitment to a bivariate polynomial.
-#[derive(Debug, Clone)]
-#[cfg_attr(feature = "serialization-serde", derive(Serialize, Deserialize))]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BivarCommitment<E: Engine> {
     /// The polynomial's degree in each of the two variables.
     degree: usize,
     /// The commitments to the coefficients.
-    #[cfg_attr(feature = "serialization-serde", serde(with = "super::serde_impl::projective_vec"))]
+    #[serde(with = "super::serde_impl::projective_vec")]
     coeff: Vec<E::G1>,
 }
 
