@@ -81,7 +81,7 @@ $ cargo build [--release]
 
 ### Example Network Simulation
 
-A basic example is included to run a network simulation.
+A basic [example](https://github.com/poanetwork/hbbft/blob/master/examples/README.md) is included to run a network simulation.
 
 ```
 $ cargo run --example simulation -- -h

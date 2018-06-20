@@ -1,11 +1,8 @@
 pub mod error;
-pub mod keygen;
+pub mod poly;
 #[cfg(feature = "serialization-protobuf")]
 pub mod protobuf_impl;
-#[cfg(feature = "serialization-serde")]
 mod serde_impl;
-
-use self::keygen::{Commitment, Poly};
 
 use std::fmt;
 
@@ -16,6 +13,7 @@ use rand::{ChaChaRng, OsRng, Rng, SeedableRng};
 use ring::digest;
 
 use self::error::{ErrorKind, Result};
+use self::poly::{Commitment, Poly};
 use fmt::HexBytes;
 
 /// The number of words (`u32`) in a ChaCha RNG seed.
@@ -24,8 +22,8 @@ const CHACHA_RNG_SEED_SIZE: usize = 8;
 const ERR_OS_RNG: &str = "could not initialize the OS random number generator";
 
 /// A public key, or a public key share.
-#[derive(Clone, Debug)]
-pub struct PublicKey<E: Engine>(E::G1);
+#[derive(Deserialize, Serialize, Clone, Debug)]
+pub struct PublicKey<E: Engine>(#[serde(with = "serde_impl::projective")] E::G1);
 
 impl<E: Engine> PartialEq for PublicKey<E> {
     fn eq(&self, other: &PublicKey<E>) -> bool {
@@ -70,8 +68,8 @@ impl<E: Engine> PublicKey<E> {
 }
 
 /// A signature, or a signature share.
-#[derive(Clone)]
-pub struct Signature<E: Engine>(E::G2);
+#[derive(Deserialize, Serialize, Clone)]
+pub struct Signature<E: Engine>(#[serde(with = "serde_impl::projective")] E::G2);
 
 impl<E: Engine> fmt::Debug for Signature<E> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -149,8 +147,12 @@ impl<E: Engine> SecretKey<E> {
 }
 
 /// An encrypted message.
-#[derive(Debug)]
-pub struct Ciphertext<E: Engine>(E::G1, Vec<u8>, E::G2);
+#[derive(Deserialize, Serialize, Debug)]
+pub struct Ciphertext<E: Engine>(
+    #[serde(with = "serde_impl::projective")] E::G1,
+    Vec<u8>,
+    #[serde(with = "serde_impl::projective")] E::G2,
+);
 
 impl<E: Engine> PartialEq for Ciphertext<E> {
     fn eq(&self, other: &Ciphertext<E>) -> bool {
@@ -169,8 +171,8 @@ impl<E: Engine> Ciphertext<E> {
 }
 
 /// A decryption share. A threshold of decryption shares can be used to decrypt a message.
-#[derive(Debug)]
-pub struct DecryptionShare<E: Engine>(E::G1);
+#[derive(Deserialize, Serialize, Debug)]
+pub struct DecryptionShare<E: Engine>(#[serde(with = "serde_impl::projective")] E::G1);
 
 impl<E: Engine> PartialEq for DecryptionShare<E> {
     fn eq(&self, other: &DecryptionShare<E>) -> bool {
@@ -179,8 +181,7 @@ impl<E: Engine> PartialEq for DecryptionShare<E> {
 }
 
 /// A public key and an associated set of public key shares.
-#[cfg_attr(feature = "serialization-serde", derive(Serialize, Deserialize))]
-#[derive(Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct PublicKeySet<E: Engine> {
     /// The coefficients of a polynomial whose value at `0` is the "master key", and value at
     /// `i + 1` is key share number `i`.
@@ -526,7 +527,6 @@ mod tests {
         assert_eq!(20, hash(g0, 20).len());
     }
 
-    #[cfg(feature = "serialization-serde")]
     #[test]
     fn test_serde() {
         use bincode;

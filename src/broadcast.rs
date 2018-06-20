@@ -1,6 +1,5 @@
 use std::collections::{BTreeMap, VecDeque};
 use std::fmt::{self, Debug};
-use std::hash::Hash;
 use std::iter::once;
 use std::rc::Rc;
 
@@ -34,8 +33,7 @@ error_chain!{
 
 /// The three kinds of message sent during the reliable broadcast stage of the
 /// consensus algorithm.
-#[cfg_attr(feature = "serialization-serde", derive(Serialize, Deserialize))]
-#[derive(Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, PartialEq)]
 pub enum BroadcastMessage {
     Value(Proof<Vec<u8>>),
     Echo(Proof<Vec<u8>>),
@@ -92,11 +90,11 @@ impl Debug for BroadcastMessage {
 /// eventually be able to decode (i.e. receive at least `f + 1` `Echo` messages).
 /// * So a node with `2 * f + 1` `Ready`s and `f + 1` `Echos` will decode and _output_ the value,
 /// knowing that every other good node will eventually do the same.
-pub struct Broadcast<N: Clone + Eq + Hash> {
+pub struct Broadcast<NodeUid> {
     /// Shared network data.
-    netinfo: Rc<NetworkInfo<N>>,
+    netinfo: Rc<NetworkInfo<NodeUid>>,
     /// The UID of the sending node.
-    proposer_id: N,
+    proposer_id: NodeUid,
     data_shard_num: usize,
     coding: Coding,
     /// Whether we have already multicast `Echo`.
@@ -106,17 +104,17 @@ pub struct Broadcast<N: Clone + Eq + Hash> {
     /// Whether we have already output a value.
     decided: bool,
     /// The proofs we have received via `Echo` messages, by sender ID.
-    echos: BTreeMap<N, Proof<Vec<u8>>>,
+    echos: BTreeMap<NodeUid, Proof<Vec<u8>>>,
     /// The root hashes we received via `Ready` messages, by sender ID.
-    readys: BTreeMap<N, Vec<u8>>,
+    readys: BTreeMap<NodeUid, Vec<u8>>,
     /// The outgoing message queue.
-    messages: VecDeque<TargetedMessage<BroadcastMessage, N>>,
+    messages: VecDeque<TargetedMessage<BroadcastMessage, NodeUid>>,
     /// The output, if any.
     output: Option<Vec<u8>>,
 }
 
-impl<N: Eq + Debug + Clone + Hash + Ord> DistAlgorithm for Broadcast<N> {
-    type NodeUid = N;
+impl<NodeUid: Debug + Clone + Ord> DistAlgorithm for Broadcast<NodeUid> {
+    type NodeUid = NodeUid;
     // TODO: Allow anything serializable and deserializable, i.e. make this a type parameter
     // T: Serialize + DeserializeOwned
     type Input = Vec<u8>;
@@ -136,7 +134,11 @@ impl<N: Eq + Debug + Clone + Hash + Ord> DistAlgorithm for Broadcast<N> {
         self.handle_value(our_uid, proof)
     }
 
-    fn handle_message(&mut self, sender_id: &N, message: Self::Message) -> BroadcastResult<()> {
+    fn handle_message(
+        &mut self,
+        sender_id: &NodeUid,
+        message: Self::Message,
+    ) -> BroadcastResult<()> {
         if !self.netinfo.all_uids().contains(sender_id) {
             return Err(ErrorKind::UnknownSender.into());
         }
@@ -147,7 +149,7 @@ impl<N: Eq + Debug + Clone + Hash + Ord> DistAlgorithm for Broadcast<N> {
         }
     }
 
-    fn next_message(&mut self) -> Option<TargetedMessage<Self::Message, N>> {
+    fn next_message(&mut self) -> Option<TargetedMessage<Self::Message, NodeUid>> {
         self.messages.pop_front()
     }
 
@@ -159,15 +161,15 @@ impl<N: Eq + Debug + Clone + Hash + Ord> DistAlgorithm for Broadcast<N> {
         self.decided
     }
 
-    fn our_id(&self) -> &N {
+    fn our_id(&self) -> &NodeUid {
         self.netinfo.our_uid()
     }
 }
 
-impl<N: Eq + Debug + Clone + Hash + Ord> Broadcast<N> {
+impl<NodeUid: Debug + Clone + Ord> Broadcast<NodeUid> {
     /// Creates a new broadcast instance to be used by node `our_id` which expects a value proposal
     /// from node `proposer_id`.
-    pub fn new(netinfo: Rc<NetworkInfo<N>>, proposer_id: N) -> BroadcastResult<Self> {
+    pub fn new(netinfo: Rc<NetworkInfo<NodeUid>>, proposer_id: NodeUid) -> BroadcastResult<Self> {
         let parity_shard_num = 2 * netinfo.num_faulty();
         let data_shard_num = netinfo.num_nodes() - parity_shard_num;
         let coding = Coding::new(data_shard_num, parity_shard_num)?;
@@ -266,7 +268,7 @@ impl<N: Eq + Debug + Clone + Hash + Ord> Broadcast<N> {
     }
 
     /// Handles a received echo and verifies the proof it contains.
-    fn handle_value(&mut self, sender_id: &N, p: Proof<Vec<u8>>) -> BroadcastResult<()> {
+    fn handle_value(&mut self, sender_id: &NodeUid, p: Proof<Vec<u8>>) -> BroadcastResult<()> {
         // If the sender is not the proposer, this is not the first `Value` or the proof is invalid,
         // ignore.
         if *sender_id != self.proposer_id {
@@ -299,7 +301,7 @@ impl<N: Eq + Debug + Clone + Hash + Ord> Broadcast<N> {
     }
 
     /// Handles a received `Echo` message.
-    fn handle_echo(&mut self, sender_id: &N, p: Proof<Vec<u8>>) -> BroadcastResult<()> {
+    fn handle_echo(&mut self, sender_id: &NodeUid, p: Proof<Vec<u8>>) -> BroadcastResult<()> {
         // If the proof is invalid or the sender has already sent `Echo`, ignore.
         if self.echos.contains_key(sender_id) {
             info!(
@@ -333,7 +335,7 @@ impl<N: Eq + Debug + Clone + Hash + Ord> Broadcast<N> {
     }
 
     /// Handles a received `Ready` message.
-    fn handle_ready(&mut self, sender_id: &N, hash: &[u8]) -> BroadcastResult<()> {
+    fn handle_ready(&mut self, sender_id: &NodeUid, hash: &[u8]) -> BroadcastResult<()> {
         // If the sender has already sent a `Ready` before, ignore.
         if self.readys.contains_key(sender_id) {
             info!(
@@ -389,13 +391,13 @@ impl<N: Eq + Debug + Clone + Hash + Ord> Broadcast<N> {
     }
 
     /// Returns `i` if `node_id` is the `i`-th ID among all participating nodes.
-    fn index_of_node(&self, node_id: &N) -> Option<usize> {
+    fn index_of_node(&self, node_id: &NodeUid) -> Option<usize> {
         self.netinfo.all_uids().iter().position(|id| id == node_id)
     }
 
     /// Returns `true` if the proof is valid and has the same index as the node ID. Otherwise
     /// logs an info message.
-    fn validate_proof(&self, p: &Proof<Vec<u8>>, id: &N) -> bool {
+    fn validate_proof(&self, p: &Proof<Vec<u8>>, id: &NodeUid) -> bool {
         if !p.validate(&p.root_hash) {
             info!(
                 "Node {:?} received invalid proof: {:?}",
