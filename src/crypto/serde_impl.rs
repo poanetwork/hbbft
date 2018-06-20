@@ -80,3 +80,105 @@ pub mod projective_vec {
         Ok(wrap_vec.into_iter().map(|CurveWrap(c, _)| c).collect())
     }
 }
+
+/// Serialization and deserialization of vectors of field elements.
+pub mod field_vec {
+    use std::borrow::Borrow;
+    use std::marker::PhantomData;
+
+    use pairing::{PrimeField, PrimeFieldRepr};
+    use serde::de::Error as DeserializeError;
+    use serde::ser::Error as SerializeError;
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+    /// A wrapper type to facilitate serialization and deserialization of field elements.
+    pub struct FieldWrap<F, B>(B, PhantomData<F>);
+
+    impl<F, B> FieldWrap<F, B> {
+        pub fn new(f: B) -> Self {
+            FieldWrap(f, PhantomData)
+        }
+    }
+
+    impl<F> FieldWrap<F, F> {
+        pub fn into_inner(self) -> F {
+            self.0
+        }
+    }
+
+    impl<F: PrimeField, B: Borrow<F>> Serialize for FieldWrap<F, B> {
+        fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+            let mut bytes = Vec::new();
+            self.0
+                .borrow()
+                .into_repr()
+                .write_be(&mut bytes)
+                .map_err(|_| S::Error::custom("failed to write bytes"))?;
+            bytes.serialize(s)
+        }
+    }
+
+    impl<'de, F: PrimeField> Deserialize<'de> for FieldWrap<F, F> {
+        fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+            let bytes: Vec<u8> = Deserialize::deserialize(d)?;
+            let mut repr = F::zero().into_repr();
+            repr.read_be(&bytes[..])
+                .map_err(|_| D::Error::custom("failed to write bytes"))?;
+            Ok(FieldWrap::new(F::from_repr(repr).map_err(|_| {
+                D::Error::custom("invalid field element representation")
+            })?))
+        }
+    }
+
+    pub fn serialize<S, F>(vec: &[F], s: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+        F: PrimeField,
+    {
+        let wrap_vec: Vec<FieldWrap<F, &F>> = vec.iter().map(FieldWrap::new).collect();
+        wrap_vec.serialize(s)
+    }
+
+    pub fn deserialize<'de, D, F>(d: D) -> Result<Vec<F>, D::Error>
+    where
+        D: Deserializer<'de>,
+        F: PrimeField,
+    {
+        let wrap_vec = <Vec<FieldWrap<F, F>>>::deserialize(d)?;
+        Ok(wrap_vec.into_iter().map(|FieldWrap(f, _)| f).collect())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use bincode;
+    use pairing::bls12_381::Bls12;
+    use pairing::Engine;
+    use rand::{self, Rng};
+
+    #[derive(Debug, Serialize, Deserialize)]
+    pub struct Vecs<E: Engine> {
+        #[serde(with = "super::projective_vec")]
+        curve_points: Vec<E::G1>,
+        #[serde(with = "super::field_vec")]
+        field_elements: Vec<E::Fr>,
+    }
+
+    impl<E: Engine> PartialEq for Vecs<E> {
+        fn eq(&self, other: &Self) -> bool {
+            self.curve_points == other.curve_points && self.field_elements == other.field_elements
+        }
+    }
+
+    #[test]
+    fn vecs() {
+        let mut rng = rand::thread_rng();
+        let vecs: Vecs<Bls12> = Vecs {
+            curve_points: rng.gen_iter().take(10).collect(),
+            field_elements: rng.gen_iter().take(10).collect(),
+        };
+        let ser_vecs = bincode::serialize(&vecs).expect("serialize vecs");
+        let de_vecs = bincode::deserialize(&ser_vecs).expect("deserialize vecs");
+        assert_eq!(vecs, de_vecs);
+    }
+}

@@ -2,7 +2,7 @@ pub mod error;
 pub mod poly;
 #[cfg(feature = "serialization-protobuf")]
 pub mod protobuf_impl;
-mod serde_impl;
+pub mod serde_impl;
 
 use std::fmt;
 use std::hash::{Hash, Hasher};
@@ -132,6 +132,10 @@ impl<E: Engine> SecretKey<E> {
         SecretKey(rng.gen())
     }
 
+    pub fn from_value(f: E::Fr) -> Self {
+        SecretKey(f)
+    }
+
     /// Returns the matching public key.
     pub fn public_key(&self) -> PublicKey<E> {
         PublicKey(E::G1Affine::one().mul(self.0))
@@ -167,7 +171,7 @@ impl<E: Engine> SecretKey<E> {
 }
 
 /// An encrypted message.
-#[derive(Deserialize, Serialize, Debug)]
+#[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct Ciphertext<E: Engine>(
     #[serde(with = "serde_impl::projective")] E::G1,
     Vec<u8>,
@@ -216,11 +220,23 @@ impl<E: Engine> Hash for DecryptionShare<E> {
 }
 
 /// A public key and an associated set of public key shares.
-#[derive(Serialize, Deserialize, Clone, Debug, Hash)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct PublicKeySet<E: Engine> {
     /// The coefficients of a polynomial whose value at `0` is the "master key", and value at
     /// `i + 1` is key share number `i`.
     commit: Commitment<E>,
+}
+
+impl<E: Engine> PartialEq for PublicKeySet<E> {
+    fn eq(&self, other: &Self) -> bool {
+        self.commit == other.commit
+    }
+}
+
+impl<E: Engine> Hash for PublicKeySet<E> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.commit.hash(state);
+    }
 }
 
 impl<E: Engine> From<Commitment<E>> for PublicKeySet<E> {
@@ -449,7 +465,7 @@ mod tests {
 
         // Each of the shares is a valid signature matching its public key share.
         for (i, sig) in &sigs {
-            pk_set.public_key_share(*i).verify(sig, msg);
+            assert!(pk_set.public_key_share(*i).verify(sig, msg));
         }
 
         // Combined, they produce a signature matching the main public key.

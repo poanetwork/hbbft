@@ -1,23 +1,20 @@
-//! Utilities for distributed key generation.
+//! Utilities for distributed key generation: uni- and bivariate polynomials and commitments.
 //!
-//! A `BivarPoly` can be used for Verifiable Secret Sharing (VSS) and for key generation by a
-//! trusted dealer. In a perfectly synchronous setting, e.g. on a blockchain or other agreed
-//! transaction log, it works like this:
+//! If `G` is a group of prime order `r` (written additively), and `g` is a generator, then
+//! multiplication by integers factors through `r`, so the map `x -> x * g` (the sum of `x`
+//! copies of `g`) is a homomorphism from the field `Fr` of integers modulo `r` to `G`. If the
+//! _discrete logarithm_ is hard, i.e. it is infeasible to reverse this map, then `x * g` can be
+//! considered a _commitment_ to `x`: By publishing it, you can guarantee to others that you won't
+//! change your mind about the value `x`, without revealing it.
 //!
-//! The dealer generates a `BivarPoly` of degree `t` and publishes the `BivariateCommitment`,
-//! with which the polynomial's values can be publicly verified. They then send _row_ `m > 0` to
-//! node number `m`. Node `m`, in turn, sends _value_ `s` to node number `s`. Then if `2 * t + 1`
-//! nodes confirm that they received a valid row, and there are at most `t` faulty nodes, then at
-//! least `t + 1` honest nodes sent on an entry of every other node's column to that node. So we
-//! know that every node can now reconstruct its column and the value at `0` of its column. These
-//! values all lie on a univariate polynomial of degree `t`, so they can be used as secret keys.
+//! This concept extends to polynomials: If you have a polynomial `f` over `Fr`, defined as
+//! `a * X * X + b * X + c`, you can publish `a * g`, `b * g` and `c * g`. Then others will be able
+//! to verify any single value `f(x)` of the polynomial without learning the original polynomial,
+//! because `f(x) * g == x * x * (a * g) + x * (b * g) + (c * g)`. Only after learning three (in
+//! general `degree + 1`) values, they can interpolate `f` itself.
 //!
-//! For Distributed Key Generation (DKG), every node proposes a polynomial via VSS. After a fixed
-//! number (at least `N - 2 * t` if there are `N` nodes and up to `t` faulty ones) of them have
-//! successfully been distributed, every node adds up the resulting secrets. Since the sum of
-//! polynomials of degree `t` is itself a polynomial of degree `t`, these sums are still valid
-//! secret keys, but now nobody knows the master key (number `0`).
-// TODO: Expand this explanation and add examples, once the API is complete and stable.
+//! This module defines univariate polynomials (in one variable) and _symmetric_ bivariate
+//! polynomials (in two variables) over a field `Fr`, as well as their _commitments_ in `G`.
 
 use std::borrow::Borrow;
 use std::hash::{Hash, Hasher};
@@ -27,9 +24,10 @@ use pairing::{CurveAffine, CurveProjective, Engine, Field, PrimeField};
 use rand::Rng;
 
 /// A univariate polynomial in the prime field.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Poly<E: Engine> {
     /// The coefficients of a polynomial.
+    #[serde(with = "super::serde_impl::field_vec")]
     coeff: Vec<E::Fr>,
 }
 
