@@ -484,8 +484,7 @@ impl<Tx, NodeUid: Ord> Batch<Tx, NodeUid> {
 }
 
 /// The content of a `HoneyBadger` message. It should be further annotated with an epoch.
-#[cfg_attr(feature = "serialization-serde", derive(Serialize, Deserialize))]
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub enum MessageContent<NodeUid> {
     /// A message belonging to the common subset algorithm in the given epoch.
     CommonSubset(common_subset::Message<NodeUid>),
@@ -506,8 +505,7 @@ impl<NodeUid> MessageContent<NodeUid> {
 }
 
 /// A message sent to or received from another node's Honey Badger instance.
-#[cfg_attr(feature = "serialization-serde", derive(Serialize, Deserialize))]
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Message<NodeUid> {
     epoch: u64,
     content: MessageContent<NodeUid>,
