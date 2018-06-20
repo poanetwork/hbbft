@@ -82,8 +82,7 @@
 //!
 //! ## Serialization
 //!
-//! If the `serialization-serde` feature is enabled in the `Cargo.toml`, `hbbft` is compiled with
-//! [serde](https://serde.rs/) support: All message types implement the `Serialize` and
+//! `hbbft` supports [serde](https://serde.rs/): All message types implement the `Serialize` and
 //! `Deserialize` traits so they can be easily serialized or included as part of other serializable
 //! types.
 //!
@@ -113,7 +112,6 @@ extern crate rand;
 extern crate reed_solomon_erasure;
 extern crate ring;
 extern crate serde;
-#[cfg(feature = "serialization-serde")]
 #[macro_use]
 extern crate serde_derive;
 

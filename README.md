@@ -81,7 +81,7 @@ This project is licensed under the GNU Lesser General Public License v3.0. See t
 
 * [The Honey Badger of BFT Protocols](https://eprint.iacr.org/2016/199.pdf)
 
-* [Honey Badger Video](https://www.youtube.com/watch?v=Qone4j1hCt8)
+    $ cargo run --example simulation -- -h
 
 * Other language implementations
 
