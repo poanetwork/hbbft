@@ -14,7 +14,7 @@ use std::rc::Rc;
 
 use rand::Rng;
 
-use hbbft::honey_badger::{self, HoneyBadger};
+use hbbft::honey_badger::HoneyBadger;
 use hbbft::messaging::NetworkInfo;
 
 use network::{Adversary, MessageScheduler, NodeUid, SilentAdversary, TestNetwork, TestNode};
@@ -44,9 +44,7 @@ where
         }
         if node.outputs().last().unwrap().is_empty() {
             let last = node.outputs().last().unwrap().epoch;
-            node.queue.retain(|(_, ref msg)| match msg {
-                honey_badger::Message::CommonSubset(e, _) => *e < last,
-            });
+            node.queue.retain(|(_, ref msg)| msg.epoch() < last);
         }
         false
     };
