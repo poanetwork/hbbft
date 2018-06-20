@@ -84,7 +84,7 @@ $ cargo build [--release]
 A basic example is included to run a network simulation.
 
 ```
-$ cargo run --example simulation -h
+$ cargo run --example simulation -- -h
 ```
 
 ## License
