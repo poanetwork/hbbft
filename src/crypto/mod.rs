@@ -2,7 +2,6 @@ pub mod error;
 pub mod poly;
 #[cfg(feature = "serialization-protobuf")]
 pub mod protobuf_impl;
-#[cfg(feature = "serialization-serde")]
 mod serde_impl;
 
 use self::poly::{Commitment, Poly};
@@ -179,8 +178,7 @@ impl<E: Engine> PartialEq for DecryptionShare<E> {
 }
 
 /// A public key and an associated set of public key shares.
-#[cfg_attr(feature = "serialization-serde", derive(Serialize, Deserialize))]
-#[derive(Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct PublicKeySet<E: Engine> {
     /// The coefficients of a polynomial whose value at `0` is the "master key", and value at
     /// `i + 1` is key share number `i`.
@@ -526,7 +524,6 @@ mod tests {
         assert_eq!(20, hash(g0, 20).len());
     }
 
-    #[cfg(feature = "serialization-serde")]
     #[test]
     fn test_serde() {
         use bincode;

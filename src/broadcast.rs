@@ -33,8 +33,7 @@ error_chain!{
 
 /// The three kinds of message sent during the reliable broadcast stage of the
 /// consensus algorithm.
-#[cfg_attr(feature = "serialization-serde", derive(Serialize, Deserialize))]
-#[derive(Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, PartialEq)]
 pub enum BroadcastMessage {
     Value(Proof<Vec<u8>>),
     Echo(Proof<Vec<u8>>),

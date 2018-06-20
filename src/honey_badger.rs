@@ -292,8 +292,7 @@ impl<Tx, NodeUid: Ord> Batch<Tx, NodeUid> {
 }
 
 /// A message sent to or received from another node's Honey Badger instance.
-#[cfg_attr(feature = "serialization-serde", derive(Serialize, Deserialize))]
-#[derive(Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum Message<NodeUid> {
     /// A message belonging to the common subset algorithm in the given epoch.
     CommonSubset(u64, common_subset::Message<NodeUid>),
