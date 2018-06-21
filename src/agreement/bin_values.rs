@@ -20,7 +20,7 @@ impl BinValues {
         replace(self, BinValues::None);
     }
 
-    fn from_bool(b: bool) -> Self {
+    pub fn from_bool(b: bool) -> Self {
         if b {
             BinValues::True
         } else {
