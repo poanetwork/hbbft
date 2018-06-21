@@ -299,11 +299,11 @@ impl<E: Engine> SecretKeySet<E> {
     /// Returns the `i`-th secret key share.
     pub fn secret_key_share<T>(&self, i: T) -> ClearOnDrop<Box<SecretKey<E>>>
     where
-        T: Into<<E::Fr as PrimeField>::Repr>
+        T: Into<<E::Fr as PrimeField>::Repr>,
     {
-        ClearOnDrop::new(Box::new(
-            SecretKey(self.poly.evaluate(from_repr_plus_1::<E::Fr>(i.into())))
-        ))
+        ClearOnDrop::new(Box::new(SecretKey(
+            self.poly.evaluate(from_repr_plus_1::<E::Fr>(i.into())),
+        )))
     }
 
     /// Returns the corresponding public key set. That information can be shared publicly.
