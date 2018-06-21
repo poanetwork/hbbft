@@ -23,10 +23,6 @@ In an optimal networking environment, output includes data sent from each node. 
 
 ## Algorithms
 
-All algorithms in the protocol are modular. Encryption to provide censorship resistance is currently in process for the top level Honey Badger algorithm.
-
-### Algorithm short descriptions
-
 - [ ] **[Honey Badger](https://github.com/poanetwork/hbbft/blob/master/src/honey_badger.rs):** The top level protocol proceeds in epochs using the protocols below. 
 
 - [x] **[Subset](https://github.com/poanetwork/hbbft/blob/master/src/common_subset.rs):** Each node inputs data. The nodes agree on a subset of suggested data. 
@@ -39,7 +35,7 @@ All algorithms in the protocol are modular. Encryption to provide censorship res
 
 ## Getting Started
 
-This Rust library requires a distributed network environment to function. Details on network requirements TBD. 
+This library requires a distributed network environment to function. Details on network requirements TBD. 
 
 _**Note:** Additional examples are currently in progress._
 
@@ -67,9 +63,7 @@ $ cargo run --example simulation --release -- -h
 
 ## Current TODOs
 
-See [Issues](https://github.com/poanetwork/hbbft/issues) for all tasks in progress. 
-
-- [ ] Honey Badger encryption ([#41](https://github.com/poanetwork/hbbft/issues/41))
+See [Issues](https://github.com/poanetwork/hbbft/issues) for all tasks.
 
 - [ ] Dynamic Honey Badger (adding and removing nodes in a live network environment) ([#47](https://github.com/poanetwork/hbbft/issues/47#issuecomment-394640406))
 
@@ -84,7 +78,7 @@ Our implementation modifies the protocols described in "[The Honey Badger of BFT
 * We add a `Terminate` message to the Binary Agreement algorithm. Termination occurs following output, preventing the algorithm from running (or staying in memory) indefinitely. ([#53](https://github.com/poanetwork/hbbft/issues/55))
 *  We add a `Conf` message to the Binary Agreement algorithm. An additional message phase prevents an attack if an adversary controls a network scheduler and a node. ([#37](https://github.com/poanetwork/hbbft/issues/37))
 *  We return additional information from the Subset and Honey Badger algorithms that specifies which node input which data. This allows for identification of potentially malicious nodes.
-* We run a Distributed Key Generation (DKG) protocol which does not require a trusted dealer; nodes collectively generate a secret key. This addresses the problem of single point of failure. See [Distributed Key Generation in the Wild](https://eprint.iacr.org/2012/377.pdf).
+* We include a Distributed Key Generation (DKG) protocol which does not require a trusted dealer; nodes collectively generate a secret key. This addresses the problem of single point of failure. See [Distributed Key Generation in the Wild](https://eprint.iacr.org/2012/377.pdf).
 
 ### Algorithm naming conventions  
 
