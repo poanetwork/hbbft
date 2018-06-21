@@ -3,7 +3,6 @@ use std::fmt::Debug;
 use std::hash::Hash;
 use std::rc::Rc;
 
-use pairing::bls12_381::Bls12;
 use rand::{self, Rng};
 
 use hbbft::crypto::SecretKeySet;
@@ -164,7 +163,7 @@ where
         F: Fn(Rc<NetworkInfo<NodeUid>>) -> D,
     {
         let mut rng = rand::thread_rng();
-        let sk_set = SecretKeySet::<Bls12>::random(adv_num, &mut rng);
+        let sk_set = SecretKeySet::random(adv_num, &mut rng);
         let pk_set = sk_set.public_keys();
 
         let node_ids: BTreeSet<NodeUid> = (0..(good_num + adv_num)).map(NodeUid).collect();

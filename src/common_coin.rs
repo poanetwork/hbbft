@@ -4,8 +4,6 @@ use std::collections::{BTreeMap, VecDeque};
 use std::fmt::Debug;
 use std::rc::Rc;
 
-use pairing::bls12_381::Bls12;
-
 use crypto::error as cerror;
 use crypto::Signature;
 use messaging::{DistAlgorithm, NetworkInfo, Target, TargetedMessage};
@@ -26,14 +24,14 @@ error_chain! {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
-pub struct CommonCoinMessage(Signature<Bls12>);
+pub struct CommonCoinMessage(Signature);
 
 impl CommonCoinMessage {
-    pub fn new(sig: Signature<Bls12>) -> Self {
+    pub fn new(sig: Signature) -> Self {
         CommonCoinMessage(sig)
     }
 
-    pub fn to_sig(&self) -> &Signature<Bls12> {
+    pub fn to_sig(&self) -> &Signature {
         &self.0
     }
 }
@@ -51,7 +49,7 @@ pub struct CommonCoin<NodeUid, T> {
     /// Outgoing message queue.
     messages: VecDeque<CommonCoinMessage>,
     /// All received threshold signature shares.
-    received_shares: BTreeMap<NodeUid, Signature<Bls12>>,
+    received_shares: BTreeMap<NodeUid, Signature>,
     /// Whether we provided input to the common coin.
     had_input: bool,
     /// Termination flag.
@@ -134,7 +132,7 @@ where
         self.handle_share(&id, share)
     }
 
-    fn handle_share(&mut self, sender_id: &NodeUid, share: Signature<Bls12>) -> Result<()> {
+    fn handle_share(&mut self, sender_id: &NodeUid, share: Signature) -> Result<()> {
         if let Some(i) = self.netinfo.node_index(sender_id) {
             let pk_i = self.netinfo.public_key_set().public_key_share(*i as u64);
             if !pk_i.verify(&share, &self.nonce) {
@@ -156,16 +154,15 @@ where
         }
     }
 
-    fn combine_and_verify_sig(&self) -> Result<Signature<Bls12>> {
+    fn combine_and_verify_sig(&self) -> Result<Signature> {
         // Pass the indices of sender nodes to `combine_signatures`.
-        let ids_shares: BTreeMap<&NodeUid, &Signature<Bls12>> =
-            self.received_shares.iter().collect();
+        let ids_shares: BTreeMap<&NodeUid, &Signature> = self.received_shares.iter().collect();
         let ids_u64: BTreeMap<&NodeUid, u64> = ids_shares
             .keys()
             .map(|&id| (id, *self.netinfo.node_index(id).unwrap() as u64))
             .collect();
         // Convert indices to `u64` which is an interface type for `pairing`.
-        let shares: BTreeMap<&u64, &Signature<Bls12>> = ids_shares
+        let shares: BTreeMap<&u64, &Signature> = ids_shares
             .iter()
             .map(|(id, &share)| (&ids_u64[id], share))
             .collect();

@@ -2,7 +2,6 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Debug;
 
 use clear_on_drop::ClearOnDrop;
-use pairing::bls12_381::Bls12;
 
 use crypto::{PublicKeySet, SecretKey};
 
@@ -143,8 +142,8 @@ pub struct NetworkInfo<NodeUid> {
     all_uids: BTreeSet<NodeUid>,
     num_nodes: usize,
     num_faulty: usize,
-    secret_key: ClearOnDrop<Box<SecretKey<Bls12>>>,
-    public_key_set: PublicKeySet<Bls12>,
+    secret_key: ClearOnDrop<Box<SecretKey>>,
+    public_key_set: PublicKeySet,
     node_indices: BTreeMap<NodeUid, usize>,
 }
 
@@ -152,8 +151,8 @@ impl<NodeUid: Clone + Ord> NetworkInfo<NodeUid> {
     pub fn new(
         our_uid: NodeUid,
         all_uids: BTreeSet<NodeUid>,
-        secret_key: ClearOnDrop<Box<SecretKey<Bls12>>>,
-        public_key_set: PublicKeySet<Bls12>,
+        secret_key: ClearOnDrop<Box<SecretKey>>,
+        public_key_set: PublicKeySet,
     ) -> Self {
         if !all_uids.contains(&our_uid) {
             panic!("Missing own ID");
@@ -197,11 +196,11 @@ impl<NodeUid: Clone + Ord> NetworkInfo<NodeUid> {
         self.num_faulty
     }
 
-    pub fn secret_key(&self) -> &SecretKey<Bls12> {
+    pub fn secret_key(&self) -> &SecretKey {
         &self.secret_key
     }
 
-    pub fn public_key_set(&self) -> &PublicKeySet<Bls12> {
+    pub fn public_key_set(&self) -> &PublicKeySet {
         &self.public_key_set
     }
 

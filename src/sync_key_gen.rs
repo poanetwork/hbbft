@@ -37,7 +37,7 @@ use crypto::serde_impl::field_vec::FieldWrap;
 use crypto::{Ciphertext, PublicKey, PublicKeySet, SecretKey};
 
 use bincode;
-use pairing::bls12_381::{Bls12, Fr, G1Affine};
+use pairing::bls12_381::{Fr, G1Affine};
 use pairing::{CurveAffine, Field};
 use rand::OsRng;
 
@@ -45,17 +45,17 @@ use rand::OsRng;
 
 /// A commitment to a bivariate polynomial, and for each node, an encrypted row of values.
 #[derive(Deserialize, Serialize, Debug, Clone)]
-pub struct Propose(BivarCommitment<Bls12>, Vec<Ciphertext<Bls12>>);
+pub struct Propose(BivarCommitment, Vec<Ciphertext>);
 
 /// A confirmation that we have received a node's proposal and verified our row against the
 /// commitment. For each node, it contains one encrypted value of our row.
 #[derive(Deserialize, Serialize, Debug, Clone)]
-pub struct Accept(u64, Vec<Ciphertext<Bls12>>);
+pub struct Accept(u64, Vec<Ciphertext>);
 
 /// The information needed to track a single proposer's secret sharing process.
 struct ProposalState {
     /// The proposer's commitment.
-    commit: BivarCommitment<Bls12>,
+    commit: BivarCommitment,
     /// The verified values we received from `Accept` messages.
     values: BTreeMap<u64, Fr>,
     /// The nodes which have accepted this proposal, valid or not.
@@ -64,7 +64,7 @@ struct ProposalState {
 
 impl ProposalState {
     /// Creates a new proposal state with a commitment.
-    fn new(commit: BivarCommitment<Bls12>) -> ProposalState {
+    fn new(commit: BivarCommitment) -> ProposalState {
         ProposalState {
             commit,
             values: BTreeMap::new(),
@@ -85,9 +85,9 @@ pub struct SyncKeyGen {
     /// Our node index.
     our_idx: u64,
     /// Our secret key.
-    sec_key: SecretKey<Bls12>,
+    sec_key: SecretKey,
     /// The public keys of all nodes, by node index.
-    pub_keys: Vec<PublicKey<Bls12>>,
+    pub_keys: Vec<PublicKey>,
     /// Proposed bivariate polynomial.
     proposals: BTreeMap<u64, ProposalState>,
     /// The degree of the generated polynomial.
@@ -99,8 +99,8 @@ impl SyncKeyGen {
     /// broadcast.
     pub fn new(
         our_idx: u64,
-        sec_key: SecretKey<Bls12>,
-        pub_keys: Vec<PublicKey<Bls12>>,
+        sec_key: SecretKey,
+        pub_keys: Vec<PublicKey>,
         threshold: usize,
     ) -> (SyncKeyGen, Propose) {
         let mut rng = OsRng::new().expect("OS random number generator");
@@ -139,7 +139,7 @@ impl SyncKeyGen {
             }
         }
         let ser_row = self.sec_key.decrypt(rows.get(self.our_idx as usize)?)?;
-        let row: Poly<Bls12> = bincode::deserialize(&ser_row).ok()?; // Ignore invalid messages.
+        let row: Poly = bincode::deserialize(&ser_row).ok()?; // Ignore invalid messages.
         if row.commitment() != commit_row {
             debug!("Invalid proposal from node {}.", sender_idx);
             return None;
@@ -191,7 +191,7 @@ impl SyncKeyGen {
     ///
     /// These are only secure if `is_ready` returned `true`. Otherwise it is not guaranteed that
     /// none of the nodes knows the secret master key.
-    pub fn generate(&self) -> (PublicKeySet<Bls12>, SecretKey<Bls12>) {
+    pub fn generate(&self) -> (PublicKeySet, SecretKey) {
         let mut pk_commit = Poly::zero().commitment();
         let mut sk_val = Fr::zero();
         for proposal in self
@@ -200,8 +200,7 @@ impl SyncKeyGen {
             .filter(|proposal| proposal.is_complete(self.threshold))
         {
             pk_commit += proposal.commit.row(0);
-            let row: Poly<Bls12> =
-                Poly::interpolate(proposal.values.iter().take(self.threshold + 1));
+            let row: Poly = Poly::interpolate(proposal.values.iter().take(self.threshold + 1));
             sk_val.add_assign(&row.evaluate(0));
         }
         (pk_commit.into(), SecretKey::from_value(sk_val))

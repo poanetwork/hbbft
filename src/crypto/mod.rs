@@ -1,3 +1,7 @@
+// Clippy warns that it's dangerous to derive `PartialEq` and explicitly implement `Hash`, but the
+// `pairing::bls12_381` types don't implement `Hash`, so we can't derive it.
+#![cfg_attr(feature = "cargo-clippy", allow(derive_hash_xor_eq))]
+
 pub mod error;
 pub mod poly;
 #[cfg(feature = "serialization-protobuf")]
@@ -10,6 +14,7 @@ use std::hash::{Hash, Hasher};
 use byteorder::{BigEndian, ByteOrder};
 use clear_on_drop::ClearOnDrop;
 use init_with::InitWith;
+use pairing::bls12_381::{Bls12, Fr, FrRepr, G1, G1Affine, G2, G2Affine};
 use pairing::{CurveAffine, CurveProjective, Engine, Field, PrimeField};
 use rand::{ChaChaRng, OsRng, Rng, SeedableRng};
 use ring::digest;
@@ -24,48 +29,42 @@ const CHACHA_RNG_SEED_SIZE: usize = 8;
 const ERR_OS_RNG: &str = "could not initialize the OS random number generator";
 
 /// A public key, or a public key share.
-#[derive(Deserialize, Serialize, Clone, Debug)]
-pub struct PublicKey<E: Engine>(#[serde(with = "serde_impl::projective")] E::G1);
+#[derive(Deserialize, Serialize, Clone, Debug, PartialEq, Eq)]
+pub struct PublicKey(#[serde(with = "serde_impl::projective")] G1);
 
-impl<E: Engine> PartialEq for PublicKey<E> {
-    fn eq(&self, other: &PublicKey<E>) -> bool {
-        self.0 == other.0
-    }
-}
-
-impl<E: Engine> Hash for PublicKey<E> {
+impl Hash for PublicKey {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.0.into_affine().into_compressed().as_ref().hash(state);
     }
 }
 
-impl<E: Engine> PublicKey<E> {
-    /// Returns `true` if the signature matches the element of `E::G2`.
-    pub fn verify_g2<H: Into<E::G2Affine>>(&self, sig: &Signature<E>, hash: H) -> bool {
-        E::pairing(self.0, hash) == E::pairing(E::G1Affine::one(), sig.0)
+impl PublicKey {
+    /// Returns `true` if the signature matches the element of `G2`.
+    pub fn verify_g2<H: Into<G2Affine>>(&self, sig: &Signature, hash: H) -> bool {
+        Bls12::pairing(self.0, hash) == Bls12::pairing(G1Affine::one(), sig.0)
     }
 
     /// Returns `true` if the signature matches the message.
-    pub fn verify<M: AsRef<[u8]>>(&self, sig: &Signature<E>, msg: M) -> bool {
-        self.verify_g2(sig, hash_g2::<E, M>(msg))
+    pub fn verify<M: AsRef<[u8]>>(&self, sig: &Signature, msg: M) -> bool {
+        self.verify_g2(sig, hash_g2(msg))
     }
 
     /// Returns `true` if the decryption share matches the ciphertext.
-    pub fn verify_decryption_share(&self, share: &DecryptionShare<E>, ct: &Ciphertext<E>) -> bool {
+    pub fn verify_decryption_share(&self, share: &DecryptionShare, ct: &Ciphertext) -> bool {
         let Ciphertext(ref u, ref v, ref w) = *ct;
-        let hash = hash_g1_g2::<E, _>(*u, v);
-        E::pairing(share.0, hash) == E::pairing(self.0, *w)
+        let hash = hash_g1_g2(*u, v);
+        Bls12::pairing(share.0, hash) == Bls12::pairing(self.0, *w)
     }
 
     /// Encrypts the message.
-    pub fn encrypt<M: AsRef<[u8]>>(&self, msg: M) -> Ciphertext<E> {
-        let r: E::Fr = OsRng::new().expect(ERR_OS_RNG).gen();
-        let u = E::G1Affine::one().mul(r);
+    pub fn encrypt<M: AsRef<[u8]>>(&self, msg: M) -> Ciphertext {
+        let r: Fr = OsRng::new().expect(ERR_OS_RNG).gen();
+        let u = G1Affine::one().mul(r);
         let v: Vec<u8> = {
             let g = self.0.into_affine().mul(r);
-            xor_vec(&hash_bytes::<E>(g, msg.as_ref().len()), msg.as_ref())
+            xor_vec(&hash_bytes(g, msg.as_ref().len()), msg.as_ref())
         };
-        let w = hash_g1_g2::<E, _>(u, &v).into_affine().mul(r);
+        let w = hash_g1_g2(u, &v).into_affine().mul(r);
         Ciphertext(u, v, w)
     }
 
@@ -76,10 +75,10 @@ impl<E: Engine> PublicKey<E> {
 }
 
 /// A signature, or a signature share.
-#[derive(Deserialize, Serialize, Clone)]
-pub struct Signature<E: Engine>(#[serde(with = "serde_impl::projective")] E::G2);
+#[derive(Deserialize, Serialize, Clone, PartialEq, Eq)]
+pub struct Signature(#[serde(with = "serde_impl::projective")] G2);
 
-impl<E: Engine> fmt::Debug for Signature<E> {
+impl fmt::Debug for Signature {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let uncomp = self.0.into_affine().into_uncompressed();
         let bytes = uncomp.as_ref();
@@ -87,19 +86,13 @@ impl<E: Engine> fmt::Debug for Signature<E> {
     }
 }
 
-impl<E: Engine> PartialEq for Signature<E> {
-    fn eq(&self, other: &Signature<E>) -> bool {
-        self.0 == other.0
-    }
-}
-
-impl<E: Engine> Hash for Signature<E> {
+impl Hash for Signature {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.0.into_affine().into_compressed().as_ref().hash(state);
     }
 }
 
-impl<E: Engine> Signature<E> {
+impl Signature {
     pub fn parity(&self) -> bool {
         let uncomp = self.0.into_affine().into_uncompressed();
         let bytes = uncomp.as_ref();
@@ -111,58 +104,52 @@ impl<E: Engine> Signature<E> {
 }
 
 /// A secret key, or a secret key share.
-#[derive(Debug)]
-pub struct SecretKey<E: Engine>(E::Fr);
+#[derive(Debug, PartialEq, Eq)]
+pub struct SecretKey(Fr);
 
-impl<E: Engine> PartialEq for SecretKey<E> {
-    fn eq(&self, other: &SecretKey<E>) -> bool {
-        self.0 == other.0
-    }
-}
-
-impl<E: Engine> Default for SecretKey<E> {
+impl Default for SecretKey {
     fn default() -> Self {
-        SecretKey(E::Fr::zero())
+        SecretKey(Fr::zero())
     }
 }
 
-impl<E: Engine> SecretKey<E> {
+impl SecretKey {
     /// Creates a new secret key.
     pub fn new<R: Rng>(rng: &mut R) -> Self {
         SecretKey(rng.gen())
     }
 
-    pub fn from_value(f: E::Fr) -> Self {
+    pub fn from_value(f: Fr) -> Self {
         SecretKey(f)
     }
 
     /// Returns the matching public key.
-    pub fn public_key(&self) -> PublicKey<E> {
-        PublicKey(E::G1Affine::one().mul(self.0))
+    pub fn public_key(&self) -> PublicKey {
+        PublicKey(G1Affine::one().mul(self.0))
     }
 
-    /// Signs the given element of `E::G2`.
-    pub fn sign_g2<H: Into<E::G2Affine>>(&self, hash: H) -> Signature<E> {
+    /// Signs the given element of `G2`.
+    pub fn sign_g2<H: Into<G2Affine>>(&self, hash: H) -> Signature {
         Signature(hash.into().mul(self.0))
     }
 
     /// Signs the given message.
-    pub fn sign<M: AsRef<[u8]>>(&self, msg: M) -> Signature<E> {
-        self.sign_g2(hash_g2::<E, M>(msg))
+    pub fn sign<M: AsRef<[u8]>>(&self, msg: M) -> Signature {
+        self.sign_g2(hash_g2(msg))
     }
 
     /// Returns the decrypted text, or `None`, if the ciphertext isn't valid.
-    pub fn decrypt(&self, ct: &Ciphertext<E>) -> Option<Vec<u8>> {
+    pub fn decrypt(&self, ct: &Ciphertext) -> Option<Vec<u8>> {
         if !ct.verify() {
             return None;
         }
         let Ciphertext(ref u, ref v, _) = *ct;
         let g = u.into_affine().mul(self.0);
-        Some(xor_vec(&hash_bytes::<E>(g, v.len()), v))
+        Some(xor_vec(&hash_bytes(g, v.len()), v))
     }
 
     /// Returns a decryption share, or `None`, if the ciphertext isn't valid.
-    pub fn decrypt_share(&self, ct: &Ciphertext<E>) -> Option<DecryptionShare<E>> {
+    pub fn decrypt_share(&self, ct: &Ciphertext) -> Option<DecryptionShare> {
         if !ct.verify() {
             return None;
         }
@@ -171,20 +158,14 @@ impl<E: Engine> SecretKey<E> {
 }
 
 /// An encrypted message.
-#[derive(Deserialize, Serialize, Debug, Clone)]
-pub struct Ciphertext<E: Engine>(
-    #[serde(with = "serde_impl::projective")] E::G1,
+#[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq)]
+pub struct Ciphertext(
+    #[serde(with = "serde_impl::projective")] G1,
     Vec<u8>,
-    #[serde(with = "serde_impl::projective")] E::G2,
+    #[serde(with = "serde_impl::projective")] G2,
 );
 
-impl<E: Engine> PartialEq for Ciphertext<E> {
-    fn eq(&self, other: &Ciphertext<E>) -> bool {
-        self.0 == other.0 && self.1 == other.1 && self.2 == other.2
-    }
-}
-
-impl<E: Engine> Hash for Ciphertext<E> {
+impl Hash for Ciphertext {
     fn hash<H: Hasher>(&self, state: &mut H) {
         let Ciphertext(ref u, ref v, ref w) = *self;
         u.into_affine().into_compressed().as_ref().hash(state);
@@ -193,59 +174,47 @@ impl<E: Engine> Hash for Ciphertext<E> {
     }
 }
 
-impl<E: Engine> Ciphertext<E> {
+impl Ciphertext {
     /// Returns `true` if this is a valid ciphertext. This check is necessary to prevent
     /// chosen-ciphertext attacks.
     pub fn verify(&self) -> bool {
         let Ciphertext(ref u, ref v, ref w) = *self;
-        let hash = hash_g1_g2::<E, _>(*u, v);
-        E::pairing(E::G1Affine::one(), *w) == E::pairing(*u, hash)
+        let hash = hash_g1_g2(*u, v);
+        Bls12::pairing(G1Affine::one(), *w) == Bls12::pairing(*u, hash)
     }
 }
 
 /// A decryption share. A threshold of decryption shares can be used to decrypt a message.
-#[derive(Deserialize, Serialize, Debug)]
-pub struct DecryptionShare<E: Engine>(#[serde(with = "serde_impl::projective")] E::G1);
+#[derive(Deserialize, Serialize, Debug, PartialEq, Eq)]
+pub struct DecryptionShare(#[serde(with = "serde_impl::projective")] G1);
 
-impl<E: Engine> PartialEq for DecryptionShare<E> {
-    fn eq(&self, other: &DecryptionShare<E>) -> bool {
-        self.0 == other.0
-    }
-}
-
-impl<E: Engine> Hash for DecryptionShare<E> {
+impl Hash for DecryptionShare {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.0.into_affine().into_compressed().as_ref().hash(state);
     }
 }
 
 /// A public key and an associated set of public key shares.
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct PublicKeySet<E: Engine> {
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct PublicKeySet {
     /// The coefficients of a polynomial whose value at `0` is the "master key", and value at
     /// `i + 1` is key share number `i`.
-    commit: Commitment<E>,
+    commit: Commitment,
 }
 
-impl<E: Engine> PartialEq for PublicKeySet<E> {
-    fn eq(&self, other: &Self) -> bool {
-        self.commit == other.commit
-    }
-}
-
-impl<E: Engine> Hash for PublicKeySet<E> {
+impl Hash for PublicKeySet {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.commit.hash(state);
     }
 }
 
-impl<E: Engine> From<Commitment<E>> for PublicKeySet<E> {
-    fn from(commit: Commitment<E>) -> PublicKeySet<E> {
+impl From<Commitment> for PublicKeySet {
+    fn from(commit: Commitment) -> PublicKeySet {
         PublicKeySet { commit }
     }
 }
 
-impl<E: Engine> PublicKeySet<E> {
+impl PublicKeySet {
     /// Returns the threshold `t`: any set of `t + 1` signature shares can be combined into a full
     /// signature.
     pub fn threshold(&self) -> usize {
@@ -253,51 +222,51 @@ impl<E: Engine> PublicKeySet<E> {
     }
 
     /// Returns the public key.
-    pub fn public_key(&self) -> PublicKey<E> {
+    pub fn public_key(&self) -> PublicKey {
         PublicKey(self.commit.evaluate(0))
     }
 
     /// Returns the `i`-th public key share.
-    pub fn public_key_share<T: Into<<E::Fr as PrimeField>::Repr>>(&self, i: T) -> PublicKey<E> {
-        PublicKey(self.commit.evaluate(from_repr_plus_1::<E::Fr>(i.into())))
+    pub fn public_key_share<T: Into<FrRepr>>(&self, i: T) -> PublicKey {
+        PublicKey(self.commit.evaluate(from_repr_plus_1::<Fr>(i.into())))
     }
 
     /// Combines the shares into a signature that can be verified with the main public key.
-    pub fn combine_signatures<'a, ITR, IND>(&self, shares: ITR) -> Result<Signature<E>>
+    pub fn combine_signatures<'a, ITR, IND>(&self, shares: ITR) -> Result<Signature>
     where
-        ITR: IntoIterator<Item = (&'a IND, &'a Signature<E>)>,
-        IND: Into<<E::Fr as PrimeField>::Repr> + Clone + 'a,
+        ITR: IntoIterator<Item = (&'a IND, &'a Signature)>,
+        IND: Into<FrRepr> + Clone + 'a,
     {
         let samples = shares.into_iter().map(|(i, share)| (i, &share.0));
         Ok(Signature(interpolate(self.commit.degree() + 1, samples)?))
     }
 
     /// Combines the shares to decrypt the ciphertext.
-    pub fn decrypt<'a, ITR, IND>(&self, shares: ITR, ct: &Ciphertext<E>) -> Result<Vec<u8>>
+    pub fn decrypt<'a, ITR, IND>(&self, shares: ITR, ct: &Ciphertext) -> Result<Vec<u8>>
     where
-        ITR: IntoIterator<Item = (&'a IND, &'a DecryptionShare<E>)>,
-        IND: Into<<E::Fr as PrimeField>::Repr> + Clone + 'a,
+        ITR: IntoIterator<Item = (&'a IND, &'a DecryptionShare)>,
+        IND: Into<FrRepr> + Clone + 'a,
     {
         let samples = shares.into_iter().map(|(i, share)| (i, &share.0));
         let g = interpolate(self.commit.degree() + 1, samples)?;
-        Ok(xor_vec(&hash_bytes::<E>(g, ct.1.len()), &ct.1))
+        Ok(xor_vec(&hash_bytes(g, ct.1.len()), &ct.1))
     }
 }
 
 /// A secret key and an associated set of secret key shares.
-pub struct SecretKeySet<E: Engine> {
+pub struct SecretKeySet {
     /// The coefficients of a polynomial whose value at `0` is the "master key", and value at
     /// `i + 1` is key share number `i`.
-    poly: Poly<E>,
+    poly: Poly,
 }
 
-impl<E: Engine> From<Poly<E>> for SecretKeySet<E> {
-    fn from(poly: Poly<E>) -> SecretKeySet<E> {
+impl From<Poly> for SecretKeySet {
+    fn from(poly: Poly) -> SecretKeySet {
         SecretKeySet { poly }
     }
 }
 
-impl<E: Engine> SecretKeySet<E> {
+impl SecretKeySet {
     /// Creates a set of secret key shares, where any `threshold + 1` of them can collaboratively
     /// sign and decrypt.
     pub fn random<R: Rng>(threshold: usize, rng: &mut R) -> Self {
@@ -313,17 +282,14 @@ impl<E: Engine> SecretKeySet<E> {
     }
 
     /// Returns the `i`-th secret key share.
-    pub fn secret_key_share<T>(&self, i: T) -> ClearOnDrop<Box<SecretKey<E>>>
-    where
-        T: Into<<E::Fr as PrimeField>::Repr>,
-    {
+    pub fn secret_key_share<T: Into<FrRepr>>(&self, i: T) -> ClearOnDrop<Box<SecretKey>> {
         ClearOnDrop::new(Box::new(SecretKey(
-            self.poly.evaluate(from_repr_plus_1::<E::Fr>(i.into())),
+            self.poly.evaluate(from_repr_plus_1::<Fr>(i.into())),
         )))
     }
 
     /// Returns the corresponding public key set. That information can be shared publicly.
-    pub fn public_keys(&self) -> PublicKeySet<E> {
+    pub fn public_keys(&self) -> PublicKeySet {
         PublicKeySet {
             commit: self.poly.commitment(),
         }
@@ -331,13 +297,13 @@ impl<E: Engine> SecretKeySet<E> {
 
     /// Returns the secret master key.
     #[cfg(test)]
-    fn secret_key(&self) -> SecretKey<E> {
+    fn secret_key(&self) -> SecretKey {
         SecretKey(self.poly.evaluate(0))
     }
 }
 
 /// Returns a hash of the given message in `G2`.
-fn hash_g2<E: Engine, M: AsRef<[u8]>>(msg: M) -> E::G2 {
+fn hash_g2<M: AsRef<[u8]>>(msg: M) -> G2 {
     let digest = digest::digest(&digest::SHA256, msg.as_ref());
     let seed = <[u32; CHACHA_RNG_SEED_SIZE]>::init_with_indices(|i| {
         BigEndian::read_u32(&digest.as_ref()[(4 * i)..(4 * i + 4)])
@@ -347,7 +313,7 @@ fn hash_g2<E: Engine, M: AsRef<[u8]>>(msg: M) -> E::G2 {
 }
 
 /// Returns a hash of the group element and message, in the second group.
-fn hash_g1_g2<E: Engine, M: AsRef<[u8]>>(g1: E::G1, msg: M) -> E::G2 {
+fn hash_g1_g2<M: AsRef<[u8]>>(g1: G1, msg: M) -> G2 {
     // If the message is large, hash it, otherwise copy it.
     // TODO: Benchmark and optimize the threshold.
     let mut msg = if msg.as_ref().len() > 64 {
@@ -357,11 +323,11 @@ fn hash_g1_g2<E: Engine, M: AsRef<[u8]>>(g1: E::G1, msg: M) -> E::G2 {
         msg.as_ref().to_vec()
     };
     msg.extend(g1.into_affine().into_compressed().as_ref());
-    hash_g2::<E, _>(&msg)
+    hash_g2(&msg)
 }
 
 /// Returns a hash of the group element with the specified length in bytes.
-fn hash_bytes<E: Engine>(g1: E::G1, len: usize) -> Vec<u8> {
+fn hash_bytes(g1: G1, len: usize) -> Vec<u8> {
     let digest = digest::digest(&digest::SHA256, g1.into_affine().into_compressed().as_ref());
     let seed = <[u32; CHACHA_RNG_SEED_SIZE]>::init_with_indices(|i| {
         BigEndian::read_u32(&digest.as_ref()[(4 * i)..(4 * i + 4)])
@@ -423,14 +389,13 @@ mod tests {
 
     use std::collections::BTreeMap;
 
-    use pairing::bls12_381::Bls12;
     use rand;
 
     #[test]
     fn test_simple_sig() {
         let mut rng = rand::thread_rng();
-        let sk0 = SecretKey::<Bls12>::new(&mut rng);
-        let sk1 = SecretKey::<Bls12>::new(&mut rng);
+        let sk0 = SecretKey::new(&mut rng);
+        let sk1 = SecretKey::new(&mut rng);
         let pk0 = sk0.public_key();
         let msg0 = b"Real news";
         let msg1 = b"Fake news";
@@ -442,7 +407,7 @@ mod tests {
     #[test]
     fn test_threshold_sig() {
         let mut rng = rand::thread_rng();
-        let sk_set = SecretKeySet::<Bls12>::random(3, &mut rng);
+        let sk_set = SecretKeySet::random(3, &mut rng);
         let pk_set = sk_set.public_keys();
 
         // Make sure the keys are different, and the first coefficient is the main key.
@@ -484,8 +449,8 @@ mod tests {
     #[test]
     fn test_simple_enc() {
         let mut rng = rand::thread_rng();
-        let sk_bob = SecretKey::<Bls12>::new(&mut rng);
-        let sk_eve = SecretKey::<Bls12>::new(&mut rng);
+        let sk_bob = SecretKey::new(&mut rng);
+        let sk_eve = SecretKey::new(&mut rng);
         let pk_bob = sk_bob.public_key();
         let msg = b"Muffins in the canteen today! Don't tell Eve!";
         let ciphertext = pk_bob.encrypt(&msg[..]);
@@ -501,7 +466,7 @@ mod tests {
 
         // Eve tries to trick Bob into decrypting `msg` xor `v`, but it doesn't validate.
         let Ciphertext(u, v, w) = ciphertext;
-        let fake_ciphertext = Ciphertext::<Bls12>(u, vec![0; v.len()], w);
+        let fake_ciphertext = Ciphertext(u, vec![0; v.len()], w);
         assert!(!fake_ciphertext.verify());
         assert_eq!(None, sk_bob.decrypt(&fake_ciphertext));
     }
@@ -509,7 +474,7 @@ mod tests {
     #[test]
     fn test_threshold_enc() {
         let mut rng = rand::thread_rng();
-        let sk_set = SecretKeySet::<Bls12>::random(3, &mut rng);
+        let sk_set = SecretKeySet::random(3, &mut rng);
         let pk_set = sk_set.public_keys();
         let msg = b"Totally real news";
         let ciphertext = pk_set.public_key().encrypt(&msg[..]);
@@ -546,10 +511,9 @@ mod tests {
         let msg_end0: Vec<u8> = msg.iter().chain(b"end0").cloned().collect();
         let msg_end1: Vec<u8> = msg.iter().chain(b"end1").cloned().collect();
 
-        let hash = hash_g2::<Bls12, _>;
-        assert_eq!(hash(&msg), hash(&msg));
-        assert_ne!(hash(&msg), hash(&msg_end0));
-        assert_ne!(hash(&msg_end0), hash(&msg_end1));
+        assert_eq!(hash_g2(&msg), hash_g2(&msg));
+        assert_ne!(hash_g2(&msg), hash_g2(&msg_end0));
+        assert_ne!(hash_g2(&msg_end0), hash_g2(&msg_end1));
     }
 
     /// Some basic sanity checks for the `hash_g1_g2` function.
@@ -562,11 +526,10 @@ mod tests {
         let g0 = rng.gen();
         let g1 = rng.gen();
 
-        let hash = hash_g1_g2::<Bls12, _>;
-        assert_eq!(hash(g0, &msg), hash(g0, &msg));
-        assert_ne!(hash(g0, &msg), hash(g0, &msg_end0));
-        assert_ne!(hash(g0, &msg_end0), hash(g0, &msg_end1));
-        assert_ne!(hash(g0, &msg), hash(g1, &msg));
+        assert_eq!(hash_g1_g2(g0, &msg), hash_g1_g2(g0, &msg));
+        assert_ne!(hash_g1_g2(g0, &msg), hash_g1_g2(g0, &msg_end0));
+        assert_ne!(hash_g1_g2(g0, &msg_end0), hash_g1_g2(g0, &msg_end1));
+        assert_ne!(hash_g1_g2(g0, &msg), hash_g1_g2(g1, &msg));
     }
 
     /// Some basic sanity checks for the `hash_bytes` function.
@@ -575,7 +538,7 @@ mod tests {
         let mut rng = rand::thread_rng();
         let g0 = rng.gen();
         let g1 = rng.gen();
-        let hash = hash_bytes::<Bls12>;
+        let hash = hash_bytes;
         assert_eq!(hash(g0, 5), hash(g0, 5));
         assert_ne!(hash(g0, 5), hash(g1, 5));
         assert_eq!(5, hash(g0, 5).len());
@@ -588,7 +551,7 @@ mod tests {
         use bincode;
 
         let mut rng = rand::thread_rng();
-        let sk = SecretKey::<Bls12>::new(&mut rng);
+        let sk = SecretKey::new(&mut rng);
         let sig = sk.sign("Please sign here: ______");
         let pk = sk.public_key();
         let ser_pk = bincode::serialize(&pk).expect("serialize public key");

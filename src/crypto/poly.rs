@@ -20,27 +20,22 @@ use std::borrow::Borrow;
 use std::hash::{Hash, Hasher};
 use std::{cmp, iter, ops};
 
-use pairing::{CurveAffine, CurveProjective, Engine, Field, PrimeField};
+use pairing::bls12_381::{Fr, FrRepr, G1, G1Affine};
+use pairing::{CurveAffine, CurveProjective, Field, PrimeField};
 use rand::Rng;
 
 /// A univariate polynomial in the prime field.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct Poly<E: Engine> {
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct Poly {
     /// The coefficients of a polynomial.
     #[serde(with = "super::serde_impl::field_vec")]
-    coeff: Vec<E::Fr>,
+    coeff: Vec<Fr>,
 }
 
-impl<E: Engine> PartialEq for Poly<E> {
-    fn eq(&self, other: &Self) -> bool {
-        self.coeff == other.coeff
-    }
-}
-
-impl<B: Borrow<Poly<E>>, E: Engine> ops::AddAssign<B> for Poly<E> {
+impl<B: Borrow<Poly>> ops::AddAssign<B> for Poly {
     fn add_assign(&mut self, rhs: B) {
         let len = cmp::max(self.coeff.len(), rhs.borrow().coeff.len());
-        self.coeff.resize(len, E::Fr::zero());
+        self.coeff.resize(len, Fr::zero());
         for (self_c, rhs_c) in self.coeff.iter_mut().zip(&rhs.borrow().coeff) {
             self_c.add_assign(rhs_c);
         }
@@ -48,27 +43,27 @@ impl<B: Borrow<Poly<E>>, E: Engine> ops::AddAssign<B> for Poly<E> {
     }
 }
 
-impl<'a, B: Borrow<Poly<E>>, E: Engine> ops::Add<B> for &'a Poly<E> {
-    type Output = Poly<E>;
+impl<'a, B: Borrow<Poly>> ops::Add<B> for &'a Poly {
+    type Output = Poly;
 
-    fn add(self, rhs: B) -> Poly<E> {
+    fn add(self, rhs: B) -> Poly {
         (*self).clone() + rhs
     }
 }
 
-impl<B: Borrow<Poly<E>>, E: Engine> ops::Add<B> for Poly<E> {
-    type Output = Poly<E>;
+impl<B: Borrow<Poly>> ops::Add<B> for Poly {
+    type Output = Poly;
 
-    fn add(mut self, rhs: B) -> Poly<E> {
+    fn add(mut self, rhs: B) -> Poly {
         self += rhs;
         self
     }
 }
 
-impl<B: Borrow<Poly<E>>, E: Engine> ops::SubAssign<B> for Poly<E> {
+impl<B: Borrow<Poly>> ops::SubAssign<B> for Poly {
     fn sub_assign(&mut self, rhs: B) {
         let len = cmp::max(self.coeff.len(), rhs.borrow().coeff.len());
-        self.coeff.resize(len, E::Fr::zero());
+        self.coeff.resize(len, Fr::zero());
         for (self_c, rhs_c) in self.coeff.iter_mut().zip(&rhs.borrow().coeff) {
             self_c.sub_assign(rhs_c);
         }
@@ -76,18 +71,18 @@ impl<B: Borrow<Poly<E>>, E: Engine> ops::SubAssign<B> for Poly<E> {
     }
 }
 
-impl<'a, B: Borrow<Poly<E>>, E: Engine> ops::Sub<B> for &'a Poly<E> {
-    type Output = Poly<E>;
+impl<'a, B: Borrow<Poly>> ops::Sub<B> for &'a Poly {
+    type Output = Poly;
 
-    fn sub(self, rhs: B) -> Poly<E> {
+    fn sub(self, rhs: B) -> Poly {
         (*self).clone() - rhs
     }
 }
 
-impl<B: Borrow<Poly<E>>, E: Engine> ops::Sub<B> for Poly<E> {
-    type Output = Poly<E>;
+impl<B: Borrow<Poly>> ops::Sub<B> for Poly {
+    type Output = Poly;
 
-    fn sub(mut self, rhs: B) -> Poly<E> {
+    fn sub(mut self, rhs: B) -> Poly {
         self -= rhs;
         self
     }
@@ -95,13 +90,13 @@ impl<B: Borrow<Poly<E>>, E: Engine> ops::Sub<B> for Poly<E> {
 
 // Clippy thinks using any `+` and `-` in a `Mul` implementation is suspicious.
 #[cfg_attr(feature = "cargo-clippy", allow(suspicious_arithmetic_impl))]
-impl<'a, B: Borrow<Poly<E>>, E: Engine> ops::Mul<B> for &'a Poly<E> {
-    type Output = Poly<E>;
+impl<'a, B: Borrow<Poly>> ops::Mul<B> for &'a Poly {
+    type Output = Poly;
 
     fn mul(self, rhs: B) -> Self::Output {
         let coeff = (0..(self.coeff.len() + rhs.borrow().coeff.len() - 1))
             .map(|i| {
-                let mut c = E::Fr::zero();
+                let mut c = Fr::zero();
                 for j in i.saturating_sub(rhs.borrow().degree())..(1 + cmp::min(i, self.degree())) {
                     let mut s = self.coeff[j];
                     s.mul_assign(&rhs.borrow().coeff[i - j]);
@@ -114,21 +109,21 @@ impl<'a, B: Borrow<Poly<E>>, E: Engine> ops::Mul<B> for &'a Poly<E> {
     }
 }
 
-impl<B: Borrow<Poly<E>>, E: Engine> ops::Mul<B> for Poly<E> {
-    type Output = Poly<E>;
+impl<B: Borrow<Poly>> ops::Mul<B> for Poly {
+    type Output = Poly;
 
     fn mul(self, rhs: B) -> Self::Output {
         &self * rhs
     }
 }
 
-impl<B: Borrow<Self>, E: Engine> ops::MulAssign<B> for Poly<E> {
+impl<B: Borrow<Self>> ops::MulAssign<B> for Poly {
     fn mul_assign(&mut self, rhs: B) {
         *self = &*self * rhs;
     }
 }
 
-impl<E: Engine> Poly<E> {
+impl Poly {
     /// Creates a random polynomial.
     pub fn random<R: Rng>(degree: usize, rng: &mut R) -> Self {
         Poly {
@@ -147,7 +142,7 @@ impl<E: Engine> Poly<E> {
     }
 
     /// Returns the polynomial with constant value `c`.
-    pub fn constant(c: E::Fr) -> Self {
+    pub fn constant(c: Fr) -> Self {
         Poly { coeff: vec![c] }
     }
 
@@ -159,9 +154,9 @@ impl<E: Engine> Poly<E> {
     /// Returns the (monic) monomial "`x.pow(degree)`".
     pub fn monomial(degree: usize) -> Self {
         Poly {
-            coeff: iter::repeat(E::Fr::zero())
+            coeff: iter::repeat(Fr::zero())
                 .take(degree)
-                .chain(iter::once(E::Fr::one()))
+                .chain(iter::once(Fr::one()))
                 .collect(),
         }
     }
@@ -170,14 +165,14 @@ impl<E: Engine> Poly<E> {
     /// `(x, f(x))`.
     pub fn interpolate<'a, T, I>(samples_repr: I) -> Self
     where
-        I: IntoIterator<Item = (&'a T, &'a E::Fr)>,
-        T: Into<<E::Fr as PrimeField>::Repr> + Clone + 'a,
+        I: IntoIterator<Item = (&'a T, &'a Fr)>,
+        T: Into<FrRepr> + Clone + 'a,
     {
-        let convert = |(x_repr, y): (&T, &E::Fr)| {
-            let x = E::Fr::from_repr(x_repr.clone().into()).expect("invalid index");
+        let convert = |(x_repr, y): (&T, &Fr)| {
+            let x = Fr::from_repr(x_repr.clone().into()).expect("invalid index");
             (x, *y)
         };
-        let samples: Vec<(E::Fr, E::Fr)> = samples_repr.into_iter().map(convert).collect();
+        let samples: Vec<(Fr, Fr)> = samples_repr.into_iter().map(convert).collect();
         Self::compute_interpolation(&samples)
     }
 
@@ -187,12 +182,12 @@ impl<E: Engine> Poly<E> {
     }
 
     /// Returns the value at the point `i`.
-    pub fn evaluate<T: Into<<E::Fr as PrimeField>::Repr>>(&self, i: T) -> E::Fr {
+    pub fn evaluate<T: Into<FrRepr>>(&self, i: T) -> Fr {
         let mut result = match self.coeff.last() {
-            None => return E::Fr::zero(),
+            None => return Fr::zero(),
             Some(c) => *c,
         };
-        let x = E::Fr::from_repr(i.into()).expect("invalid index");
+        let x = Fr::from_repr(i.into()).expect("invalid index");
         for c in self.coeff.iter().rev().skip(1) {
             result.mul_assign(&x);
             result.add_assign(c);
@@ -201,8 +196,8 @@ impl<E: Engine> Poly<E> {
     }
 
     /// Returns the corresponding commitment.
-    pub fn commitment(&self) -> Commitment<E> {
-        let to_g1 = |c: &E::Fr| E::G1Affine::one().mul(*c);
+    pub fn commitment(&self) -> Commitment {
+        let to_g1 = |c: &Fr| G1Affine::one().mul(*c);
         Commitment {
             coeff: self.coeff.iter().map(to_g1).collect(),
         }
@@ -217,7 +212,7 @@ impl<E: Engine> Poly<E> {
 
     /// Returns the unique polynomial `f` of degree `samples.len() - 1` with the given values
     /// `(x, f(x))`.
-    fn compute_interpolation(samples: &[(E::Fr, E::Fr)]) -> Self {
+    fn compute_interpolation(samples: &[(Fr, Fr)]) -> Self {
         if samples.is_empty() {
             return Poly::zero();
         } else if samples.len() == 1 {
@@ -234,7 +229,7 @@ impl<E: Engine> Poly<E> {
     }
 
     /// Returns the Lagrange base polynomial that is `1` in `p` and `0` in every `samples[i].0`.
-    fn lagrange(p: E::Fr, samples: &[(E::Fr, E::Fr)]) -> Self {
+    fn lagrange(p: Fr, samples: &[(Fr, Fr)]) -> Self {
         let mut result = Self::one();
         for &(sx, _) in samples {
             let mut denom = p;
@@ -247,20 +242,14 @@ impl<E: Engine> Poly<E> {
 }
 
 /// A commitment to a univariate polynomial.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Commitment<E: Engine> {
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct Commitment {
     /// The coefficients of the polynomial.
     #[serde(with = "super::serde_impl::projective_vec")]
-    coeff: Vec<E::G1>,
+    coeff: Vec<G1>,
 }
 
-impl<E: Engine> PartialEq for Commitment<E> {
-    fn eq(&self, other: &Self) -> bool {
-        self.coeff == other.coeff
-    }
-}
-
-impl<E: Engine> Hash for Commitment<E> {
+impl Hash for Commitment {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.coeff.len().hash(state);
         for c in &self.coeff {
@@ -269,10 +258,10 @@ impl<E: Engine> Hash for Commitment<E> {
     }
 }
 
-impl<B: Borrow<Commitment<E>>, E: Engine> ops::AddAssign<B> for Commitment<E> {
+impl<B: Borrow<Commitment>> ops::AddAssign<B> for Commitment {
     fn add_assign(&mut self, rhs: B) {
         let len = cmp::max(self.coeff.len(), rhs.borrow().coeff.len());
-        self.coeff.resize(len, E::G1::zero());
+        self.coeff.resize(len, G1::zero());
         for (self_c, rhs_c) in self.coeff.iter_mut().zip(&rhs.borrow().coeff) {
             self_c.add_assign(rhs_c);
         }
@@ -280,36 +269,36 @@ impl<B: Borrow<Commitment<E>>, E: Engine> ops::AddAssign<B> for Commitment<E> {
     }
 }
 
-impl<'a, B: Borrow<Commitment<E>>, E: Engine> ops::Add<B> for &'a Commitment<E> {
-    type Output = Commitment<E>;
+impl<'a, B: Borrow<Commitment>> ops::Add<B> for &'a Commitment {
+    type Output = Commitment;
 
-    fn add(self, rhs: B) -> Commitment<E> {
+    fn add(self, rhs: B) -> Commitment {
         (*self).clone() + rhs
     }
 }
 
-impl<B: Borrow<Commitment<E>>, E: Engine> ops::Add<B> for Commitment<E> {
-    type Output = Commitment<E>;
+impl<B: Borrow<Commitment>> ops::Add<B> for Commitment {
+    type Output = Commitment;
 
-    fn add(mut self, rhs: B) -> Commitment<E> {
+    fn add(mut self, rhs: B) -> Commitment {
         self += rhs;
         self
     }
 }
 
-impl<E: Engine> Commitment<E> {
+impl Commitment {
     /// Returns the polynomial's degree.
     pub fn degree(&self) -> usize {
         self.coeff.len() - 1
     }
 
     /// Returns the `i`-th public key share.
-    pub fn evaluate<T: Into<<E::Fr as PrimeField>::Repr>>(&self, i: T) -> E::G1 {
+    pub fn evaluate<T: Into<FrRepr>>(&self, i: T) -> G1 {
         let mut result = match self.coeff.last() {
-            None => return E::G1::zero(),
+            None => return G1::zero(),
             Some(c) => *c,
         };
-        let x = E::Fr::from_repr(i.into()).expect("invalid index");
+        let x = Fr::from_repr(i.into()).expect("invalid index");
         for c in self.coeff.iter().rev().skip(1) {
             result.mul_assign(x);
             result.add_assign(c);
@@ -330,15 +319,15 @@ impl<E: Engine> Commitment<E> {
 /// This can be used for Verifiable Secret Sharing and Distributed Key Generation. See the module
 /// documentation for details.
 #[derive(Debug, Clone)]
-pub struct BivarPoly<E: Engine> {
+pub struct BivarPoly {
     /// The polynomial's degree in each of the two variables.
     degree: usize,
     /// The coefficients of the polynomial. Coefficient `(i, j)` for `i <= j` is in position
     /// `j * (j + 1) / 2 + i`.
-    coeff: Vec<E::Fr>,
+    coeff: Vec<Fr>,
 }
 
-impl<E: Engine> BivarPoly<E> {
+impl BivarPoly {
     /// Creates a random polynomial.
     pub fn random<R: Rng>(degree: usize, rng: &mut R) -> Self {
         BivarPoly {
@@ -353,11 +342,11 @@ impl<E: Engine> BivarPoly<E> {
     }
 
     /// Returns the polynomial's value at the point `(x, y)`.
-    pub fn evaluate<T: Into<<E::Fr as PrimeField>::Repr>>(&self, x: T, y: T) -> E::Fr {
+    pub fn evaluate<T: Into<FrRepr>>(&self, x: T, y: T) -> Fr {
         let x_pow = self.powers(x);
         let y_pow = self.powers(y);
         // TODO: Can we save a few multiplication steps here due to the symmetry?
-        let mut result = E::Fr::zero();
+        let mut result = Fr::zero();
         for (i, x_pow_i) in x_pow.into_iter().enumerate() {
             for (j, y_pow_j) in y_pow.iter().enumerate() {
                 let mut summand = self.coeff[coeff_pos(i, j)];
@@ -370,11 +359,11 @@ impl<E: Engine> BivarPoly<E> {
     }
 
     /// Returns the `x`-th row, as a univariate polynomial.
-    pub fn row<T: Into<<E::Fr as PrimeField>::Repr>>(&self, x: T) -> Poly<E> {
+    pub fn row<T: Into<FrRepr>>(&self, x: T) -> Poly {
         let x_pow = self.powers(x);
-        let coeff: Vec<E::Fr> = (0..=self.degree)
+        let coeff: Vec<Fr> = (0..=self.degree)
             .map(|i| {
-                let mut result = E::Fr::zero();
+                let mut result = Fr::zero();
                 for (j, x_pow_j) in x_pow.iter().enumerate() {
                     let mut summand = self.coeff[coeff_pos(i, j)];
                     summand.mul_assign(x_pow_j);
@@ -387,8 +376,8 @@ impl<E: Engine> BivarPoly<E> {
     }
 
     /// Returns the corresponding commitment. That information can be shared publicly.
-    pub fn commitment(&self) -> BivarCommitment<E> {
-        let to_pub = |c: &E::Fr| E::G1Affine::one().mul(*c);
+    pub fn commitment(&self) -> BivarCommitment {
+        let to_pub = |c: &Fr| G1Affine::one().mul(*c);
         BivarCommitment {
             degree: self.degree,
             coeff: self.coeff.iter().map(to_pub).collect(),
@@ -396,22 +385,22 @@ impl<E: Engine> BivarPoly<E> {
     }
 
     /// Returns the `0`-th to `degree`-th power of `x`.
-    fn powers<T: Into<<E::Fr as PrimeField>::Repr>>(&self, x_repr: T) -> Vec<E::Fr> {
+    fn powers<T: Into<FrRepr>>(&self, x_repr: T) -> Vec<Fr> {
         powers(x_repr, self.degree)
     }
 }
 
 /// A commitment to a bivariate polynomial.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BivarCommitment<E: Engine> {
+pub struct BivarCommitment {
     /// The polynomial's degree in each of the two variables.
     degree: usize,
     /// The commitments to the coefficients.
     #[serde(with = "super::serde_impl::projective_vec")]
-    coeff: Vec<E::G1>,
+    coeff: Vec<G1>,
 }
 
-impl<E: Engine> Hash for BivarCommitment<E> {
+impl Hash for BivarCommitment {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.degree.hash(state);
         for c in &self.coeff {
@@ -420,18 +409,18 @@ impl<E: Engine> Hash for BivarCommitment<E> {
     }
 }
 
-impl<E: Engine> BivarCommitment<E> {
+impl BivarCommitment {
     /// Returns the polynomial's degree: It is the same in both variables.
     pub fn degree(&self) -> usize {
         self.degree
     }
 
     /// Returns the commitment's value at the point `(x, y)`.
-    pub fn evaluate<T: Into<<E::Fr as PrimeField>::Repr>>(&self, x: T, y: T) -> E::G1 {
+    pub fn evaluate<T: Into<FrRepr>>(&self, x: T, y: T) -> G1 {
         let x_pow = self.powers(x);
         let y_pow = self.powers(y);
         // TODO: Can we save a few multiplication steps here due to the symmetry?
-        let mut result = E::G1::zero();
+        let mut result = G1::zero();
         for (i, x_pow_i) in x_pow.into_iter().enumerate() {
             for (j, y_pow_j) in y_pow.iter().enumerate() {
                 let mut summand = self.coeff[coeff_pos(i, j)];
@@ -444,11 +433,11 @@ impl<E: Engine> BivarCommitment<E> {
     }
 
     /// Returns the `x`-th row, as a commitment to a univariate polynomial.
-    pub fn row<T: Into<<E::Fr as PrimeField>::Repr>>(&self, x: T) -> Commitment<E> {
+    pub fn row<T: Into<FrRepr>>(&self, x: T) -> Commitment {
         let x_pow = self.powers(x);
-        let coeff: Vec<E::G1> = (0..=self.degree)
+        let coeff: Vec<G1> = (0..=self.degree)
             .map(|i| {
-                let mut result = E::G1::zero();
+                let mut result = G1::zero();
                 for (j, x_pow_j) in x_pow.iter().enumerate() {
                     let mut summand = self.coeff[coeff_pos(i, j)];
                     summand.mul_assign(*x_pow_j);
@@ -461,7 +450,7 @@ impl<E: Engine> BivarCommitment<E> {
     }
 
     /// Returns the `0`-th to `degree`-th power of `x`.
-    fn powers<T: Into<<E::Fr as PrimeField>::Repr>>(&self, x_repr: T) -> Vec<E::Fr> {
+    fn powers<T: Into<FrRepr>>(&self, x_repr: T) -> Vec<Fr> {
         powers(x_repr, self.degree)
     }
 }
@@ -495,11 +484,9 @@ mod tests {
 
     use super::{coeff_pos, BivarPoly, Poly};
 
-    use pairing::bls12_381::Bls12;
-    use pairing::{CurveAffine, Engine, Field, PrimeField};
+    use pairing::bls12_381::{Fr, G1Affine};
+    use pairing::{CurveAffine, Field, PrimeField};
     use rand;
-
-    type Fr = <Bls12 as Engine>::Fr;
 
     fn fr(x: i64) -> Fr {
         let mut result = Fr::from_repr((x.abs() as u64).into()).unwrap();
@@ -527,7 +514,7 @@ mod tests {
     #[test]
     fn poly() {
         // The polynomial "`5 * x.pow(3) + x.pow(1) - 2`".
-        let poly: Poly<Bls12> =
+        let poly =
             Poly::monomial(3) * Poly::constant(fr(5)) + Poly::monomial(1) - Poly::constant(fr(2));
         let coeff = vec![fr(-2), fr(1), fr(0), fr(5)];
         assert_eq!(Poly { coeff }, poly);
@@ -554,7 +541,7 @@ mod tests {
         // For distributed key generation, a number of dealers, only one of who needs to be honest,
         // generates random bivariate polynomials and publicly commits to them. In partice, the
         // dealers can e.g. be any `faulty_num + 1` nodes.
-        let bi_polys: Vec<BivarPoly<Bls12>> = (0..dealer_num)
+        let bi_polys: Vec<BivarPoly> = (0..dealer_num)
             .map(|_| BivarPoly::random(faulty_num, &mut rng))
             .collect();
         let pub_bi_commits: Vec<_> = bi_polys.iter().map(BivarPoly::commitment).collect();
@@ -573,7 +560,7 @@ mod tests {
                 // Node `s` receives the `s`-th value and verifies it.
                 for s in 1..=node_num {
                     let val = row_poly.evaluate(s as u64);
-                    let val_g1 = <Bls12 as Engine>::G1Affine::one().mul(val);
+                    let val_g1 = G1Affine::one().mul(val);
                     assert_eq!(bi_commit.evaluate(m as u64, s as u64), val_g1);
                     // The node can't verify this directly, but it should have the correct value:
                     assert_eq!(bi_poly.evaluate(m as u64, s as u64), val);
