@@ -8,6 +8,7 @@ use std::fmt;
 use std::hash::{Hash, Hasher};
 
 use byteorder::{BigEndian, ByteOrder};
+use clear_on_drop::ClearOnDrop;
 use init_with::InitWith;
 use pairing::{CurveAffine, CurveProjective, Engine, Field, PrimeField};
 use rand::{ChaChaRng, OsRng, Rng, SeedableRng};
@@ -119,10 +120,6 @@ impl<E: Engine> PartialEq for SecretKey<E> {
     }
 }
 
-// We implement the `Default` trait to satisfy the trait bound for the
-// type `ClearOnDrop` from the `clear_on_drop` crate. The value produced by
-// `SecretKey::default()` is used to overwrite the zeroed out memory for
-// instances of `ClearOnDrop<SecretKey>` when they go out of scope.
 impl<E: Engine> Default for SecretKey<E> {
     fn default() -> SecretKey<E> {
         SecretKey(E::Fr::zero())
@@ -300,8 +297,13 @@ impl<E: Engine> SecretKeySet<E> {
     }
 
     /// Returns the `i`-th secret key share.
-    pub fn secret_key_share<T: Into<<E::Fr as PrimeField>::Repr>>(&self, i: T) -> SecretKey<E> {
-        SecretKey(self.poly.evaluate(from_repr_plus_1::<E::Fr>(i.into())))
+    pub fn secret_key_share<T>(&self, i: T) -> ClearOnDrop<Box<SecretKey<E>>>
+    where
+        T: Into<<E::Fr as PrimeField>::Repr>
+    {
+        ClearOnDrop::new(Box::new(
+            SecretKey(self.poly.evaluate(from_repr_plus_1::<E::Fr>(i.into())))
+        ))
     }
 
     /// Returns the corresponding public key set. That information can be shared publicly.
@@ -433,9 +435,9 @@ mod tests {
         assert_ne!(pk_set.public_key(), pk_set.public_key_share(2));
 
         // Make sure we don't hand out the main secret key to anyone.
-        assert_ne!(sk_set.secret_key(), sk_set.secret_key_share(0));
-        assert_ne!(sk_set.secret_key(), sk_set.secret_key_share(1));
-        assert_ne!(sk_set.secret_key(), sk_set.secret_key_share(2));
+        assert_ne!(sk_set.secret_key(), *sk_set.secret_key_share(0));
+        assert_ne!(sk_set.secret_key(), *sk_set.secret_key_share(1));
+        assert_ne!(sk_set.secret_key(), *sk_set.secret_key_share(2));
 
         let msg = "Totally real news";
 

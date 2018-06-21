@@ -131,13 +131,19 @@ impl<'a, D: DistAlgorithm + 'a> Iterator for OutputIter<'a, D> {
 }
 
 /// Common data shared between algorithms.
+///
+/// *NOTE* `NetworkInfo` requires its `secret_key` to be heap allocated and
+/// wrapped by the `ClearOnDrop` type from the `clear_on_drop` crate. We
+/// use this construction to zero out the section of heap memory that is
+/// allocated for `secret_key` when the corresponding instance of
+/// `NetworkInfo` goes out of scope.
 #[derive(Debug)]
 pub struct NetworkInfo<NodeUid> {
     our_uid: NodeUid,
     all_uids: BTreeSet<NodeUid>,
     num_nodes: usize,
     num_faulty: usize,
-    secret_key: SecretKey<Bls12>,
+    secret_key: ClearOnDrop<Box<SecretKey<Bls12>>>,
     public_key_set: PublicKeySet<Bls12>,
     node_indices: BTreeMap<NodeUid, usize>,
 }
@@ -146,7 +152,7 @@ impl<NodeUid: Clone + Ord> NetworkInfo<NodeUid> {
     pub fn new(
         our_uid: NodeUid,
         all_uids: BTreeSet<NodeUid>,
-        secret_key: SecretKey<Bls12>,
+        secret_key: ClearOnDrop<Box<SecretKey<Bls12>>>,
         public_key_set: PublicKeySet<Bls12>,
     ) -> Self {
         if !all_uids.contains(&our_uid) {
@@ -212,12 +218,5 @@ impl<NodeUid: Clone + Ord> NetworkInfo<NodeUid> {
     /// independent from the public key, so that reusing keys would be safer.
     pub fn invocation_id(&self) -> Vec<u8> {
         self.public_key_set.public_key().to_bytes()
-    }
-}
-
-// Overwrites the portion of memory that was allocated for `secret_key`.
-impl<NodeUid: Clone + Eq + Hash> Drop for NetworkInfo<NodeUid> {
-    fn drop(&mut self) {
-        let _ = ClearOnDrop::new(&mut self.secret_key);
     }
 }
