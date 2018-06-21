@@ -60,6 +60,9 @@ pub struct HoneyBadger<Tx, NodeUid> {
     decrypted_selections: BTreeMap<NodeUid, Vec<u8>>,
     /// Ciphertexts output by Common Subset in an epoch.
     ciphertexts: BTreeMap<u64, BTreeMap<NodeUid, Ciphertext<Bls12>>>,
+    /// Those shares in `received_shares` that could not be verified on reception due to the absense
+    /// of the proposer's ciphertext, in `(epoch, proposer_id, sender_id)` format.
+    pending_verification: BTreeMap<u64, BTreeMap<NodeUid, Vec<NodeUid>>>,
 }
 
 impl<Tx, NodeUid> DistAlgorithm for HoneyBadger<Tx, NodeUid>
@@ -143,6 +146,7 @@ where
             received_shares: BTreeMap::new(),
             decrypted_selections: BTreeMap::new(),
             ciphertexts: BTreeMap::new(),
+            pending_verification: BTreeMap::new(),
         };
         honey_badger.propose()?;
         Ok(honey_badger)
@@ -230,13 +234,33 @@ where
         proposer_id: NodeUid,
         share: DecryptionShare<Bls12>,
     ) -> HoneyBadgerResult<()> {
+        if let Some(ciphertext) = self
+            .ciphertexts
+            .get(&self.epoch)
+            .and_then(|cts| cts.get(&proposer_id))
+        {
+            if !self.verify_decryption_share(sender_id, &share, ciphertext) {
+                // TODO: Log the incorrect sender.
+                return Ok(());
+            }
+        } else {
+            // The ciphertext is not yet available. Flag this share to be verified when the
+            // ciphertext becomes available.
+            let pending_verif = self
+                .pending_verification
+                .entry(epoch)
+                .or_insert_with(BTreeMap::new)
+                .entry(proposer_id.clone())
+                .or_insert_with(Vec::new);
+            pending_verif.push(sender_id.clone());
+        }
+
         {
             // Insert the share.
-            let received_shares = self
+            let proposer_shares = self
                 .received_shares
                 .entry(epoch)
-                .or_insert_with(BTreeMap::new);
-            let proposer_shares = received_shares
+                .or_insert_with(BTreeMap::new)
                 .entry(proposer_id.clone())
                 .or_insert_with(BTreeMap::new);
             proposer_shares.insert(sender_id.clone(), share);
@@ -247,6 +271,20 @@ where
         }
 
         Ok(())
+    }
+
+    /// Verifies a given decryption share using the sender's public key and the proposer's
+    /// ciphertext. Returns `true` if verification has been successful and `false` if verification
+    /// has failed.
+    fn verify_decryption_share(
+        &self,
+        sender_id: &NodeUid,
+        share: &DecryptionShare<Bls12>,
+        ciphertext: &Ciphertext<Bls12>,
+    ) -> bool {
+        let sender: u64 = *self.netinfo.node_index(sender_id).unwrap() as u64;
+        let pk = self.netinfo.public_key_set().public_key_share(sender);
+        pk.verify_decryption_share(&share, ciphertext)
     }
 
     /// When selections of transactions have been decrypted for all valid proposers in this epoch,
@@ -389,6 +427,10 @@ where
                 // TODO: Log the incorrect node `j`.
                 continue;
             }
+            let incorrect_senders =
+                self.verify_pending_decryption_shares(&proposer_id, &ciphertext);
+            self.remove_incorrect_decryption_shares(&proposer_id, incorrect_senders);
+
             if let Some(share) = self.netinfo.secret_key().decrypt_share(&ciphertext) {
                 // Send the share to remote nodes.
                 self.messages.0.push_back(
@@ -415,6 +457,51 @@ where
             ciphertexts.insert(proposer_id, ciphertext);
         }
         Ok(())
+    }
+
+    // Verifies the shares of the current epoch that are pending verification. Returned are the
+    // senders with incorrect pending shares.
+    fn verify_pending_decryption_shares(
+        &self,
+        proposer_id: &NodeUid,
+        ciphertext: &Ciphertext<Bls12>,
+    ) -> BTreeSet<NodeUid> {
+        let mut incorrect_senders = BTreeSet::new();
+        if let Some(pending_verif) = self
+            .pending_verification
+            .get(&self.epoch)
+            .and_then(|e| e.get(proposer_id))
+        {
+            let sender_shares = self
+                .received_shares
+                .get(&self.epoch)
+                .and_then(|e| e.get(proposer_id));
+            if let Some(shares) = sender_shares {
+                for sender_id in pending_verif {
+                    let share = &shares[sender_id];
+                    if !self.verify_decryption_share(sender_id, share, ciphertext) {
+                        incorrect_senders.insert(sender_id.clone());
+                    }
+                }
+            }
+        }
+        incorrect_senders
+    }
+
+    fn remove_incorrect_decryption_shares(
+        &mut self,
+        proposer_id: &NodeUid,
+        incorrect_senders: BTreeSet<NodeUid>,
+    ) {
+        if let Some(sender_shares) = self
+            .received_shares
+            .get_mut(&self.epoch)
+            .and_then(|e| e.get_mut(proposer_id))
+        {
+            for sender_id in incorrect_senders {
+                sender_shares.remove(&sender_id);
+            }
+        }
     }
 
     /// Checks whether the current epoch has output, and if it does, sends out our decryption shares.
