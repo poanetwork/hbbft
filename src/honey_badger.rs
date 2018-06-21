@@ -9,7 +9,7 @@ use bincode;
 use pairing::bls12_381::Bls12;
 use rand;
 use serde::de::DeserializeOwned;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use common_subset::{self, CommonSubset};
 use crypto::{Ciphertext, DecryptionShare};
@@ -34,7 +34,10 @@ error_chain!{
 }
 
 /// An instance of the Honey Badger Byzantine fault tolerant consensus algorithm.
-pub struct HoneyBadger<Tx, NodeUid> {
+pub struct HoneyBadger<Tx, NodeUid>
+where
+    NodeUid: Clone + Debug + for<'de> Deserialize<'de> + Serialize,
+{
     /// Shared network data.
     netinfo: Rc<NetworkInfo<NodeUid>>,
     /// The buffer of transactions that have not yet been included in any output batch.
@@ -60,15 +63,12 @@ pub struct HoneyBadger<Tx, NodeUid> {
     decrypted_selections: BTreeMap<NodeUid, Vec<u8>>,
     /// Ciphertexts output by Common Subset in an epoch.
     ciphertexts: BTreeMap<u64, BTreeMap<NodeUid, Ciphertext<Bls12>>>,
-    /// Those shares in `received_shares` that could not be verified on reception due to the absense
-    /// of the proposer's ciphertext, in `(epoch, proposer_id, sender_id)` format.
-    pending_verification: BTreeMap<u64, BTreeMap<NodeUid, Vec<NodeUid>>>,
 }
 
 impl<Tx, NodeUid> DistAlgorithm for HoneyBadger<Tx, NodeUid>
 where
     Tx: Eq + Hash + Serialize + DeserializeOwned + Debug,
-    NodeUid: Ord + Clone + Debug,
+    NodeUid: Ord + Clone + Debug + for<'de> Deserialize<'de> + Serialize,
 {
     type NodeUid = NodeUid;
     type Input = Tx;
@@ -104,7 +104,10 @@ where
     }
 
     fn next_message(&mut self) -> Option<TargetedMessage<Self::Message, NodeUid>> {
-        self.messages.pop_front()
+        let convert = |msg: TargetedMessage<InternalMessage<NodeUid>, NodeUid>| {
+            msg.map(|int_msg| int_msg.into_external())
+        };
+        self.messages.pop_front().map(convert)
     }
 
     fn next_output(&mut self) -> Option<Self::Output> {
@@ -124,7 +127,7 @@ where
 impl<Tx, NodeUid> HoneyBadger<Tx, NodeUid>
 where
     Tx: Eq + Hash + Serialize + DeserializeOwned + Debug,
-    NodeUid: Ord + Clone + Debug,
+    NodeUid: Ord + Clone + Debug + for<'de> Deserialize<'de> + Serialize,
 {
     /// Returns a new Honey Badger instance with the given parameters, starting at epoch `0`.
     pub fn new<TI>(
@@ -146,7 +149,6 @@ where
             received_shares: BTreeMap::new(),
             decrypted_selections: BTreeMap::new(),
             ciphertexts: BTreeMap::new(),
-            pending_verification: BTreeMap::new(),
         };
         honey_badger.propose()?;
         Ok(honey_badger)
@@ -243,16 +245,6 @@ where
                 // TODO: Log the incorrect sender.
                 return Ok(());
             }
-        } else {
-            // The ciphertext is not yet available. Flag this share to be verified when the
-            // ciphertext becomes available.
-            let pending_verif = self
-                .pending_verification
-                .entry(epoch)
-                .or_insert_with(BTreeMap::new)
-                .entry(proposer_id.clone())
-                .or_insert_with(Vec::new);
-            pending_verif.push(sender_id.clone());
         }
 
         {
@@ -432,12 +424,13 @@ where
             self.remove_incorrect_decryption_shares(&proposer_id, incorrect_senders);
 
             if let Some(share) = self.netinfo.secret_key().decrypt_share(&ciphertext) {
+                let rc_share = Rc::new(share.clone());
                 // Send the share to remote nodes.
                 self.messages.0.push_back(
                     Target::All.message(
-                        MessageContent::DecryptionShare {
+                        InternalMessageContent::DecryptionShare {
                             proposer_id: proposer_id.clone(),
-                            share: share.clone(),
+                            share: rc_share.clone(),
                         }.with_epoch(self.epoch),
                     ),
                 );
@@ -459,29 +452,22 @@ where
         Ok(())
     }
 
-    // Verifies the shares of the current epoch that are pending verification. Returned are the
-    // senders with incorrect pending shares.
+    /// Verifies the shares of the current epoch that are pending verification. Returned are the
+    /// senders with incorrect pending shares.
     fn verify_pending_decryption_shares(
         &self,
         proposer_id: &NodeUid,
         ciphertext: &Ciphertext<Bls12>,
     ) -> BTreeSet<NodeUid> {
         let mut incorrect_senders = BTreeSet::new();
-        if let Some(pending_verif) = self
-            .pending_verification
+        if let Some(sender_shares) = self
+            .received_shares
             .get(&self.epoch)
             .and_then(|e| e.get(proposer_id))
         {
-            let sender_shares = self
-                .received_shares
-                .get(&self.epoch)
-                .and_then(|e| e.get(proposer_id));
-            if let Some(shares) = sender_shares {
-                for sender_id in pending_verif {
-                    let share = &shares[sender_id];
-                    if !self.verify_decryption_share(sender_id, share, ciphertext) {
-                        incorrect_senders.insert(sender_id.clone());
-                    }
+            for (sender_id, share) in sender_shares {
+                if !self.verify_decryption_share(sender_id, share, ciphertext) {
+                    incorrect_senders.insert(sender_id.clone());
                 }
             }
         }
@@ -577,15 +563,6 @@ pub enum MessageContent<NodeUid> {
     },
 }
 
-impl<NodeUid> MessageContent<NodeUid> {
-    fn with_epoch(self, epoch: u64) -> Message<NodeUid> {
-        Message {
-            epoch,
-            content: self,
-        }
-    }
-}
-
 /// A message sent to or received from another node's Honey Badger instance.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Message<NodeUid> {
@@ -599,15 +576,83 @@ impl<NodeUid> Message<NodeUid> {
     }
 }
 
+/// Content of a message with internal optimisations to reduce cloning inside `HoneyBadger`.
+pub enum InternalMessageContent<NodeUid>
+where
+    NodeUid: Clone + Debug + for<'de> Deserialize<'de> + Serialize,
+{
+    /// A message belonging to the common subset algorithm in the given epoch.
+    CommonSubset(common_subset::Message<NodeUid>),
+    /// A decrypted share of the output of `proposer_id`.
+    DecryptionShare {
+        proposer_id: NodeUid,
+        share: Rc<DecryptionShare<Bls12>>,
+    },
+}
+
+impl<NodeUid> InternalMessageContent<NodeUid>
+where
+    NodeUid: Clone + Debug + for<'de> Deserialize<'de> + Serialize,
+{
+    fn with_epoch(self, epoch: u64) -> InternalMessage<NodeUid> {
+        InternalMessage {
+            epoch,
+            content: self,
+        }
+    }
+}
+
+/// The type of internal message. An internal message has to be externalised, that is, converted to
+/// a `Message` before being sent out.
+pub struct InternalMessage<NodeUid>
+where
+    NodeUid: Clone + Debug + for<'de> Deserialize<'de> + Serialize,
+{
+    epoch: u64,
+    content: InternalMessageContent<NodeUid>,
+}
+
+impl<NodeUid> InternalMessage<NodeUid>
+where
+    NodeUid: Clone + Debug + for<'de> Deserialize<'de> + Serialize,
+{
+    pub fn epoch(&self) -> u64 {
+        self.epoch
+    }
+
+    pub fn into_external(self) -> Message<NodeUid> {
+        let InternalMessage { epoch, content } = self;
+        Message {
+            epoch,
+            content: match content {
+                InternalMessageContent::CommonSubset(msg) => MessageContent::CommonSubset(msg),
+                InternalMessageContent::DecryptionShare { proposer_id, share } => {
+                    // FIXME: Handle errors.
+                    let share_copy = Rc::try_unwrap(share).unwrap();
+                    MessageContent::DecryptionShare {
+                        proposer_id,
+                        share: share_copy,
+                    }
+                }
+            },
+        }
+    }
+}
+
 /// The queue of outgoing messages in a `HoneyBadger` instance.
 #[derive(Deref, DerefMut)]
-struct MessageQueue<NodeUid>(VecDeque<TargetedMessage<Message<NodeUid>, NodeUid>>);
+struct MessageQueue<NodeUid>(VecDeque<TargetedMessage<InternalMessage<NodeUid>, NodeUid>>)
+where
+    NodeUid: Clone + Debug + for<'de> Deserialize<'de> + Serialize;
 
-impl<NodeUid: Clone + Debug + Ord> MessageQueue<NodeUid> {
+impl<NodeUid: Clone + Debug + Ord> MessageQueue<NodeUid>
+where
+    NodeUid: Clone + Debug + for<'de> Deserialize<'de> + Serialize,
+{
     /// Appends to the queue the messages from `cs`, wrapped with `epoch`.
     fn extend_with_epoch(&mut self, epoch: u64, cs: &mut CommonSubset<NodeUid>) {
         let convert = |msg: TargetedMessage<common_subset::Message<NodeUid>, NodeUid>| {
-            msg.map(|cs_msg| MessageContent::CommonSubset(cs_msg).with_epoch(epoch))
+            msg.map(|cs_msg| InternalMessageContent::CommonSubset(cs_msg).with_epoch(epoch))
         };
         self.extend(cs.message_iter().map(convert));
     }
