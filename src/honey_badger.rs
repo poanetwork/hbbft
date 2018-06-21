@@ -95,7 +95,7 @@ where
                 self.handle_common_subset_message(sender_id, epoch, cs_msg)
             }
             MessageContent::DecryptionShare { proposer_id, share } => {
-                self.handle_decryption_share_message(sender_id, epoch, &proposer_id, &share)
+                self.handle_decryption_share_message(sender_id, epoch, proposer_id, share)
             }
         }
     }
@@ -227,33 +227,20 @@ where
         &mut self,
         sender_id: &NodeUid,
         epoch: u64,
-        proposer_id: &NodeUid,
-        share: &DecryptionShare<Bls12>,
+        proposer_id: NodeUid,
+        share: DecryptionShare<Bls12>,
     ) -> HoneyBadgerResult<()> {
-        // Insert the share.
-        self.received_shares
-            .entry(epoch)
-            .and_modify(|epoch_entry| {
-                epoch_entry
-                    .entry(proposer_id.clone())
-                    .and_modify(|proposer_entry| {
-                        proposer_entry.insert(sender_id.clone(), share.clone());
-                    })
-                    .or_insert_with(|| {
-                        vec![(sender_id.clone(), share.clone())]
-                            .into_iter()
-                            .collect()
-                    });
-            })
-            .or_insert_with(|| {
-                vec![(
-                    proposer_id.clone(),
-                    vec![(sender_id.clone(), share.clone())]
-                        .into_iter()
-                        .collect(),
-                )].into_iter()
-                    .collect()
-            });
+        {
+            // Insert the share.
+            let received_shares = self
+                .received_shares
+                .entry(epoch)
+                .or_insert_with(BTreeMap::new);
+            let proposer_shares = received_shares
+                .entry(proposer_id.clone())
+                .or_insert_with(BTreeMap::new);
+            proposer_shares.insert(sender_id.clone(), share);
+        }
 
         if epoch == self.epoch && self.try_decrypt_proposer_selection(proposer_id) {
             self.try_output_batch()?;
@@ -276,7 +263,7 @@ where
             .decrypted_selections
             .iter()
             .flat_map(|(proposer_id, ser_batch)| {
-                // If serialization fails, the proposer of that batch is faulty. Ignore it.
+                // If deserialization fails, the proposer of that batch is faulty. Ignore it.
                 bincode::deserialize::<Vec<Tx>>(&ser_batch)
                     .ok()
                     .map(|proposed| (proposer_id.clone(), proposed))
@@ -321,62 +308,69 @@ where
     /// Tries to decrypt transaction selections from all proposers and output those transactions in
     /// a batch.
     fn try_decrypt_and_output_batch(&mut self) -> HoneyBadgerResult<bool> {
-        let mut proposer_ids: Option<BTreeSet<NodeUid>> = None;
-        if let Some(shares) = self.received_shares.get(&self.epoch) {
-            proposer_ids = Some(shares.keys().cloned().collect());
-        }
-        if let Some(proposer_ids) = proposer_ids {
+        if let Some(proposer_ids) = self
+            .received_shares
+            .get(&self.epoch)
+            .map(|shares| shares.keys().cloned().collect::<BTreeSet<NodeUid>>())
+        {
             // Try to output a batch if there is a non-empty set of proposers for which we have already received
             // decryption shares.
             if !proposer_ids.is_empty()
                 && proposer_ids
                     .iter()
-                    .all(|proposer_id| self.try_decrypt_proposer_selection(proposer_id))
+                    .all(|proposer_id| self.try_decrypt_proposer_selection(proposer_id.clone()))
             {
-                return self.try_output_batch();
+                self.try_output_batch()
+            } else {
+                Ok(false)
             }
+        } else {
+            Ok(false)
         }
-        Ok(false)
     }
 
     /// Returns true if and only if transaction selections have been decrypted for all proposers in
     /// this epoch.
     fn all_selections_decrypted(&mut self) -> bool {
-        let ciphertexts = match self.ciphertexts.entry(self.epoch) {
-            Entry::Occupied(entry) => entry.into_mut(),
-            Entry::Vacant(entry) => entry.insert(BTreeMap::new()),
-        };
+        let ciphertexts = self
+            .ciphertexts
+            .entry(self.epoch)
+            .or_insert_with(BTreeMap::new);
         let all_ciphertext_proposers: BTreeSet<_> = ciphertexts.keys().collect();
         let all_decrypted_selection_proposers: BTreeSet<_> =
             self.decrypted_selections.keys().collect();
-        all_ciphertext_proposers.is_subset(&all_decrypted_selection_proposers)
+        all_ciphertext_proposers == all_decrypted_selection_proposers
     }
 
     /// Tries to decrypt the selection of transactions from a given proposer. Outputs `true` if and
-    /// only of decryption finished without errors.
-    fn try_decrypt_proposer_selection(&mut self, proposer_id: &NodeUid) -> bool {
-        let shares = &self.received_shares[&self.epoch][proposer_id];
-        if shares.len() > self.netinfo.num_faulty() {
-            if let Some(ciphertexts) = self.ciphertexts.get(&self.epoch) {
-                if let Some(ciphertext) = ciphertexts.get(proposer_id) {
-                    let ids_u64: BTreeMap<&NodeUid, u64> = shares
-                        .keys()
-                        .map(|id| (id, *self.netinfo.node_index(id).unwrap() as u64))
-                        .collect();
-                    let indexed_shares: BTreeMap<&u64, _> = shares
-                        .into_iter()
-                        .map(|(id, share)| (&ids_u64[id], share))
-                        .collect();
-                    if let Ok(decrypted_selection) = self
-                        .netinfo
-                        .public_key_set()
-                        .decrypt(indexed_shares, ciphertext)
-                    {
-                        self.decrypted_selections
-                            .insert(proposer_id.clone(), decrypted_selection);
-                        return true;
-                    }
-                }
+    /// only if decryption finished without errors.
+    fn try_decrypt_proposer_selection(&mut self, proposer_id: NodeUid) -> bool {
+        let shares = &self.received_shares[&self.epoch][&proposer_id];
+        if shares.len() <= self.netinfo.num_faulty() {
+            return false;
+        }
+
+        if let Some(ciphertext) = self
+            .ciphertexts
+            .get(&self.epoch)
+            .and_then(|cts| cts.get(&proposer_id))
+        {
+            let ids_u64: BTreeMap<&NodeUid, u64> = shares
+                .keys()
+                .map(|id| (id, *self.netinfo.node_index(id).unwrap() as u64))
+                .collect();
+            let indexed_shares: BTreeMap<&u64, _> = shares
+                .into_iter()
+                .map(|(id, share)| (&ids_u64[id], share))
+                .collect();
+            if let Ok(decrypted_selection) = self
+                .netinfo
+                .public_key_set()
+                .decrypt(indexed_shares, ciphertext)
+            {
+                self.decrypted_selections
+                    .insert(proposer_id, decrypted_selection);
+                return true;
             }
         }
         false
@@ -408,23 +402,22 @@ where
                 let our_id = self.netinfo.our_uid().clone();
                 let epoch = self.epoch;
                 // Receive the share locally.
-                self.handle_decryption_share_message(&our_id, epoch, &proposer_id, &share)?;
+                self.handle_decryption_share_message(&our_id, epoch, proposer_id.clone(), share)?;
             } else {
                 warn!("Share decryption failed for proposer {:?}", proposer_id);
                 // TODO: Log the decryption failure.
                 continue;
             }
-            let ciphertexts = match self.ciphertexts.entry(self.epoch) {
-                Entry::Occupied(entry) => entry.into_mut(),
-                Entry::Vacant(entry) => entry.insert(BTreeMap::new()),
-            };
+            let ciphertexts = self
+                .ciphertexts
+                .entry(self.epoch)
+                .or_insert_with(BTreeMap::new);
             ciphertexts.insert(proposer_id, ciphertext);
         }
         Ok(())
     }
 
-    /// Checks whether the current epoch has output, and if it does, advances the epoch and
-    /// proposes a new batch.
+    /// Checks whether the current epoch has output, and if it does, sends out our decryption shares.
     fn process_output(&mut self) -> Result<(), Error> {
         if let Some(cs_output) = self.take_current_output() {
             self.send_decryption_shares(cs_output)?;
@@ -460,6 +453,8 @@ where
 }
 
 /// A batch of transactions the algorithm has output.
+///
+/// TODO: Consider adding a `faulty_nodes` field to describe and report failures detected by `HoneyBadger`.
 #[derive(Clone)]
 pub struct Batch<Tx, NodeUid> {
     pub epoch: u64,
