@@ -211,7 +211,7 @@ impl<NodeUid: Clone + Debug + Ord> Agreement<NodeUid> {
                     netinfo,
                     Nonce::new(invocation_id.as_ref(), session_id, proposer_i, 0),
                 ),
-                coin_schedule: CoinSchedule::False,
+                coin_schedule: CoinSchedule::True,
             })
         } else {
             Err(ErrorKind::UnknownProposer.into())
@@ -424,8 +424,8 @@ impl<NodeUid: Clone + Debug + Ord> Agreement<NodeUid> {
     /// Computes the coin schedule for the current `Agreement` epoch.
     fn coin_schedule(&self) -> CoinSchedule {
         match self.epoch % 3 {
-            0 => CoinSchedule::False,
-            1 => CoinSchedule::True,
+            0 => CoinSchedule::True,
+            1 => CoinSchedule::False,
             _ => CoinSchedule::Random,
         }
     }
