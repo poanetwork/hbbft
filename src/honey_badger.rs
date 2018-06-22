@@ -60,9 +60,6 @@ pub struct HoneyBadger<Tx, NodeUid> {
     decrypted_selections: BTreeMap<NodeUid, Vec<u8>>,
     /// Ciphertexts output by Common Subset in an epoch.
     ciphertexts: BTreeMap<u64, BTreeMap<NodeUid, Ciphertext<Bls12>>>,
-    /// Those shares in `received_shares` that could not be verified on reception due to the absense
-    /// of the proposer's ciphertext, in `(epoch, proposer_id, sender_id)` format.
-    pending_verification: BTreeMap<u64, BTreeMap<NodeUid, Vec<NodeUid>>>,
 }
 
 impl<Tx, NodeUid> DistAlgorithm for HoneyBadger<Tx, NodeUid>
@@ -146,7 +143,6 @@ where
             received_shares: BTreeMap::new(),
             decrypted_selections: BTreeMap::new(),
             ciphertexts: BTreeMap::new(),
-            pending_verification: BTreeMap::new(),
         };
         honey_badger.propose()?;
         Ok(honey_badger)
@@ -243,16 +239,6 @@ where
                 // TODO: Log the incorrect sender.
                 return Ok(());
             }
-        } else {
-            // The ciphertext is not yet available. Flag this share to be verified when the
-            // ciphertext becomes available.
-            let pending_verif = self
-                .pending_verification
-                .entry(epoch)
-                .or_insert_with(BTreeMap::new)
-                .entry(proposer_id.clone())
-                .or_insert_with(Vec::new);
-            pending_verif.push(sender_id.clone());
         }
 
         {
@@ -459,29 +445,22 @@ where
         Ok(())
     }
 
-    // Verifies the shares of the current epoch that are pending verification. Returned are the
-    // senders with incorrect pending shares.
+    /// Verifies the shares of the current epoch that are pending verification. Returned are the
+    /// senders with incorrect pending shares.
     fn verify_pending_decryption_shares(
         &self,
         proposer_id: &NodeUid,
         ciphertext: &Ciphertext<Bls12>,
     ) -> BTreeSet<NodeUid> {
         let mut incorrect_senders = BTreeSet::new();
-        if let Some(pending_verif) = self
-            .pending_verification
+        if let Some(sender_shares) = self
+            .received_shares
             .get(&self.epoch)
             .and_then(|e| e.get(proposer_id))
         {
-            let sender_shares = self
-                .received_shares
-                .get(&self.epoch)
-                .and_then(|e| e.get(proposer_id));
-            if let Some(shares) = sender_shares {
-                for sender_id in pending_verif {
-                    let share = &shares[sender_id];
-                    if !self.verify_decryption_share(sender_id, share, ciphertext) {
-                        incorrect_senders.insert(sender_id.clone());
-                    }
+            for (sender_id, share) in sender_shares {
+                if !self.verify_decryption_share(sender_id, share, ciphertext) {
+                    incorrect_senders.insert(sender_id.clone());
                 }
             }
         }
@@ -566,6 +545,9 @@ impl<Tx, NodeUid: Ord> Batch<Tx, NodeUid> {
 }
 
 /// The content of a `HoneyBadger` message. It should be further annotated with an epoch.
+///
+/// TODO: Store a pointer to the `share` and dereference it at the time of serialization to avoid
+/// cloning shares.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub enum MessageContent<NodeUid> {
     /// A message belonging to the common subset algorithm in the given epoch.
