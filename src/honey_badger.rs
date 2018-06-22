@@ -6,7 +6,6 @@ use std::rc::Rc;
 use std::{cmp, iter};
 
 use bincode;
-use pairing::bls12_381::Bls12;
 use rand;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
@@ -55,11 +54,11 @@ pub struct HoneyBadger<Tx, NodeUid> {
     /// Received decryption shares for an epoch. Each decryption share has a sender and a
     /// proposer. The outer `BTreeMap` has epochs as its key. The next `BTreeMap` has proposers as
     /// its key. The inner `BTreeMap` has the sender as its key.
-    received_shares: BTreeMap<u64, BTreeMap<NodeUid, BTreeMap<NodeUid, DecryptionShare<Bls12>>>>,
+    received_shares: BTreeMap<u64, BTreeMap<NodeUid, BTreeMap<NodeUid, DecryptionShare>>>,
     /// Decoded accepted proposals.
     decrypted_selections: BTreeMap<NodeUid, Vec<u8>>,
     /// Ciphertexts output by Common Subset in an epoch.
-    ciphertexts: BTreeMap<u64, BTreeMap<NodeUid, Ciphertext<Bls12>>>,
+    ciphertexts: BTreeMap<u64, BTreeMap<NodeUid, Ciphertext>>,
 }
 
 impl<Tx, NodeUid> DistAlgorithm for HoneyBadger<Tx, NodeUid>
@@ -228,7 +227,7 @@ where
         sender_id: &NodeUid,
         epoch: u64,
         proposer_id: NodeUid,
-        share: DecryptionShare<Bls12>,
+        share: DecryptionShare,
     ) -> HoneyBadgerResult<()> {
         if let Some(ciphertext) = self
             .ciphertexts
@@ -265,8 +264,8 @@ where
     fn verify_decryption_share(
         &self,
         sender_id: &NodeUid,
-        share: &DecryptionShare<Bls12>,
-        ciphertext: &Ciphertext<Bls12>,
+        share: &DecryptionShare,
+        ciphertext: &Ciphertext,
     ) -> bool {
         let sender: u64 = *self.netinfo.node_index(sender_id).unwrap() as u64;
         let pk = self.netinfo.public_key_set().public_key_share(sender);
@@ -405,7 +404,7 @@ where
         cs_output: BTreeMap<NodeUid, Vec<u8>>,
     ) -> Result<(), Error> {
         for (proposer_id, v) in cs_output {
-            let mut ciphertext: Ciphertext<Bls12>;
+            let mut ciphertext: Ciphertext;
             if let Ok(ct) = bincode::deserialize(&v) {
                 ciphertext = ct;
             } else {
@@ -450,7 +449,7 @@ where
     fn verify_pending_decryption_shares(
         &self,
         proposer_id: &NodeUid,
-        ciphertext: &Ciphertext<Bls12>,
+        ciphertext: &Ciphertext,
     ) -> BTreeSet<NodeUid> {
         let mut incorrect_senders = BTreeSet::new();
         if let Some(sender_shares) = self
@@ -555,7 +554,7 @@ pub enum MessageContent<NodeUid> {
     /// A decrypted share of the output of `proposer_id`.
     DecryptionShare {
         proposer_id: NodeUid,
-        share: DecryptionShare<Bls12>,
+        share: DecryptionShare,
     },
 }
 
