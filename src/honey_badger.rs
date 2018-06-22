@@ -12,6 +12,7 @@ use serde::Serialize;
 
 use common_subset::{self, CommonSubset};
 use crypto::{Ciphertext, DecryptionShare};
+use crypto::serde_impl;
 use messaging::{DistAlgorithm, NetworkInfo, Target, TargetedMessage};
 
 error_chain!{
@@ -54,7 +55,7 @@ pub struct HoneyBadger<Tx, NodeUid> {
     /// Received decryption shares for an epoch. Each decryption share has a sender and a
     /// proposer. The outer `BTreeMap` has epochs as its key. The next `BTreeMap` has proposers as
     /// its key. The inner `BTreeMap` has the sender as its key.
-    received_shares: BTreeMap<u64, BTreeMap<NodeUid, BTreeMap<NodeUid, DecryptionShare>>>,
+    received_shares: BTreeMap<u64, BTreeMap<NodeUid, BTreeMap<NodeUid, Rc<DecryptionShare>>>>,
     /// Decoded accepted proposals.
     decrypted_selections: BTreeMap<NodeUid, Vec<u8>>,
     /// Ciphertexts output by Common Subset in an epoch.
@@ -227,14 +228,14 @@ where
         sender_id: &NodeUid,
         epoch: u64,
         proposer_id: NodeUid,
-        share: DecryptionShare,
+        share: Rc<DecryptionShare>,
     ) -> HoneyBadgerResult<()> {
         if let Some(ciphertext) = self
             .ciphertexts
             .get(&self.epoch)
             .and_then(|cts| cts.get(&proposer_id))
         {
-            if !self.verify_decryption_share(sender_id, &share, ciphertext) {
+            if !self.verify_decryption_share(sender_id, share.clone(), ciphertext) {
                 // TODO: Log the incorrect sender.
                 return Ok(());
             }
@@ -264,12 +265,12 @@ where
     fn verify_decryption_share(
         &self,
         sender_id: &NodeUid,
-        share: &DecryptionShare,
+        share: Rc<DecryptionShare>,
         ciphertext: &Ciphertext,
     ) -> bool {
         let sender: u64 = *self.netinfo.node_index(sender_id).unwrap() as u64;
         let pk = self.netinfo.public_key_set().public_key_share(sender);
-        pk.verify_decryption_share(&share, ciphertext)
+        pk.verify_decryption_share(&*share, ciphertext)
     }
 
     /// When selections of transactions have been decrypted for all valid proposers in this epoch,
@@ -382,9 +383,9 @@ where
                 .keys()
                 .map(|id| (id, *self.netinfo.node_index(id).unwrap() as u64))
                 .collect();
-            let indexed_shares: BTreeMap<&u64, _> = shares
+            let indexed_shares: BTreeMap<&u64, &DecryptionShare> = shares
                 .into_iter()
-                .map(|(id, share)| (&ids_u64[id], share))
+                .map(|(id, share)| (&ids_u64[id], &**share))
                 .collect();
             if let Ok(decrypted_selection) = self
                 .netinfo
@@ -417,6 +418,7 @@ where
             self.remove_incorrect_decryption_shares(&proposer_id, incorrect_senders);
 
             if let Some(share) = self.netinfo.secret_key().decrypt_share(&ciphertext) {
+                let share = Rc::new(share);
                 // Send the share to remote nodes.
                 self.messages.0.push_back(
                     Target::All.message(
@@ -458,7 +460,7 @@ where
             .and_then(|e| e.get(proposer_id))
         {
             for (sender_id, share) in sender_shares {
-                if !self.verify_decryption_share(sender_id, share, ciphertext) {
+                if !self.verify_decryption_share(sender_id, share.clone(), ciphertext) {
                     incorrect_senders.insert(sender_id.clone());
                 }
             }
@@ -554,7 +556,8 @@ pub enum MessageContent<NodeUid> {
     /// A decrypted share of the output of `proposer_id`.
     DecryptionShare {
         proposer_id: NodeUid,
-        share: DecryptionShare,
+        #[serde(with = "serde_impl::rc_share")]
+        share: Rc<DecryptionShare>,
     },
 }
 

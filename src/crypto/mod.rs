@@ -194,6 +194,16 @@ impl Hash for DecryptionShare {
     }
 }
 
+impl DecryptionShare {
+    pub fn new(elt: G1) -> Self {
+        DecryptionShare(elt)
+    }
+
+    pub fn group_element(&self) -> &G1 {
+        &self.0
+    }
+}
+
 /// A public key and an associated set of public key shares.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct PublicKeySet {
