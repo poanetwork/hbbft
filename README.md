@@ -33,6 +33,8 @@ In an optimal networking environment, output includes data sent from each node. 
 
 - [x] **[Coin](https://github.com/poanetwork/hbbft/blob/master/src/common_coin.rs):** A pseudorandom binary value used by the Binary Agreement protocol.
 
+- [x] **[Synchronous Key Generation](https://github.com/poanetwork/hbbft/blob/master/src/sync_key_gen.rs)** A dealerless algorithm that generates keys for threshold encryption and signing. Unlike the other algorithms, this one is _completely synchronous_ and should run on top of Honey Badger (or another consensus algorithm)
+
 ## Getting Started
 
 This library requires a distributed network environment to function. Details on network requirements TBD. 

@@ -1,8 +1,8 @@
 //! A _synchronous_ algorithm for dealerless distributed key generation.
 //!
 //! This protocol is meant to run in a _completely synchronous_ setting where each node handles all
-//! messages in the same order. This can be achieved by making its messages transactions on top of
-//! `HoneyBadger`, or by running it "on-chain", i.e. committing its messages to a blockchain.
+//! messages in the same order. It can e.g. exchange messages as transactions on top of
+//! `HoneyBadger`, or it can run "on-chain", i.e. committing its messages to a blockchain.
 //!
 //! Its messages are encrypted where necessary, so they can be publicly broadcast.
 //!
@@ -16,18 +16,21 @@
 //! [Distributed Key Generation in the Wild](https://eprint.iacr.org/2012/377.pdf) and
 //! [A robust threshold elliptic curve digital signature providing a new verifiable secret sharing scheme](https://www.researchgate.net/profile/Ihab_Ali/publication/4205262_A_robust_threshold_elliptic_curve_digital_signature_providing_a_new_verifiable_secret_sharing_scheme/links/02e7e538f15726323a000000/A-robust-threshold-elliptic-curve-digital-signature-providing-a-new-verifiable-secret-sharing-scheme.pdf?origin=publication_detail).
 //!
-//! If there were a trusted dealer, they would generate a `BivarPoly` of degree `t` and publish
-//! the `BivarCommitment`, with which the polynomial's values can be publicly verified. They'd
-//! then send _row_ `m > 0` to node number `m`. Node `m`, in turn, sends _value_ `s` to node number
-//! `s`. Then if `2 * t + 1` nodes confirm that they received a valid row, and there are at most
-//! `t` faulty nodes, then at least `t + 1` honest nodes sent on an entry of every other node's
-//! column to that node. So we know that every node can now reconstruct its column and the value at
-//! `0` of its column. These values all lie on a univariate polynomial of degree `t`, so they can
-//! be used as secret keys.
+//! In a trusted dealer scenario, the following steps occur:
 //!
-//! To avoid trusting a single dealer, we make sure that at least `t + 1` nodes use the above
-//! method to generate a polynomial each. We then sum up the secret keys we received from each
-//! "dealer", and use that as our secret key. Then no single node knows the sum of the master keys.
+//! 1. Dealer generates a `BivarPoly` of degree `t` and publishes the `BivarCommitment` which is
+//!    used to publicly verify the polynomial's values.
+//! 2. Dealer sends _row_ `m > 0` to node number `m`.
+//! 3. Node `m`, in turn, sends _value_ `s` to node number `s`.
+//! 4. This process continues until `2 * t + 1` nodes confirm they have received a valid row. If
+//!    there are at most `t` faulty nodes, we know that at least `t + 1` correct nodes sent on an
+//!    entry of every other node’s column to that node.
+//! 5. This means every node can reconstruct its column, and the value at `0` of its column.
+//! 6. These values all lie on a univariate polynomial of degree `t` and can be used as secret keys.
+//!
+//! In our _dealerless_ environment, at least `t + 1` nodes each generate a polynomial using the
+//! method above. The sum of the secret keys we received from each node is then used as our secret
+//! key. No single node knows the secret master key.
 
 use std::collections::btree_map::Entry;
 use std::collections::{BTreeMap, BTreeSet};
