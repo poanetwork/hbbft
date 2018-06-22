@@ -13,7 +13,6 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::iter::once;
 use std::rc::Rc;
 
-use pairing::bls12_381::Bls12;
 use rand::Rng;
 
 use hbbft::broadcast::{Broadcast, BroadcastMessage};
@@ -72,7 +71,7 @@ impl Adversary<Broadcast<NodeUid>> for ProposeAdversary {
 
         // FIXME: Take the correct, known keys from the network.
         let mut rng = rand::thread_rng();
-        let sk_set = SecretKeySet::<Bls12>::random(self.adv_nodes.len(), &mut rng);
+        let sk_set = SecretKeySet::random(self.adv_nodes.len(), &mut rng);
         let pk_set = sk_set.public_keys();
 
         let netinfo = Rc::new(NetworkInfo::new(

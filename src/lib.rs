@@ -127,3 +127,4 @@ pub mod messaging;
 pub mod proto;
 #[cfg(feature = "serialization-protobuf")]
 pub mod proto_io;
+pub mod sync_key_gen;
