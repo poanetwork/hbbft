@@ -11,8 +11,8 @@ use serde::de::DeserializeOwned;
 use serde::Serialize;
 
 use common_subset::{self, CommonSubset};
-use crypto::{Ciphertext, DecryptionShare};
 use crypto::serde_impl;
+use crypto::{Ciphertext, DecryptionShare};
 use messaging::{DistAlgorithm, NetworkInfo, Target, TargetedMessage};
 
 error_chain!{
@@ -235,7 +235,7 @@ where
             .get(&self.epoch)
             .and_then(|cts| cts.get(&proposer_id))
         {
-            if !self.verify_decryption_share(sender_id, share.clone(), ciphertext) {
+            if !self.verify_decryption_share(sender_id, &share, ciphertext) {
                 // TODO: Log the incorrect sender.
                 return Ok(());
             }
@@ -265,7 +265,7 @@ where
     fn verify_decryption_share(
         &self,
         sender_id: &NodeUid,
-        share: Rc<DecryptionShare>,
+        share: &Rc<DecryptionShare>,
         ciphertext: &Ciphertext,
     ) -> bool {
         let sender: u64 = *self.netinfo.node_index(sender_id).unwrap() as u64;
@@ -460,7 +460,7 @@ where
             .and_then(|e| e.get(proposer_id))
         {
             for (sender_id, share) in sender_shares {
-                if !self.verify_decryption_share(sender_id, share.clone(), ciphertext) {
+                if !self.verify_decryption_share(sender_id, share, ciphertext) {
                     incorrect_senders.insert(sender_id.clone());
                 }
             }
