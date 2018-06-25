@@ -23,7 +23,7 @@ use network::{
     Adversary, MessageScheduler, MessageWithSender, NodeUid, SilentAdversary, TestNetwork, TestNode,
 };
 
-/// An adversary whose nodes never send any messages.
+/// An adversary whose nodes only send messages with incorrect decryption shares.
 pub struct FaultyShareAdversary {
     num_good: usize,
     num_adv: usize,
@@ -81,7 +81,7 @@ impl Adversary<HoneyBadger<usize, NodeUid>> for FaultyShareAdversary {
         let mut outgoing = vec![];
         let fake_proposal = &Vec::from("X marks the spot");
 
-        for (epoch, mut trigger_set) in &mut self.share_triggers {
+        for (epoch, trigger_set) in &mut self.share_triggers {
             if *trigger_set {
                 // Unset the trigger.
                 *trigger_set = false;
