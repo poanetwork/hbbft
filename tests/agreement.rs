@@ -57,6 +57,7 @@ fn test_agreement<A: Adversary<Agreement<NodeUid>>>(
             expected = Some(node.outputs()[0]);
         }
     }
+    assert!(expected.iter().eq(network.observer.outputs()));
 }
 
 fn test_agreement_different_sizes<A, F>(new_adversary: F)

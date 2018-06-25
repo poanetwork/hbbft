@@ -126,6 +126,9 @@ where
     }
 
     fn get_coin(&mut self) -> Result<()> {
+        if !self.netinfo.is_full_node() {
+            return self.try_output();
+        }
         let share = self.netinfo.secret_key().sign(&self.nonce);
         self.messages.push_back(CommonCoinMessage(share.clone()));
         let id = self.netinfo.our_uid().clone();
@@ -140,18 +143,22 @@ where
                 return Ok(());
             }
             self.received_shares.insert(sender_id.clone(), share);
-            let received_shares = &self.received_shares;
-            if self.had_input && received_shares.len() > self.netinfo.num_faulty() {
-                let sig = self.combine_and_verify_sig()?;
-                // Output the parity of the verified signature.
-                let parity = sig.parity();
-                self.output = Some(parity);
-                self.terminated = true;
-            }
-            Ok(())
         } else {
-            Err(ErrorKind::UnknownSender.into())
+            return Err(ErrorKind::UnknownSender.into());
         }
+        self.try_output()
+    }
+
+    fn try_output(&mut self) -> Result<()> {
+        let received_shares = &self.received_shares;
+        if self.had_input && received_shares.len() > self.netinfo.num_faulty() {
+            let sig = self.combine_and_verify_sig()?;
+            // Output the parity of the verified signature.
+            let parity = sig.parity();
+            self.output = Some(parity);
+            self.terminated = true;
+        }
+        Ok(())
     }
 
     fn combine_and_verify_sig(&self) -> Result<Signature> {

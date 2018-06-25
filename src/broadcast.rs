@@ -293,10 +293,12 @@ impl<NodeUid: Debug + Clone + Ord> Broadcast<NodeUid> {
 
         // Otherwise multicast the proof in an `Echo` message, and handle it ourselves.
         self.echo_sent = true;
-        let our_uid = &self.netinfo.our_uid().clone();
-        self.handle_echo(our_uid, p.clone())?;
-        let echo_msg = Target::All.message(BroadcastMessage::Echo(p));
-        self.messages.push_back(echo_msg);
+        if self.netinfo.is_full_node() {
+            let our_uid = &self.netinfo.our_uid().clone();
+            self.handle_echo(our_uid, p.clone())?;
+            let echo_msg = Target::All.message(BroadcastMessage::Echo(p));
+            self.messages.push_back(echo_msg);
+        }
         Ok(())
     }
 
@@ -328,10 +330,13 @@ impl<NodeUid: Debug + Clone + Ord> Broadcast<NodeUid> {
 
         // Upon receiving `N - f` `Echo`s with this root hash, multicast `Ready`.
         self.ready_sent = true;
-        let ready_msg = Target::All.message(BroadcastMessage::Ready(hash.clone()));
-        self.messages.push_back(ready_msg);
-        let our_uid = &self.netinfo.our_uid().clone();
-        self.handle_ready(our_uid, &hash)
+        if self.netinfo.is_full_node() {
+            let ready_msg = Target::All.message(BroadcastMessage::Ready(hash.clone()));
+            self.messages.push_back(ready_msg);
+            let our_uid = &self.netinfo.our_uid().clone();
+            self.handle_ready(our_uid, &hash)?;
+        }
+        Ok(())
     }
 
     /// Handles a received `Ready` message.
@@ -353,8 +358,10 @@ impl<NodeUid: Debug + Clone + Ord> Broadcast<NodeUid> {
         if self.count_readys(hash) == self.netinfo.num_faulty() + 1 && !self.ready_sent {
             // Enqueue a broadcast of a Ready message.
             self.ready_sent = true;
-            let ready_msg = Target::All.message(BroadcastMessage::Ready(hash.to_vec()));
-            self.messages.push_back(ready_msg);
+            if self.netinfo.is_full_node() {
+                let ready_msg = Target::All.message(BroadcastMessage::Ready(hash.to_vec()));
+                self.messages.push_back(ready_msg);
+            }
         }
         self.compute_output(&hash)
     }

@@ -154,9 +154,6 @@ impl<NodeUid: Clone + Ord> NetworkInfo<NodeUid> {
         secret_key: ClearOnDrop<Box<SecretKey>>,
         public_key_set: PublicKeySet,
     ) -> Self {
-        if !all_uids.contains(&our_uid) {
-            panic!("Missing own ID");
-        }
         let num_nodes = all_uids.len();
         let node_indices = all_uids
             .iter()
@@ -217,5 +214,11 @@ impl<NodeUid: Clone + Ord> NetworkInfo<NodeUid> {
     /// independent from the public key, so that reusing keys would be safer.
     pub fn invocation_id(&self) -> Vec<u8> {
         self.public_key_set.public_key().to_bytes()
+    }
+
+    /// Returns `true` if this node takes part in the consensus itself. If not, it is only an
+    /// observer.
+    pub fn is_full_node(&self) -> bool {
+        self.all_uids.contains(&self.our_uid)
     }
 }

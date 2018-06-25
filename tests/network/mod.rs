@@ -36,6 +36,12 @@ impl<D: DistAlgorithm> TestNode<D> {
         self.algo.terminated()
     }
 
+    /// Inputs a value into the instance.
+    pub fn input(&mut self, input: D::Input) {
+        self.algo.input(input).expect("input");
+        self.outputs.extend(self.algo.output_iter());
+    }
+
     /// Creates a new test node with the given broadcast instance.
     fn new(mut algo: D) -> TestNode<D> {
         let outputs = algo.output_iter().collect();
@@ -54,12 +60,6 @@ impl<D: DistAlgorithm> TestNode<D> {
         self.algo
             .handle_message(&from_id, msg)
             .expect("handling message");
-        self.outputs.extend(self.algo.output_iter());
-    }
-
-    /// Inputs a value into the instance.
-    fn input(&mut self, input: D::Input) {
-        self.algo.input(input).expect("input");
         self.outputs.extend(self.algo.output_iter());
     }
 }
@@ -148,6 +148,7 @@ where
     <D as DistAlgorithm>::NodeUid: Hash,
 {
     pub nodes: BTreeMap<D::NodeUid, TestNode<D>>,
+    pub observer: TestNode<D>,
     pub adv_nodes: BTreeMap<D::NodeUid, Rc<NetworkInfo<D::NodeUid>>>,
     adversary: A,
 }
@@ -202,6 +203,7 @@ where
             .collect();
         let mut network = TestNetwork {
             nodes: (0..good_num).map(NodeUid).map(new_node_by_id).collect(),
+            observer: new_node_by_id(NodeUid(good_num + adv_num)).1,
             adversary: adversary(adv_nodes.clone()),
             adv_nodes,
         };
@@ -232,6 +234,9 @@ where
                             node.queue.push_back((sender_id, msg.message.clone()))
                         }
                     }
+                    self.observer
+                        .queue
+                        .push_back((sender_id, msg.message.clone()));
                     self.adversary.push_message(sender_id, msg);
                 }
                 Target::Node(to_id) => {
@@ -246,6 +251,9 @@ where
                     }
                 }
             }
+        }
+        while !self.observer.queue.is_empty() {
+            self.observer.handle_message();
         }
     }
 

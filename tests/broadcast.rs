@@ -107,6 +107,7 @@ fn test_broadcast<A: Adversary<Broadcast<NodeUid>>>(
     for node in network.nodes.values() {
         assert!(once(&proposed_value.to_vec()).eq(node.outputs()));
     }
+    assert!(once(&proposed_value.to_vec()).eq(network.observer.outputs()));
 }
 
 fn new_broadcast(netinfo: Rc<NetworkInfo<NodeUid>>) -> Broadcast<NodeUid> {

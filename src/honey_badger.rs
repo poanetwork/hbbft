@@ -28,6 +28,7 @@ error_chain!{
 
     errors {
         UnknownSender
+        ObserverCannotPropose
     }
 }
 
@@ -151,8 +152,12 @@ where
         &mut self,
         txs: I,
     ) -> HoneyBadgerResult<()> {
-        self.buffer.extend(txs);
-        Ok(())
+        if self.netinfo.is_full_node() {
+            self.buffer.extend(txs);
+            Ok(())
+        } else {
+            Err(ErrorKind::ObserverCannotPropose.into())
+        }
     }
 
     /// Empties and returns the transaction buffer.
@@ -162,6 +167,9 @@ where
 
     /// Proposes a new batch in the current epoch.
     fn propose(&mut self) -> HoneyBadgerResult<()> {
+        if !self.netinfo.is_full_node() {
+            return Ok(());
+        }
         let proposal = self.choose_transactions()?;
         let cs = match self.common_subsets.entry(self.epoch) {
             Entry::Occupied(entry) => entry.into_mut(),
@@ -420,24 +428,31 @@ where
                 self.verify_pending_decryption_shares(&proposer_id, &ciphertext);
             self.remove_incorrect_decryption_shares(&proposer_id, incorrect_senders);
 
-            if let Some(share) = self.netinfo.secret_key().decrypt_share(&ciphertext) {
-                // Send the share to remote nodes.
-                self.messages.0.push_back(
-                    Target::All.message(
-                        MessageContent::DecryptionShare {
-                            proposer_id: proposer_id.clone(),
-                            share: share.clone(),
-                        }.with_epoch(self.epoch),
-                    ),
-                );
-                let our_id = self.netinfo.our_uid().clone();
-                let epoch = self.epoch;
-                // Receive the share locally.
-                self.handle_decryption_share_message(&our_id, epoch, proposer_id.clone(), share)?;
-            } else {
-                warn!("Share decryption failed for proposer {:?}", proposer_id);
-                // TODO: Log the decryption failure.
-                continue;
+            if self.netinfo.is_full_node() {
+                if let Some(share) = self.netinfo.secret_key().decrypt_share(&ciphertext) {
+                    // Send the share to remote nodes.
+                    self.messages.0.push_back(
+                        Target::All.message(
+                            MessageContent::DecryptionShare {
+                                proposer_id: proposer_id.clone(),
+                                share: share.clone(),
+                            }.with_epoch(self.epoch),
+                        ),
+                    );
+                    let our_id = self.netinfo.our_uid().clone();
+                    let epoch = self.epoch;
+                    // Receive the share locally.
+                    self.handle_decryption_share_message(
+                        &our_id,
+                        epoch,
+                        proposer_id.clone(),
+                        share,
+                    )?;
+                } else {
+                    warn!("Share decryption failed for proposer {:?}", proposer_id);
+                    // TODO: Log the decryption failure.
+                    continue;
+                }
             }
             let ciphertexts = self
                 .ciphertexts
