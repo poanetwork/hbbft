@@ -1,11 +1,11 @@
+const ERR_LEN: &str = "wrong length of deserialized group element";
+const ERR_CODE: &str = "deserialized bytes don't encode a group element";
+
 /// Serialization and deserialization of a group element's compressed representation.
 pub mod projective {
     use pairing::{CurveAffine, CurveProjective, EncodedPoint};
     use serde::de::Error as DeserializeError;
     use serde::{Deserialize, Deserializer, Serialize, Serializer};
-
-    const ERR_LEN: &str = "wrong length of deserialized group element";
-    const ERR_CODE: &str = "deserialized bytes don't encode a group element";
 
     pub fn serialize<S, C>(c: &C, s: S) -> Result<S::Ok, S::Error>
     where
@@ -22,11 +22,11 @@ pub mod projective {
     {
         let bytes = <Vec<u8>>::deserialize(d)?;
         if bytes.len() != <C::Affine as CurveAffine>::Compressed::size() {
-            return Err(D::Error::custom(ERR_LEN));
+            return Err(D::Error::custom(super::ERR_LEN));
         }
         let mut compressed = <C::Affine as CurveAffine>::Compressed::empty();
         compressed.as_mut().copy_from_slice(&bytes);
-        let to_err = |_| D::Error::custom(ERR_CODE);
+        let to_err = |_| D::Error::custom(super::ERR_CODE);
         Ok(compressed.into_affine().map_err(to_err)?.into_projective())
     }
 }
@@ -146,6 +146,46 @@ pub mod field_vec {
     {
         let wrap_vec = <Vec<FieldWrap<F, F>>>::deserialize(d)?;
         Ok(wrap_vec.into_iter().map(|FieldWrap(f, _)| f).collect())
+    }
+}
+
+/// Serialization and deserialization of reference-counted decryption shares.
+pub mod rc_share {
+    use std::rc::Rc;
+
+    use pairing::bls12_381::G1Affine;
+    use pairing::{CurveAffine, CurveProjective, EncodedPoint};
+    use serde::de::Error as DeserializeError;
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+    use crypto::DecryptionShare;
+
+    pub fn serialize<S>(share: &Rc<DecryptionShare>, s: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        share
+            .group_element()
+            .into_affine()
+            .into_compressed()
+            .as_ref()
+            .serialize(s)
+    }
+
+    pub fn deserialize<'de, D>(d: D) -> Result<Rc<DecryptionShare>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let bytes = <Vec<u8>>::deserialize(d)?;
+        if bytes.len() != <G1Affine as CurveAffine>::Compressed::size() {
+            return Err(D::Error::custom(super::ERR_LEN));
+        }
+        let mut compressed = <G1Affine as CurveAffine>::Compressed::empty();
+        compressed.as_mut().copy_from_slice(&bytes);
+        let to_err = |_| D::Error::custom(super::ERR_CODE);
+        Ok(Rc::new(DecryptionShare::new(
+            compressed.into_affine().map_err(to_err)?.into_projective(),
+        )))
     }
 }
 
