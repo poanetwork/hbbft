@@ -104,7 +104,7 @@ impl Signature {
 }
 
 /// A secret key, or a secret key share.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SecretKey(Fr);
 
 impl Default for SecretKey {

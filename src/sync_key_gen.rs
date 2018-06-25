@@ -34,25 +34,27 @@
 
 use std::collections::btree_map::Entry;
 use std::collections::{BTreeMap, BTreeSet};
+use std::fmt::Debug;
+
+use bincode;
+use clear_on_drop::ClearOnDrop;
+use pairing::bls12_381::{Fr, G1Affine};
+use pairing::{CurveAffine, Field};
+use rand::OsRng;
 
 use crypto::poly::{BivarCommitment, BivarPoly, Poly};
 use crypto::serde_impl::field_vec::FieldWrap;
 use crypto::{Ciphertext, PublicKey, PublicKeySet, SecretKey};
 
-use bincode;
-use pairing::bls12_381::{Fr, G1Affine};
-use pairing::{CurveAffine, Field};
-use rand::OsRng;
-
 // TODO: No need to send our own row and value to ourselves.
 
 /// A commitment to a bivariate polynomial, and for each node, an encrypted row of values.
-#[derive(Deserialize, Serialize, Debug, Clone)]
+#[derive(Deserialize, Serialize, Debug, Clone, Hash, Eq, PartialEq)]
 pub struct Propose(BivarCommitment, Vec<Ciphertext>);
 
 /// A confirmation that we have received a node's proposal and verified our row against the
 /// commitment. For each node, it contains one encrypted value of our row.
-#[derive(Deserialize, Serialize, Debug, Clone)]
+#[derive(Deserialize, Serialize, Debug, Clone, Hash, Eq, PartialEq)]
 pub struct Accept(u64, Vec<Ciphertext>);
 
 /// The information needed to track a single proposer's secret sharing process.
@@ -84,33 +86,37 @@ impl ProposalState {
 /// A synchronous algorithm for dealerless distributed key generation.
 ///
 /// It requires that all nodes handle all messages in the exact same order.
-pub struct SyncKeyGen {
+pub struct SyncKeyGen<NodeUid> {
     /// Our node index.
     our_idx: u64,
     /// Our secret key.
     sec_key: SecretKey,
     /// The public keys of all nodes, by node index.
-    pub_keys: Vec<PublicKey>,
+    pub_keys: BTreeMap<NodeUid, PublicKey>,
     /// Proposed bivariate polynomial.
     proposals: BTreeMap<u64, ProposalState>,
     /// The degree of the generated polynomial.
     threshold: usize,
 }
 
-impl SyncKeyGen {
+impl<NodeUid: Ord + Debug> SyncKeyGen<NodeUid> {
     /// Creates a new `SyncKeyGen` instance, together with the `Propose` message that should be
     /// broadcast.
     pub fn new(
-        our_idx: u64,
+        our_uid: &NodeUid,
         sec_key: SecretKey,
-        pub_keys: Vec<PublicKey>,
+        pub_keys: BTreeMap<NodeUid, PublicKey>,
         threshold: usize,
-    ) -> (SyncKeyGen, Propose) {
+    ) -> (SyncKeyGen<NodeUid>, Propose) {
+        let our_idx = pub_keys
+            .keys()
+            .position(|uid| uid == our_uid)
+            .expect("missing pub key for own ID") as u64;
         let mut rng = OsRng::new().expect("OS random number generator");
         let our_proposal = BivarPoly::random(threshold, &mut rng);
         let commit = our_proposal.commitment();
         let rows: Vec<_> = pub_keys
-            .iter()
+            .values()
             .enumerate()
             .map(|(i, pk)| {
                 let row = our_proposal.row(i as u64 + 1);
@@ -131,9 +137,16 @@ impl SyncKeyGen {
     /// Handles a `Propose` message. If it is valid, returns an `Accept` message to be broadcast.
     pub fn handle_propose(
         &mut self,
-        sender_idx: u64,
+        sender_id: &NodeUid,
         Propose(commit, rows): Propose,
     ) -> Option<Accept> {
+        let sender_idx =
+            if let Some(sender_idx) = self.pub_keys.keys().position(|uid| uid == sender_id) {
+                sender_idx as u64
+            } else {
+                debug!("Unknown sender {:?}", sender_id);
+                return None;
+            };
         let commit_row = commit.row(self.our_idx + 1);
         match self.proposals.entry(sender_idx) {
             Entry::Occupied(_) => return None, // Ignore multiple proposals.
@@ -150,7 +163,7 @@ impl SyncKeyGen {
         // The row is valid: now encrypt one value for each node.
         let values = self
             .pub_keys
-            .iter()
+            .values()
             .enumerate()
             .map(|(idx, pk)| {
                 let val = row.evaluate(idx as u64 + 1);
@@ -163,7 +176,14 @@ impl SyncKeyGen {
     }
 
     /// Handles an `Accept` message.
-    pub fn handle_accept(&mut self, sender_idx: u64, accept: Accept) {
+    pub fn handle_accept(&mut self, sender_id: &NodeUid, accept: Accept) {
+        let sender_idx =
+            if let Some(sender_idx) = self.pub_keys.keys().position(|uid| uid == sender_id) {
+                sender_idx as u64
+            } else {
+                debug!("Unknown sender {:?}", sender_id);
+                return;
+            };
         if let Err(err) = self.handle_accept_or_err(sender_idx, accept) {
             debug!("Invalid accept from node {}: {}", sender_idx, err);
         }
@@ -194,7 +214,7 @@ impl SyncKeyGen {
     ///
     /// These are only secure if `is_ready` returned `true`. Otherwise it is not guaranteed that
     /// none of the nodes knows the secret master key.
-    pub fn generate(&self) -> (PublicKeySet, SecretKey) {
+    pub fn generate(&self) -> (PublicKeySet, ClearOnDrop<Box<SecretKey>>) {
         let mut pk_commit = Poly::zero().commitment();
         let mut sk_val = Fr::zero();
         for proposal in self
@@ -206,7 +226,8 @@ impl SyncKeyGen {
             let row: Poly = Poly::interpolate(proposal.values.iter().take(self.threshold + 1));
             sk_val.add_assign(&row.evaluate(0));
         }
-        (pk_commit.into(), SecretKey::from_value(sk_val))
+        let sk = ClearOnDrop::new(Box::new(SecretKey::from_value(sk_val)));
+        (pk_commit.into(), sk)
     }
 
     /// Handles an `Accept` message or returns an error string.

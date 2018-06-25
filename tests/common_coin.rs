@@ -6,6 +6,8 @@ extern crate hbbft;
 extern crate log;
 extern crate pairing;
 extern crate rand;
+#[macro_use]
+extern crate serde_derive;
 
 mod network;
 

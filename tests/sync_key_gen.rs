@@ -15,16 +15,19 @@ fn test_sync_key_gen_with(threshold: usize, node_num: usize) {
 
     // Generate individual key pairs for encryption. These are not suitable for threshold schemes.
     let sec_keys: Vec<SecretKey> = (0..node_num).map(|_| SecretKey::new(&mut rng)).collect();
-    let pub_keys: Vec<PublicKey> = sec_keys.iter().map(|sk| sk.public_key()).collect();
+    let pub_keys: BTreeMap<usize, PublicKey> = sec_keys
+        .iter()
+        .map(|sk| sk.public_key())
+        .enumerate()
+        .collect();
 
     // Create the `SyncKeyGen` instances and initial proposals.
     let mut nodes = Vec::new();
     let proposals: Vec<_> = sec_keys
         .into_iter()
         .enumerate()
-        .map(|(idx, sk)| {
-            let (sync_key_gen, proposal) =
-                SyncKeyGen::new(idx as u64, sk, pub_keys.clone(), threshold);
+        .map(|(id, sk)| {
+            let (sync_key_gen, proposal) = SyncKeyGen::new(&id, sk, pub_keys.clone(), threshold);
             nodes.push(sync_key_gen);
             proposal
         })
@@ -32,23 +35,23 @@ fn test_sync_key_gen_with(threshold: usize, node_num: usize) {
 
     // Handle the first `threshold + 1` proposals. Those should suffice for key generation.
     let mut accepts = Vec::new();
-    for (sender_idx, proposal) in proposals[..=threshold].iter().enumerate() {
-        for (node_idx, node) in nodes.iter_mut().enumerate() {
+    for (sender_id, proposal) in proposals[..=threshold].iter().enumerate() {
+        for (node_id, node) in nodes.iter_mut().enumerate() {
             let accept = node
-                .handle_propose(sender_idx as u64, proposal.clone())
+                .handle_propose(&sender_id, proposal.clone())
                 .expect("valid proposal");
             // Only the first `threshold + 1` manage to commit their `Accept`s.
-            if node_idx <= 2 * threshold {
-                accepts.push((node_idx, accept));
+            if node_id <= 2 * threshold {
+                accepts.push((node_id, accept));
             }
         }
     }
 
     // Handle the `Accept`s from `2 * threshold + 1` nodes.
-    for (sender_idx, accept) in accepts {
+    for (sender_id, accept) in accepts {
         for node in &mut nodes {
             assert!(!node.is_ready()); // Not enough `Accept`s yet.
-            node.handle_accept(sender_idx as u64, accept.clone());
+            node.handle_accept(&sender_id, accept.clone());
         }
     }
 
