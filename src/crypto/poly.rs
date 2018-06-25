@@ -390,8 +390,8 @@ impl BivarPoly {
     }
 }
 
-/// A commitment to a bivariate polynomial.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// A commitment to a symmetric bivariate polynomial.
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
 pub struct BivarCommitment {
     /// The polynomial's degree in each of the two variables.
     degree: usize,

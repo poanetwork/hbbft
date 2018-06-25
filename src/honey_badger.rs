@@ -3,12 +3,11 @@ use std::collections::{BTreeMap, BTreeSet, HashSet, VecDeque};
 use std::fmt::Debug;
 use std::hash::Hash;
 use std::rc::Rc;
-use std::{cmp, iter};
+use std::{cmp, iter, mem};
 
 use bincode;
 use rand;
-use serde::de::DeserializeOwned;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use common_subset::{self, CommonSubset};
 use crypto::{Ciphertext, DecryptionShare};
@@ -63,7 +62,7 @@ pub struct HoneyBadger<Tx, NodeUid> {
 
 impl<Tx, NodeUid> DistAlgorithm for HoneyBadger<Tx, NodeUid>
 where
-    Tx: Eq + Hash + Serialize + DeserializeOwned + Debug,
+    Tx: Serialize + for<'r> Deserialize<'r> + Debug + Hash + Eq,
     NodeUid: Ord + Clone + Debug,
 {
     type NodeUid = NodeUid;
@@ -119,7 +118,7 @@ where
 // TODO: Use a threshold encryption scheme to encrypt the proposed transactions.
 impl<Tx, NodeUid> HoneyBadger<Tx, NodeUid>
 where
-    Tx: Eq + Hash + Serialize + DeserializeOwned + Debug,
+    Tx: Serialize + for<'r> Deserialize<'r> + Debug + Hash + Eq,
     NodeUid: Ord + Clone + Debug,
 {
     /// Returns a new Honey Badger instance with the given parameters, starting at epoch `0`.
@@ -154,6 +153,11 @@ where
     ) -> HoneyBadgerResult<()> {
         self.buffer.extend(txs);
         Ok(())
+    }
+
+    /// Empties and returns the transaction buffer.
+    pub fn drain_buffer(&mut self) -> Vec<Tx> {
+        mem::replace(&mut self.buffer, Vec::new())
     }
 
     /// Proposes a new batch in the current epoch.

@@ -136,7 +136,7 @@ impl<'a, D: DistAlgorithm + 'a> Iterator for OutputIter<'a, D> {
 /// use this construction to zero out the section of heap memory that is
 /// allocated for `secret_key` when the corresponding instance of
 /// `NetworkInfo` goes out of scope.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct NetworkInfo<NodeUid> {
     our_uid: NodeUid,
     all_uids: BTreeSet<NodeUid>,
