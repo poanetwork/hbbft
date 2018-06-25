@@ -101,7 +101,7 @@ where
         let mut count_true = 0;
         let mut count_false = 0;
         for i in 0..num_samples {
-            let adversary = new_adversary(num_good_nodes, num_faulty_nodes);
+            let adversary = |_| new_adversary(num_good_nodes, num_faulty_nodes);
             let nonce = format!("My very unique nonce {:x}:{}", unique_id, i);
             info!("Nonce: {}", nonce);
             let new_common_coin = |netinfo: _| CommonCoin::new(netinfo, nonce.clone());

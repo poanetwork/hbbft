@@ -559,7 +559,7 @@ pub enum MessageContent<NodeUid> {
 }
 
 impl<NodeUid> MessageContent<NodeUid> {
-    fn with_epoch(self, epoch: u64) -> Message<NodeUid> {
+    pub fn with_epoch(self, epoch: u64) -> Message<NodeUid> {
         Message {
             epoch,
             content: self,

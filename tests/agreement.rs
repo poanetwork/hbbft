@@ -77,7 +77,7 @@ where
             num_good_nodes, num_faulty_nodes
         );
         for &input in &[None, Some(false), Some(true)] {
-            let adversary = new_adversary(num_good_nodes, num_faulty_nodes);
+            let adversary = |_| new_adversary(num_good_nodes, num_faulty_nodes);
             let new_agreement = |netinfo: Rc<NetworkInfo<NodeUid>>| {
                 Agreement::new(netinfo, 0, NodeUid(0)).expect("agreement instance")
             };
