@@ -18,7 +18,7 @@ use std::rc::Rc;
 
 use rand::Rng;
 
-use hbbft::honey_badger::{self, HoneyBadger, MessageContent};
+use hbbft::honey_badger::{self, Batch, HoneyBadger, MessageContent};
 use hbbft::messaging::{NetworkInfo, Target, TargetedMessage};
 
 use network::{
@@ -151,7 +151,33 @@ where
     while network.nodes.values_mut().any(node_busy) {
         network.step();
     }
-    // TODO: Verify that all nodes output the same epochs.
+    verify_output_sequence(&network);
+}
+
+/// Verifies that all instances output the same sequence of batches.
+fn verify_output_sequence<A>(network: &TestNetwork<A, HoneyBadger<usize, NodeUid>>)
+where
+    A: Adversary<HoneyBadger<usize, NodeUid>>,
+{
+    let mut expected: Option<BTreeMap<&_, &_>> = None;
+    for node in network.nodes.values() {
+        assert!(!node.outputs().is_empty());
+        let outputs: BTreeMap<&u64, &BTreeMap<NodeUid, Vec<usize>>> = node
+            .outputs()
+            .iter()
+            .map(
+                |Batch {
+                     epoch,
+                     transactions,
+                 }| (epoch, transactions),
+            )
+            .collect();
+        if expected.is_none() {
+            expected = Some(outputs);
+        } else if let Some(expected) = &expected {
+            assert_eq!(expected, &outputs);
+        }
+    }
 }
 
 fn new_honey_badger(netinfo: Rc<NetworkInfo<NodeUid>>) -> HoneyBadger<usize, NodeUid> {
