@@ -87,8 +87,7 @@ where
     type Error = Error;
 
     fn input(&mut self, input: Self::Input) -> Result<()> {
-        let tx = self.convert_transaction(input);
-        self.honey_badger.input(tx)?;
+        self.honey_badger.input(input.into())?;
         self.process_output()
     }
 
@@ -141,13 +140,6 @@ where
             output: VecDeque::new(),
         };
         Ok(dyn_hb)
-    }
-
-    fn convert_transaction(&self, input: Input<Tx, NodeUid>) -> Transaction<Tx, NodeUid> {
-        match input {
-            Input::User(tx) => Transaction::User(tx),
-            Input::Change(change) => Transaction::Change(change),
-        }
     }
 
     /// Handles a message for the `HoneyBadger` instance.
@@ -379,6 +371,15 @@ enum Transaction<Tx, NodeUid> {
     Propose(NodeUid, Propose, Box<Signature>),
     /// An accept message for key generation.
     Accept(NodeUid, Accept, Box<Signature>),
+}
+
+impl<Tx, NodeUid> From<Input<Tx, NodeUid>> for Transaction<Tx, NodeUid> {
+    fn from(input: Input<Tx, NodeUid>) -> Transaction<Tx, NodeUid> {
+        match input {
+            Input::User(tx) => Transaction::User(tx),
+            Input::Change(change) => Transaction::Change(change),
+        }
+    }
 }
 
 /// A batch of transactions the algorithm has output.
