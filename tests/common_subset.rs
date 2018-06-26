@@ -58,11 +58,15 @@ fn test_common_subset<A: Adversary<CommonSubset<NodeUid>>>(
     }
 }
 
-fn new_network<A: Adversary<CommonSubset<NodeUid>>>(
+fn new_network<A, F>(
     good_num: usize,
     bad_num: usize,
-    adversary: A,
-) -> TestNetwork<A, CommonSubset<NodeUid>> {
+    adversary: F,
+) -> TestNetwork<A, CommonSubset<NodeUid>>
+where
+    A: Adversary<CommonSubset<NodeUid>>,
+    F: Fn(BTreeMap<NodeUid, Rc<NetworkInfo<NodeUid>>>) -> A,
+{
     // This returns an error in all but the first test.
     let _ = env_logger::try_init();
 
@@ -80,7 +84,7 @@ fn test_common_subset_3_out_of_4_nodes_propose() {
         .iter()
         .map(|id| (*id, proposed_value.clone()))
         .collect();
-    let adversary = SilentAdversary::new(MessageScheduler::First);
+    let adversary = |_| SilentAdversary::new(MessageScheduler::First);
     let network = new_network(3, 1, adversary);
     test_common_subset(network, &proposals);
 }
@@ -99,7 +103,7 @@ fn test_common_subset_5_nodes_different_proposed_values() {
         .map(NodeUid)
         .zip(proposed_values)
         .collect();
-    let adversary = SilentAdversary::new(MessageScheduler::Random);
+    let adversary = |_| SilentAdversary::new(MessageScheduler::Random);
     let network = new_network(5, 0, adversary);
     test_common_subset(network, &proposals);
 }

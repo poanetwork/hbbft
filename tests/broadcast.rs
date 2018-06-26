@@ -129,7 +129,7 @@ where
             "Network size: {} good nodes, {} faulty nodes",
             num_good_nodes, num_faulty_nodes
         );
-        let adversary = new_adversary(num_good_nodes, num_faulty_nodes);
+        let adversary = |_| new_adversary(num_good_nodes, num_faulty_nodes);
         let network = TestNetwork::new(num_good_nodes, num_faulty_nodes, adversary, new_broadcast);
         test_broadcast(network, proposed_value);
     }
@@ -137,7 +137,7 @@ where
 
 #[test]
 fn test_8_broadcast_equal_leaves_silent() {
-    let adversary = SilentAdversary::new(MessageScheduler::Random);
+    let adversary = |_| SilentAdversary::new(MessageScheduler::Random);
     // Space is ASCII character 32. So 32 spaces will create shards that are all equal, even if the
     // length of the value is inserted.
     test_broadcast(

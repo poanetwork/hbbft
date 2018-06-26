@@ -99,7 +99,7 @@ impl MessageScheduler {
     }
 }
 
-type MessageWithSender<D> = (
+pub type MessageWithSender<D> = (
     <D as DistAlgorithm>::NodeUid,
     TargetedMessage<<D as DistAlgorithm>::Message, <D as DistAlgorithm>::NodeUid>,
 );
@@ -158,9 +158,15 @@ where
 {
     /// Creates a new network with `good_num` good nodes, and the given `adversary` controlling
     /// `adv_num` nodes.
-    pub fn new<F>(good_num: usize, adv_num: usize, adversary: A, new_algo: F) -> TestNetwork<A, D>
+    pub fn new<F, G>(
+        good_num: usize,
+        adv_num: usize,
+        adversary: G,
+        new_algo: F,
+    ) -> TestNetwork<A, D>
     where
         F: Fn(Rc<NetworkInfo<NodeUid>>) -> D,
+        G: Fn(BTreeMap<D::NodeUid, Rc<NetworkInfo<D::NodeUid>>>) -> A,
     {
         let mut rng = rand::thread_rng();
         let sk_set = SecretKeySet::random(adv_num, &mut rng);
@@ -189,13 +195,15 @@ where
                 )),
             )
         };
+        let adv_nodes: BTreeMap<D::NodeUid, Rc<NetworkInfo<D::NodeUid>>> = (good_num
+            ..(good_num + adv_num))
+            .map(NodeUid)
+            .map(new_adv_node_by_id)
+            .collect();
         let mut network = TestNetwork {
             nodes: (0..good_num).map(NodeUid).map(new_node_by_id).collect(),
-            adversary,
-            adv_nodes: (good_num..(good_num + adv_num))
-                .map(NodeUid)
-                .map(new_adv_node_by_id)
-                .collect(),
+            adversary: adversary(adv_nodes.clone()),
+            adv_nodes,
         };
         let msgs = network.adversary.step();
         for (sender_id, msg) in msgs {
