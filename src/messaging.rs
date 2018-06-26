@@ -218,7 +218,7 @@ impl<NodeUid: Clone + Ord> NetworkInfo<NodeUid> {
 
     /// Returns `true` if this node takes part in the consensus itself. If not, it is only an
     /// observer.
-    pub fn is_full_node(&self) -> bool {
+    pub fn is_peer(&self) -> bool {
         self.all_uids.contains(&self.our_uid)
     }
 }

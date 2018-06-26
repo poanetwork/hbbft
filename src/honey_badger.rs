@@ -152,7 +152,7 @@ where
         &mut self,
         txs: I,
     ) -> HoneyBadgerResult<()> {
-        if self.netinfo.is_full_node() {
+        if self.netinfo.is_peer() {
             self.buffer.extend(txs);
             Ok(())
         } else {
@@ -167,7 +167,7 @@ where
 
     /// Proposes a new batch in the current epoch.
     fn propose(&mut self) -> HoneyBadgerResult<()> {
-        if !self.netinfo.is_full_node() {
+        if !self.netinfo.is_peer() {
             return Ok(());
         }
         let proposal = self.choose_transactions()?;
@@ -428,7 +428,7 @@ where
                 self.verify_pending_decryption_shares(&proposer_id, &ciphertext);
             self.remove_incorrect_decryption_shares(&proposer_id, incorrect_senders);
 
-            if self.netinfo.is_full_node() {
+            if self.netinfo.is_peer() {
                 if let Some(share) = self.netinfo.secret_key().decrypt_share(&ciphertext) {
                     // Send the share to remote nodes.
                     self.messages.0.push_back(

@@ -307,7 +307,7 @@ impl<NodeUid: Clone + Debug + Ord> Agreement<NodeUid> {
     }
 
     fn send_bval(&mut self, b: bool) -> AgreementResult<()> {
-        if !self.netinfo.is_full_node() {
+        if !self.netinfo.is_peer() {
             return Ok(());
         }
         // Record the value `b` as sent.
@@ -329,7 +329,7 @@ impl<NodeUid: Clone + Debug + Ord> Agreement<NodeUid> {
         // Trigger the start of the `Conf` round.
         self.conf_round = true;
 
-        if !self.netinfo.is_full_node() {
+        if !self.netinfo.is_peer() {
             return Ok(());
         }
 
