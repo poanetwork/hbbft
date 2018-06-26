@@ -227,12 +227,14 @@ impl<NodeUid: Clone + Debug + Ord> Agreement<NodeUid> {
             self.decision = Some(input);
             self.output = Some(input);
             self.terminated = true;
+            self.send_bval(input)?;
+            self.send_aux(input)
+        } else {
+            // Set the initial estimated value to the input value.
+            self.estimated = Some(input);
+            // Record the input value as sent.
+            self.send_bval(input)
         }
-
-        // Set the initial estimated value to the input value.
-        self.estimated = Some(input);
-        // Record the input value as sent.
-        self.send_bval(input)
     }
 
     /// Acceptance check to be performed before setting the input value.
@@ -305,6 +307,9 @@ impl<NodeUid: Clone + Debug + Ord> Agreement<NodeUid> {
     }
 
     fn send_bval(&mut self, b: bool) -> AgreementResult<()> {
+        if !self.netinfo.is_peer() {
+            return Ok(());
+        }
         // Record the value `b` as sent.
         self.sent_bval.insert(b);
         // Multicast `BVal`.
@@ -321,12 +326,17 @@ impl<NodeUid: Clone + Debug + Ord> Agreement<NodeUid> {
             return Ok(());
         }
 
+        // Trigger the start of the `Conf` round.
+        self.conf_round = true;
+
+        if !self.netinfo.is_peer() {
+            return Ok(());
+        }
+
         let v = self.bin_values;
         // Multicast `Conf`.
         self.messages
             .push_back(AgreementContent::Conf(v).with_epoch(self.epoch));
-        // Trigger the start of the `Conf` round.
-        self.conf_round = true;
         // Receive the `Conf` message locally.
         let our_uid = &self.netinfo.our_uid().clone();
         self.handle_conf(our_uid, v)

@@ -21,23 +21,18 @@ use network::{Adversary, MessageScheduler, NodeUid, SilentAdversary, TestNetwork
 
 /// Tests a network of Common Coin instances with an optional expected value. Outputs the computed
 /// common coin value if the test is successful.
-fn test_common_coin<A>(
-    mut network: TestNetwork<A, CommonCoin<NodeUid, String>>,
-    expected_coin: Option<bool>,
-) -> bool
+fn test_common_coin<A>(mut network: TestNetwork<A, CommonCoin<NodeUid, String>>) -> bool
 where
     A: Adversary<CommonCoin<NodeUid, String>>,
 {
-    let ids: Vec<NodeUid> = network.nodes.keys().cloned().collect();
-    for id in ids {
-        network.input(id, ());
-    }
+    network.input_all(());
+    network.observer.input(()); // Observer will only return after `input` was called.
 
     // Handle messages until all good nodes have terminated.
     while !network.nodes.values().all(TestNode::terminated) {
         network.step();
     }
-    let mut expected = expected_coin;
+    let mut expected = None;
     // Verify that all instances output the same value.
     for node in network.nodes.values() {
         if let Some(b) = expected {
@@ -48,6 +43,7 @@ where
         }
     }
     // Now `expected` is the unique output of all good nodes.
+    assert!(expected.iter().eq(network.observer.outputs()));
     expected.unwrap()
 }
 
@@ -109,7 +105,7 @@ where
             let new_common_coin = |netinfo: _| CommonCoin::new(netinfo, nonce.clone());
             let network =
                 TestNetwork::new(num_good_nodes, num_faulty_nodes, adversary, new_common_coin);
-            let coin = test_common_coin(network, None);
+            let coin = test_common_coin(network);
             if coin {
                 count_true += 1;
             } else {

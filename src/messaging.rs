@@ -142,6 +142,7 @@ pub struct NetworkInfo<NodeUid> {
     all_uids: BTreeSet<NodeUid>,
     num_nodes: usize,
     num_faulty: usize,
+    is_peer: bool,
     secret_key: ClearOnDrop<Box<SecretKey>>,
     public_key_set: PublicKeySet,
     node_indices: BTreeMap<NodeUid, usize>,
@@ -154,10 +155,8 @@ impl<NodeUid: Clone + Ord> NetworkInfo<NodeUid> {
         secret_key: ClearOnDrop<Box<SecretKey>>,
         public_key_set: PublicKeySet,
     ) -> Self {
-        if !all_uids.contains(&our_uid) {
-            panic!("Missing own ID");
-        }
         let num_nodes = all_uids.len();
+        let is_peer = all_uids.contains(&our_uid);
         let node_indices = all_uids
             .iter()
             .cloned()
@@ -169,6 +168,7 @@ impl<NodeUid: Clone + Ord> NetworkInfo<NodeUid> {
             all_uids,
             num_nodes,
             num_faulty: (num_nodes - 1) / 3,
+            is_peer,
             secret_key,
             public_key_set,
             node_indices,
@@ -217,5 +217,11 @@ impl<NodeUid: Clone + Ord> NetworkInfo<NodeUid> {
     /// independent from the public key, so that reusing keys would be safer.
     pub fn invocation_id(&self) -> Vec<u8> {
         self.public_key_set.public_key().to_bytes()
+    }
+
+    /// Returns `true` if this node takes part in the consensus itself. If not, it is only an
+    /// observer.
+    pub fn is_peer(&self) -> bool {
+        self.is_peer
     }
 }
