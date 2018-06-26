@@ -142,6 +142,7 @@ pub struct NetworkInfo<NodeUid> {
     all_uids: BTreeSet<NodeUid>,
     num_nodes: usize,
     num_faulty: usize,
+    is_peer: bool,
     secret_key: ClearOnDrop<Box<SecretKey>>,
     public_key_set: PublicKeySet,
     node_indices: BTreeMap<NodeUid, usize>,
@@ -155,6 +156,7 @@ impl<NodeUid: Clone + Ord> NetworkInfo<NodeUid> {
         public_key_set: PublicKeySet,
     ) -> Self {
         let num_nodes = all_uids.len();
+        let is_peer = all_uids.contains(&our_uid);
         let node_indices = all_uids
             .iter()
             .cloned()
@@ -166,6 +168,7 @@ impl<NodeUid: Clone + Ord> NetworkInfo<NodeUid> {
             all_uids,
             num_nodes,
             num_faulty: (num_nodes - 1) / 3,
+            is_peer,
             secret_key,
             public_key_set,
             node_indices,
@@ -219,6 +222,6 @@ impl<NodeUid: Clone + Ord> NetworkInfo<NodeUid> {
     /// Returns `true` if this node takes part in the consensus itself. If not, it is only an
     /// observer.
     pub fn is_peer(&self) -> bool {
-        self.all_uids.contains(&self.our_uid)
+        self.is_peer
     }
 }
