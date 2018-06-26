@@ -428,31 +428,10 @@ where
                 self.verify_pending_decryption_shares(&proposer_id, &ciphertext);
             self.remove_incorrect_decryption_shares(&proposer_id, incorrect_senders);
 
-            if self.netinfo.is_peer() {
-                if let Some(share) = self.netinfo.secret_key().decrypt_share(&ciphertext) {
-                    // Send the share to remote nodes.
-                    self.messages.0.push_back(
-                        Target::All.message(
-                            MessageContent::DecryptionShare {
-                                proposer_id: proposer_id.clone(),
-                                share: share.clone(),
-                            }.with_epoch(self.epoch),
-                        ),
-                    );
-                    let our_id = self.netinfo.our_uid().clone();
-                    let epoch = self.epoch;
-                    // Receive the share locally.
-                    self.handle_decryption_share_message(
-                        &our_id,
-                        epoch,
-                        proposer_id.clone(),
-                        share,
-                    )?;
-                } else {
-                    warn!("Share decryption failed for proposer {:?}", proposer_id);
-                    // TODO: Log the decryption failure.
-                    continue;
-                }
+            if !self.send_decryption_share(&proposer_id, &ciphertext)? {
+                warn!("Share decryption failed for proposer {:?}", proposer_id);
+                // TODO: Log the decryption failure.
+                continue;
             }
             let ciphertexts = self
                 .ciphertexts
@@ -461,6 +440,33 @@ where
             ciphertexts.insert(proposer_id, ciphertext);
         }
         Ok(())
+    }
+
+    /// Verifies the ciphertext and sends decryption shares. Returns whether it is valid.
+    fn send_decryption_share(
+        &mut self,
+        proposer_id: &NodeUid,
+        ciphertext: &Ciphertext,
+    ) -> HoneyBadgerResult<bool> {
+        if !self.netinfo.is_peer() {
+            return Ok(ciphertext.verify());
+        }
+        let share = match self.netinfo.secret_key().decrypt_share(&ciphertext) {
+            None => return Ok(false),
+            Some(share) => share,
+        };
+        // Send the share to remote nodes.
+        let content = MessageContent::DecryptionShare {
+            proposer_id: proposer_id.clone(),
+            share: share.clone(),
+        };
+        let message = Target::All.message(content.with_epoch(self.epoch));
+        self.messages.0.push_back(message);
+        let our_id = self.netinfo.our_uid().clone();
+        let epoch = self.epoch;
+        // Receive the share locally.
+        self.handle_decryption_share_message(&our_id, epoch, proposer_id.clone(), share)?;
+        Ok(true)
     }
 
     /// Verifies the shares of the current epoch that are pending verification. Returned are the

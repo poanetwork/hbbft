@@ -292,14 +292,7 @@ impl<NodeUid: Debug + Clone + Ord> Broadcast<NodeUid> {
         }
 
         // Otherwise multicast the proof in an `Echo` message, and handle it ourselves.
-        self.echo_sent = true;
-        if self.netinfo.is_peer() {
-            let our_uid = &self.netinfo.our_uid().clone();
-            self.handle_echo(our_uid, p.clone())?;
-            let echo_msg = Target::All.message(BroadcastMessage::Echo(p));
-            self.messages.push_back(echo_msg);
-        }
-        Ok(())
+        self.send_echo(p)
     }
 
     /// Handles a received `Echo` message.
@@ -329,14 +322,7 @@ impl<NodeUid: Debug + Clone + Ord> Broadcast<NodeUid> {
         }
 
         // Upon receiving `N - f` `Echo`s with this root hash, multicast `Ready`.
-        self.ready_sent = true;
-        if self.netinfo.is_peer() {
-            let ready_msg = Target::All.message(BroadcastMessage::Ready(hash.clone()));
-            self.messages.push_back(ready_msg);
-            let our_uid = &self.netinfo.our_uid().clone();
-            self.handle_ready(our_uid, &hash)?;
-        }
-        Ok(())
+        self.send_ready(&hash)
     }
 
     /// Handles a received `Ready` message.
@@ -357,13 +343,33 @@ impl<NodeUid: Debug + Clone + Ord> Broadcast<NodeUid> {
         // has not yet been sent, multicast Ready(h).
         if self.count_readys(hash) == self.netinfo.num_faulty() + 1 && !self.ready_sent {
             // Enqueue a broadcast of a Ready message.
-            self.ready_sent = true;
-            if self.netinfo.is_peer() {
-                let ready_msg = Target::All.message(BroadcastMessage::Ready(hash.to_vec()));
-                self.messages.push_back(ready_msg);
-            }
+            self.send_ready(hash)?;
         }
-        self.compute_output(&hash)
+        self.compute_output(hash)
+    }
+
+    /// Sends an `Echo` message and handles it. Does nothing if we are only an observer.
+    fn send_echo(&mut self, p: Proof<Vec<u8>>) -> BroadcastResult<()> {
+        self.echo_sent = true;
+        if !self.netinfo.is_peer() {
+            return Ok(());
+        }
+        let echo_msg = Target::All.message(BroadcastMessage::Echo(p.clone()));
+        self.messages.push_back(echo_msg);
+        let our_uid = &self.netinfo.our_uid().clone();
+        self.handle_echo(our_uid, p)
+    }
+
+    /// Sends a `Ready` message and handles it. Does nothing if we are only an observer.
+    fn send_ready(&mut self, hash: &[u8]) -> BroadcastResult<()> {
+        self.ready_sent = true;
+        if !self.netinfo.is_peer() {
+            return Ok(());
+        }
+        let ready_msg = Target::All.message(BroadcastMessage::Ready(hash.to_vec()));
+        self.messages.push_back(ready_msg);
+        let our_uid = &self.netinfo.our_uid().clone();
+        self.handle_ready(our_uid, hash)
     }
 
     /// Checks whether the condition for output are met for this hash, and if so, sets the output
