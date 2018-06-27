@@ -278,9 +278,11 @@ where
         share: &DecryptionShare,
         ciphertext: &Ciphertext,
     ) -> bool {
-        let sender: u64 = *self.netinfo.node_index(sender_id).unwrap() as u64;
-        let pk = self.netinfo.public_key_set().public_key_share(sender);
-        pk.verify_decryption_share(&share, ciphertext)
+        if let Some(pk) = self.netinfo.public_key_share(sender_id) {
+            pk.verify_decryption_share(&share, ciphertext)
+        } else {
+            false
+        }
     }
 
     /// When selections of transactions have been decrypted for all valid proposers in this epoch,

@@ -136,8 +136,7 @@ where
     }
 
     fn handle_share(&mut self, sender_id: &NodeUid, share: Signature) -> Result<()> {
-        if let Some(i) = self.netinfo.node_index(sender_id) {
-            let pk_i = self.netinfo.public_key_set().public_key_share(*i as u64);
+        if let Some(pk_i) = self.netinfo.public_key_share(sender_id) {
             if !pk_i.verify(&share, &self.nonce) {
                 // Silently ignore the invalid share.
                 return Ok(());

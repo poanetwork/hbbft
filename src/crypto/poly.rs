@@ -29,7 +29,7 @@ use rand::Rng;
 pub struct Poly {
     /// The coefficients of a polynomial.
     #[serde(with = "super::serde_impl::field_vec")]
-    coeff: Vec<Fr>,
+    pub(super) coeff: Vec<Fr>,
 }
 
 impl<B: Borrow<Poly>> ops::AddAssign<B> for Poly {
@@ -246,7 +246,7 @@ impl Poly {
 pub struct Commitment {
     /// The coefficients of the polynomial.
     #[serde(with = "super::serde_impl::projective_vec")]
-    coeff: Vec<G1>,
+    pub(super) coeff: Vec<G1>,
 }
 
 impl Hash for Commitment {
