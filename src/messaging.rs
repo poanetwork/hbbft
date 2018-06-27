@@ -3,7 +3,7 @@ use std::fmt::Debug;
 
 use clear_on_drop::ClearOnDrop;
 
-use crypto::{PublicKeySet, SecretKey};
+use crypto::{PublicKey, PublicKeySet, SecretKey};
 
 /// Message sent by a given source.
 #[derive(Clone, Debug)]
@@ -202,6 +202,21 @@ impl<NodeUid: Clone + Ord> NetworkInfo<NodeUid> {
 
     pub fn public_key_set(&self) -> &PublicKeySet {
         &self.public_key_set
+    }
+
+    /// Returns the public key share if a node with that ID exists, otherwise `None`.
+    pub fn public_key_share(&self, id: &NodeUid) -> Option<PublicKey> {
+        self.node_index(id)
+            .map(|idx| self.public_key_set.public_key_share(*idx as u64))
+    }
+
+    /// Returns a map of all node IDs to their public key shares.
+    pub fn public_key_map(&self) -> BTreeMap<NodeUid, PublicKey> {
+        let to_pair = |(idx, id): (usize, &NodeUid)| {
+            let pub_key = self.public_key_set().public_key_share(idx as u64);
+            (id.clone(), pub_key)
+        };
+        self.all_uids().iter().enumerate().map(to_pair).collect()
     }
 
     /// The index of a node in a canonical numbering of all nodes.
