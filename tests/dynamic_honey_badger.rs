@@ -99,9 +99,7 @@ where
     let _ = env_logger::try_init();
 
     let mut rng = rand::thread_rng();
-    let sizes = (4..5)
-        .chain(once(rng.gen_range(6, 10)))
-        .chain(once(rng.gen_range(11, 15)));
+    let sizes = (3..5).chain(once(rng.gen_range(6, 10)));
     for size in sizes {
         // The test is removing one correct node, so we allow fewer faulty ones.
         let num_adv_nodes = (size - 2) / 3;

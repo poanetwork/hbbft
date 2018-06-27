@@ -59,10 +59,9 @@ where
     batch_size: usize,
     /// The first epoch after the latest node change.
     start_epoch: u64,
-    /// Collected votes for adding or removing nodes.
+    /// Collected votes for adding or removing nodes. Each node has one vote, and casting another
+    /// vote revokes the previous one. Resets whenever the set of peers is successfully changed.
     votes: BTreeMap<NodeUid, Change<NodeUid>>,
-    /// The number of nodes currently voting for a change.
-    vote_counts: HashMap<Change<NodeUid>, usize>,
     /// The `HoneyBadger` instance with the current set of nodes.
     honey_badger: HoneyBadger<Transaction<Tx, NodeUid>, NodeUid>,
     /// The current key generation process.
@@ -130,7 +129,6 @@ where
             batch_size,
             start_epoch: 0,
             votes: BTreeMap::new(),
-            vote_counts: HashMap::new(),
             honey_badger,
             key_gen: None,
             incoming_queue: Vec::new(),
@@ -174,7 +172,7 @@ where
             let mut batch = Batch::new(hb_batch.epoch + self.start_epoch);
             // The change that currently has a majority. All key generation messages in this batch
             // are related to this change.
-            let change = self.current_majority().cloned();
+            let change = self.current_majority();
             // Add the user transactions to `batch` and handle votes and DKG messages.
             for (id, tx_vec) in hb_batch.transactions {
                 let entry = batch.transactions.entry(id);
@@ -191,7 +189,7 @@ where
                 }
             }
             // If DKG completed, apply the change.
-            if let Some(change) = change.as_ref() {
+            if let Some(ref change) = change {
                 if let Some((pub_key_set, sk)) = self.get_key_gen_output() {
                     let sk = sk.unwrap_or_else(|| {
                         ClearOnDrop::new(Box::new(self.netinfo.secret_key().clone()))
@@ -202,9 +200,14 @@ where
                     changed = true;
                 }
             }
+            // If a node is in the process of joining, inform the user.
+            let new_change = self.current_majority();
+            if let Some(Change::Add(ref node_id, ref pub_key)) = new_change {
+                batch.candidate = Some((node_id.clone(), pub_key.clone()));
+            }
             // If a new change has a majority, restart DKG.
-            if self.current_majority() != change.as_ref() {
-                if let Some(change) = self.current_majority().cloned() {
+            if new_change != change {
+                if let Some(change) = new_change {
                     self.start_key_gen(change)?;
                 } else {
                     self.key_gen = None;
@@ -244,7 +247,6 @@ where
         sk: ClearOnDrop<Box<SecretKey>>,
     ) -> Result<()> {
         self.votes.clear();
-        self.vote_counts.clear();
         self.key_gen = None;
         let mut all_uids = self.netinfo.all_uids().clone();
         if !match *change {
@@ -255,7 +257,6 @@ where
         }
         let netinfo = NetworkInfo::new(self.our_id().clone(), all_uids, sk, pub_key_set);
         self.netinfo = netinfo.clone();
-        // TODO: Drop the buffer if this node was removed, to become an observer.
         let buffer = self.honey_badger.drain_buffer();
         self.honey_badger = HoneyBadger::new(Rc::new(netinfo), self.batch_size, buffer)?;
         Ok(())
@@ -362,26 +363,22 @@ where
         sig: &Signature,
     ) -> Result<()> {
         if self.verify_signature(&sender_id, sig, &change)? {
-            if let Some(old_change) = self.votes.insert(sender_id, change.clone()) {
-                let decrement = |count: &mut usize| {
-                    *count -= 1;
-                    *count
-                };
-                if Some(0) == self.vote_counts.get_mut(&old_change).map(decrement) {
-                    self.vote_counts.remove(&old_change);
-                }
-            }
-            *self.vote_counts.entry(change).or_insert(0) += 1;
+            self.votes.insert(sender_id, change);
         }
         Ok(())
     }
 
     /// Returns the change that currently has a majority of votes, if any.
-    fn current_majority(&self) -> Option<&Change<NodeUid>> {
-        self.vote_counts
-            .iter()
-            .find(|&(_, count)| count * 2 > self.netinfo.num_nodes())
-            .map(|(change, _)| change)
+    fn current_majority(&self) -> Option<Change<NodeUid>> {
+        let mut vote_counts: HashMap<&Change<NodeUid>, usize> = HashMap::new();
+        for change in self.votes.values() {
+            let entry = vote_counts.entry(change).or_insert(0);
+            *entry += 1;
+            if *entry * 2 > self.netinfo.num_nodes() {
+                return Some(change.clone());
+            }
+        }
+        None
     }
 }
 
@@ -403,9 +400,16 @@ enum Transaction<Tx, NodeUid> {
 /// A batch of transactions the algorithm has output.
 #[derive(Clone)]
 pub struct Batch<Tx, NodeUid> {
+    /// The sequence number: there is exactly one batch in each epoch.
     pub epoch: u64,
+    /// The user transactions committed in this epoch.
     pub transactions: BTreeMap<NodeUid, Vec<Tx>>,
+    /// Information about a newly added or removed node. This is `Some` if the set of nodes taking
+    /// part in the consensus process has changed.
     pub change: Option<Change<NodeUid>>,
+    /// The current candidate for joining the consensus nodes. All future broadcast messages must
+    /// be delivered to this node, too.
+    pub candidate: Option<(NodeUid, PublicKey)>,
 }
 
 impl<Tx, NodeUid: Ord> Batch<Tx, NodeUid> {
@@ -415,6 +419,7 @@ impl<Tx, NodeUid: Ord> Batch<Tx, NodeUid> {
             epoch,
             transactions: BTreeMap::new(),
             change: None,
+            candidate: None,
         }
     }
 
