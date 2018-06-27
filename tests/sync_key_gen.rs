@@ -38,7 +38,7 @@ fn test_sync_key_gen_with(threshold: usize, node_num: usize) {
     for (sender_id, proposal) in proposals[..=threshold].iter().enumerate() {
         for (node_id, node) in nodes.iter_mut().enumerate() {
             let accept = node
-                .handle_propose(&sender_id, proposal.clone())
+                .handle_propose(&sender_id, proposal.clone().expect("proposal"))
                 .expect("valid proposal");
             // Only the first `threshold + 1` manage to commit their `Accept`s.
             if node_id <= 2 * threshold {
@@ -63,7 +63,8 @@ fn test_sync_key_gen_with(threshold: usize, node_num: usize) {
         .enumerate()
         .map(|(idx, node)| {
             assert!(node.is_ready());
-            let (pks, sk) = node.generate();
+            let (pks, opt_sk) = node.generate();
+            let sk = opt_sk.expect("new secret key");
             assert_eq!(pks, pub_key_set);
             let sig = sk.sign(msg);
             assert!(pks.public_key_share(idx as u64).verify(&sig, msg));

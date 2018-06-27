@@ -44,7 +44,7 @@ fn test_dynamic_honey_badger<A>(
             .filter_map(|batch| batch.change())
             .any(|change| *change == Change::Remove(NodeUid(0)))
         {
-            return false;
+            return true;
         }
         let mut min_missing = 0;
         for batch in node.outputs() {

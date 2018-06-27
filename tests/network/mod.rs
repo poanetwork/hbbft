@@ -242,12 +242,13 @@ where
                 Target::Node(to_id) => {
                     if self.adv_nodes.contains_key(&to_id) {
                         self.adversary.push_message(sender_id, msg);
+                    } else if let Some(node) = self.nodes.get_mut(&to_id) {
+                        node.queue.push_back((sender_id, msg.message));
                     } else {
-                        self.nodes
-                            .get_mut(&to_id)
-                            .unwrap()
-                            .queue
-                            .push_back((sender_id, msg.message));
+                        warn!(
+                            "Unknown recipient {:?} for message: {:?}",
+                            to_id, msg.message
+                        );
                     }
                 }
             }

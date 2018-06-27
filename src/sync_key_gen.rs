@@ -88,7 +88,7 @@ impl ProposalState {
 /// It requires that all nodes handle all messages in the exact same order.
 pub struct SyncKeyGen<NodeUid> {
     /// Our node index.
-    our_idx: u64,
+    our_idx: Option<u64>,
     /// Our secret key.
     sec_key: SecretKey,
     /// The public keys of all nodes, by node index.
@@ -101,29 +101,17 @@ pub struct SyncKeyGen<NodeUid> {
 
 impl<NodeUid: Ord + Debug> SyncKeyGen<NodeUid> {
     /// Creates a new `SyncKeyGen` instance, together with the `Propose` message that should be
-    /// broadcast.
+    /// broadcast, if we are a peer.
     pub fn new(
         our_uid: &NodeUid,
         sec_key: SecretKey,
         pub_keys: BTreeMap<NodeUid, PublicKey>,
         threshold: usize,
-    ) -> (SyncKeyGen<NodeUid>, Propose) {
+    ) -> (SyncKeyGen<NodeUid>, Option<Propose>) {
         let our_idx = pub_keys
             .keys()
             .position(|uid| uid == our_uid)
-            .expect("missing pub key for own ID") as u64;
-        let mut rng = OsRng::new().expect("OS random number generator");
-        let our_proposal = BivarPoly::random(threshold, &mut rng);
-        let commit = our_proposal.commitment();
-        let rows: Vec<_> = pub_keys
-            .values()
-            .enumerate()
-            .map(|(i, pk)| {
-                let row = our_proposal.row(i as u64 + 1);
-                let bytes = bincode::serialize(&row).expect("failed to serialize row");
-                pk.encrypt(&bytes)
-            })
-            .collect();
+            .map(|idx| idx as u64);
         let key_gen = SyncKeyGen {
             our_idx,
             sec_key,
@@ -131,7 +119,19 @@ impl<NodeUid: Ord + Debug> SyncKeyGen<NodeUid> {
             proposals: BTreeMap::new(),
             threshold,
         };
-        (key_gen, Propose(commit, rows))
+        if our_idx.is_none() {
+            return (key_gen, None); // No proposal: we are an observer.
+        }
+        let mut rng = OsRng::new().expect("OS random number generator");
+        let our_proposal = BivarPoly::random(threshold, &mut rng);
+        let commit = our_proposal.commitment();
+        let encrypt = |(i, pk): (usize, &PublicKey)| {
+            let row = our_proposal.row(i as u64 + 1);
+            let bytes = bincode::serialize(&row).expect("failed to serialize row");
+            pk.encrypt(&bytes)
+        };
+        let rows: Vec<_> = key_gen.pub_keys.values().enumerate().map(encrypt).collect();
+        (key_gen, Some(Propose(commit, rows)))
     }
 
     /// Handles a `Propose` message. If it is valid, returns an `Accept` message to be broadcast.
@@ -140,52 +140,41 @@ impl<NodeUid: Ord + Debug> SyncKeyGen<NodeUid> {
         sender_id: &NodeUid,
         Propose(commit, rows): Propose,
     ) -> Option<Accept> {
-        let sender_idx =
-            if let Some(sender_idx) = self.pub_keys.keys().position(|uid| uid == sender_id) {
-                sender_idx as u64
-            } else {
-                debug!("Unknown sender {:?}", sender_id);
-                return None;
-            };
-        let commit_row = commit.row(self.our_idx + 1);
+        let sender_idx = self.node_index(sender_id)?;
+        let opt_commit_row = self.our_idx.map(|idx| commit.row(idx + 1));
         match self.proposals.entry(sender_idx) {
             Entry::Occupied(_) => return None, // Ignore multiple proposals.
             Entry::Vacant(entry) => {
                 entry.insert(ProposalState::new(commit));
             }
         }
-        let ser_row = self.sec_key.decrypt(rows.get(self.our_idx as usize)?)?;
+        // If we are only an observer, return `None`. We don't need to send `Accept`.
+        let our_idx = self.our_idx?;
+        let commit_row = opt_commit_row?;
+        let ser_row = self.sec_key.decrypt(rows.get(our_idx as usize)?)?;
         let row: Poly = bincode::deserialize(&ser_row).ok()?; // Ignore invalid messages.
         if row.commitment() != commit_row {
             debug!("Invalid proposal from node {}.", sender_idx);
             return None;
         }
         // The row is valid: now encrypt one value for each node.
-        let values = self
-            .pub_keys
-            .values()
-            .enumerate()
-            .map(|(idx, pk)| {
-                let val = row.evaluate(idx as u64 + 1);
-                let ser_val =
-                    bincode::serialize(&FieldWrap::new(val)).expect("failed to serialize value");
-                pk.encrypt(ser_val)
-            })
-            .collect();
+        let encrypt = |(idx, pk): (usize, &PublicKey)| {
+            let val = row.evaluate(idx as u64 + 1);
+            let wrap = FieldWrap::new(val);
+            // TODO: Handle errors.
+            let ser_val = bincode::serialize(&wrap).expect("failed to serialize value");
+            pk.encrypt(ser_val)
+        };
+        let values = self.pub_keys.values().enumerate().map(encrypt).collect();
         Some(Accept(sender_idx, values))
     }
 
     /// Handles an `Accept` message.
     pub fn handle_accept(&mut self, sender_id: &NodeUid, accept: Accept) {
-        let sender_idx =
-            if let Some(sender_idx) = self.pub_keys.keys().position(|uid| uid == sender_id) {
-                sender_idx as u64
-            } else {
-                debug!("Unknown sender {:?}", sender_id);
-                return;
-            };
-        if let Err(err) = self.handle_accept_or_err(sender_idx, accept) {
-            debug!("Invalid accept from node {}: {}", sender_idx, err);
+        if let Some(sender_idx) = self.node_index(sender_id) {
+            if let Err(err) = self.handle_accept_or_err(sender_idx, accept) {
+                debug!("Invalid accept from node {}: {}", sender_idx, err);
+            }
         }
     }
 
@@ -214,20 +203,20 @@ impl<NodeUid: Ord + Debug> SyncKeyGen<NodeUid> {
     ///
     /// These are only secure if `is_ready` returned `true`. Otherwise it is not guaranteed that
     /// none of the nodes knows the secret master key.
-    pub fn generate(&self) -> (PublicKeySet, ClearOnDrop<Box<SecretKey>>) {
+    pub fn generate(&self) -> (PublicKeySet, Option<ClearOnDrop<Box<SecretKey>>>) {
         let mut pk_commit = Poly::zero().commitment();
-        let mut sk_val = Fr::zero();
-        for proposal in self
-            .proposals
-            .values()
-            .filter(|proposal| proposal.is_complete(self.threshold))
-        {
+        let mut opt_sk_val = self.our_idx.map(|_| Fr::zero());
+        let is_complete = |proposal: &&ProposalState| proposal.is_complete(self.threshold);
+        for proposal in self.proposals.values().filter(is_complete) {
             pk_commit += proposal.commit.row(0);
-            let row: Poly = Poly::interpolate(proposal.values.iter().take(self.threshold + 1));
-            sk_val.add_assign(&row.evaluate(0));
+            if let Some(sk_val) = opt_sk_val.as_mut() {
+                let row: Poly = Poly::interpolate(proposal.values.iter().take(self.threshold + 1));
+                sk_val.add_assign(&row.evaluate(0));
+            }
         }
-        let sk = ClearOnDrop::new(Box::new(SecretKey::from_value(sk_val)));
-        (pk_commit.into(), sk)
+        let opt_sk =
+            opt_sk_val.map(|sk_val| ClearOnDrop::new(Box::new(SecretKey::from_value(sk_val))));
+        (pk_commit.into(), opt_sk)
     }
 
     /// Handles an `Accept` message or returns an error string.
@@ -236,6 +225,9 @@ impl<NodeUid: Ord + Debug> SyncKeyGen<NodeUid> {
         sender_idx: u64,
         Accept(proposer_idx, values): Accept,
     ) -> Result<(), String> {
+        if values.len() != self.pub_keys.len() {
+            return Err("wrong node count".to_string());
+        }
         let proposal = self
             .proposals
             .get_mut(&proposer_idx)
@@ -243,20 +235,31 @@ impl<NodeUid: Ord + Debug> SyncKeyGen<NodeUid> {
         if !proposal.accepts.insert(sender_idx) {
             return Err("duplicate accept".to_string());
         }
-        if values.len() != self.pub_keys.len() {
-            return Err("wrong node count".to_string());
-        }
+        let our_idx = match self.our_idx {
+            Some(our_idx) => our_idx,
+            None => return Ok(()), // We are only an observer. Nothing to decrypt for us.
+        };
         let ser_val: Vec<u8> = self
             .sec_key
-            .decrypt(&values[self.our_idx as usize])
+            .decrypt(&values[our_idx as usize])
             .ok_or_else(|| "value decryption failed".to_string())?;
         let val = bincode::deserialize::<FieldWrap<Fr, Fr>>(&ser_val)
             .map_err(|err| format!("deserialization failed: {:?}", err))?
             .into_inner();
-        if proposal.commit.evaluate(self.our_idx + 1, sender_idx + 1) != G1Affine::one().mul(val) {
+        if proposal.commit.evaluate(our_idx + 1, sender_idx + 1) != G1Affine::one().mul(val) {
             return Err("wrong value".to_string());
         }
         proposal.values.insert(sender_idx + 1, val);
         Ok(())
+    }
+
+    /// Returns the index of the node, or `None` if it is unknown.
+    fn node_index(&self, node_id: &NodeUid) -> Option<u64> {
+        if let Some(node_idx) = self.pub_keys.keys().position(|uid| uid == node_id) {
+            Some(node_idx as u64)
+        } else {
+            debug!("Unknown node {:?}", node_id);
+            None
+        }
     }
 }

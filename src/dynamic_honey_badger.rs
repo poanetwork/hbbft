@@ -87,14 +87,12 @@ where
     type Error = Error;
 
     fn input(&mut self, input: Self::Input) -> Result<()> {
-        self.honey_badger.input(input.into())?;
+        let tx = self.input_to_tx(input)?;
+        self.honey_badger.input(tx)?;
         self.process_output()
     }
 
     fn handle_message(&mut self, sender_id: &NodeUid, message: Self::Message) -> Result<()> {
-        if !self.netinfo.all_uids().contains(sender_id) {
-            return Err(ErrorKind::UnknownSender.into());
-        }
         match message {
             Message::HoneyBadger(start_epoch, hb_msg) => {
                 self.handle_honey_badger_message(sender_id, start_epoch, hb_msg)
@@ -158,6 +156,9 @@ where
             self.incoming_queue.push(entry);
             return Ok(());
         }
+        if !self.netinfo.all_uids().contains(sender_id) {
+            return Err(ErrorKind::UnknownSender.into());
+        }
         // Handle the message and put the outgoing messages into the queue.
         self.honey_badger.handle_message(sender_id, message)?;
         self.process_output()?;
@@ -176,13 +177,14 @@ where
             let change = self.current_majority().cloned();
             // Add the user transactions to `batch` and handle votes and DKG messages.
             for (id, tx_vec) in hb_batch.transactions {
-                let entry = batch.transactions.entry(id.clone());
+                let entry = batch.transactions.entry(id);
                 let id_txs = entry.or_insert_with(Vec::new);
                 for tx in tx_vec {
                     use self::Transaction::*;
+                    info!("{:?} output {:?}.", self.netinfo.our_uid(), tx);
                     match tx {
                         User(tx) => id_txs.push(tx),
-                        Change(change) => self.insert_vote(id.clone(), change),
+                        Change(s_id, change, sig) => self.handle_vote(s_id, change, &sig)?,
                         Propose(s_id, propose, sig) => self.handle_propose(&s_id, propose, &*sig)?,
                         Accept(s_id, accept, sig) => self.handle_accept(&s_id, accept, &*sig)?,
                     }
@@ -191,6 +193,9 @@ where
             // If DKG completed, apply the change.
             if let Some(change) = change.as_ref() {
                 if let Some((pub_key_set, sk)) = self.get_key_gen_output() {
+                    let sk = sk.unwrap_or_else(|| {
+                        ClearOnDrop::new(Box::new(self.netinfo.secret_key().clone()))
+                    });
                     self.start_epoch = hb_batch.epoch + 1;
                     self.apply_change(change, pub_key_set, sk)?;
                     batch.change = Some(change.clone());
@@ -217,6 +222,18 @@ where
             }
         }
         Ok(())
+    }
+
+    /// Converts the input into a transaction to commit via Honey Badger.
+    fn input_to_tx(&self, input: Input<Tx, NodeUid>) -> Result<Transaction<Tx, NodeUid>> {
+        Ok(match input {
+            Input::User(tx) => Transaction::User(tx),
+            Input::Change(change) => {
+                let our_id = self.our_id().clone();
+                let sig = self.sign(&change)?;
+                Transaction::Change(our_id, change, sig)
+            }
+        })
     }
 
     /// Restarts Honey Badger with a new set of nodes, and resets the Key Generation.
@@ -261,9 +278,11 @@ where
         let our_uid = self.our_id().clone();
         let (key_gen, propose) = SyncKeyGen::new(&our_uid, sk, pub_keys, threshold);
         self.key_gen = Some(key_gen);
-        let sig = self.sign(&propose)?;
-        let tx = Transaction::Propose(our_uid, propose, sig);
-        self.honey_badger.input(tx)?;
+        if let Some(propose) = propose {
+            let sig = self.sign(&propose)?;
+            let tx = Transaction::Propose(our_uid, propose, sig);
+            self.honey_badger.input(tx)?;
+        }
         Ok(())
     }
 
@@ -307,7 +326,7 @@ where
     }
 
     /// If the current Key Generation process is ready, returns the generated key set.
-    fn get_key_gen_output(&self) -> Option<(PublicKeySet, ClearOnDrop<Box<SecretKey>>)> {
+    fn get_key_gen_output(&self) -> Option<(PublicKeySet, Option<ClearOnDrop<Box<SecretKey>>>)> {
         // TODO: Once we've upgraded to Rust 1.27.0, we can use `Option::filter` here.
         self.key_gen
             .iter()
@@ -336,17 +355,25 @@ where
     }
 
     /// Adds a vote for a node change by the node with `id`.
-    fn insert_vote(&mut self, id: NodeUid, change: Change<NodeUid>) {
-        if let Some(old_change) = self.votes.insert(id, change.clone()) {
-            let decrement = |count: &mut usize| {
-                *count -= 1;
-                *count
-            };
-            if Some(0) == self.vote_counts.get_mut(&old_change).map(decrement) {
-                self.vote_counts.remove(&old_change);
+    fn handle_vote(
+        &mut self,
+        sender_id: NodeUid,
+        change: Change<NodeUid>,
+        sig: &Signature,
+    ) -> Result<()> {
+        if self.verify_signature(&sender_id, sig, &change)? {
+            if let Some(old_change) = self.votes.insert(sender_id, change.clone()) {
+                let decrement = |count: &mut usize| {
+                    *count -= 1;
+                    *count
+                };
+                if Some(0) == self.vote_counts.get_mut(&old_change).map(decrement) {
+                    self.vote_counts.remove(&old_change);
+                }
             }
+            *self.vote_counts.entry(change).or_insert(0) += 1;
         }
-        *self.vote_counts.entry(change).or_insert(0) += 1;
+        Ok(())
     }
 
     /// Returns the change that currently has a majority of votes, if any.
@@ -366,20 +393,11 @@ enum Transaction<Tx, NodeUid> {
     /// A user-defined transaction.
     User(Tx),
     /// A vote by an existing node to add or remove a node.
-    Change(Change<NodeUid>),
+    Change(NodeUid, Change<NodeUid>, Box<Signature>),
     /// A proposal message for key generation.
     Propose(NodeUid, Propose, Box<Signature>),
     /// An accept message for key generation.
     Accept(NodeUid, Accept, Box<Signature>),
-}
-
-impl<Tx, NodeUid> From<Input<Tx, NodeUid>> for Transaction<Tx, NodeUid> {
-    fn from(input: Input<Tx, NodeUid>) -> Transaction<Tx, NodeUid> {
-        match input {
-            Input::User(tx) => Transaction::User(tx),
-            Input::Change(change) => Transaction::Change(change),
-        }
-    }
 }
 
 /// A batch of transactions the algorithm has output.
