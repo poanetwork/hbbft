@@ -29,12 +29,20 @@ const CHACHA_RNG_SEED_SIZE: usize = 8;
 const ERR_OS_RNG: &str = "could not initialize the OS random number generator";
 
 /// A public key, or a public key share.
-#[derive(Deserialize, Serialize, Clone, Debug, PartialEq, Eq)]
+#[derive(Deserialize, Serialize, Clone, PartialEq, Eq)]
 pub struct PublicKey(#[serde(with = "serde_impl::projective")] G1);
 
 impl Hash for PublicKey {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.0.into_affine().into_compressed().as_ref().hash(state);
+    }
+}
+
+impl fmt::Debug for PublicKey {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let uncomp = self.0.into_affine().into_uncompressed();
+        let bytes = uncomp.as_ref();
+        write!(f, "PublicKey({:?})", HexBytes(bytes))
     }
 }
 
@@ -82,7 +90,7 @@ impl fmt::Debug for Signature {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let uncomp = self.0.into_affine().into_uncompressed();
         let bytes = uncomp.as_ref();
-        write!(f, "{:?}", HexBytes(bytes))
+        write!(f, "Signature({:?})", HexBytes(bytes))
     }
 }
 
@@ -104,8 +112,16 @@ impl Signature {
 }
 
 /// A secret key, or a secret key share.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct SecretKey(Fr);
+
+impl fmt::Debug for SecretKey {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let uncomp = self.public_key().0.into_affine().into_uncompressed();
+        let bytes = uncomp.as_ref();
+        write!(f, "SecretKey({:?})", HexBytes(bytes))
+    }
+}
 
 impl Default for SecretKey {
     fn default() -> Self {

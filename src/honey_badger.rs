@@ -28,7 +28,6 @@ error_chain!{
 
     errors {
         UnknownSender
-        ObserverCannotPropose
     }
 }
 
@@ -73,7 +72,8 @@ where
     type Error = Error;
 
     fn input(&mut self, input: Self::Input) -> HoneyBadgerResult<()> {
-        self.add_transactions(iter::once(input))
+        self.add_transactions(iter::once(input));
+        Ok(())
     }
 
     fn handle_message(
@@ -147,16 +147,8 @@ where
     }
 
     /// Adds transactions into the buffer.
-    pub fn add_transactions<I: IntoIterator<Item = Tx>>(
-        &mut self,
-        txs: I,
-    ) -> HoneyBadgerResult<()> {
-        if self.netinfo.is_peer() {
-            self.buffer.extend(txs);
-            Ok(())
-        } else {
-            Err(ErrorKind::ObserverCannotPropose.into())
-        }
+    pub fn add_transactions<I: IntoIterator<Item = Tx>>(&mut self, txs: I) {
+        self.buffer.extend(txs);
     }
 
     /// Empties and returns the transaction buffer.

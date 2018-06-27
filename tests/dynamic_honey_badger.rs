@@ -11,13 +11,14 @@ extern crate serde_derive;
 
 mod network;
 
+use std::cmp;
 use std::collections::BTreeMap;
 use std::iter::once;
 use std::rc::Rc;
 
 use rand::Rng;
 
-use hbbft::dynamic_honey_badger::{Change, DynamicHoneyBadger, Input, Message};
+use hbbft::dynamic_honey_badger::{Change, DynamicHoneyBadger, Input};
 use hbbft::messaging::NetworkInfo;
 
 use network::{Adversary, MessageScheduler, NodeUid, SilentAdversary, TestNetwork, TestNode};
@@ -35,15 +36,27 @@ fn test_dynamic_honey_badger<A>(
         network.input_all(Input::User(tx));
     }
 
-    // Returns `true` if the node has not output all transactions yet.
-    // If it has, and has advanced another epoch, it clears all messages for later epochs.
-    let node_busy = |node: &mut TestNode<DynamicHoneyBadger<usize, NodeUid>>| {
-        if !node
-            .outputs()
+    fn has_remove(node: &TestNode<DynamicHoneyBadger<usize, NodeUid>>) -> bool {
+        node.outputs()
             .iter()
             .filter_map(|batch| batch.change())
             .any(|change| *change == Change::Remove(NodeUid(0)))
-        {
+    }
+
+    fn has_add(node: &TestNode<DynamicHoneyBadger<usize, NodeUid>>) -> bool {
+        node.outputs()
+            .iter()
+            .filter_map(|batch| batch.change())
+            .any(|change| match *change {
+                Change::Add(ref id, _) => *id == NodeUid(0),
+                _ => false,
+            })
+    }
+
+    // Returns `true` if the node has not output all transactions yet.
+    // If it has, and has advanced another epoch, it clears all messages for later epochs.
+    let node_busy = |node: &mut TestNode<DynamicHoneyBadger<usize, NodeUid>>| {
+        if !has_remove(node) || !has_add(node) {
             return true;
         }
         let mut min_missing = 0;
@@ -59,29 +72,41 @@ fn test_dynamic_honey_badger<A>(
         }
         if node.outputs().last().unwrap().is_empty() {
             let last = node.outputs().last().unwrap().epoch;
-            node.queue.retain(|(_, ref msg)| match msg {
-                Message::HoneyBadger(_, hb_msg) => hb_msg.epoch() < last,
-            });
+            node.queue.retain(|(_, ref msg)| msg.epoch() < last);
         }
         false
     };
 
+    let mut input_add = false;
     // Handle messages in random order until all nodes have output all transactions.
     while network.nodes.values_mut().any(node_busy) {
-        let id = network.step();
-        if network.nodes[&id]
-            .outputs()
-            .last()
-            .and_then(|batch| batch.change())
-            .map_or(false, |change| *change == Change::Remove(id))
-        {
-            network.nodes.remove(&id);
+        network.step();
+        if !input_add && network.nodes.values().all(has_remove) {
             for tx in (num_txs / 2)..num_txs {
                 network.input_all(Input::User(tx));
             }
+            let pk = network.pk_set.public_key_share(0);
+            network.input_all(Input::Change(Change::Add(NodeUid(0), pk)));
+            info!("Input!");
+            input_add = true;
         }
     }
-    // TODO: Verify that all nodes output the same epochs.
+    verify_output_sequence(&network);
+}
+
+/// Verifies that all instances output the same sequence of batches. We already know that all of
+/// them have output all transactions and events, but some may have advanced a few empty batches
+/// more than others, so we ignore those.
+fn verify_output_sequence<A>(network: &TestNetwork<A, DynamicHoneyBadger<usize, NodeUid>>)
+where
+    A: Adversary<DynamicHoneyBadger<usize, NodeUid>>,
+{
+    let expected = network.nodes[&NodeUid(0)].outputs().to_vec();
+    assert!(!expected.is_empty());
+    for node in network.nodes.values() {
+        let len = cmp::min(expected.len(), node.outputs().len());
+        assert_eq!(&expected[..len], &node.outputs()[..len]);
+    }
 }
 
 // Allow passing `netinfo` by value. `TestNetwork` expects this function signature.

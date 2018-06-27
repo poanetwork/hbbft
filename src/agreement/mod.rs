@@ -456,9 +456,11 @@ impl<NodeUid: Clone + Debug + Ord> Agreement<NodeUid> {
         self.output = Some(b);
         // Latch the decided state.
         self.decision = Some(b);
-        self.messages
-            .push_back(AgreementContent::Term(b).with_epoch(self.epoch));
-        self.received_term.insert(self.netinfo.our_uid().clone(), b);
+        if self.netinfo.is_peer() {
+            self.messages
+                .push_back(AgreementContent::Term(b).with_epoch(self.epoch));
+            self.received_term.insert(self.netinfo.our_uid().clone(), b);
+        }
         self.terminated = true;
         debug!(
             "Agreement instance {:?} decided: {}",
@@ -482,6 +484,9 @@ impl<NodeUid: Clone + Debug + Ord> Agreement<NodeUid> {
     }
 
     fn send_aux(&mut self, b: bool) -> AgreementResult<()> {
+        if !self.netinfo.is_peer() {
+            return Ok(());
+        }
         // Multicast `Aux`.
         self.messages
             .push_back(AgreementContent::Aux(b).with_epoch(self.epoch));
