@@ -145,6 +145,7 @@ pub struct NetworkInfo<NodeUid> {
     is_peer: bool,
     secret_key: ClearOnDrop<Box<SecretKey>>,
     public_key_set: PublicKeySet,
+    public_keys: BTreeMap<NodeUid, PublicKey>,
     node_indices: BTreeMap<NodeUid, usize>,
 }
 
@@ -157,11 +158,14 @@ impl<NodeUid: Clone + Ord> NetworkInfo<NodeUid> {
     ) -> Self {
         let num_nodes = all_uids.len();
         let is_peer = all_uids.contains(&our_uid);
-        let node_indices = all_uids
+        let node_indices: BTreeMap<NodeUid, usize> = all_uids
             .iter()
-            .cloned()
             .enumerate()
-            .map(|(n, id)| (id, n))
+            .map(|(n, id)| (id.clone(), n))
+            .collect();
+        let public_keys = node_indices
+            .iter()
+            .map(|(id, idx)| (id.clone(), public_key_set.public_key_share(*idx as u64)))
             .collect();
         NetworkInfo {
             our_uid,
@@ -171,6 +175,7 @@ impl<NodeUid: Clone + Ord> NetworkInfo<NodeUid> {
             is_peer,
             secret_key,
             public_key_set,
+            public_keys,
             node_indices,
         }
     }
@@ -205,18 +210,13 @@ impl<NodeUid: Clone + Ord> NetworkInfo<NodeUid> {
     }
 
     /// Returns the public key share if a node with that ID exists, otherwise `None`.
-    pub fn public_key_share(&self, id: &NodeUid) -> Option<PublicKey> {
-        self.node_index(id)
-            .map(|idx| self.public_key_set.public_key_share(*idx as u64))
+    pub fn public_key_share(&self, id: &NodeUid) -> Option<&PublicKey> {
+        self.public_keys.get(id)
     }
 
     /// Returns a map of all node IDs to their public key shares.
-    pub fn public_key_map(&self) -> BTreeMap<NodeUid, PublicKey> {
-        let to_pair = |(idx, id): (usize, &NodeUid)| {
-            let pub_key = self.public_key_set().public_key_share(idx as u64);
-            (id.clone(), pub_key)
-        };
-        self.all_uids().iter().enumerate().map(to_pair).collect()
+    pub fn public_key_map(&self) -> &BTreeMap<NodeUid, PublicKey> {
+        &self.public_keys
     }
 
     /// The index of a node in a canonical numbering of all nodes.

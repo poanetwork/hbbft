@@ -265,7 +265,7 @@ where
     /// Starts Key Generation for the set of nodes implied by the `change`.
     fn start_key_gen(&mut self, change: Change<NodeUid>) -> Result<()> {
         // Use the existing key shares - with the change applied - as keys for DKG.
-        let mut pub_keys = self.netinfo.public_key_map();
+        let mut pub_keys = self.netinfo.public_key_map().clone();
         if match change {
             Change::Remove(id) => pub_keys.remove(&id).is_none(),
             Change::Add(id, pub_key) => pub_keys.insert(id, pub_key).is_some(),

@@ -223,7 +223,7 @@ impl PublicKeySet {
 
     /// Returns the public key.
     pub fn public_key(&self) -> PublicKey {
-        PublicKey(self.commit.evaluate(0))
+        PublicKey(self.commit.coeff[0])
     }
 
     /// Returns the `i`-th public key share.
