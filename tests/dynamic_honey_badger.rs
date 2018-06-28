@@ -18,7 +18,7 @@ use std::rc::Rc;
 
 use rand::Rng;
 
-use hbbft::dynamic_honey_badger::{Change, DynamicHoneyBadger, Input};
+use hbbft::dynamic_honey_badger::{Change, ChangeState, DynamicHoneyBadger, Input};
 use hbbft::messaging::NetworkInfo;
 
 use network::{Adversary, MessageScheduler, NodeUid, SilentAdversary, TestNetwork, TestNode};
@@ -39,18 +39,14 @@ fn test_dynamic_honey_badger<A>(
     fn has_remove(node: &TestNode<DynamicHoneyBadger<usize, NodeUid>>) -> bool {
         node.outputs()
             .iter()
-            .filter_map(|batch| batch.change())
-            .any(|change| *change == Change::Remove(NodeUid(0)))
+            .any(|batch| batch.change == ChangeState::Complete(Change::Remove(NodeUid(0))))
     }
 
     fn has_add(node: &TestNode<DynamicHoneyBadger<usize, NodeUid>>) -> bool {
-        node.outputs()
-            .iter()
-            .filter_map(|batch| batch.change())
-            .any(|change| match *change {
-                Change::Add(ref id, _) => *id == NodeUid(0),
-                _ => false,
-            })
+        node.outputs().iter().any(|batch| match batch.change {
+            ChangeState::Complete(Change::Add(ref id, _)) => *id == NodeUid(0),
+            _ => false,
+        })
     }
 
     // Returns `true` if the node has not output all transactions yet.

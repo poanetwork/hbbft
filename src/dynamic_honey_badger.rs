@@ -1,3 +1,45 @@
+//! # Dynamic Honey Badger
+//!
+//! Like Honey Badger, this protocol allows a network of `N` nodes with at most `f` faulty ones,
+//! where `3 * f < N`, to input "transactions" - any kind of data -, and to agree on a sequence of
+//! _batches_ of transactions. The protocol proceeds in _epochs_, starting at number 0, and outputs
+//! one batch in each epoch. It never terminates: It handles a continuous stream of incoming
+//! transactions and keeps producing new batches from them. All correct nodes will output the same
+//! batch for each epoch.
+//!
+//! Unlike Honey Badger, this algorithm allows dynamically adding new full peers from the pool of
+//! observer nodes, and turning full peers back into observers. As a signal to initiate that
+//! process, it defines a special `Change` input variant, which contains either a vote
+//! `Add(node_id, public_key)`, to add a new full peer, or `Remove(node_id)` to remove it. Each
+//! full peer can have at most one active vote, and casting another vote revokes the previous one.
+//! Once a simple majority of full nodes has the same active vote, a reconfiguration process begins
+//! (they need to create new cryptographic key shares for the new composition).
+//!
+//! The state of that process after each epoch is communicated via the `Batch::change` field. When
+//! this contains an `InProgress(Add(..))` value, all nodes need to send every future `Target::All`
+//! message to the new node, too. Once the value is `Complete`, the votes will be reset, and the
+//! next epoch will run using the new set of full nodes.
+//!
+//! ## How it works
+//!
+//! Dynamic Honey Badger runs a regular Honey Badger instance internally, which in addition to the
+//! user's transactions contains special transactions for the change votes and the key generation
+//! messages: Running votes and key generation "on-chain", as transactions, greatly simplifies
+//! these processes, since it is guaranteed that every node will see the same sequence of votes and
+//! messages.
+//!
+//! Every time Honey Badger outputs a new batch, Dynamic Honey Badger outputs the user transactions
+//! in its own batch. The other transactions are processed: votes are counted and key generation
+//! messages are passed into a `SyncKeyGen` instance.
+//!
+//! If after an epoch key generation has completed, the Honey Badger instance (including all
+//! pending batches) is dropped, and replaced by a new one with the new set of participants.
+//!
+//! Otherwise we check if the majority of votes has changed. If a new change has a majority, the
+//! `SyncKeyGen` instance is dropped, and a new one is started to create keys according to the new
+//! pending change.
+// TODO: Document how to add observers, once that is supported.
+
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::fmt::Debug;
 use std::hash::Hash;
@@ -12,6 +54,8 @@ use crypto::{PublicKey, PublicKeySet, SecretKey, Signature};
 use honey_badger::{self, HoneyBadger};
 use messaging::{DistAlgorithm, NetworkInfo, Target, TargetedMessage};
 use sync_key_gen::{Accept, Propose, SyncKeyGen};
+
+type KeyGenOutput = (PublicKeySet, Option<ClearOnDrop<Box<SecretKey>>>);
 
 error_chain!{
     links {
@@ -34,6 +78,29 @@ pub enum Change<NodeUid> {
     Add(NodeUid, PublicKey),
     /// Remove a node.
     Remove(NodeUid),
+}
+
+impl<NodeUid> Change<NodeUid> {
+    /// Returns the ID of the current candidate for being added, if any.
+    fn candidate(&self) -> Option<&NodeUid> {
+        match *self {
+            Change::Add(ref id, _) => Some(id),
+            Change::Remove(_) => None,
+        }
+    }
+}
+
+/// A change status: whether a node addition or removal is currently in progress or completed.
+#[derive(Clone, Eq, PartialEq, Serialize, Deserialize, Hash, Debug)]
+pub enum ChangeState<NodeUid> {
+    /// No node is currently being considered for addition or removal.
+    None,
+    /// A change is currently in progress. If it is an addition, all broadcast messages must be
+    /// sent to the new node, too.
+    InProgress(Change<NodeUid>),
+    /// A change has been completed in this epoch. From the next epoch on, the new composition of
+    /// the network will perform the consensus process.
+    Complete(Change<NodeUid>),
 }
 
 /// The user input for `DynamicHoneyBadger`.
@@ -62,16 +129,14 @@ where
     votes: BTreeMap<NodeUid, Change<NodeUid>>,
     /// The `HoneyBadger` instance with the current set of nodes.
     honey_badger: HoneyBadger<Transaction<Tx, NodeUid>, NodeUid>,
-    /// The current key generation process.
-    key_gen: Option<SyncKeyGen<NodeUid>>,
+    /// The current key generation process, and the change it applies to.
+    key_gen: Option<(SyncKeyGen<NodeUid>, Change<NodeUid>)>,
     /// A queue for messages from future epochs that cannot be handled yet.
     incoming_queue: Vec<(NodeUid, Message<NodeUid>)>,
     /// The messages that need to be sent to other nodes.
     messages: MessageQueue<NodeUid>,
     /// The outputs from completed epochs.
     output: VecDeque<Batch<Tx, NodeUid>>,
-    /// The current candidate node trying to join the peers.
-    candidate: Option<(NodeUid, PublicKey)>,
 }
 
 impl<Tx, NodeUid> DistAlgorithm for DynamicHoneyBadger<Tx, NodeUid>
@@ -86,6 +151,8 @@ where
     type Error = Error;
 
     fn input(&mut self, input: Self::Input) -> Result<()> {
+        // User transactions are forwarded to `HoneyBadger` right away. Internal messages are
+        // in addition signed and broadcast.
         match input {
             Input::User(tx) => {
                 self.honey_badger.input(Transaction::User(tx))?;
@@ -147,7 +214,6 @@ where
             incoming_queue: Vec::new(),
             messages: MessageQueue(VecDeque::new()),
             output: VecDeque::new(),
-            candidate: None,
         };
         Ok(dyn_hb)
     }
@@ -164,11 +230,11 @@ where
         }
         // Handle the message and put the outgoing messages into the queue.
         self.honey_badger.handle_message(sender_id, message)?;
-        self.process_output()?;
-        Ok(())
+        self.process_output()
     }
 
-    /// Handles a message for the `HoneyBadger` instance.
+    /// Handles a vote or key generation message and tries to commit it as a transaction. These
+    /// messages are only handled once they appear in a batch output from Honey Badger.
     fn handle_signed_message(
         &mut self,
         sender_id: &NodeUid,
@@ -183,14 +249,11 @@ where
 
     /// Processes all pending batches output by Honey Badger.
     fn process_output(&mut self) -> Result<()> {
-        let mut changed = false;
+        let start_epoch = self.start_epoch;
         while let Some(hb_batch) = self.honey_badger.next_output() {
             // Create the batch we output ourselves. It will contain the _user_ transactions of
-            // `hb_batch`, and the applied change, if any.
+            // `hb_batch`, and the current change state.
             let mut batch = Batch::new(hb_batch.epoch + self.start_epoch);
-            // The change that currently has a majority. All key generation messages in this batch
-            // are related to this change.
-            let change = self.current_majority();
             // Add the user transactions to `batch` and handle votes and DKG messages.
             for (id, tx_vec) in hb_batch.transactions {
                 let entry = batch.transactions.entry(id);
@@ -217,32 +280,22 @@ where
                     }
                 }
             }
-            // If DKG completed, apply the change.
-            if let Some(ref change) = change {
-                if let Some((pub_key_set, sk)) = self.get_key_gen_output() {
-                    debug!("{:?} DKG for {:?} complete!", self.our_id(), change);
-                    let sk = sk.unwrap_or_else(|| {
-                        ClearOnDrop::new(Box::new(self.netinfo.secret_key().clone()))
-                    });
-                    self.start_epoch += hb_batch.epoch + 1;
-                    self.apply_change(change, pub_key_set, sk)?;
-                    batch.change = Some(change.clone());
-                    changed = true;
-                }
-            }
-            // If a node is in the process of joining, inform the user.
-            let new_change = self.current_majority();
-            if let Some(Change::Add(ref node_id, ref pub_key)) = new_change {
-                self.candidate = Some((node_id.clone(), pub_key.clone()));
-                batch.candidate = self.candidate.clone();
-            }
-            // If a new change has a majority, restart DKG.
-            if new_change != change {
-                if let Some(change) = new_change {
-                    debug!("{:?} Initiating DKG for {:?}.", self.our_id(), change);
-                    self.start_key_gen(change)?;
-                } else {
-                    self.key_gen = None;
+            if let Some(((pub_key_set, sk), change)) = self.take_key_gen_output() {
+                // If DKG completed, apply the change.
+                debug!("{:?} DKG for {:?} complete!", self.our_id(), change);
+                // If we are a full peer, we received a new secret key. Otherwise keep the old one.
+                let sk = sk.unwrap_or_else(|| {
+                    ClearOnDrop::new(Box::new(self.netinfo.secret_key().clone()))
+                });
+                // Restart Honey Badger in the next epoch, and inform the user about the change.
+                self.start_epoch = batch.epoch + 1;
+                self.apply_change(&change, pub_key_set, sk)?;
+                batch.change = ChangeState::Complete(change);
+            } else {
+                // If the majority changed, restart DKG. Inform the user about the current change.
+                self.update_key_gen()?;
+                if let Some((_, ref change)) = self.key_gen {
+                    batch.change = ChangeState::InProgress(change.clone());
                 }
             }
             self.output.push_back(batch);
@@ -250,7 +303,7 @@ where
         self.messages
             .extend_with_epoch(self.start_epoch, &mut self.honey_badger);
         // If `start_epoch` changed, we can now handle some queued messages.
-        if changed {
+        if start_epoch < self.start_epoch {
             let queue = mem::replace(&mut self.incoming_queue, Vec::new());
             for (sender_id, msg) in queue {
                 self.handle_message(&sender_id, msg)?;
@@ -277,21 +330,37 @@ where
         }
         let netinfo = NetworkInfo::new(self.our_id().clone(), all_uids, sk, pub_key_set);
         self.netinfo = netinfo.clone();
+        // TODO: If there are more pending outputs, maybe their transactions should be added, too?
+        // They will have been removed from the buffer already.
         let old_buffer = self.honey_badger.drain_buffer().into_iter();
         let new_buffer = old_buffer.filter(Transaction::is_user);
         self.honey_badger = HoneyBadger::new(Rc::new(netinfo), self.batch_size, new_buffer)?;
         Ok(())
     }
 
-    /// Starts Key Generation for the set of nodes implied by the `change`.
-    fn start_key_gen(&mut self, change: Change<NodeUid>) -> Result<()> {
+    /// If the majority of votes has changed, restarts Key Generation for the set of nodes implied
+    /// by the current change.
+    fn update_key_gen(&mut self) -> Result<()> {
+        let change = match current_majority(&self.votes, &self.netinfo) {
+            None => {
+                self.key_gen = None;
+                return Ok(());
+            }
+            Some(change) => {
+                if self.key_gen.as_ref().map(|&(_, ref ch)| ch) == Some(change) {
+                    return Ok(()); // The change is the same as last epoch. Continue DKG as is.
+                }
+                change.clone()
+            }
+        };
+        debug!("{:?} Restarting DKG for {:?}.", self.our_id(), change);
         // Use the existing key shares - with the change applied - as keys for DKG.
         let mut pub_keys = self.netinfo.public_key_map().clone();
         if match change {
-            Change::Remove(id) => pub_keys.remove(&id).is_none(),
-            Change::Add(id, pub_key) => pub_keys.insert(id, pub_key).is_some(),
+            Change::Remove(ref id) => pub_keys.remove(id).is_none(),
+            Change::Add(ref id, ref pk) => pub_keys.insert(id.clone(), pk.clone()).is_some(),
         } {
-            info!("No-op change: {:?}", self.current_majority().unwrap());
+            info!("{:?} No-op change: {:?}", self.our_id(), change);
         }
         // TODO: This needs to be the same as `num_faulty` will be in the _new_
         // `NetworkInfo` if the change goes through. It would be safer to deduplicate.
@@ -299,7 +368,7 @@ where
         let sk = self.netinfo.secret_key().clone();
         let our_uid = self.our_id().clone();
         let (key_gen, propose) = SyncKeyGen::new(&our_uid, sk, pub_keys, threshold);
-        self.key_gen = Some(key_gen);
+        self.key_gen = Some((key_gen, change));
         if let Some(propose) = propose {
             self.send_transaction(NodeTransaction::Propose(propose))?;
         }
@@ -308,8 +377,9 @@ where
 
     /// Handles a `Propose` message that was output by Honey Badger.
     fn handle_propose(&mut self, sender_id: &NodeUid, propose: Propose) -> Result<()> {
-        let handle =
-            |key_gen: &mut SyncKeyGen<NodeUid>| key_gen.handle_propose(&sender_id, propose);
+        let handle = |&mut (ref mut key_gen, _): &mut (SyncKeyGen<NodeUid>, _)| {
+            key_gen.handle_propose(&sender_id, propose)
+        };
         match self.key_gen.as_mut().and_then(handle) {
             Some(accept) => self.send_transaction(NodeTransaction::Accept(accept)),
             None => Ok(()),
@@ -318,7 +388,7 @@ where
 
     /// Handles an `Accept` message that was output by Honey Badger.
     fn handle_accept(&mut self, sender_id: &NodeUid, accept: Accept) -> Result<()> {
-        if let Some(key_gen) = self.key_gen.as_mut() {
+        if let Some(&mut (ref mut key_gen, _)) = self.key_gen.as_mut() {
             key_gen.handle_accept(&sender_id, accept);
         }
         Ok(())
@@ -339,16 +409,21 @@ where
     }
 
     /// If the current Key Generation process is ready, returns the generated key set.
-    fn get_key_gen_output(&self) -> Option<(PublicKeySet, Option<ClearOnDrop<Box<SecretKey>>>)> {
-        // TODO: Once we've upgraded to Rust 1.27.0, we can use `Option::filter` here.
-        self.key_gen
-            .iter()
-            .filter(|key_gen| {
-                let candidate_ready = |&(ref id, _): &(NodeUid, _)| key_gen.is_node_ready(id);
-                key_gen.is_ready() && self.candidate.as_ref().map_or(true, candidate_ready)
-            })
-            .map(SyncKeyGen::generate)
-            .next()
+    ///
+    /// We require the minimum number of completed proposals (`SyncKeyGen::is_ready`) and if a new
+    /// node is joining, we require in addition that the new node's proposal is complete. That way
+    /// the new node knows that it's key is secret, without having to trust any number of nodes.
+    fn take_key_gen_output(&mut self) -> Option<(KeyGenOutput, Change<NodeUid>)> {
+        let is_ready = |&(ref key_gen, ref change): &(SyncKeyGen<_>, Change<_>)| {
+            let candidate_ready = |id: &NodeUid| key_gen.is_node_ready(id);
+            key_gen.is_ready() && change.candidate().map_or(true, candidate_ready)
+        };
+        if self.key_gen.as_ref().map_or(false, is_ready) {
+            let generate = |(key_gen, change): (SyncKeyGen<_>, _)| (key_gen.generate(), change);
+            self.key_gen.take().map(generate)
+        } else {
+            None
+        }
     }
 
     /// Returns a signature of `node_tx`, or an error if serialization fails.
@@ -366,11 +441,13 @@ where
         node_tx: &NodeTransaction<NodeUid>,
     ) -> Result<bool> {
         let ser = bincode::serialize(node_tx)?;
-        let pk_opt = self.netinfo.public_key_share(node_id).or_else(|| {
-            self.candidate
+        let pk_opt = (self.netinfo.public_key_share(node_id)).or_else(|| {
+            self.key_gen
                 .iter()
-                .filter(|&&(ref id, _)| id == node_id)
-                .map(|&(_, ref pk)| pk)
+                .filter_map(|&(_, ref change): &(_, Change<_>)| match *change {
+                    Change::Add(ref id, ref pk) if id == node_id => Some(pk),
+                    Change::Add(_, _) | Change::Remove(_) => None,
+                })
                 .next()
         });
         Ok(pk_opt.map_or(false, |pk| pk.verify(&sig, ser)))
@@ -386,19 +463,22 @@ where
             self.votes.insert(sender_id, change);
         }
     }
+}
 
-    /// Returns the change that currently has a majority of votes, if any.
-    fn current_majority(&self) -> Option<Change<NodeUid>> {
-        let mut vote_counts: HashMap<&Change<NodeUid>, usize> = HashMap::new();
-        for change in self.votes.values() {
-            let entry = vote_counts.entry(change).or_insert(0);
-            *entry += 1;
-            if *entry * 2 > self.netinfo.num_nodes() {
-                return Some(change.clone());
-            }
+/// Returns the change that currently has a majority of votes, if any.
+fn current_majority<'a, NodeUid: Ord + Clone + Hash + Eq>(
+    votes: &'a BTreeMap<NodeUid, Change<NodeUid>>,
+    netinfo: &'a NetworkInfo<NodeUid>,
+) -> Option<&'a Change<NodeUid>> {
+    let mut vote_counts: HashMap<&Change<NodeUid>, usize> = HashMap::new();
+    for change in votes.values() {
+        let entry = vote_counts.entry(change).or_insert(0);
+        *entry += 1;
+        if *entry * 2 > netinfo.num_nodes() {
+            return Some(change);
         }
-        None
     }
+    None
 }
 
 /// The transactions for the internal `HoneyBadger` instance: this includes both user-defined
@@ -429,12 +509,9 @@ pub struct Batch<Tx, NodeUid> {
     pub epoch: u64,
     /// The user transactions committed in this epoch.
     pub transactions: BTreeMap<NodeUid, Vec<Tx>>,
-    /// Information about a newly added or removed node. This is `Some` if the set of nodes taking
-    /// part in the consensus process has changed.
-    pub change: Option<Change<NodeUid>>,
-    /// The current candidate for joining the consensus nodes. All future broadcast messages must
-    /// be delivered to this node, too.
-    pub candidate: Option<(NodeUid, PublicKey)>,
+    /// The current state of adding or removing a node: whether any is in progress, or completed
+    /// this epoch.
+    pub change: ChangeState<NodeUid>,
 }
 
 impl<Tx, NodeUid: Ord> Batch<Tx, NodeUid> {
@@ -443,8 +520,7 @@ impl<Tx, NodeUid: Ord> Batch<Tx, NodeUid> {
         Batch {
             epoch,
             transactions: BTreeMap::new(),
-            change: None,
-            candidate: None,
+            change: ChangeState::None,
         }
     }
 
@@ -463,9 +539,10 @@ impl<Tx, NodeUid: Ord> Batch<Tx, NodeUid> {
         self.transactions.values().all(Vec::is_empty)
     }
 
-    /// Returns the change to the set of participating nodes, if any.
-    pub fn change(&self) -> Option<&Change<NodeUid>> {
-        self.change.as_ref()
+    /// Returns whether any change to the set of participating nodes is in progress or was
+    /// completed in this epoch.
+    pub fn change(&self) -> &ChangeState<NodeUid> {
+        &self.change
     }
 }
 
