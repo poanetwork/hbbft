@@ -181,7 +181,7 @@ where
 }
 
 fn new_honey_badger(netinfo: Rc<NetworkInfo<NodeUid>>) -> HoneyBadger<usize, NodeUid> {
-    HoneyBadger::new(netinfo, 12, 0..5).expect("Instantiate honey_badger")
+    HoneyBadger::new(netinfo, 12, 0, 0..5).expect("Instantiate honey_badger")
 }
 
 fn test_honey_badger_different_sizes<A, F>(new_adversary: F, num_txs: usize)

@@ -123,7 +123,7 @@ where
 {
     /// Returns a new instance with the given parameters, starting at epoch `0`.
     pub fn new(netinfo: NetworkInfo<NodeUid>, batch_size: usize) -> Result<Self> {
-        let honey_badger = HoneyBadger::new(Rc::new(netinfo.clone()), batch_size, None)?;
+        let honey_badger = HoneyBadger::new(Rc::new(netinfo.clone()), batch_size, 0, None)?;
         let dyn_hb = DynamicHoneyBadger {
             netinfo,
             batch_size,
@@ -258,7 +258,7 @@ where
         let netinfo = NetworkInfo::new(self.our_id().clone(), all_uids, sk, pub_key_set);
         self.netinfo = netinfo.clone();
         let buffer = self.honey_badger.drain_buffer();
-        self.honey_badger = HoneyBadger::new(Rc::new(netinfo), self.batch_size, buffer)?;
+        self.honey_badger = HoneyBadger::new(Rc::new(netinfo), self.batch_size, 0, buffer)?;
         Ok(())
     }
 

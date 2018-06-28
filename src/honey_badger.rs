@@ -6,6 +6,7 @@ use std::rc::Rc;
 use std::{cmp, iter, mem};
 
 use bincode;
+use itertools::Itertools;
 use rand;
 use serde::{Deserialize, Serialize};
 
@@ -47,10 +48,14 @@ pub struct HoneyBadger<Tx, NodeUid> {
     // TODO: Do experiments and recommend a batch size. It should be proportional to
     // `num_nodes * num_nodes * log(num_nodes)`.
     batch_size: usize,
+    /// The maximum number of `CommonSubset` instances that we run simultaneously.
+    max_future_epochs: u64,
     /// The messages that need to be sent to other nodes.
     messages: MessageQueue<NodeUid>,
     /// The outputs from completed epochs.
     output: VecDeque<Batch<Tx, NodeUid>>,
+    /// Messages for future epochs that couldn't be handled yet.
+    incoming_queue: BTreeMap<u64, Vec<(NodeUid, MessageContent<NodeUid>)>>,
     /// Received decryption shares for an epoch. Each decryption share has a sender and a
     /// proposer. The outer `BTreeMap` has epochs as its key. The next `BTreeMap` has proposers as
     /// its key. The inner `BTreeMap` has the sender as its key.
@@ -89,14 +94,15 @@ where
             // Ignore all messages from past epochs.
             return Ok(());
         }
-        match content {
-            MessageContent::CommonSubset(cs_msg) => {
-                self.handle_common_subset_message(sender_id, epoch, cs_msg)
-            }
-            MessageContent::DecryptionShare { proposer_id, share } => {
-                self.handle_decryption_share_message(sender_id, epoch, proposer_id, share)
-            }
+        if epoch > self.epoch + self.max_future_epochs {
+            // Postpone handling this message.
+            self.incoming_queue
+                .entry(epoch)
+                .or_insert_with(Vec::new)
+                .push((sender_id.clone(), content));
+            return Ok(());
         }
+        self.handle_message_content(sender_id, epoch, content)
     }
 
     fn next_message(&mut self) -> Option<TargetedMessage<Self::Message, NodeUid>> {
@@ -122,9 +128,16 @@ where
     NodeUid: Ord + Clone + Debug,
 {
     /// Returns a new Honey Badger instance with the given parameters, starting at epoch `0`.
+    ///
+    /// The `batch_size` is the target number of transactions that get committed in every epoch.
+    ///
+    /// No messages belonging to `epoch + max_future_epochs + 1` or later will be sent before the
+    /// batch for `epoch` has been output. If that guarantee is not needed, setting it to a higher
+    /// value can improve speed.
     pub fn new<TI>(
         netinfo: Rc<NetworkInfo<NodeUid>>,
         batch_size: usize,
+        max_future_epochs: usize,
         txs: TI,
     ) -> HoneyBadgerResult<Self>
     where
@@ -136,8 +149,10 @@ where
             epoch: 0,
             common_subsets: BTreeMap::new(),
             batch_size,
+            max_future_epochs: max_future_epochs as u64,
             messages: MessageQueue(VecDeque::new()),
             output: VecDeque::new(),
+            incoming_queue: BTreeMap::new(),
             received_shares: BTreeMap::new(),
             decrypted_selections: BTreeMap::new(),
             ciphertexts: BTreeMap::new(),
@@ -199,6 +214,23 @@ where
             sample
         );
         Ok(bincode::serialize(&sample)?)
+    }
+
+    /// Handles a message for the given epoch.
+    fn handle_message_content(
+        &mut self,
+        sender_id: &NodeUid,
+        epoch: u64,
+        content: MessageContent<NodeUid>,
+    ) -> HoneyBadgerResult<()> {
+        match content {
+            MessageContent::CommonSubset(cs_msg) => {
+                self.handle_common_subset_message(sender_id, epoch, cs_msg)
+            }
+            MessageContent::DecryptionShare { proposer_id, share } => {
+                self.handle_decryption_share_message(sender_id, epoch, proposer_id, share)
+            }
+        }
     }
 
     /// Handles a message for the common subset sub-algorithm.
@@ -333,6 +365,13 @@ where
         self.decrypted_selections.clear();
         self.received_shares.remove(&self.epoch);
         self.epoch += 1;
+        let max_epoch = self.epoch + self.max_future_epochs;
+        // TODO: Once stable, use `Iterator::flatten`.
+        for (sender_id, content) in
+            Itertools::flatten(self.incoming_queue.remove(&max_epoch).into_iter())
+        {
+            self.handle_message_content(&sender_id, max_epoch, content)?;
+        }
         // Handle any decryption shares received for the new epoch.
         if !self.try_decrypt_and_output_batch()? {
             // Continue with this epoch if a batch is not output by `try_decrypt_and_output_batch`.
