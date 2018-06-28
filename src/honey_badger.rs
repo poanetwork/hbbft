@@ -33,6 +33,76 @@ error_chain!{
     }
 }
 
+/// A Honey Badger builder, to configure the parameters and create new instances of `HoneyBadger`.
+pub struct HoneyBadgerBuilder<NodeUid> {
+    /// Shared network data.
+    netinfo: Rc<NetworkInfo<NodeUid>>,
+    /// The target number of transactions to be included in each batch.
+    // TODO: Do experiments and pick a suitable default.
+    batch_size: usize,
+    /// The maximum number of future epochs for which we handle messages simultaneously.
+    max_future_epochs: usize,
+}
+
+impl<NodeUid: Ord + Clone + Debug> HoneyBadgerBuilder<NodeUid> {
+    /// Creates a new builder for Honey Badger.
+    pub fn new(netinfo: Rc<NetworkInfo<NodeUid>>) -> Self {
+        HoneyBadgerBuilder {
+            netinfo,
+            batch_size: 100,
+            max_future_epochs: 3,
+        }
+    }
+
+    /// Sets the target number of transactions per batch.
+    pub fn batch_size(&mut self, batch_size: usize) -> &mut Self {
+        self.batch_size = batch_size;
+        self
+    }
+
+    /// Sets the maximum number of future epochs for which we handle messages simultaneously.
+    pub fn max_future_epochs(&mut self, max_future_epochs: usize) -> &mut Self {
+        self.max_future_epochs = max_future_epochs;
+        self
+    }
+
+    /// Creates a new Honey Badger instance with an empty buffer.
+    pub fn build<Tx>(&self) -> HoneyBadgerResult<HoneyBadger<Tx, NodeUid>>
+    where
+        Tx: Serialize + for<'r> Deserialize<'r> + Debug + Hash + Eq,
+    {
+        self.build_with_transactions(None)
+    }
+
+    /// Returns a new Honey Badger instance that starts with the given transactions in its buffer.
+    pub fn build_with_transactions<Tx, TI>(
+        &self,
+        txs: TI,
+    ) -> HoneyBadgerResult<HoneyBadger<Tx, NodeUid>>
+    where
+        TI: IntoIterator<Item = Tx>,
+        Tx: Serialize + for<'r> Deserialize<'r> + Debug + Hash + Eq,
+    {
+        let mut honey_badger = HoneyBadger {
+            netinfo: self.netinfo.clone(),
+            buffer: Vec::new(),
+            epoch: 0,
+            common_subsets: BTreeMap::new(),
+            batch_size: self.batch_size,
+            max_future_epochs: self.max_future_epochs as u64,
+            messages: MessageQueue(VecDeque::new()),
+            output: VecDeque::new(),
+            incoming_queue: BTreeMap::new(),
+            received_shares: BTreeMap::new(),
+            decrypted_selections: BTreeMap::new(),
+            ciphertexts: BTreeMap::new(),
+        };
+        honey_badger.buffer.extend(txs);
+        honey_badger.propose()?;
+        Ok(honey_badger)
+    }
+}
+
 /// An instance of the Honey Badger Byzantine fault tolerant consensus algorithm.
 pub struct HoneyBadger<Tx, NodeUid> {
     /// Shared network data.
@@ -127,40 +197,6 @@ where
     Tx: Serialize + for<'r> Deserialize<'r> + Debug + Hash + Eq,
     NodeUid: Ord + Clone + Debug,
 {
-    /// Returns a new Honey Badger instance with the given parameters, starting at epoch `0`.
-    ///
-    /// The `batch_size` is the target number of transactions that get committed in every epoch.
-    ///
-    /// No messages belonging to `epoch + max_future_epochs + 1` or later will be sent before the
-    /// batch for `epoch` has been output. If that guarantee is not needed, setting it to a higher
-    /// value can improve speed.
-    pub fn new<TI>(
-        netinfo: Rc<NetworkInfo<NodeUid>>,
-        batch_size: usize,
-        max_future_epochs: usize,
-        txs: TI,
-    ) -> HoneyBadgerResult<Self>
-    where
-        TI: IntoIterator<Item = Tx>,
-    {
-        let mut honey_badger = HoneyBadger {
-            netinfo,
-            buffer: txs.into_iter().collect(),
-            epoch: 0,
-            common_subsets: BTreeMap::new(),
-            batch_size,
-            max_future_epochs: max_future_epochs as u64,
-            messages: MessageQueue(VecDeque::new()),
-            output: VecDeque::new(),
-            incoming_queue: BTreeMap::new(),
-            received_shares: BTreeMap::new(),
-            decrypted_selections: BTreeMap::new(),
-            ciphertexts: BTreeMap::new(),
-        };
-        honey_badger.propose()?;
-        Ok(honey_badger)
-    }
-
     /// Adds transactions into the buffer.
     pub fn add_transactions<I: IntoIterator<Item = Tx>>(
         &mut self,

@@ -9,7 +9,7 @@ use clear_on_drop::ClearOnDrop;
 use serde::{Deserialize, Serialize};
 
 use crypto::{PublicKey, PublicKeySet, SecretKey, Signature};
-use honey_badger::{self, HoneyBadger};
+use honey_badger::{self, HoneyBadger, HoneyBadgerBuilder};
 use messaging::{DistAlgorithm, NetworkInfo, TargetedMessage};
 use sync_key_gen::{Accept, Propose, SyncKeyGen};
 
@@ -123,7 +123,10 @@ where
 {
     /// Returns a new instance with the given parameters, starting at epoch `0`.
     pub fn new(netinfo: NetworkInfo<NodeUid>, batch_size: usize) -> Result<Self> {
-        let honey_badger = HoneyBadger::new(Rc::new(netinfo.clone()), batch_size, 0, None)?;
+        let honey_badger = HoneyBadgerBuilder::new(Rc::new(netinfo.clone()))
+            .batch_size(batch_size)
+            .max_future_epochs(0)
+            .build::<Transaction<Tx, NodeUid>>()?;
         let dyn_hb = DynamicHoneyBadger {
             netinfo,
             batch_size,
@@ -258,7 +261,10 @@ where
         let netinfo = NetworkInfo::new(self.our_id().clone(), all_uids, sk, pub_key_set);
         self.netinfo = netinfo.clone();
         let buffer = self.honey_badger.drain_buffer();
-        self.honey_badger = HoneyBadger::new(Rc::new(netinfo), self.batch_size, 0, buffer)?;
+        self.honey_badger = HoneyBadgerBuilder::new(Rc::new(netinfo))
+            .batch_size(self.batch_size)
+            .max_future_epochs(0)
+            .build_with_transactions(buffer)?;
         Ok(())
     }
 
