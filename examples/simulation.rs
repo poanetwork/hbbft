@@ -436,7 +436,7 @@ fn main() {
             sk_set.secret_key_share(id.0 as u64),
             pk_set.clone(),
         ));
-        HoneyBadger::new(netinfo, args.flag_b, txs.clone()).expect("Instantiate honey_badger")
+        HoneyBadger::new(netinfo, args.flag_b, 0, txs.clone()).expect("Instantiate honey_badger")
     };
     let hw_quality = HwQuality {
         latency: Duration::from_millis(args.flag_lag),

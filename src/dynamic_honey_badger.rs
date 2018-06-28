@@ -165,7 +165,8 @@ where
     where
         Tx: Serialize + for<'r> Deserialize<'r> + Debug + Hash + Eq,
     {
-        let honey_badger = HoneyBadger::new(Rc::new(self.netinfo.clone()), self.batch_size, None)?;
+        let honey_badger =
+            HoneyBadger::new(Rc::new(self.netinfo.clone()), self.batch_size, 0, None)?;
         let dyn_hb = DynamicHoneyBadger {
             netinfo: self.netinfo.clone(),
             batch_size: self.batch_size,
@@ -444,7 +445,7 @@ where
             let old_buf = self.honey_badger.drain_buffer();
             let outputs = (self.honey_badger.output_iter()).flat_map(HbBatch::into_tx_iter);
             let buffer = outputs.chain(old_buf).filter(Transaction::is_user);
-            HoneyBadger::new(netinfo, self.batch_size, buffer)?
+            HoneyBadger::new(netinfo, self.batch_size, 0, buffer)?
         };
         self.honey_badger = honey_badger;
         Ok(())
