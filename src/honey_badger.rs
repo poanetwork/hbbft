@@ -4,6 +4,7 @@ use std::fmt::Debug;
 use std::hash::Hash;
 use std::rc::Rc;
 use std::{cmp, iter, mem};
+use std::marker::PhantomData;
 
 use bincode;
 use itertools::Itertools;
@@ -34,7 +35,7 @@ error_chain!{
 }
 
 /// A Honey Badger builder, to configure the parameters and create new instances of `HoneyBadger`.
-pub struct HoneyBadgerBuilder<NodeUid> {
+pub struct HoneyBadgerBuilder<Tx, NodeUid> {
     /// Shared network data.
     netinfo: Rc<NetworkInfo<NodeUid>>,
     /// The target number of transactions to be included in each batch.
@@ -42,15 +43,18 @@ pub struct HoneyBadgerBuilder<NodeUid> {
     batch_size: usize,
     /// The maximum number of future epochs for which we handle messages simultaneously.
     max_future_epochs: usize,
+    _phantom: PhantomData<Tx>,
 }
 
-impl<NodeUid: Ord + Clone + Debug> HoneyBadgerBuilder<NodeUid> {
-    /// Creates a new builder for Honey Badger.
+impl<Tx, NodeUid> HoneyBadgerBuilder<Tx, NodeUid> where NodeUid: Ord + Clone + Debug {
+    /// Returns a new `HoneyBadgerBuilder` configured using the network info
+    /// specified by `netinfo`.
     pub fn new(netinfo: Rc<NetworkInfo<NodeUid>>) -> Self {
         HoneyBadgerBuilder {
             netinfo,
             batch_size: 100,
             max_future_epochs: 3,
+            _phantom: PhantomData,
         }
     }
 
@@ -67,21 +71,19 @@ impl<NodeUid: Ord + Clone + Debug> HoneyBadgerBuilder<NodeUid> {
     }
 
     /// Creates a new Honey Badger instance with an empty buffer.
-    pub fn build<Tx>(&self) -> HoneyBadgerResult<HoneyBadger<Tx, NodeUid>>
-    where
-        Tx: Serialize + for<'r> Deserialize<'r> + Debug + Hash + Eq,
+    pub fn build(&self) -> HoneyBadgerResult<HoneyBadger<Tx, NodeUid>>
+        where Tx: Serialize + for<'r> Deserialize<'r> + Debug + Hash + Eq,
     {
         self.build_with_transactions(None)
     }
 
     /// Returns a new Honey Badger instance that starts with the given transactions in its buffer.
-    pub fn build_with_transactions<Tx, TI>(
+    pub fn build_with_transactions<TI>(
         &self,
         txs: TI,
     ) -> HoneyBadgerResult<HoneyBadger<Tx, NodeUid>>
-    where
-        TI: IntoIterator<Item = Tx>,
-        Tx: Serialize + for<'r> Deserialize<'r> + Debug + Hash + Eq,
+        where TI: IntoIterator<Item = Tx>,
+              Tx: Serialize + for<'r> Deserialize<'r> + Debug + Hash + Eq,
     {
         let mut honey_badger = HoneyBadger {
             netinfo: self.netinfo.clone(),
@@ -137,9 +139,8 @@ pub struct HoneyBadger<Tx, NodeUid> {
 }
 
 impl<Tx, NodeUid> DistAlgorithm for HoneyBadger<Tx, NodeUid>
-where
-    Tx: Serialize + for<'r> Deserialize<'r> + Debug + Hash + Eq,
-    NodeUid: Ord + Clone + Debug,
+    where Tx: Serialize + for<'r> Deserialize<'r> + Debug + Hash + Eq,
+          NodeUid: Ord + Clone + Debug,
 {
     type NodeUid = NodeUid;
     type Input = Tx;
@@ -193,10 +194,23 @@ where
 }
 
 impl<Tx, NodeUid> HoneyBadger<Tx, NodeUid>
-where
-    Tx: Serialize + for<'r> Deserialize<'r> + Debug + Hash + Eq,
-    NodeUid: Ord + Clone + Debug,
+    where Tx: Serialize + for<'r> Deserialize<'r> + Debug + Hash + Eq,
+          NodeUid: Ord + Clone + Debug,
 {
+    //////////////////
+    //
+    // NOTE(REMOVE ME): I usually try to at least mention what arguments do
+    // unless its really obvious, which it isn't in this case. I usually
+    // copy-paste the exact same description to/from the `...Builder::new`.
+    //
+    /////////////////
+
+    /// Returns a new `HoneyBadgerBuilder` configured using the network info
+    /// specified by `netinfo`.
+    pub fn builder(netinfo: Rc<NetworkInfo<NodeUid>>) -> HoneyBadgerBuilder<Tx, NodeUid> {
+        HoneyBadgerBuilder::new(netinfo)
+    }
+
     /// Adds transactions into the buffer.
     pub fn add_transactions<I: IntoIterator<Item = Tx>>(
         &mut self,

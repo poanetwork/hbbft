@@ -126,7 +126,7 @@ where
         let honey_badger = HoneyBadgerBuilder::new(Rc::new(netinfo.clone()))
             .batch_size(batch_size)
             .max_future_epochs(0)
-            .build::<Transaction<Tx, NodeUid>>()?;
+            .build()?;
         let dyn_hb = DynamicHoneyBadger {
             netinfo,
             batch_size,
