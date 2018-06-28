@@ -25,7 +25,7 @@ use serde::Serialize;
 use signifix::{metric, TryFrom};
 
 use hbbft::crypto::SecretKeySet;
-use hbbft::honey_badger::{Batch, HoneyBadger};
+use hbbft::honey_badger::{Batch, HoneyBadger, HoneyBadgerBuilder};
 use hbbft::messaging::{DistAlgorithm, NetworkInfo, Target};
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -436,7 +436,10 @@ fn main() {
             sk_set.secret_key_share(id.0 as u64),
             pk_set.clone(),
         ));
-        HoneyBadger::new(netinfo, args.flag_b, 0, txs.clone()).expect("Instantiate honey_badger")
+        HoneyBadgerBuilder::new(netinfo)
+            .batch_size(args.flag_b)
+            .build_with_transactions(txs.clone())
+            .expect("Instantiate honey_badger")
     };
     let hw_quality = HwQuality {
         latency: Duration::from_millis(args.flag_lag),

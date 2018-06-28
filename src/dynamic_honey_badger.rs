@@ -57,7 +57,7 @@ use clear_on_drop::ClearOnDrop;
 use serde::{Deserialize, Serialize};
 
 use crypto::{PublicKey, PublicKeySet, SecretKey, Signature};
-use honey_badger::{self, Batch as HbBatch, HoneyBadger, Message as HbMessage};
+use honey_badger::{self, Batch as HbBatch, HoneyBadger, HoneyBadgerBuilder, Message as HbMessage};
 use messaging::{DistAlgorithm, NetworkInfo, Target, TargetedMessage};
 use sync_key_gen::{Accept, Propose, SyncKeyGen};
 
@@ -165,8 +165,9 @@ where
     where
         Tx: Serialize + for<'r> Deserialize<'r> + Debug + Hash + Eq,
     {
-        let honey_badger =
-            HoneyBadger::new(Rc::new(self.netinfo.clone()), self.batch_size, 0, None)?;
+        let honey_badger = HoneyBadgerBuilder::new(Rc::new(self.netinfo.clone()))
+            .batch_size(self.batch_size)
+            .build()?;
         let dyn_hb = DynamicHoneyBadger {
             netinfo: self.netinfo.clone(),
             batch_size: self.batch_size,
@@ -445,7 +446,9 @@ where
             let old_buf = self.honey_badger.drain_buffer();
             let outputs = (self.honey_badger.output_iter()).flat_map(HbBatch::into_tx_iter);
             let buffer = outputs.chain(old_buf).filter(Transaction::is_user);
-            HoneyBadger::new(netinfo, self.batch_size, 0, buffer)?
+            HoneyBadgerBuilder::new(netinfo)
+                .batch_size(self.batch_size)
+                .build_with_transactions(buffer)?
         };
         self.honey_badger = honey_badger;
         Ok(())
