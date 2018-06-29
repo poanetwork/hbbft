@@ -307,7 +307,7 @@ impl<NodeUid: Clone + Debug + Ord> Agreement<NodeUid> {
     }
 
     fn send_bval(&mut self, b: bool) -> AgreementResult<()> {
-        if !self.netinfo.is_peer() {
+        if !self.netinfo.is_validator() {
             return Ok(());
         }
         // Record the value `b` as sent.
@@ -329,7 +329,7 @@ impl<NodeUid: Clone + Debug + Ord> Agreement<NodeUid> {
         // Trigger the start of the `Conf` round.
         self.conf_round = true;
 
-        if !self.netinfo.is_peer() {
+        if !self.netinfo.is_validator() {
             return Ok(());
         }
 
@@ -456,7 +456,7 @@ impl<NodeUid: Clone + Debug + Ord> Agreement<NodeUid> {
         self.output = Some(b);
         // Latch the decided state.
         self.decision = Some(b);
-        if self.netinfo.is_peer() {
+        if self.netinfo.is_validator() {
             self.messages
                 .push_back(AgreementContent::Term(b).with_epoch(self.epoch));
             self.received_term.insert(self.netinfo.our_uid().clone(), b);
@@ -484,7 +484,7 @@ impl<NodeUid: Clone + Debug + Ord> Agreement<NodeUid> {
     }
 
     fn send_aux(&mut self, b: bool) -> AgreementResult<()> {
-        if !self.netinfo.is_peer() {
+        if !self.netinfo.is_validator() {
             return Ok(());
         }
         // Multicast `Aux`.

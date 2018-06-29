@@ -7,18 +7,18 @@
 //! transactions and keeps producing new batches from them. All correct nodes will output the same
 //! batch for each epoch.
 //!
-//! Unlike Honey Badger, this algorithm allows dynamically adding new full peers from the pool of
-//! observer nodes, and turning full peers back into observers. As a signal to initiate that
+//! Unlike Honey Badger, this algorithm allows dynamically adding new validators from the pool of
+//! observer nodes, and turning validators back into observers. As a signal to initiate that
 //! process, it defines a special `Change` input variant, which contains either a vote
-//! `Add(node_id, public_key)`, to add a new full peer, or `Remove(node_id)` to remove it. Each
-//! full peer can have at most one active vote, and casting another vote revokes the previous one.
-//! Once a simple majority of full nodes has the same active vote, a reconfiguration process begins
+//! `Add(node_id, public_key)`, to add a new validator, or `Remove(node_id)` to remove it. Each
+//! validator can have at most one active vote, and casting another vote revokes the previous one.
+//! Once a simple majority of validators has the same active vote, a reconfiguration process begins
 //! (they need to create new cryptographic key shares for the new composition).
 //!
 //! The state of that process after each epoch is communicated via the `Batch::change` field. When
 //! this contains an `InProgress(Add(..))` value, all nodes need to send every future `Target::All`
 //! message to the new node, too. Once the value is `Complete`, the votes will be reset, and the
-//! next epoch will run using the new set of full nodes.
+//! next epoch will run using the new set of validators.
 //!
 //! ## How it works
 //!
@@ -125,7 +125,8 @@ where
     /// The first epoch after the latest node change.
     start_epoch: u64,
     /// Collected votes for adding or removing nodes. Each node has one vote, and casting another
-    /// vote revokes the previous one. Resets whenever the set of peers is successfully changed.
+    /// vote revokes the previous one. Resets whenever the set of validators is successfully
+    /// changed.
     votes: BTreeMap<NodeUid, Change<NodeUid>>,
     /// The `HoneyBadger` instance with the current set of nodes.
     honey_badger: HoneyBadger<Transaction<Tx, NodeUid>, NodeUid>,
@@ -283,7 +284,7 @@ where
             if let Some(((pub_key_set, sk), change)) = self.take_key_gen_output() {
                 // If DKG completed, apply the change.
                 debug!("{:?} DKG for {:?} complete!", self.our_id(), change);
-                // If we are a full peer, we received a new secret key. Otherwise keep the old one.
+                // If we are a validator, we received a new secret key. Otherwise keep the old one.
                 let sk = sk.unwrap_or_else(|| {
                     ClearOnDrop::new(Box::new(self.netinfo.secret_key().clone()))
                 });
@@ -399,7 +400,7 @@ where
         let sig = self.sign(&node_tx)?;
         let msg = Message::Signed(self.start_epoch, node_tx.clone(), sig.clone());
         self.messages.push_back(Target::All.message(msg));
-        if !self.netinfo.is_peer() {
+        if !self.netinfo.is_validator() {
             return Ok(());
         }
         let our_uid = self.netinfo.our_uid().clone();

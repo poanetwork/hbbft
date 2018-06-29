@@ -158,7 +158,7 @@ where
 
     /// Proposes a new batch in the current epoch.
     fn propose(&mut self) -> HoneyBadgerResult<()> {
-        if !self.netinfo.is_peer() {
+        if !self.netinfo.is_validator() {
             return Ok(());
         }
         let proposal = self.choose_transactions()?;
@@ -441,7 +441,7 @@ where
         proposer_id: &NodeUid,
         ciphertext: &Ciphertext,
     ) -> HoneyBadgerResult<bool> {
-        if !self.netinfo.is_peer() {
+        if !self.netinfo.is_validator() {
             return Ok(ciphertext.verify());
         }
         let share = match self.netinfo.secret_key().decrypt_share(&ciphertext) {
