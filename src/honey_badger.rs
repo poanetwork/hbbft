@@ -545,9 +545,14 @@ pub struct Batch<Tx, NodeUid> {
 }
 
 impl<Tx, NodeUid: Ord> Batch<Tx, NodeUid> {
-    /// Returns an iterator over all transactions included in the batch.
+    /// Returns an iterator over references to all transactions included in the batch.
     pub fn iter(&self) -> impl Iterator<Item = &Tx> {
         self.transactions.values().flat_map(|vec| vec)
+    }
+
+    /// Returns an iterator over all transactions included in the batch. Consumes the batch.
+    pub fn into_tx_iter(self) -> impl Iterator<Item = Tx> {
+        self.transactions.into_iter().flat_map(|(_, vec)| vec)
     }
 
     /// Returns the number of transactions in the batch (without detecting duplicates).

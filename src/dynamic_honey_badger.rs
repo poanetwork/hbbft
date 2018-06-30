@@ -51,7 +51,7 @@ use clear_on_drop::ClearOnDrop;
 use serde::{Deserialize, Serialize};
 
 use crypto::{PublicKey, PublicKeySet, SecretKey, Signature};
-use honey_badger::{self, HoneyBadger};
+use honey_badger::{self, Batch as HbBatch, HoneyBadger, Message as HbMessage};
 use messaging::{DistAlgorithm, NetworkInfo, Target, TargetedMessage};
 use sync_key_gen::{Accept, Propose, SyncKeyGen};
 
@@ -223,7 +223,7 @@ where
     fn handle_honey_badger_message(
         &mut self,
         sender_id: &NodeUid,
-        message: honey_badger::Message<NodeUid>,
+        message: HbMessage<NodeUid>,
     ) -> Result<()> {
         if !self.netinfo.all_uids().contains(sender_id) {
             info!("Unknown sender {:?} of message {:?}", sender_id, message);
@@ -289,12 +289,11 @@ where
                     ClearOnDrop::new(Box::new(self.netinfo.secret_key().clone()))
                 });
                 // Restart Honey Badger in the next epoch, and inform the user about the change.
-                self.start_epoch = batch.epoch + 1;
-                self.apply_change(&change, pub_key_set, sk)?;
+                self.apply_change(&change, pub_key_set, sk, batch.epoch + 1)?;
                 batch.change = ChangeState::Complete(change);
             } else {
                 // If the majority changed, restart DKG. Inform the user about the current change.
-                self.update_key_gen()?;
+                self.update_key_gen(batch.epoch + 1)?;
                 if let Some((_, ref change)) = self.key_gen {
                     batch.change = ChangeState::InProgress(change.clone());
                 }
@@ -319,6 +318,7 @@ where
         change: &Change<NodeUid>,
         pub_key_set: PublicKeySet,
         sk: ClearOnDrop<Box<SecretKey>>,
+        epoch: u64,
     ) -> Result<()> {
         self.votes.clear();
         self.key_gen = None;
@@ -330,18 +330,13 @@ where
             info!("No-op change: {:?}", change);
         }
         let netinfo = NetworkInfo::new(self.our_id().clone(), all_uids, sk, pub_key_set);
-        self.netinfo = netinfo.clone();
-        // TODO: If there are more pending outputs, maybe their transactions should be added, too?
-        // They will have been removed from the buffer already.
-        let old_buffer = self.honey_badger.drain_buffer().into_iter();
-        let new_buffer = old_buffer.filter(Transaction::is_user);
-        self.honey_badger = HoneyBadger::new(Rc::new(netinfo), self.batch_size, new_buffer)?;
-        Ok(())
+        self.netinfo = netinfo;
+        self.restart_honey_badger(epoch)
     }
 
     /// If the majority of votes has changed, restarts Key Generation for the set of nodes implied
     /// by the current change.
-    fn update_key_gen(&mut self) -> Result<()> {
+    fn update_key_gen(&mut self, epoch: u64) -> Result<()> {
         let change = match current_majority(&self.votes, &self.netinfo) {
             None => {
                 self.key_gen = None;
@@ -363,6 +358,9 @@ where
         } {
             info!("{:?} No-op change: {:?}", self.our_id(), change);
         }
+        if change.candidate().is_some() {
+            self.restart_honey_badger(epoch)?;
+        }
         // TODO: This needs to be the same as `num_faulty` will be in the _new_
         // `NetworkInfo` if the change goes through. It would be safer to deduplicate.
         let threshold = (pub_keys.len() - 1) / 3;
@@ -373,6 +371,24 @@ where
         if let Some(propose) = propose {
             self.send_transaction(NodeTransaction::Propose(propose))?;
         }
+        Ok(())
+    }
+
+    /// Starts a new `HoneyBadger` instance and inputs the user transactions from the existing
+    /// one's buffer and pending outputs.
+    fn restart_honey_badger(&mut self, epoch: u64) -> Result<()> {
+        // TODO: Filter out the messages for `epoch` and later.
+        self.messages
+            .extend_with_epoch(self.start_epoch, &mut self.honey_badger);
+        self.start_epoch = epoch;
+        let honey_badger = {
+            let netinfo = Rc::new(self.netinfo.clone());
+            let old_buf = self.honey_badger.drain_buffer();
+            let outputs = (self.honey_badger.output_iter()).flat_map(HbBatch::into_tx_iter);
+            let buffer = outputs.chain(old_buf).filter(Transaction::is_user);
+            HoneyBadger::new(netinfo, self.batch_size, buffer)?
+        };
+        self.honey_badger = honey_badger;
         Ok(())
     }
 
@@ -563,7 +579,7 @@ pub enum NodeTransaction<NodeUid> {
 #[derive(Debug, Clone)]
 pub enum Message<NodeUid> {
     /// A message belonging to the `HoneyBadger` algorithm started in the given epoch.
-    HoneyBadger(u64, honey_badger::Message<NodeUid>),
+    HoneyBadger(u64, HbMessage<NodeUid>),
     /// A transaction to be committed, signed by a node.
     Signed(u64, NodeTransaction<NodeUid>, Box<Signature>),
 }
@@ -590,7 +606,7 @@ where
     where
         Tx: Eq + Serialize + for<'r> Deserialize<'r> + Debug + Hash,
     {
-        let convert = |msg: TargetedMessage<honey_badger::Message<NodeUid>, NodeUid>| {
+        let convert = |msg: TargetedMessage<HbMessage<NodeUid>, NodeUid>| {
             msg.map(|hb_msg| Message::HoneyBadger(epoch, hb_msg))
         };
         self.extend(hb.message_iter().map(convert));
