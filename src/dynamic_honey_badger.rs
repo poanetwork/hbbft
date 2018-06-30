@@ -43,6 +43,7 @@
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::fmt::Debug;
 use std::hash::Hash;
+use std::marker::PhantomData;
 use std::mem;
 use std::rc::Rc;
 
@@ -110,6 +111,69 @@ pub enum Input<Tx, NodeUid> {
     User(Tx),
     /// A vote to change the set of nodes.
     Change(Change<NodeUid>),
+}
+
+/// A Dynamic Honey Badger builder, to configure the parameters and create new instances of
+/// `DynamicHoneyBadger`.
+pub struct DynamicHoneyBadgerBuilder<Tx, NodeUid> {
+    /// Shared network data.
+    netinfo: NetworkInfo<NodeUid>,
+    /// The target number of transactions to be included in each batch.
+    batch_size: usize,
+    /// The epoch at which to join the network.
+    start_epoch: u64,
+    _phantom: PhantomData<Tx>,
+}
+
+impl<Tx, NodeUid> DynamicHoneyBadgerBuilder<Tx, NodeUid>
+where
+    Tx: Eq + Serialize + for<'r> Deserialize<'r> + Debug + Hash,
+    NodeUid: Eq + Ord + Clone + Debug + Serialize + for<'r> Deserialize<'r> + Hash,
+{
+    /// Returns a new `DynamicHoneyBadgerBuilder` configured to use the node IDs and cryptographic
+    /// keys specified by `netinfo`.
+    pub fn new(netinfo: NetworkInfo<NodeUid>) -> Self {
+        // TODO: Use the defaults from `HoneyBadgerBuilder`.
+        DynamicHoneyBadgerBuilder {
+            netinfo,
+            batch_size: 100,
+            start_epoch: 0,
+            _phantom: PhantomData,
+        }
+    }
+
+    /// Sets the target number of transactions per batch.
+    pub fn batch_size(&mut self, batch_size: usize) -> &mut Self {
+        self.batch_size = batch_size;
+        self
+    }
+
+    /// Sets the epoch at which to join the network as an observer. This requires the node to
+    /// receive all broadcast messages for `start_epoch` and later.
+    pub fn start_epoch(&mut self, start_epoch: u64) -> &mut Self {
+        self.start_epoch = start_epoch;
+        self
+    }
+
+    /// Creates a new Dynamic Honey Badger instance with an empty buffer.
+    pub fn build(&self) -> Result<DynamicHoneyBadger<Tx, NodeUid>>
+    where
+        Tx: Serialize + for<'r> Deserialize<'r> + Debug + Hash + Eq,
+    {
+        let honey_badger = HoneyBadger::new(Rc::new(self.netinfo.clone()), self.batch_size, None)?;
+        let dyn_hb = DynamicHoneyBadger {
+            netinfo: self.netinfo.clone(),
+            batch_size: self.batch_size,
+            start_epoch: self.start_epoch,
+            votes: BTreeMap::new(),
+            honey_badger,
+            key_gen: None,
+            incoming_queue: Vec::new(),
+            messages: MessageQueue(VecDeque::new()),
+            output: VecDeque::new(),
+        };
+        Ok(dyn_hb)
+    }
 }
 
 /// A Honey Badger instance that can handle adding and removing nodes.
@@ -202,21 +266,10 @@ where
     Tx: Eq + Serialize + for<'r> Deserialize<'r> + Debug + Hash,
     NodeUid: Eq + Ord + Clone + Debug + Serialize + for<'r> Deserialize<'r> + Hash,
 {
-    /// Returns a new instance with the given parameters, starting at epoch `0`.
-    pub fn new(netinfo: NetworkInfo<NodeUid>, batch_size: usize) -> Result<Self> {
-        let honey_badger = HoneyBadger::new(Rc::new(netinfo.clone()), batch_size, None)?;
-        let dyn_hb = DynamicHoneyBadger {
-            netinfo,
-            batch_size,
-            start_epoch: 0,
-            votes: BTreeMap::new(),
-            honey_badger,
-            key_gen: None,
-            incoming_queue: Vec::new(),
-            messages: MessageQueue(VecDeque::new()),
-            output: VecDeque::new(),
-        };
-        Ok(dyn_hb)
+    /// Returns a new `DynamicHoneyBadgerBuilder` configured to use the node IDs and cryptographic
+    /// keys specified by `netinfo`.
+    pub fn builder(netinfo: NetworkInfo<NodeUid>) -> DynamicHoneyBadgerBuilder<Tx, NodeUid> {
+        DynamicHoneyBadgerBuilder::new(netinfo)
     }
 
     /// Handles a message for the `HoneyBadger` instance.

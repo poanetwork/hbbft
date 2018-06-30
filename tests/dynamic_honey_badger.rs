@@ -108,7 +108,10 @@ where
 // Allow passing `netinfo` by value. `TestNetwork` expects this function signature.
 #[cfg_attr(feature = "cargo-clippy", allow(needless_pass_by_value))]
 fn new_dynamic_hb(netinfo: Rc<NetworkInfo<NodeUid>>) -> DynamicHoneyBadger<usize, NodeUid> {
-    DynamicHoneyBadger::new((*netinfo).clone(), 12).expect("Instantiate dynamic_honey_badger")
+    DynamicHoneyBadger::builder((*netinfo).clone())
+        .batch_size(12)
+        .build()
+        .expect("Instantiate dynamic_honey_badger")
 }
 
 fn test_dynamic_honey_badger_different_sizes<A, F>(new_adversary: F, num_txs: usize)
