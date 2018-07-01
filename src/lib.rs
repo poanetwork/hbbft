@@ -89,7 +89,6 @@
 //! If `serialization-protobuf` is enabled, the message types support serialization with [Google
 //! protocol buffers](https://developers.google.com/protocol-buffers/docs/overview).
 
-#![feature(optin_builtin_traits)]
 // TODO: Remove this once https://github.com/rust-lang-nursery/error-chain/issues/245 is resolved.
 #![allow(renamed_and_removed_lints)]
 
