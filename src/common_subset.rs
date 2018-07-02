@@ -1,23 +1,23 @@
 //! # Asynchronous Common Subset algorithm.
 //!
-//! The Asynchronous Common Subset protocol assumes a network of `N` nodes that send signed
-//! messages to each other, with at most `f` of them malicious, where `3 * f < N`. Handling the
+//! The Asynchronous Common Subset protocol assumes a network of _N_ nodes that send signed
+//! messages to each other, with at most _f_ of them malicious, where _3 f < N_. Handling the
 //! networking and signing is the responsibility of the user: only when a message has been
 //! verified to be "from node i", it can be handed to the `CommonSubset` instance.
 //!
 //! Each participating node proposes an element for inclusion. Under the above conditions, the
 //! protocol guarantees that all of the correct nodes output the same set, consisting of at least
-//! `N - f` of the proposed elements.
+//! _N - f_ of the proposed elements.
 //!
 //! ## How it works
 //!
 //! * `CommonSubset` instantiates one `Broadcast` algorithm for each of the participating nodes.
-//! At least `N - f` of these - the ones whose proposer is not faulty - will eventually output
+//! At least _N - f_ of these - the ones whose proposer is not faulty - will eventually output
 //! the element proposed by that node.
 //! * It also instantiates an `Agreement` instance for each participating node, to decide whether
 //! that node's proposed element should be included in the common set. Whenever an element is
 //! received via broadcast, we input "yes" (`true`) into the corresponding `Agreement` instance.
-//! * When `N - f` `Agreement` instances have decided "yes", we input "no" (`false`) into the
+//! * When _N - f_ `Agreement` instances have decided "yes", we input "no" (`false`) into the
 //! remaining ones, where we haven't provided input yet.
 //! * Once all `Agreement` instances have decided, `CommonSubset` returns the set of all proposed
 //! values for which the decision was "yes".

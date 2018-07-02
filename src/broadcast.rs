@@ -1,7 +1,7 @@
 //! # Broadcast
 //!
-//! The Reliable Broadcast Protocol assumes a network of `N` nodes that send signed messages to
-//! each other, with at most `f` of them faulty, where `3 * f < N`. Handling the networking and
+//! The Reliable Broadcast Protocol assumes a network of _N_ nodes that send signed messages to
+//! each other, with at most _f_ of them faulty, where _3 f < N_. Handling the networking and
 //! signing is the responsibility of this crate's user; a message is only handed to the Broadcast
 //! instance after it has been verified to be "from node i". One of the nodes is the "proposer"
 //! who sends a value. It needs to be determined beforehand, and all nodes need to know and agree
@@ -11,7 +11,7 @@
 //!
 //! ## How it works
 //!
-//! * The proposer uses a Reed-Solomon code to split the value into `N` chunks, `f + 1` of which
+//! * The proposer uses a Reed-Solomon code to split the value into _N_ chunks, _2 f + 1_ of which
 //! suffice to reconstruct the value. These chunks are put into a Merkle tree, so that with the
 //! tree's root hash `h`, branch `bi` and chunk `si`, the `i`-th chunk `si` can be verified by
 //! anyone as belonging to the Merkle tree with root hash `h`. These values are "proof" number `i`:
@@ -21,24 +21,24 @@
 //! * Every (correct) node that receives `Value(pi)` from the proposer sends it on to everyone else
 //! as `Echo(pi)`. An `Echo` translates to: "I have received `pi` directly from the proposer." If
 //! the proposer sends another `Value` message it is ignored.
-//! * So every node that receives at least `f + 1` `Echo` messages with the same root hash can
+//! * So every node that receives at least _2 f + 1_ `Echo` messages with the same root hash can
 //! decode a value.
-//! * Every node that has received `N - f` `Echo`s with the same root hash from different nodes
-//! knows that at least `f + 1` _correct_ nodes have sent an `Echo` with that hash to everyone, and
-//! therefore everyone will eventually receive at least `f + 1` of them. So upon receiving `N - f`
-//! `Echo`s, they send a `Ready(h)` to everyone. It translates to: "I know that everyone will
-//! eventually be able to decode the value with root hash `h`." Moreover, since every correct node
-//! only sends one kind of `Echo` message, there is no danger of receiving `N - f` `Echo`s with two
-//! different root hashes.
-//! * Even without enough `Echo` messages, if a node receives `f + 1` `Ready` messages, it knows
+//! * Every node that has received _N - f_ `Echo`s with the same root hash from different nodes
+//! knows that at least _2 f + 1_ _correct_ nodes have sent an `Echo` with that hash to everyone,
+//! and therefore everyone will eventually receive at least _2 f + 1_ of them. So upon receiving
+//! _N - f_ `Echo`s, they send a `Ready(h)` to everyone. It translates to: "I know that everyone
+//! will eventually be able to decode the value with root hash `h`." Moreover, since every correct
+//! node only sends one kind of `Echo` message, there is no danger of receiving _N - f_ `Echo`s
+//! with two different root hashes.
+//! * Even without enough `Echo` messages, if a node receives _2 f + 1_ `Ready` messages, it knows
 //! that at least one _correct_ node has sent `Ready`. It therefore also knows that everyone will
 //! be able to decode eventually, and multicasts `Ready` itself.
-//! * If a node has received `2 * f + 1` `Ready`s (with matching root hash) from different nodes,
-//! it knows that at least `f + 1` _correct_ nodes have sent it. Therefore, every correct node will
-//! eventually receive `f + 1`, and multicast it itself. Therefore, every correct node will
-//! eventually receive `2 * f + 1` `Ready`s, too. _And_ we know at this point that every correct
-//! node will eventually be able to decode (i.e. receive at least `f + 1` `Echo` messages).
-//! * So a node with `2 * f + 1` `Ready`s and `f + 1` `Echos` will decode and _output_ the value,
+//! * If a node has received _2 f + 1_ `Ready`s (with matching root hash) from different nodes,
+//! it knows that at least _2 f + 1_ _correct_ nodes have sent it. Therefore, every correct node
+//! will eventually receive _2 f + 1_, and multicast it itself. Therefore, every correct node will
+//! eventually receive _2 f + 1_ `Ready`s, too. _And_ we know at this point that every correct
+//! node will eventually be able to decode (i.e. receive at least _2 f + 1_ `Echo` messages).
+//! * So a node with _2 f + 1_ `Ready`s and _2 f + 1_ `Echos` will decode and _output_ the value,
 //! knowing that every other correct node will eventually do the same.
 
 use std::collections::{BTreeMap, VecDeque};
@@ -325,7 +325,7 @@ impl<NodeUid: Debug + Clone + Ord> Broadcast<NodeUid> {
             return self.compute_output(&hash);
         }
 
-        // Upon receiving `N - f` `Echo`s with this root hash, multicast `Ready`.
+        // Upon receiving _N - f_ `Echo`s with this root hash, multicast `Ready`.
         self.send_ready(&hash)
     }
 

@@ -8,8 +8,8 @@
 //!
 //! Consensus algorithms are fundamental to resilient, distributed systems such as decentralized
 //! databases and blockchains. Byzantine fault tolerant systems can reach consensus with a number
-//! of faulty nodes `f` (including complete takeover by an attacker), as long as the total number
-//! `N` of nodes is greater than `3 * f`.
+//! of faulty nodes _f_ (including complete takeover by an attacker), as long as the total number
+//! _N_ of nodes is greater than _3 f_.
 //!
 //! The Honey Badger consensus algorithm is both Byzantine fault tolerant and asynchronous. It does
 //! not make timing assumptions about message delivery. An adversary can control network scheduling
@@ -32,7 +32,7 @@
 //! the instance sent to corresponding nodes.
 //!
 //! The algorithm outputs _batches_ of transactions. The order and content of these batches is
-//! guaranteed to be the same for all correct nodes, assuming enough nodes (`N > 3 * f`) are
+//! guaranteed to be the same for all correct nodes, assuming enough nodes (_N > 3 f_) are
 //! functional and correct.
 //!
 //!
@@ -55,11 +55,11 @@
 //!
 //! [**Common Subset**](common_subset/index.html)
 //!
-//! Each node inputs one item. The output is a set of at least `N - f` nodes' IDs, together with
+//! Each node inputs one item. The output is a set of at least _N - f_ nodes' IDs, together with
 //! their items, and will be the same in every correct node.
 //!
 //! This is the main building block of Honey Badger: In each epoch, every node proposes a number of
-//! transactions. Using the Common Subset protocol, they agree on at least `N - f` of those
+//! transactions. Using the Common Subset protocol, they agree on at least _N - f_ of those
 //! proposals. The batch contains the union of these sets of transactions.
 //!
 //! [**Reliable Broadcast**](broadcast/index.html)
@@ -81,7 +81,7 @@
 //!
 //! [**Common Coin**](common_coin/index.html)
 //!
-//! Each node inputs `()` to initiate a coin flip. Once `f + 1` nodes have input, either all nodes
+//! Each node inputs `()` to initiate a coin flip. Once _f + 1_ nodes have input, either all nodes
 //! receive `true` or all nodes receive `false`. The outcome cannot be known by the adversary
 //! before at least one correct node has provided input, and is uniformly distributed and
 //! pseudorandom.
