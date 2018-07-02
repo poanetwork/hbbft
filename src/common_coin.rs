@@ -126,7 +126,7 @@ where
     }
 
     fn get_coin(&mut self) -> Result<()> {
-        if !self.netinfo.is_peer() {
+        if !self.netinfo.is_validator() {
             return self.try_output();
         }
         let share = self.netinfo.secret_key().sign(&self.nonce);

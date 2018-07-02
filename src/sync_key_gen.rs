@@ -34,7 +34,7 @@
 
 use std::collections::btree_map::Entry;
 use std::collections::{BTreeMap, BTreeSet};
-use std::fmt::Debug;
+use std::fmt::{self, Debug, Formatter};
 
 use bincode;
 use clear_on_drop::ClearOnDrop;
@@ -49,13 +49,27 @@ use crypto::{Ciphertext, PublicKey, PublicKeySet, SecretKey};
 // TODO: No need to send our own row and value to ourselves.
 
 /// A commitment to a bivariate polynomial, and for each node, an encrypted row of values.
-#[derive(Deserialize, Serialize, Debug, Clone, Hash, Eq, PartialEq)]
+#[derive(Deserialize, Serialize, Clone, Hash, Eq, PartialEq)]
 pub struct Propose(BivarCommitment, Vec<Ciphertext>);
+
+impl Debug for Propose {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        let deg = self.0.degree();
+        let len = self.1.len();
+        write!(f, "Propose(<degree {}>, <{} rows>)", deg, len)
+    }
+}
 
 /// A confirmation that we have received a node's proposal and verified our row against the
 /// commitment. For each node, it contains one encrypted value of our row.
-#[derive(Deserialize, Serialize, Debug, Clone, Hash, Eq, PartialEq)]
+#[derive(Deserialize, Serialize, Clone, Hash, Eq, PartialEq)]
 pub struct Accept(u64, Vec<Ciphertext>);
+
+impl Debug for Accept {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        write!(f, "Accept({}, <{} values>", self.0, self.1.len())
+    }
+}
 
 /// The information needed to track a single proposer's secret sharing process.
 struct ProposalState {
@@ -188,9 +202,9 @@ impl<NodeUid: Ord + Debug> SyncKeyGen<NodeUid> {
     }
 
     /// Returns `true` if the proposal of the given node is complete.
-    pub fn is_node_ready(&self, proposer_idx: u64) -> bool {
-        self.proposals
-            .get(&proposer_idx)
+    pub fn is_node_ready(&self, proposer_id: &NodeUid) -> bool {
+        self.node_index(proposer_id)
+            .and_then(|proposer_idx| self.proposals.get(&proposer_idx))
             .map_or(false, |proposal| proposal.is_complete(self.threshold))
     }
 

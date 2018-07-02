@@ -180,7 +180,7 @@ impl<NodeUid: Clone + Debug + Ord> CommonSubset<NodeUid> {
     /// Common Subset input message handler. It receives a value for broadcast
     /// and redirects it to the corresponding broadcast instance.
     pub fn send_proposed_value(&mut self, value: ProposedValue) -> CommonSubsetResult<()> {
-        if !self.netinfo.is_peer() {
+        if !self.netinfo.is_validator() {
             return Ok(());
         }
         let uid = self.netinfo.our_uid().clone();

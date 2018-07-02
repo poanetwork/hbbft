@@ -28,7 +28,6 @@ error_chain!{
 
     errors {
         UnknownSender
-        ObserverCannotPropose
     }
 }
 
@@ -73,7 +72,8 @@ where
     type Error = Error;
 
     fn input(&mut self, input: Self::Input) -> HoneyBadgerResult<()> {
-        self.add_transactions(iter::once(input))
+        self.add_transactions(iter::once(input));
+        Ok(())
     }
 
     fn handle_message(
@@ -147,16 +147,8 @@ where
     }
 
     /// Adds transactions into the buffer.
-    pub fn add_transactions<I: IntoIterator<Item = Tx>>(
-        &mut self,
-        txs: I,
-    ) -> HoneyBadgerResult<()> {
-        if self.netinfo.is_peer() {
-            self.buffer.extend(txs);
-            Ok(())
-        } else {
-            Err(ErrorKind::ObserverCannotPropose.into())
-        }
+    pub fn add_transactions<I: IntoIterator<Item = Tx>>(&mut self, txs: I) {
+        self.buffer.extend(txs);
     }
 
     /// Empties and returns the transaction buffer.
@@ -166,7 +158,7 @@ where
 
     /// Proposes a new batch in the current epoch.
     fn propose(&mut self) -> HoneyBadgerResult<()> {
-        if !self.netinfo.is_peer() {
+        if !self.netinfo.is_validator() {
             return Ok(());
         }
         let proposal = self.choose_transactions()?;
@@ -449,7 +441,7 @@ where
         proposer_id: &NodeUid,
         ciphertext: &Ciphertext,
     ) -> HoneyBadgerResult<bool> {
-        if !self.netinfo.is_peer() {
+        if !self.netinfo.is_validator() {
             return Ok(ciphertext.verify());
         }
         let share = match self.netinfo.secret_key().decrypt_share(&ciphertext) {
@@ -553,9 +545,14 @@ pub struct Batch<Tx, NodeUid> {
 }
 
 impl<Tx, NodeUid: Ord> Batch<Tx, NodeUid> {
-    /// Returns an iterator over all transactions included in the batch.
+    /// Returns an iterator over references to all transactions included in the batch.
     pub fn iter(&self) -> impl Iterator<Item = &Tx> {
         self.transactions.values().flat_map(|vec| vec)
+    }
+
+    /// Returns an iterator over all transactions included in the batch. Consumes the batch.
+    pub fn into_tx_iter(self) -> impl Iterator<Item = Tx> {
+        self.transactions.into_iter().flat_map(|(_, vec)| vec)
     }
 
     /// Returns the number of transactions in the batch (without detecting duplicates).

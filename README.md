@@ -21,9 +21,13 @@ Honey Badger is a modular library composed of several independent algorithms.  T
 
 In an optimal networking environment, output includes data sent from each node. In an adverse environment, the output is an agreed upon subset of data. Either way, the resulting output contains a batch of transactions which is guaranteed to be consistent across all nodes.  
 
+In addition to **validators**, the algorithms support **observers**: These don't actively participate, and don't need to be trusted, but they receive the output as well, and are able to verify it under the assumption that more than two thirds of the validators are correct.
+
 ## Algorithms
 
-- [ ] **[Honey Badger](https://github.com/poanetwork/hbbft/blob/master/src/honey_badger.rs):** The top level protocol proceeds in epochs using the protocols below. 
+- [x] **[Honey Badger](https://github.com/poanetwork/hbbft/blob/master/src/honey_badger.rs):** Each node inputs transactions. The protocol outputs a sequence of batches of transactions.
+
+- [ ] **[Dynamic Honey Badger](https://github.com/poanetwork/hbbft/blob/master/src/dynamic_honey_badger.rs):** A modified Honey Badger where nodes can dynamically add and remove other nodes to/from the network.
 
 - [x] **[Subset](https://github.com/poanetwork/hbbft/blob/master/src/common_subset.rs):** Each node inputs data. The nodes agree on a subset of suggested data. 
 

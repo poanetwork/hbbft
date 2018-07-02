@@ -355,7 +355,7 @@ impl<NodeUid: Debug + Clone + Ord> Broadcast<NodeUid> {
     /// Sends an `Echo` message and handles it. Does nothing if we are only an observer.
     fn send_echo(&mut self, p: Proof<Vec<u8>>) -> BroadcastResult<()> {
         self.echo_sent = true;
-        if !self.netinfo.is_peer() {
+        if !self.netinfo.is_validator() {
             return Ok(());
         }
         let echo_msg = Target::All.message(BroadcastMessage::Echo(p.clone()));
@@ -367,7 +367,7 @@ impl<NodeUid: Debug + Clone + Ord> Broadcast<NodeUid> {
     /// Sends a `Ready` message and handles it. Does nothing if we are only an observer.
     fn send_ready(&mut self, hash: &[u8]) -> BroadcastResult<()> {
         self.ready_sent = true;
-        if !self.netinfo.is_peer() {
+        if !self.netinfo.is_validator() {
             return Ok(());
         }
         let ready_msg = Target::All.message(BroadcastMessage::Ready(hash.to_vec()));

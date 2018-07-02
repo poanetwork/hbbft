@@ -5,7 +5,7 @@ use std::rc::Rc;
 
 use rand::{self, Rng};
 
-use hbbft::crypto::SecretKeySet;
+use hbbft::crypto::{PublicKeySet, SecretKeySet};
 use hbbft::messaging::{DistAlgorithm, NetworkInfo, Target, TargetedMessage};
 
 /// A node identifier. In the tests, nodes are simply numbered.
@@ -150,6 +150,7 @@ where
     pub nodes: BTreeMap<D::NodeUid, TestNode<D>>,
     pub observer: TestNode<D>,
     pub adv_nodes: BTreeMap<D::NodeUid, Rc<NetworkInfo<D::NodeUid>>>,
+    pub pk_set: PublicKeySet,
     adversary: A,
 }
 
@@ -205,6 +206,7 @@ where
             nodes: (0..good_num).map(NodeUid).map(new_node_by_id).collect(),
             observer: new_node_by_id(NodeUid(good_num + adv_num)).1,
             adversary: adversary(adv_nodes.clone()),
+            pk_set: pk_set.clone(),
             adv_nodes,
         };
         let msgs = network.adversary.step();
