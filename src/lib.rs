@@ -8,7 +8,7 @@
 //!
 //! Consensus algorithms are fundamental to resilient, distributed systems such as decentralized
 //! databases and blockchains. Byzantine fault tolerant systems can reach consensus with a number
-//! of failed nodes `f` (including complete takeover by an attacker), as long as the total number
+//! of faulty nodes `f` (including complete takeover by an attacker), as long as the total number
 //! `N` of nodes is greater than `3 * f`.
 //!
 //! The Honey Badger consensus algorithm is both Byzantine fault tolerant and asynchronous. It does
@@ -40,12 +40,18 @@
 //!
 //! Honey Badger is modular, and composed of several algorithms that can also be used independently.
 //!
-//! [**Honey Badger BFT**](honey_badger/index.html)
+//! [**Honey Badger**](honey_badger/index.html)
 //!
 //! The nodes input any number of _transactions_ (any user-defined type) and output a sequence of
 //! _batches_. The batches have sequential numbers (_epochs_) and contain a set of transactions
 //! that were input by the nodes. The sequence and contents of the batches will be the same in all
 //! nodes.
+//!
+//! [**Dynamic Honey Badger**](dynamic_honey_badger/index.html)
+//!
+//! A modified Honey Badger where validators can dynamically add and remove others to/from the
+//! network. In addition to the transactions, they can input `Add` and `Remove` requests. The
+//! output batches contain information about validator changes.
 //!
 //! [**Common Subset**](common_subset/index.html)
 //!
@@ -73,7 +79,7 @@
 //! This is used in Subset to decide whether each node's proposal should be included in the subset
 //! or not.
 //!
-//! **Common Coin** (TBD)
+//! [**Common Coin**](common_coin/index.html)
 //!
 //! Each node inputs `()` to initiate a coin flip. Once `f + 1` nodes have input, either all nodes
 //! receive `true` or all nodes receive `false`. The outcome cannot be known by the adversary

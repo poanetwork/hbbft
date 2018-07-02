@@ -105,7 +105,7 @@ impl Signature {
         let uncomp = self.0.into_affine().into_uncompressed();
         let bytes = uncomp.as_ref();
         let xor_bytes: u8 = bytes.iter().fold(0, |result, byte| result ^ byte);
-        let parity = 0 != xor_bytes % 2;
+        let parity = 0 != xor_bytes.count_ones() % 2;
         debug!("Signature: {:?}, output: {}", HexBytes(bytes), parity);
         parity
     }
