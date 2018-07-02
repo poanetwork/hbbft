@@ -20,6 +20,12 @@
 //! message to the new node, too. Once the value is `Complete`, the votes will be reset, and the
 //! next epoch will run using the new set of validators.
 //!
+//! New observers can also be added by starting them with an appropriate `start_epoch` parameter
+//! and ensuring that they receive all `Target::All` messages from that epoch on. Together with the
+//! above mechanism, this allows the network to change dynamically. You can introduce a new node to
+//! the network and make it a validator, you can demote validators to observers, and you can remove
+//! observers at any time.
+//!
 //! ## How it works
 //!
 //! Dynamic Honey Badger runs a regular Honey Badger instance internally, which in addition to the
@@ -38,7 +44,6 @@
 //! Otherwise we check if the majority of votes has changed. If a new change has a majority, the
 //! `SyncKeyGen` instance is dropped, and a new one is started to create keys according to the new
 //! pending change.
-// TODO: Document how to add observers, once that is supported.
 
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::fmt::Debug;
@@ -552,8 +557,7 @@ fn current_majority<'a, NodeUid: Ord + Clone + Hash + Eq>(
 }
 
 /// The transactions for the internal `HoneyBadger` instance: this includes both user-defined
-/// "regular" transactions as well as internal transactions for coordinating node additions and
-/// removals and key generation.
+/// "regular" transactions as well as internal signed messages.
 #[derive(Eq, PartialEq, Debug, Serialize, Deserialize, Hash)]
 enum Transaction<Tx, NodeUid> {
     /// A user-defined transaction.
@@ -616,10 +620,12 @@ impl<Tx, NodeUid: Ord> Batch<Tx, NodeUid> {
     }
 }
 
-/// An internal message that gets committed via Honey Badger to communicate synchronously.
+/// An internal message containing a vote for adding or removing a validator, or a message for key
+/// generation. It gets committed via Honey Badger and is only handled after it has been output in
+/// a batch, so that all nodes see these messages in the same order.
 #[derive(Eq, PartialEq, Debug, Serialize, Deserialize, Hash, Clone)]
 pub enum NodeTransaction<NodeUid> {
-    /// A vote to add or remove a node.
+    /// A vote to add or remove a validator.
     Change(Change<NodeUid>),
     /// A `SyncKeyGen::Propose` message for key generation.
     Propose(Propose),
