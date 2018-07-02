@@ -18,7 +18,7 @@ use std::rc::Rc;
 
 use rand::Rng;
 
-use hbbft::honey_badger::{self, Batch, HoneyBadger, HoneyBadgerBuilder, MessageContent};
+use hbbft::honey_badger::{self, Batch, HoneyBadger, MessageContent};
 use hbbft::messaging::{NetworkInfo, Target, TargetedMessage};
 
 use network::{
@@ -181,7 +181,7 @@ where
 }
 
 fn new_honey_badger(netinfo: Rc<NetworkInfo<NodeUid>>) -> HoneyBadger<usize, NodeUid> {
-    HoneyBadgerBuilder::new(netinfo)
+    HoneyBadger::builder(netinfo)
         .batch_size(12)
         .build_with_transactions(0..5)
         .expect("Instantiate honey_badger")
