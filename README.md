@@ -72,9 +72,7 @@ $ cargo run --example simulation --release -- -h
 See [Issues](https://github.com/poanetwork/hbbft/issues) for all tasks.
 
 - [ ] Dynamic Honey Badger (adding and removing nodes in a live network environment) ([#47](https://github.com/poanetwork/hbbft/issues/47#issuecomment-394640406))
-
-- [ ] Optimize Coin algorithm using a schedule ([#69](https://github.com/poanetwork/hbbft/issues/69))
-
+- [ ] Create additional adversarial scenarios and tests
 - [ ] Networking example to detail Honey Badger implementation
 
 ## Protocol Modifications
