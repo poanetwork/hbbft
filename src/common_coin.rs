@@ -15,8 +15,8 @@
 //! ## How it works
 //!
 //! The algorithm uses a threshold signature scheme with the uniqueness property: For each public
-//! key and message, there is exactly one valid signature. This signature can be produced using
-//! signatures shares from any _2 f + 1_ holders of secret key shares.
+//! key and message, there is exactly one valid signature. This group signature is produced using
+//! signature shares from any combination of _2 f + 1_ secret key share holders.
 //!
 //! * On input, a node signs the nonce and sends its signature share to everyone else.
 //! * When a node has received _2 f + 1_ shares, it computes the main signature and outputs the XOR
