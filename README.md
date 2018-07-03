@@ -96,6 +96,9 @@ We have simplified algorithm naming conventions from the original paper.
 | Binary Agreement | Binary Byzantine Agreement (BBA) |  
 | Coin             | Common Coin                      |  
 
+## Contributing
+
+See the [CONTRIBUTING](CONTRIBUTING.md) document for contribution, testing and pull request protocol.
 
 ## License
 
