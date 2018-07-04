@@ -11,10 +11,8 @@ use hbbft::crypto::{PublicKey, SecretKey};
 use hbbft::sync_key_gen::SyncKeyGen;
 
 fn test_sync_key_gen_with(threshold: usize, node_num: usize) {
-    let mut rng = rand::thread_rng();
-
     // Generate individual key pairs for encryption. These are not suitable for threshold schemes.
-    let sec_keys: Vec<SecretKey> = (0..node_num).map(|_| SecretKey::new(&mut rng)).collect();
+    let sec_keys: Vec<SecretKey> = (0..node_num).map(|_| rand::random()).collect();
     let pub_keys: BTreeMap<usize, PublicKey> = sec_keys
         .iter()
         .map(|sk| sk.public_key())
@@ -37,8 +35,7 @@ fn test_sync_key_gen_with(threshold: usize, node_num: usize) {
     let mut accepts = Vec::new();
     for (sender_id, proposal) in proposals[..=threshold].iter().enumerate() {
         for (node_id, node) in nodes.iter_mut().enumerate() {
-            let accept = node
-                .handle_propose(&sender_id, proposal.clone().expect("proposal"))
+            let accept = node.handle_propose(&sender_id, proposal.clone().expect("proposal"))
                 .expect("valid proposal");
             // Only the first `threshold + 1` manage to commit their `Accept`s.
             if node_id <= 2 * threshold {
