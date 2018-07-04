@@ -18,7 +18,7 @@ use std::rc::Rc;
 
 use rand::Rng;
 
-use hbbft::dynamic_honey_badger::{Change, ChangeState, DynamicHoneyBadger, Input};
+use hbbft::dynamic_honey_badger::{Batch, Change, ChangeState, DynamicHoneyBadger, Input};
 use hbbft::messaging::NetworkInfo;
 
 use network::{Adversary, MessageScheduler, NodeUid, SilentAdversary, TestNetwork, TestNode};
@@ -36,17 +36,30 @@ fn test_dynamic_honey_badger<A>(
         network.input_all(Input::User(tx));
     }
 
+    fn to_complete(
+        &(ref batch, _): &(Batch<usize, NodeUid>, NetworkInfo<NodeUid>),
+    ) -> Option<&Change<NodeUid>> {
+        match batch.change {
+            ChangeState::Complete(ref change) => Some(change),
+            _ => None,
+        }
+    }
+
     fn has_remove(node: &TestNode<DynamicHoneyBadger<usize, NodeUid>>) -> bool {
         node.outputs()
             .iter()
-            .any(|batch| batch.change == ChangeState::Complete(Change::Remove(NodeUid(0))))
+            .filter_map(to_complete)
+            .any(|change| *change == Change::Remove(NodeUid(0)))
     }
 
     fn has_add(node: &TestNode<DynamicHoneyBadger<usize, NodeUid>>) -> bool {
-        node.outputs().iter().any(|batch| match batch.change {
-            ChangeState::Complete(Change::Add(ref id, _)) => *id == NodeUid(0),
-            _ => false,
-        })
+        node.outputs()
+            .iter()
+            .filter_map(to_complete)
+            .any(|change| match *change {
+                Change::Add(NodeUid(0), _) => true,
+                _ => false,
+            })
     }
 
     // Returns `true` if the node has not output all transactions yet.
@@ -56,7 +69,7 @@ fn test_dynamic_honey_badger<A>(
             return true;
         }
         let mut min_missing = 0;
-        for batch in node.outputs() {
+        for &(ref batch, _) in node.outputs() {
             for tx in batch.iter() {
                 if *tx >= min_missing {
                     min_missing = tx + 1;
@@ -66,8 +79,8 @@ fn test_dynamic_honey_badger<A>(
         if min_missing < num_txs {
             return true;
         }
-        if node.outputs().last().unwrap().is_empty() {
-            let last = node.outputs().last().unwrap().epoch;
+        if node.outputs().last().unwrap().0.is_empty() {
+            let last = node.outputs().last().unwrap().0.epoch;
             node.queue.retain(|(_, ref msg)| msg.epoch() < last);
         }
         false
@@ -101,7 +114,8 @@ where
     assert!(!expected.is_empty());
     for node in network.nodes.values() {
         let len = cmp::min(expected.len(), node.outputs().len());
-        assert_eq!(&expected[..len], &node.outputs()[..len]);
+        let outputs = node.outputs().iter().take(len).map(|&(ref b, _)| b);
+        assert!(expected.iter().take(len).map(|&(ref b, _)| b).eq(outputs));
     }
 }
 

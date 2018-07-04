@@ -206,7 +206,7 @@ where
     /// The messages that need to be sent to other nodes.
     messages: MessageQueue<NodeUid>,
     /// The outputs from completed epochs.
-    output: VecDeque<Batch<Tx, NodeUid>>,
+    output: VecDeque<(Batch<Tx, NodeUid>, NetworkInfo<NodeUid>)>,
 }
 
 impl<Tx, NodeUid> DistAlgorithm for DynamicHoneyBadger<Tx, NodeUid>
@@ -216,7 +216,7 @@ where
 {
     type NodeUid = NodeUid;
     type Input = Input<Tx, NodeUid>;
-    type Output = Batch<Tx, NodeUid>;
+    type Output = (Batch<Tx, NodeUid>, NetworkInfo<NodeUid>);
     type Message = Message<NodeUid>;
     type Error = Error;
 
@@ -356,7 +356,7 @@ where
                     batch.change = ChangeState::InProgress(change.clone());
                 }
             }
-            self.output.push_back(batch);
+            self.output.push_back((batch, self.netinfo.clone()));
         }
         self.messages
             .extend_with_epoch(self.start_epoch, &mut self.honey_badger);
