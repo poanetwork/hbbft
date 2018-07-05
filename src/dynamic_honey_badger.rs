@@ -127,6 +127,8 @@ pub struct DynamicHoneyBadgerBuilder<Tx, NodeUid> {
     batch_size: usize,
     /// The epoch at which to join the network.
     start_epoch: u64,
+    /// The maximum number of future epochs for which we handle messages simultaneously.
+    max_future_epochs: usize,
     _phantom: PhantomData<Tx>,
 }
 
@@ -143,6 +145,7 @@ where
             netinfo,
             batch_size: 100,
             start_epoch: 0,
+            max_future_epochs: 3,
             _phantom: PhantomData,
         }
     }
@@ -150,6 +153,12 @@ where
     /// Sets the target number of transactions per batch.
     pub fn batch_size(&mut self, batch_size: usize) -> &mut Self {
         self.batch_size = batch_size;
+        self
+    }
+
+    /// Sets the maximum number of future epochs for which we handle messages simultaneously.
+    pub fn max_future_epochs(&mut self, max_future_epochs: usize) -> &mut Self {
+        self.max_future_epochs = max_future_epochs;
         self
     }
 
@@ -165,10 +174,14 @@ where
     where
         Tx: Serialize + for<'r> Deserialize<'r> + Debug + Hash + Eq,
     {
-        let honey_badger = HoneyBadger::new(Rc::new(self.netinfo.clone()), self.batch_size, None)?;
+        let honey_badger = HoneyBadger::builder(Rc::new(self.netinfo.clone()))
+            .batch_size(self.batch_size)
+            .max_future_epochs(self.max_future_epochs)
+            .build()?;
         let dyn_hb = DynamicHoneyBadger {
             netinfo: self.netinfo.clone(),
             batch_size: self.batch_size,
+            max_future_epochs: self.max_future_epochs,
             start_epoch: self.start_epoch,
             votes: BTreeMap::new(),
             honey_badger,
@@ -191,6 +204,8 @@ where
     netinfo: NetworkInfo<NodeUid>,
     /// The target number of transactions per batch.
     batch_size: usize,
+    /// The maximum number of future epochs for which we handle messages simultaneously.
+    max_future_epochs: usize,
     /// The first epoch after the latest node change.
     start_epoch: u64,
     /// Collected votes for adding or removing nodes. Each node has one vote, and casting another
@@ -444,7 +459,10 @@ where
             let old_buf = self.honey_badger.drain_buffer();
             let outputs = (self.honey_badger.output_iter()).flat_map(HbBatch::into_tx_iter);
             let buffer = outputs.chain(old_buf).filter(Transaction::is_user);
-            HoneyBadger::new(netinfo, self.batch_size, buffer)?
+            HoneyBadger::builder(netinfo)
+                .batch_size(self.batch_size)
+                .max_future_epochs(self.max_future_epochs)
+                .build_with_transactions(buffer)?
         };
         self.honey_badger = honey_badger;
         Ok(())
