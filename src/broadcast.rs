@@ -57,23 +57,23 @@
 //! use std::collections::{BTreeSet, BTreeMap};
 //! use std::sync::Arc;
 //!
-//! // in the example, we will "simulate" a network by passing messages by hand between
-//! // instantiated nodes. we use u64 as network ids, and start by creating a common
-//! // network info
+//! // In the example, we will "simulate" a network by passing messages by hand between
+//! // instantiated nodes. We use u64 as network ids, and start by creating a common
+//! // network info.
 //!
-//! // our simulated network will use seven nodes in total, node 3 will be the proposer
+//! // Our simulated network will use seven nodes in total, node 3 will be the proposer.
 //! const NUM_NODES: u64 = 7;
 //! const PROPOSER_ID: u64 = 3;
 //!
-//! // create set of node ids
+//! // Create set of node ids.
 //! let all_uids: BTreeSet<_> = (0..NUM_NODES).collect();
 //!
-//! // secret keys are required to complete the NetworkInfo structure, but not used in the
-//! // broadcast algorithm
+//! // Secret keys are required to complete the NetworkInfo structure, but not used in the
+//! // broadcast algorithm.
 //! let mut rng = thread_rng();
 //! let secret_keys = SecretKeySet::random(4, &mut rng);
 //!
-//! // create initial nodes by instantiating a `NetworkInfo` for each
+//! // Create initial nodes by instantiating a `NetworkInfo` for each:
 //! let mut nodes: BTreeMap<_, _> = all_uids.iter().cloned().map(|i| {
 //!     let netinfo = NetworkInfo::new(
 //!         i,
@@ -88,11 +88,11 @@
 //!     (i, bc)
 //! }).collect();
 //!
-//! // we are ready to start. first, we generate a payload to broadcast:
+//! // We are ready to start. First we generate a payload to broadcast:
 //! let mut payload: Vec<_> = vec![0; 128];
 //! rng.fill_bytes(&mut payload[..]);
 //!
-//! // now we can start the algorithm, its input is the payload to be broadcast
+//! // Now we can start the algorithm, its input is the payload to be broadcast.
 //! let mut next_message = {
 //!        let proposer = nodes.get_mut(&PROPOSER_ID).unwrap();
 //!        proposer.input(payload.clone()).unwrap();
@@ -101,10 +101,10 @@
 //!        proposer.next_message().map(|tm| (PROPOSER_ID, tm))
 //! };
 //!
-//! // we can sanity-check that a message scheduled by the proposer
+//! // We can sanity-check that a message is scheduled by the proposer:
 //! assert!(next_message.is_some());
 //!
-//! // the network is simulated by passing messages around from node to node
+//! // The network is simulated by passing messages around from node to node.
 //! while let Some((sender, TargetedMessage { target, message })) = next_message {
 //!     println!("Message [{:?} -> {:?}]: {:?}", sender, target, message);
 //!
@@ -122,7 +122,7 @@
 //!         },
 //!     }
 //!
-//!     // we have handled the message, now we check all nodes in order for new messages
+//!     // We have handled the message, now we check all nodes for new messages, in order:
 //!     next_message = nodes
 //!                        .iter_mut()
 //!                        .filter_map(|(&id, node)| node.next_message()
@@ -130,7 +130,7 @@
 //!                        .next();
 //! }
 //!
-//! // the algorithm output of every node will be the original payload
+//! // The algorithm output of every node will be the original payload.
 //! for (_, mut node) in nodes {
 //!     assert_eq!(node.next_output().expect("missing output"), payload);
 //! }
@@ -144,6 +144,7 @@ use std::sync::Arc;
 
 use byteorder::{BigEndian, ByteOrder};
 use merkle::{MerkleTree, Proof};
+use rand;
 use reed_solomon_erasure as rse;
 use reed_solomon_erasure::ReedSolomon;
 use ring::digest;
@@ -178,6 +179,29 @@ pub enum BroadcastMessage {
     Value(Proof<Vec<u8>>),
     Echo(Proof<Vec<u8>>),
     Ready(Vec<u8>),
+}
+
+// A random generation impl is provided for test cases. Unfortunately `#[cfg(test)]` does not work
+// for integration tests.
+impl rand::Rand for BroadcastMessage {
+    fn rand<R: rand::Rng>(rng: &mut R) -> Self {
+        let message_type = *rng.choose(&["value", "echo", "ready"]).unwrap();
+
+        // Create a random buffer for our proof.
+        let mut buffer: [u8; 32] = [0; 32];
+        rng.fill_bytes(&mut buffer);
+
+        // Generate a dummy proof to fill broadcast messages with.
+        let tree = MerkleTree::from_vec(&digest::SHA256, vec![buffer.to_vec()]);
+        let proof = tree.gen_proof(buffer.to_vec()).unwrap();
+
+        match message_type {
+            "value" => BroadcastMessage::Value(proof),
+            "echo" => BroadcastMessage::Echo(proof),
+            "ready" => BroadcastMessage::Ready(b"dummy-ready".to_vec()),
+            _ => unreachable!(),
+        }
+    }
 }
 
 impl Debug for BroadcastMessage {

@@ -32,6 +32,7 @@ use broadcast::{self, Broadcast, BroadcastMessage, BroadcastResult};
 use fault_log::FaultLog;
 use fmt::HexBytes;
 use messaging::{DistAlgorithm, NetworkInfo, TargetedMessage};
+use rand::Rand;
 
 error_chain!{
     types {
@@ -54,8 +55,8 @@ error_chain!{
 type ProposedValue = Vec<u8>;
 
 /// Message from Common Subset to remote nodes.
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub enum Message<NodeUid> {
+#[derive(Serialize, Deserialize, Clone, Debug, Rand)]
+pub enum Message<NodeUid: Rand> {
     /// A message for the broadcast algorithm concerning the set element proposed by the given node.
     Broadcast(NodeUid, BroadcastMessage),
     /// A message for the agreement algorithm concerning the set element proposed by the given
@@ -65,9 +66,9 @@ pub enum Message<NodeUid> {
 
 /// The queue of outgoing messages in a `CommonSubset` instance.
 #[derive(Deref, DerefMut)]
-struct MessageQueue<NodeUid>(VecDeque<TargetedMessage<Message<NodeUid>, NodeUid>>);
+struct MessageQueue<NodeUid: Rand>(VecDeque<TargetedMessage<Message<NodeUid>, NodeUid>>);
 
-impl<NodeUid: Clone + Debug + Ord> MessageQueue<NodeUid> {
+impl<NodeUid: Clone + Debug + Ord + Rand> MessageQueue<NodeUid> {
     /// Appends to the queue the messages from `agr`, wrapped with `proposer_id`.
     fn extend_agreement(&mut self, proposer_id: &NodeUid, agr: &mut Agreement<NodeUid>) {
         let convert = |msg: TargetedMessage<AgreementMessage, NodeUid>| {
@@ -86,7 +87,7 @@ impl<NodeUid: Clone + Debug + Ord> MessageQueue<NodeUid> {
 }
 
 /// Asynchronous Common Subset algorithm instance
-pub struct CommonSubset<NodeUid> {
+pub struct CommonSubset<NodeUid: Rand> {
     /// Shared network information.
     netinfo: Arc<NetworkInfo<NodeUid>>,
     broadcast_instances: BTreeMap<NodeUid, Broadcast<NodeUid>>,
@@ -101,7 +102,7 @@ pub struct CommonSubset<NodeUid> {
     decided: bool,
 }
 
-impl<NodeUid: Clone + Debug + Ord> DistAlgorithm for CommonSubset<NodeUid> {
+impl<NodeUid: Clone + Debug + Ord + Rand> DistAlgorithm for CommonSubset<NodeUid> {
     type NodeUid = NodeUid;
     type Input = ProposedValue;
     type Output = BTreeMap<NodeUid, ProposedValue>;
@@ -145,7 +146,7 @@ impl<NodeUid: Clone + Debug + Ord> DistAlgorithm for CommonSubset<NodeUid> {
     }
 }
 
-impl<NodeUid: Clone + Debug + Ord> CommonSubset<NodeUid> {
+impl<NodeUid: Clone + Debug + Ord + Rand> CommonSubset<NodeUid> {
     pub fn new(netinfo: Arc<NetworkInfo<NodeUid>>, session_id: u64) -> CommonSubsetResult<Self> {
         // Create all broadcast instances.
         let mut broadcast_instances: BTreeMap<NodeUid, Broadcast<NodeUid>> = BTreeMap::new();
