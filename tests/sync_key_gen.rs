@@ -35,7 +35,8 @@ fn test_sync_key_gen_with(threshold: usize, node_num: usize) {
     let mut accepts = Vec::new();
     for (sender_id, proposal) in proposals[..=threshold].iter().enumerate() {
         for (node_id, node) in nodes.iter_mut().enumerate() {
-            let accept = node.handle_propose(&sender_id, proposal.clone().expect("proposal"))
+            let accept = node
+                .handle_propose(&sender_id, proposal.clone().expect("proposal"))
                 .expect("valid proposal");
             // Only the first `threshold + 1` manage to commit their `Accept`s.
             if node_id <= 2 * threshold {
