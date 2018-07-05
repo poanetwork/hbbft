@@ -1,12 +1,11 @@
 //! # A Cryptographic Common Coin
 //!
-//! The Common Coin produces a pseudorandom binary value that the correct nodes agree on, and that\
+//! The Common Coin produces a pseudorandom binary value that the correct nodes agree on, and that
 //! cannot be known beforehand.
 //!
 //! Every Common Coin instance has a _nonce_ that determines the value, without giving it away: It
-//! is not feasible to compute the output from the nonce alone, and for any "natural" sequence of
-//! nonces (that can be feasibly computed), the output is uniformly distributed.
-// TODO: Bold claims! How much can we actually prove about that?
+//! is not feasible to compute the output from the nonce alone, and the output is uniformly
+//! distributed.
 //!
 //! The nodes input a signal (no data, just `()`), and after _2 f + 1_ nodes have provided input,
 //! everyone receives the output value. In particular, the adversary cannot know the output value

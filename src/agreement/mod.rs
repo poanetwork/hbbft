@@ -45,7 +45,7 @@
 //!   * If both values are candidates, we set `e = s` and proceed to the next epoch.
 //!
 //! In epochs that are 0 modulo 3, the value `s` is `true`. In 1 modulo 3, it is `false`. In the
-//! case 2 modulo 3, we carefully flip a common coin to determine a pseudorandom `s`.
+//! case 2 modulo 3, we flip a common coin to determine a pseudorandom `s`.
 //!
 //! An adversary that knows each coin value, controls a few validators and controls network
 //! scheduling can delay the delivery of `Aux` and `BVal` messages to influence which candidate
