@@ -11,10 +11,8 @@ use hbbft::crypto::{PublicKey, SecretKey};
 use hbbft::sync_key_gen::SyncKeyGen;
 
 fn test_sync_key_gen_with(threshold: usize, node_num: usize) {
-    let mut rng = rand::thread_rng();
-
     // Generate individual key pairs for encryption. These are not suitable for threshold schemes.
-    let sec_keys: Vec<SecretKey> = (0..node_num).map(|_| SecretKey::new(&mut rng)).collect();
+    let sec_keys: Vec<SecretKey> = (0..node_num).map(|_| rand::random()).collect();
     let pub_keys: BTreeMap<usize, PublicKey> = sec_keys
         .iter()
         .map(|sk| sk.public_key())

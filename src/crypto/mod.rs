@@ -16,7 +16,7 @@ use clear_on_drop::ClearOnDrop;
 use init_with::InitWith;
 use pairing::bls12_381::{Bls12, Fr, FrRepr, G1, G1Affine, G2, G2Affine};
 use pairing::{CurveAffine, CurveProjective, Engine, Field, PrimeField};
-use rand::{ChaChaRng, OsRng, Rng, SeedableRng};
+use rand::{ChaChaRng, OsRng, Rand, Rng, SeedableRng};
 use ring::digest;
 
 use self::error::{ErrorKind, Result};
@@ -129,12 +129,14 @@ impl Default for SecretKey {
     }
 }
 
-impl SecretKey {
-    /// Creates a new secret key.
-    pub fn new<R: Rng>(rng: &mut R) -> Self {
+impl Rand for SecretKey {
+    fn rand<R: Rng>(rng: &mut R) -> Self {
         SecretKey(rng.gen())
     }
+}
 
+impl SecretKey {
+    /// Creates a secret key from an existing value
     pub fn from_value(f: Fr) -> Self {
         SecretKey(f)
     }
@@ -405,13 +407,12 @@ mod tests {
 
     use std::collections::BTreeMap;
 
-    use rand;
+    use rand::{self, random};
 
     #[test]
     fn test_simple_sig() {
-        let mut rng = rand::thread_rng();
-        let sk0 = SecretKey::new(&mut rng);
-        let sk1 = SecretKey::new(&mut rng);
+        let sk0: SecretKey = random();
+        let sk1: SecretKey = random();
         let pk0 = sk0.public_key();
         let msg0 = b"Real news";
         let msg1 = b"Fake news";
@@ -464,9 +465,8 @@ mod tests {
 
     #[test]
     fn test_simple_enc() {
-        let mut rng = rand::thread_rng();
-        let sk_bob = SecretKey::new(&mut rng);
-        let sk_eve = SecretKey::new(&mut rng);
+        let sk_bob: SecretKey = random();
+        let sk_eve: SecretKey = random();
         let pk_bob = sk_bob.public_key();
         let msg = b"Muffins in the canteen today! Don't tell Eve!";
         let ciphertext = pk_bob.encrypt(&msg[..]);
@@ -566,8 +566,7 @@ mod tests {
     fn test_serde() {
         use bincode;
 
-        let mut rng = rand::thread_rng();
-        let sk = SecretKey::new(&mut rng);
+        let sk: SecretKey = random();
         let sig = sk.sign("Please sign here: ______");
         let pk = sk.public_key();
         let ser_pk = bincode::serialize(&pk).expect("serialize public key");
