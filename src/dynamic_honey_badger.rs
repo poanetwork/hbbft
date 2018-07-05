@@ -1,7 +1,7 @@
 //! # Dynamic Honey Badger
 //!
-//! Like Honey Badger, this protocol allows a network of `N` nodes with at most `f` faulty ones,
-//! where `3 * f < N`, to input "transactions" - any kind of data -, and to agree on a sequence of
+//! Like Honey Badger, this protocol allows a network of _N_ nodes with at most _f_ faulty ones,
+//! where _3 f < N_, to input "transactions" - any kind of data -, and to agree on a sequence of
 //! _batches_ of transactions. The protocol proceeds in _epochs_, starting at number 0, and outputs
 //! one batch in each epoch. It never terminates: It handles a continuous stream of incoming
 //! transactions and keeps producing new batches from them. All correct nodes will output the same
