@@ -111,14 +111,19 @@ pub type MessageWithSender<D> = (
 );
 
 /// An adversary that can control a set of nodes and pick the next good node to receive a message.
+///
+/// See `TestNetwork::step()` for a more detailed description of its capabilities.
 pub trait Adversary<D: DistAlgorithm> {
-    /// Chooses a node to be the next one to handle a message.
+    /// Chooses a node to be the next one to handle a message
+    ///
+    /// Starvation is illegal, i.e. in every iteration a node that has pending incoming messages
+    /// must be chosen.
     fn pick_node(&self, nodes: &BTreeMap<D::NodeUid, TestNode<D>>) -> D::NodeUid;
 
-    /// Adds a message sent to one of the adversary's nodes.
+    /// Called when a node controlled by the adversary receives a message
     fn push_message(&mut self, sender_id: D::NodeUid, msg: TargetedMessage<D::Message, D::NodeUid>);
 
-    /// Produces a list of messages to be sent from the adversary's nodes.
+    /// Produces a list of messages to be sent from the adversary's nodes
     fn step(&mut self) -> Vec<MessageWithSender<D>>;
 }
 
@@ -149,6 +154,18 @@ impl<D: DistAlgorithm> Adversary<D> for SilentAdversary {
 }
 
 /// A collection of `TestNode`s representing a network.
+///
+/// Each TestNetwork type is tied to a specific adversary and a distributed algorithm. It consists
+/// of a set of nodes, some of which are controlled by the adversary and some of which may be
+/// observer nodes, as well as a set of threshold-cryptography public keys.
+///
+/// In addition to being able to participate correctly in the network using his nodes, the
+/// adversary can:
+///
+/// 1. decide which node is the next one to make progress.
+/// 2. send arbitrary messages to any node originating from one of the nodes they control
+///
+/// See the `step` function for details on actual operation of the network
 pub struct TestNetwork<A: Adversary<D>, D: DistAlgorithm>
 where
     <D as DistAlgorithm>::NodeUid: Hash,
@@ -266,20 +283,34 @@ where
         }
     }
 
-    /// Handles a queued message in a randomly selected node and returns the selected node's ID.
+    /// Performs one iteration of the network, consisting of the following steps:
+    ///
+    /// 1. Give the adversary a chance to send messages of his choosing through `Adversary::step()`
+    /// 2. Let the adversary pick a node that receives its next message through
+    ///    `Adversary::pick_node()`
+    ///
+    /// Returns the node id of the node that made progress
     pub fn step(&mut self) -> NodeUid {
+        // we let the adversary send out messages to any number of nodes
         let msgs = self.adversary.step();
         for (sender_id, msg) in msgs {
             self.dispatch_messages(sender_id, Some(msg));
         }
-        // Pick a random non-idle node..
+
+        // now one node is chosen to make progress. we let the adversary decide which node
         let id = self.adversary.pick_node(&self.nodes);
+
+        // TODO: ensure the adversary is honest and does pick a node that has actual messages to
+        //       process
+
+        // the node handles the incoming message and creates new outgoing ones to be dispatched
         let msgs: Vec<_> = {
             let node = self.nodes.get_mut(&id).unwrap();
             node.handle_message();
             node.algo.message_iter().collect()
         };
         self.dispatch_messages(id, msgs);
+
         id
     }
 
