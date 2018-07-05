@@ -47,7 +47,7 @@ impl ProposeAdversary {
 }
 
 impl Adversary<Broadcast<NodeUid>> for ProposeAdversary {
-    fn pick_node(&self, nodes: &BTreeMap<NodeUid, TestNode<Broadcast<NodeUid>>>) -> NodeUid {
+    fn pick_node(&mut self, nodes: &BTreeMap<NodeUid, TestNode<Broadcast<NodeUid>>>) -> NodeUid {
         self.scheduler.pick_node(nodes)
     }
 
