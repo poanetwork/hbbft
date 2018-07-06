@@ -13,6 +13,7 @@ before_install:
   - protoc --version
   - rm protoc-3.5.1-linux-x86_64.zip
   - rustup component add rustfmt-preview
+  - rustfmt --version
   - cargo install clippy -f --vers=0.0.202
 env:
   global:
