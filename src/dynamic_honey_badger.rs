@@ -57,9 +57,10 @@ use clear_on_drop::ClearOnDrop;
 use serde::{Deserialize, Serialize};
 
 use crypto::{PublicKey, PublicKeySet, SecretKey, Signature};
+use fault_log::{FaultKind, FaultLog};
 use honey_badger::{self, Batch as HbBatch, HoneyBadger, Message as HbMessage};
 use messaging::{DistAlgorithm, NetworkInfo, Target, TargetedMessage};
-use sync_key_gen::{Accept, Propose, SyncKeyGen};
+use sync_key_gen::{Accept, Propose, ProposeOutcome, SyncKeyGen};
 
 type KeyGenOutput = (PublicKeySet, Option<ClearOnDrop<Box<SecretKey>>>);
 
@@ -170,11 +171,11 @@ where
     }
 
     /// Creates a new Dynamic Honey Badger instance with an empty buffer.
-    pub fn build(&self) -> Result<DynamicHoneyBadger<Tx, NodeUid>>
+    pub fn build(&self) -> Result<(DynamicHoneyBadger<Tx, NodeUid>, FaultLog<NodeUid>)>
     where
         Tx: Serialize + for<'r> Deserialize<'r> + Debug + Hash + Eq,
     {
-        let honey_badger = HoneyBadger::builder(Rc::new(self.netinfo.clone()))
+        let (honey_badger, fault_log) = HoneyBadger::builder(Rc::new(self.netinfo.clone()))
             .batch_size(self.batch_size)
             .max_future_epochs(self.max_future_epochs)
             .build()?;
@@ -190,7 +191,7 @@ where
             messages: MessageQueue(VecDeque::new()),
             output: VecDeque::new(),
         };
-        Ok(dyn_hb)
+        Ok((dyn_hb, fault_log))
     }
 }
 
@@ -235,28 +236,33 @@ where
     type Message = Message<NodeUid>;
     type Error = Error;
 
-    fn input(&mut self, input: Self::Input) -> Result<()> {
+    fn input(&mut self, input: Self::Input) -> Result<FaultLog<NodeUid>> {
         // User transactions are forwarded to `HoneyBadger` right away. Internal messages are
         // in addition signed and broadcast.
         match input {
             Input::User(tx) => {
-                self.honey_badger.input(Transaction::User(tx))?;
-                self.process_output()
+                let mut fault_log = self.honey_badger.input(Transaction::User(tx))?;
+                self.process_output()?.merge_into(&mut fault_log);
+                Ok(fault_log)
             }
             Input::Change(change) => self.send_transaction(NodeTransaction::Change(change)),
         }
     }
 
-    fn handle_message(&mut self, sender_id: &NodeUid, message: Self::Message) -> Result<()> {
+    fn handle_message(
+        &mut self,
+        sender_id: &NodeUid,
+        message: Self::Message,
+    ) -> Result<FaultLog<NodeUid>> {
         let epoch = message.epoch();
         if epoch < self.start_epoch {
-            return Ok(()); // Obsolete message.
+            return Ok(FaultLog::new()); // Obsolete message.
         }
         if epoch > self.start_epoch {
             // Message cannot be handled yet. Save it for later.
             let entry = (sender_id.clone(), message);
             self.incoming_queue.push(entry);
-            return Ok(());
+            return Ok(FaultLog::new());
         }
         match message {
             Message::HoneyBadger(_, hb_msg) => self.handle_honey_badger_message(sender_id, hb_msg),
@@ -297,14 +303,15 @@ where
         &mut self,
         sender_id: &NodeUid,
         message: HbMessage<NodeUid>,
-    ) -> Result<()> {
+    ) -> Result<FaultLog<NodeUid>> {
         if !self.netinfo.all_uids().contains(sender_id) {
             info!("Unknown sender {:?} of message {:?}", sender_id, message);
             return Err(ErrorKind::UnknownSender.into());
         }
         // Handle the message and put the outgoing messages into the queue.
-        self.honey_badger.handle_message(sender_id, message)?;
-        self.process_output()
+        let mut fault_log = self.honey_badger.handle_message(sender_id, message)?;
+        self.process_output()?.merge_into(&mut fault_log);
+        Ok(fault_log)
     }
 
     /// Handles a vote or key generation message and tries to commit it as a transaction. These
@@ -314,15 +321,17 @@ where
         sender_id: &NodeUid,
         node_tx: NodeTransaction<NodeUid>,
         sig: Box<Signature>,
-    ) -> Result<()> {
+    ) -> Result<FaultLog<NodeUid>> {
         self.verify_signature(sender_id, &*sig, &node_tx)?;
         let tx = Transaction::Signed(self.start_epoch, sender_id.clone(), node_tx, sig);
-        self.honey_badger.input(tx)?;
-        self.process_output()
+        let mut fault_log = self.honey_badger.input(tx)?;
+        self.process_output()?.merge_into(&mut fault_log);
+        Ok(fault_log)
     }
 
     /// Processes all pending batches output by Honey Badger.
-    fn process_output(&mut self) -> Result<()> {
+    fn process_output(&mut self) -> Result<FaultLog<NodeUid>> {
+        let mut fault_log = FaultLog::new();
         let start_epoch = self.start_epoch;
         while let Some(hb_batch) = self.honey_badger.next_output() {
             // Create the batch we output ourselves. It will contain the _user_ transactions of
@@ -342,13 +351,19 @@ where
                             }
                             if !self.verify_signature(&s_id, &sig, &node_tx)? {
                                 info!("Invalid signature from {:?} for: {:?}.", s_id, node_tx);
+                                let fault_kind = FaultKind::InvalidNodeTransactionSignature;
+                                fault_log.append(s_id.clone(), fault_kind);
                                 continue;
                             }
                             use self::NodeTransaction::*;
                             match node_tx {
                                 Change(change) => self.handle_vote(s_id, change),
-                                Propose(propose) => self.handle_propose(&s_id, propose)?,
-                                Accept(accept) => self.handle_accept(&s_id, accept)?,
+                                Propose(propose) => self
+                                    .handle_propose(&s_id, propose)?
+                                    .merge_into(&mut fault_log),
+                                Accept(accept) => self
+                                    .handle_accept(&s_id, accept)?
+                                    .merge_into(&mut fault_log),
                             }
                         }
                     }
@@ -362,11 +377,13 @@ where
                     ClearOnDrop::new(Box::new(self.netinfo.secret_key().clone()))
                 });
                 // Restart Honey Badger in the next epoch, and inform the user about the change.
-                self.apply_change(&change, pub_key_set, sk, batch.epoch + 1)?;
+                self.apply_change(&change, pub_key_set, sk, batch.epoch + 1)?
+                    .merge_into(&mut fault_log);
                 batch.change = ChangeState::Complete(change);
             } else {
                 // If the majority changed, restart DKG. Inform the user about the current change.
-                self.update_key_gen(batch.epoch + 1)?;
+                self.update_key_gen(batch.epoch + 1)?
+                    .merge_into(&mut fault_log);
                 if let Some((_, ref change)) = self.key_gen {
                     batch.change = ChangeState::InProgress(change.clone());
                 }
@@ -379,10 +396,11 @@ where
         if start_epoch < self.start_epoch {
             let queue = mem::replace(&mut self.incoming_queue, Vec::new());
             for (sender_id, msg) in queue {
-                self.handle_message(&sender_id, msg)?;
+                self.handle_message(&sender_id, msg)?
+                    .merge_into(&mut fault_log);
             }
         }
-        Ok(())
+        Ok(fault_log)
     }
 
     /// Restarts Honey Badger with a new set of nodes, and resets the Key Generation.
@@ -392,7 +410,7 @@ where
         pub_key_set: PublicKeySet,
         sk: ClearOnDrop<Box<SecretKey>>,
         epoch: u64,
-    ) -> Result<()> {
+    ) -> Result<FaultLog<NodeUid>> {
         self.votes.clear();
         self.key_gen = None;
         let mut all_uids = self.netinfo.all_uids().clone();
@@ -409,15 +427,16 @@ where
 
     /// If the majority of votes has changed, restarts Key Generation for the set of nodes implied
     /// by the current change.
-    fn update_key_gen(&mut self, epoch: u64) -> Result<()> {
+    fn update_key_gen(&mut self, epoch: u64) -> Result<FaultLog<NodeUid>> {
+        let mut fault_log = FaultLog::new();
         let change = match current_majority(&self.votes, &self.netinfo) {
             None => {
                 self.key_gen = None;
-                return Ok(());
+                return Ok(fault_log);
             }
             Some(change) => {
                 if self.key_gen.as_ref().map(|&(_, ref ch)| ch) == Some(change) {
-                    return Ok(()); // The change is the same as last epoch. Continue DKG as is.
+                    return Ok(fault_log); // The change is the same as last epoch. Continue DKG as is.
                 }
                 change.clone()
             }
@@ -432,7 +451,7 @@ where
             info!("{:?} No-op change: {:?}", self.our_id(), change);
         }
         if change.candidate().is_some() {
-            self.restart_honey_badger(epoch)?;
+            self.restart_honey_badger(epoch)?.merge_into(&mut fault_log);
         }
         // TODO: This needs to be the same as `num_faulty` will be in the _new_
         // `NetworkInfo` if the change goes through. It would be safer to deduplicate.
@@ -442,19 +461,20 @@ where
         let (key_gen, propose) = SyncKeyGen::new(&our_uid, sk, pub_keys, threshold);
         self.key_gen = Some((key_gen, change));
         if let Some(propose) = propose {
-            self.send_transaction(NodeTransaction::Propose(propose))?;
+            self.send_transaction(NodeTransaction::Propose(propose))?
+                .merge_into(&mut fault_log);
         }
-        Ok(())
+        Ok(fault_log)
     }
 
     /// Starts a new `HoneyBadger` instance and inputs the user transactions from the existing
     /// one's buffer and pending outputs.
-    fn restart_honey_badger(&mut self, epoch: u64) -> Result<()> {
+    fn restart_honey_badger(&mut self, epoch: u64) -> Result<FaultLog<NodeUid>> {
         // TODO: Filter out the messages for `epoch` and later.
         self.messages
             .extend_with_epoch(self.start_epoch, &mut self.honey_badger);
         self.start_epoch = epoch;
-        let honey_badger = {
+        let (honey_badger, fault_log) = {
             let netinfo = Rc::new(self.netinfo.clone());
             let old_buf = self.honey_badger.drain_buffer();
             let outputs = (self.honey_badger.output_iter()).flat_map(HbBatch::into_tx_iter);
@@ -465,40 +485,49 @@ where
                 .build_with_transactions(buffer)?
         };
         self.honey_badger = honey_badger;
-        Ok(())
+        Ok(fault_log)
     }
 
     /// Handles a `Propose` message that was output by Honey Badger.
-    fn handle_propose(&mut self, sender_id: &NodeUid, propose: Propose) -> Result<()> {
+    fn handle_propose(
+        &mut self,
+        sender_id: &NodeUid,
+        propose: Propose,
+    ) -> Result<FaultLog<NodeUid>> {
         let handle = |&mut (ref mut key_gen, _): &mut (SyncKeyGen<NodeUid>, _)| {
             key_gen.handle_propose(&sender_id, propose)
         };
         match self.key_gen.as_mut().and_then(handle) {
-            Some(accept) => self.send_transaction(NodeTransaction::Accept(accept)),
-            None => Ok(()),
+            Some(ProposeOutcome::Valid(accept)) => {
+                self.send_transaction(NodeTransaction::Accept(accept))
+            }
+            Some(ProposeOutcome::Invalid(fault_log)) => Ok(fault_log),
+            None => Ok(FaultLog::new()),
         }
     }
 
     /// Handles an `Accept` message that was output by Honey Badger.
-    fn handle_accept(&mut self, sender_id: &NodeUid, accept: Accept) -> Result<()> {
+    fn handle_accept(&mut self, sender_id: &NodeUid, accept: Accept) -> Result<FaultLog<NodeUid>> {
         if let Some(&mut (ref mut key_gen, _)) = self.key_gen.as_mut() {
-            key_gen.handle_accept(&sender_id, accept);
+            Ok(key_gen.handle_accept(&sender_id, accept))
+        } else {
+            Ok(FaultLog::new())
         }
-        Ok(())
     }
 
     /// Signs and sends a `NodeTransaction` and also tries to commit it.
-    fn send_transaction(&mut self, node_tx: NodeTransaction<NodeUid>) -> Result<()> {
+    fn send_transaction(&mut self, node_tx: NodeTransaction<NodeUid>) -> Result<FaultLog<NodeUid>> {
         let sig = self.sign(&node_tx)?;
         let msg = Message::Signed(self.start_epoch, node_tx.clone(), sig.clone());
         self.messages.push_back(Target::All.message(msg));
         if !self.netinfo.is_validator() {
-            return Ok(());
+            return Ok(FaultLog::new());
         }
         let our_uid = self.netinfo.our_uid().clone();
         let hb_tx = Transaction::Signed(self.start_epoch, our_uid, node_tx, sig);
-        self.honey_badger.input(hb_tx)?;
-        self.process_output()
+        let mut fault_log = self.honey_badger.input(hb_tx)?;
+        self.process_output()?.merge_into(&mut fault_log);
+        Ok(fault_log)
     }
 
     /// If the current Key Generation process is ready, returns the generated key set.

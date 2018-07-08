@@ -4,6 +4,7 @@ use std::fmt::Debug;
 use clear_on_drop::ClearOnDrop;
 
 use crypto::{PublicKey, PublicKeySet, SecretKey};
+use fault_log::FaultLog;
 
 /// Message sent by a given source.
 #[derive(Clone, Debug)]
@@ -65,14 +66,14 @@ pub trait DistAlgorithm {
     type Error: Debug;
 
     /// Handles an input provided by the user, and returns
-    fn input(&mut self, input: Self::Input) -> Result<(), Self::Error>;
+    fn input(&mut self, input: Self::Input) -> Result<FaultLog<Self::NodeUid>, Self::Error>;
 
     /// Handles a message received from node `sender_id`.
     fn handle_message(
         &mut self,
         sender_id: &Self::NodeUid,
         message: Self::Message,
-    ) -> Result<(), Self::Error>;
+    ) -> Result<FaultLog<Self::NodeUid>, Self::Error>;
 
     /// Returns a message that needs to be sent to another node.
     fn next_message(&mut self) -> Option<TargetedMessage<Self::Message, Self::NodeUid>>;

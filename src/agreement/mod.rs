@@ -75,6 +75,7 @@ use itertools::Itertools;
 use agreement::bin_values::BinValues;
 use common_coin;
 use common_coin::{CommonCoin, CommonCoinMessage};
+use fault_log::FaultLog;
 use messaging::{DistAlgorithm, NetworkInfo, Target, TargetedMessage};
 
 error_chain!{
@@ -195,7 +196,7 @@ impl<NodeUid: Clone + Debug + Ord> DistAlgorithm for Agreement<NodeUid> {
     type Message = AgreementMessage;
     type Error = Error;
 
-    fn input(&mut self, input: Self::Input) -> AgreementResult<()> {
+    fn input(&mut self, input: Self::Input) -> AgreementResult<FaultLog<NodeUid>> {
         self.set_input(input)
     }
 
@@ -204,20 +205,21 @@ impl<NodeUid: Clone + Debug + Ord> DistAlgorithm for Agreement<NodeUid> {
         &mut self,
         sender_id: &Self::NodeUid,
         message: Self::Message,
-    ) -> AgreementResult<()> {
+    ) -> AgreementResult<FaultLog<NodeUid>> {
         if self.terminated || message.epoch < self.epoch {
-            return Ok(()); // Message is obsolete: We are already in a later epoch or terminated.
+            // Message is obsolete; we're already in a later epoch or terminated.
+            return Ok(FaultLog::new());
         }
         if message.epoch > self.epoch {
             // Message is for a later epoch. We can't handle that yet.
             self.incoming_queue.push((sender_id.clone(), message));
-            return Ok(());
+            return Ok(FaultLog::new());
         }
         match message.content {
             AgreementContent::BVal(b) => self.handle_bval(sender_id, b),
             AgreementContent::Aux(b) => self.handle_aux(sender_id, b),
             AgreementContent::Conf(v) => self.handle_conf(sender_id, v),
-            AgreementContent::Term(v) => self.handle_term(sender_id, v),
+            AgreementContent::Term(v) => self.handle_term(sender_id, v).map(|()| FaultLog::new()),
             AgreementContent::Coin(msg) => self.handle_coin(sender_id, *msg),
         }
     }
@@ -282,15 +284,15 @@ impl<NodeUid: Clone + Debug + Ord> Agreement<NodeUid> {
     }
 
     /// Sets the input value for agreement.
-    pub fn set_input(&mut self, input: bool) -> AgreementResult<()> {
+    pub fn set_input(&mut self, input: bool) -> AgreementResult<FaultLog<NodeUid>> {
         if self.epoch != 0 || self.estimated.is_some() {
             return Err(ErrorKind::InputNotAccepted.into());
         }
         if self.netinfo.num_nodes() == 1 {
-            self.send_bval(input)?;
-            self.send_aux(input)?;
+            let mut fault_log = self.send_bval(input)?;
+            self.send_aux(input)?.merge_into(&mut fault_log);
             self.decide(input);
-            Ok(())
+            Ok(fault_log)
         } else {
             // Set the initial estimated value to the input value.
             self.estimated = Some(input);
@@ -304,7 +306,7 @@ impl<NodeUid: Clone + Debug + Ord> Agreement<NodeUid> {
         self.epoch == 0 && self.estimated.is_none()
     }
 
-    fn handle_bval(&mut self, sender_id: &NodeUid, b: bool) -> AgreementResult<()> {
+    fn handle_bval(&mut self, sender_id: &NodeUid, b: bool) -> AgreementResult<FaultLog<NodeUid>> {
         self.received_bval
             .entry(sender_id.clone())
             .or_insert_with(BTreeSet::new)
@@ -329,27 +331,27 @@ impl<NodeUid: Clone + Debug + Ord> Agreement<NodeUid> {
             } else if bin_values_changed {
                 self.on_bin_values_changed()
             } else {
-                Ok(())
+                Ok(FaultLog::new())
             }
         } else if count_bval == self.netinfo.num_faulty() + 1 && !self.sent_bval.contains(&b) {
             // upon receiving `BVal(b)` messages from f + 1 nodes, if
             // `BVal(b)` has not been sent, multicast `BVal(b)`
             self.send_bval(b)
         } else {
-            Ok(())
+            Ok(FaultLog::new())
         }
     }
 
     /// Called when `bin_values` changes as a result of receiving a `BVal` message. Tries to update
     /// the epoch.
-    fn on_bin_values_changed(&mut self) -> AgreementResult<()> {
+    fn on_bin_values_changed(&mut self) -> AgreementResult<FaultLog<NodeUid>> {
         match self.coin_schedule {
             CoinSchedule::False => {
                 let (aux_count, aux_vals) = self.count_aux();
                 if aux_count >= self.netinfo.num_nodes() - self.netinfo.num_faulty() {
                     self.on_coin(false, aux_vals.definite())
                 } else {
-                    Ok(())
+                    Ok(FaultLog::new())
                 }
             }
             CoinSchedule::True => {
@@ -357,7 +359,7 @@ impl<NodeUid: Clone + Debug + Ord> Agreement<NodeUid> {
                 if aux_count >= self.netinfo.num_nodes() - self.netinfo.num_faulty() {
                     self.on_coin(true, aux_vals.definite())
                 } else {
-                    Ok(())
+                    Ok(FaultLog::new())
                 }
             }
             CoinSchedule::Random => {
@@ -368,9 +370,9 @@ impl<NodeUid: Clone + Debug + Ord> Agreement<NodeUid> {
         }
     }
 
-    fn send_bval(&mut self, b: bool) -> AgreementResult<()> {
+    fn send_bval(&mut self, b: bool) -> AgreementResult<FaultLog<NodeUid>> {
         if !self.netinfo.is_validator() {
-            return Ok(());
+            return Ok(FaultLog::new());
         }
         // Record the value `b` as sent.
         self.sent_bval.insert(b);
@@ -382,17 +384,17 @@ impl<NodeUid: Clone + Debug + Ord> Agreement<NodeUid> {
         self.handle_bval(our_uid, b)
     }
 
-    fn send_conf(&mut self) -> AgreementResult<()> {
+    fn send_conf(&mut self) -> AgreementResult<FaultLog<NodeUid>> {
         if self.conf_round {
             // Only one `Conf` message is allowed in an epoch.
-            return Ok(());
+            return Ok(FaultLog::new());
         }
 
         // Trigger the start of the `Conf` round.
         self.conf_round = true;
 
         if !self.netinfo.is_validator() {
-            return Ok(());
+            return Ok(FaultLog::new());
         }
 
         let v = self.bin_values;
@@ -409,19 +411,19 @@ impl<NodeUid: Clone + Debug + Ord> Agreement<NodeUid> {
     /// bin_values (note that bin_values_r may continue to change as `BVal`
     /// messages are received, thus this condition may be triggered upon arrival
     /// of either an `Aux` or a `BVal` message).
-    fn handle_aux(&mut self, sender_id: &NodeUid, b: bool) -> AgreementResult<()> {
+    fn handle_aux(&mut self, sender_id: &NodeUid, b: bool) -> AgreementResult<FaultLog<NodeUid>> {
         // Perform the `Aux` message round only if a `Conf` round hasn't started yet.
         if self.conf_round {
-            return Ok(());
+            return Ok(FaultLog::new());
         }
         self.received_aux.insert(sender_id.clone(), b);
         if self.bin_values == BinValues::None {
-            return Ok(());
+            return Ok(FaultLog::new());
         }
         let (aux_count, aux_vals) = self.count_aux();
         if aux_count < self.netinfo.num_nodes() - self.netinfo.num_faulty() {
             // Continue waiting for the (N - f) `Aux` messages.
-            return Ok(());
+            return Ok(FaultLog::new());
         }
 
         // Execute the Common Coin schedule `false, true, get_coin(), false, true, get_coin(), ...`
@@ -435,7 +437,11 @@ impl<NodeUid: Clone + Debug + Ord> Agreement<NodeUid> {
         }
     }
 
-    fn handle_conf(&mut self, sender_id: &NodeUid, v: BinValues) -> AgreementResult<()> {
+    fn handle_conf(
+        &mut self,
+        sender_id: &NodeUid,
+        v: BinValues,
+    ) -> AgreementResult<FaultLog<NodeUid>> {
         self.received_conf.insert(sender_id.clone(), v);
         self.try_finish_conf_round()
     }
@@ -457,21 +463,30 @@ impl<NodeUid: Clone + Debug + Ord> Agreement<NodeUid> {
 
     /// Handles a Common Coin message. If there is output from Common Coin, starts the next
     /// epoch. The function may output a decision value.
-    fn handle_coin(&mut self, sender_id: &NodeUid, msg: CommonCoinMessage) -> AgreementResult<()> {
-        self.common_coin.handle_message(sender_id, msg)?;
+    fn handle_coin(
+        &mut self,
+        sender_id: &NodeUid,
+        msg: CommonCoinMessage,
+    ) -> AgreementResult<FaultLog<NodeUid>> {
+        let mut fault_log = self.common_coin.handle_message(sender_id, msg)?;
         self.extend_common_coin();
 
         if let Some(coin) = self.common_coin.next_output() {
             let def_bin_value = self.count_conf().1.definite();
-            self.on_coin(coin, def_bin_value)?;
+            self.on_coin(coin, def_bin_value)?
+                .merge_into(&mut fault_log);
         }
 
-        Ok(())
+        Ok(fault_log)
     }
 
     /// When the common coin has been computed, tries to decide on an output value, updates the
     /// `Agreement` epoch and handles queued messages for the new epoch.
-    fn on_coin(&mut self, coin: bool, def_bin_value: Option<bool>) -> AgreementResult<()> {
+    fn on_coin(
+        &mut self,
+        coin: bool,
+        def_bin_value: Option<bool>,
+    ) -> AgreementResult<FaultLog<NodeUid>> {
         let b = if let Some(b) = def_bin_value {
             // Outputting a value is allowed only once.
             if self.decision.is_none() && b == coin {
@@ -485,12 +500,13 @@ impl<NodeUid: Clone + Debug + Ord> Agreement<NodeUid> {
         self.update_epoch();
 
         self.estimated = Some(b);
-        self.send_bval(b)?;
+        let mut fault_log = self.send_bval(b)?;
         let queued_msgs = replace(&mut self.incoming_queue, Vec::new());
         for (sender_id, msg) in queued_msgs {
-            self.handle_message(&sender_id, msg)?;
+            self.handle_message(&sender_id, msg)?
+                .merge_into(&mut fault_log);
         }
-        Ok(())
+        Ok(fault_log)
     }
 
     /// Computes the coin schedule for the current `Agreement` epoch.
@@ -534,23 +550,23 @@ impl<NodeUid: Clone + Debug + Ord> Agreement<NodeUid> {
         );
     }
 
-    fn try_finish_conf_round(&mut self) -> AgreementResult<()> {
+    fn try_finish_conf_round(&mut self) -> AgreementResult<FaultLog<NodeUid>> {
+        let mut fault_log = FaultLog::new();
         if self.conf_round {
             let (count_vals, _) = self.count_conf();
             if count_vals < self.netinfo.num_nodes() - self.netinfo.num_faulty() {
                 // Continue waiting for (N - f) `Conf` messages
-                return Ok(());
+                return Ok(fault_log);
             }
-            // Invoke the comon coin.
-            self.common_coin.input(())?;
+            self.common_coin.input(())?.merge_into(&mut fault_log);
             self.extend_common_coin();
         }
-        Ok(())
+        Ok(fault_log)
     }
 
-    fn send_aux(&mut self, b: bool) -> AgreementResult<()> {
+    fn send_aux(&mut self, b: bool) -> AgreementResult<FaultLog<NodeUid>> {
         if !self.netinfo.is_validator() {
-            return Ok(());
+            return Ok(FaultLog::new());
         }
         // Multicast `Aux`.
         self.messages

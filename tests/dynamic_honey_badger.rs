@@ -112,6 +112,7 @@ fn new_dynamic_hb(netinfo: Rc<NetworkInfo<NodeUid>>) -> DynamicHoneyBadger<usize
         .batch_size(12)
         .build()
         .expect("Instantiate dynamic_honey_badger")
+        .0
 }
 
 fn test_dynamic_honey_badger_different_sizes<A, F>(new_adversary: F, num_txs: usize)

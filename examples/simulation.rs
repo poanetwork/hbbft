@@ -440,6 +440,7 @@ fn main() {
             .batch_size(args.flag_b)
             .build_with_transactions(txs.clone())
             .expect("Instantiate honey_badger")
+            .0
     };
     let hw_quality = HwQuality {
         latency: Duration::from_millis(args.flag_lag),

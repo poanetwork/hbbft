@@ -27,6 +27,7 @@ use std::rc::Rc;
 
 use crypto::error as cerror;
 use crypto::Signature;
+use fault_log::{FaultKind, FaultLog};
 use messaging::{DistAlgorithm, NetworkInfo, Target, TargetedMessage};
 
 error_chain! {
@@ -89,19 +90,23 @@ where
     type Error = Error;
 
     /// Sends our threshold signature share if not yet sent.
-    fn input(&mut self, _input: Self::Input) -> Result<()> {
+    fn input(&mut self, _input: Self::Input) -> Result<FaultLog<NodeUid>> {
         if !self.had_input {
             self.had_input = true;
             self.get_coin()
         } else {
-            Ok(())
+            Ok(FaultLog::new())
         }
     }
 
     /// Receives input from a remote node.
-    fn handle_message(&mut self, sender_id: &Self::NodeUid, message: Self::Message) -> Result<()> {
+    fn handle_message(
+        &mut self,
+        sender_id: &Self::NodeUid,
+        message: Self::Message,
+    ) -> Result<FaultLog<NodeUid>> {
         if self.terminated {
-            return Ok(());
+            return Ok(FaultLog::new());
         }
         let CommonCoinMessage(share) = message;
         self.handle_share(sender_id, share)
@@ -146,9 +151,10 @@ where
         }
     }
 
-    fn get_coin(&mut self) -> Result<()> {
+    fn get_coin(&mut self) -> Result<FaultLog<NodeUid>> {
         if !self.netinfo.is_validator() {
-            return self.try_output();
+            self.try_output()?;
+            return Ok(FaultLog::new());
         }
         let share = self.netinfo.secret_key().sign(&self.nonce);
         self.messages.push_back(CommonCoinMessage(share.clone()));
@@ -156,17 +162,20 @@ where
         self.handle_share(&id, share)
     }
 
-    fn handle_share(&mut self, sender_id: &NodeUid, share: Signature) -> Result<()> {
+    fn handle_share(&mut self, sender_id: &NodeUid, share: Signature) -> Result<FaultLog<NodeUid>> {
         if let Some(pk_i) = self.netinfo.public_key_share(sender_id) {
             if !pk_i.verify(&share, &self.nonce) {
-                // Silently ignore the invalid share.
-                return Ok(());
+                // Log the faulty node and ignore the invalid share.
+                let fault_kind = FaultKind::UnverifiedSignatureShareSender;
+                let fault_log = FaultLog::init(sender_id.clone(), fault_kind);
+                return Ok(fault_log);
             }
             self.received_shares.insert(sender_id.clone(), share);
         } else {
             return Err(ErrorKind::UnknownSender.into());
         }
-        self.try_output()
+        self.try_output()?;
+        Ok(FaultLog::new())
     }
 
     fn try_output(&mut self) -> Result<()> {
