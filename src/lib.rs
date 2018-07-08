@@ -126,6 +126,7 @@ pub mod common_coin;
 pub mod common_subset;
 pub mod crypto;
 pub mod dynamic_honey_badger;
+pub mod fault_log;
 mod fmt;
 pub mod honey_badger;
 pub mod messaging;

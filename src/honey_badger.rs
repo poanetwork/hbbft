@@ -3,6 +3,7 @@ use std::collections::{BTreeMap, BTreeSet, HashSet, VecDeque};
 use std::fmt::Debug;
 use std::hash::Hash;
 use std::marker::PhantomData;
+use std::ops::Not;
 use std::rc::Rc;
 use std::{cmp, iter, mem};
 
@@ -13,6 +14,7 @@ use serde::{Deserialize, Serialize};
 
 use common_subset::{self, CommonSubset};
 use crypto::{Ciphertext, DecryptionShare};
+use fault_log::{FaultKind, FaultLog};
 use messaging::{DistAlgorithm, NetworkInfo, Target, TargetedMessage};
 
 error_chain!{
@@ -73,7 +75,7 @@ where
     }
 
     /// Creates a new Honey Badger instance with an empty buffer.
-    pub fn build(&self) -> HoneyBadgerResult<HoneyBadger<Tx, NodeUid>>
+    pub fn build(&self) -> HoneyBadgerResult<(HoneyBadger<Tx, NodeUid>, FaultLog<NodeUid>)>
     where
         Tx: Serialize + for<'r> Deserialize<'r> + Debug + Hash + Eq,
     {
@@ -84,7 +86,7 @@ where
     pub fn build_with_transactions<TI>(
         &self,
         txs: TI,
-    ) -> HoneyBadgerResult<HoneyBadger<Tx, NodeUid>>
+    ) -> HoneyBadgerResult<(HoneyBadger<Tx, NodeUid>, FaultLog<NodeUid>)>
     where
         TI: IntoIterator<Item = Tx>,
         Tx: Serialize + for<'r> Deserialize<'r> + Debug + Hash + Eq,
@@ -104,8 +106,8 @@ where
             ciphertexts: BTreeMap::new(),
         };
         honey_badger.buffer.extend(txs);
-        honey_badger.propose()?;
-        Ok(honey_badger)
+        let fault_log = honey_badger.propose()?;
+        Ok((honey_badger, fault_log))
     }
 }
 
@@ -153,23 +155,23 @@ where
     type Message = Message<NodeUid>;
     type Error = Error;
 
-    fn input(&mut self, input: Self::Input) -> HoneyBadgerResult<()> {
+    fn input(&mut self, input: Self::Input) -> HoneyBadgerResult<FaultLog<NodeUid>> {
         self.add_transactions(iter::once(input));
-        Ok(())
+        Ok(FaultLog::new())
     }
 
     fn handle_message(
         &mut self,
         sender_id: &NodeUid,
         message: Self::Message,
-    ) -> HoneyBadgerResult<()> {
+    ) -> HoneyBadgerResult<FaultLog<NodeUid>> {
         if !self.netinfo.all_uids().contains(sender_id) {
             return Err(ErrorKind::UnknownSender.into());
         }
         let Message { epoch, content } = message;
         if epoch < self.epoch {
             // Ignore all messages from past epochs.
-            return Ok(());
+            return Ok(FaultLog::new());
         }
         if epoch > self.epoch + self.max_future_epochs {
             // Postpone handling this message.
@@ -177,7 +179,7 @@ where
                 .entry(epoch)
                 .or_insert_with(Vec::new)
                 .push((sender_id.clone(), content));
-            return Ok(());
+            return Ok(FaultLog::new());
         }
         self.handle_message_content(sender_id, epoch, content)
     }
@@ -221,9 +223,9 @@ where
     }
 
     /// Proposes a new batch in the current epoch.
-    fn propose(&mut self) -> HoneyBadgerResult<()> {
+    fn propose(&mut self) -> HoneyBadgerResult<FaultLog<NodeUid>> {
         if !self.netinfo.is_validator() {
-            return Ok(());
+            return Ok(FaultLog::new());
         }
         let proposal = self.choose_transactions()?;
         let cs = match self.common_subsets.entry(self.epoch) {
@@ -233,9 +235,9 @@ where
             }
         };
         let ciphertext = self.netinfo.public_key_set().public_key().encrypt(proposal);
-        cs.input(bincode::serialize(&ciphertext).unwrap())?;
+        let fault_log = cs.input(bincode::serialize(&ciphertext).unwrap())?;
         self.messages.extend_with_epoch(self.epoch, cs);
-        Ok(())
+        Ok(fault_log)
     }
 
     /// Returns a random choice of `batch_size / all_uids.len()` buffered transactions, and
@@ -263,7 +265,7 @@ where
         sender_id: &NodeUid,
         epoch: u64,
         content: MessageContent<NodeUid>,
-    ) -> HoneyBadgerResult<()> {
+    ) -> HoneyBadgerResult<FaultLog<NodeUid>> {
         match content {
             MessageContent::CommonSubset(cs_msg) => {
                 self.handle_common_subset_message(sender_id, epoch, cs_msg)
@@ -280,29 +282,32 @@ where
         sender_id: &NodeUid,
         epoch: u64,
         message: common_subset::Message<NodeUid>,
-    ) -> HoneyBadgerResult<()> {
+    ) -> HoneyBadgerResult<FaultLog<NodeUid>> {
+        let mut fault_log = FaultLog::new();
         {
             // Borrow the instance for `epoch`, or create it.
             let cs = match self.common_subsets.entry(epoch) {
                 Entry::Occupied(entry) => entry.into_mut(),
                 Entry::Vacant(entry) => {
                     if epoch < self.epoch {
-                        return Ok(()); // Epoch has already terminated. Message is obsolete.
+                        // Epoch has already terminated. Message is obsolete.
+                        return Ok(fault_log);
                     } else {
                         entry.insert(CommonSubset::new(self.netinfo.clone(), epoch)?)
                     }
                 }
             };
             // Handle the message and put the outgoing messages into the queue.
-            cs.handle_message(sender_id, message)?;
+            cs.handle_message(sender_id, message)?
+                .merge_into(&mut fault_log);
             self.messages.extend_with_epoch(epoch, cs);
         }
         // If this is the current epoch, the message could cause a new output.
         if epoch == self.epoch {
-            self.process_output()?;
+            self.process_output()?.merge_into(&mut fault_log);
         }
         self.remove_terminated(epoch);
-        Ok(())
+        Ok(fault_log)
     }
 
     /// Handles decryption shares sent by `HoneyBadger` instances.
@@ -312,15 +317,18 @@ where
         epoch: u64,
         proposer_id: NodeUid,
         share: DecryptionShare,
-    ) -> HoneyBadgerResult<()> {
+    ) -> HoneyBadgerResult<FaultLog<NodeUid>> {
+        let mut fault_log = FaultLog::new();
+
         if let Some(ciphertext) = self
             .ciphertexts
             .get(&self.epoch)
             .and_then(|cts| cts.get(&proposer_id))
         {
             if !self.verify_decryption_share(sender_id, &share, ciphertext) {
-                // TODO: Log the incorrect sender.
-                return Ok(());
+                let fault_kind = FaultKind::UnverifiedDecryptionShareSender;
+                fault_log.append(sender_id.clone(), fault_kind);
+                return Ok(fault_log);
             }
         }
 
@@ -336,10 +344,12 @@ where
         }
 
         if epoch == self.epoch && self.try_decrypt_proposer_selection(proposer_id) {
-            self.try_output_batch()?;
+            if let BoolWithFaultLog::True(faults) = self.try_output_batch()? {
+                fault_log.extend(faults);
+            }
         }
 
-        Ok(())
+        Ok(fault_log)
     }
 
     /// Verifies a given decryption share using the sender's public key and the proposer's
@@ -360,22 +370,28 @@ where
 
     /// When selections of transactions have been decrypted for all valid proposers in this epoch,
     /// moves those transactions into a batch, outputs the batch and updates the epoch.
-    fn try_output_batch(&mut self) -> HoneyBadgerResult<bool> {
+    fn try_output_batch(&mut self) -> HoneyBadgerResult<BoolWithFaultLog<NodeUid>> {
         // Wait until selections have been successfully decoded for all proposer nodes with correct
         // ciphertext outputs.
         if !self.all_selections_decrypted() {
-            return Ok(false);
+            return Ok(BoolWithFaultLog::False);
         }
 
         // Deserialize the output.
+        let mut fault_log = FaultLog::new();
         let transactions: BTreeMap<NodeUid, Vec<Tx>> = self
             .decrypted_selections
             .iter()
             .flat_map(|(proposer_id, ser_batch)| {
-                // If deserialization fails, the proposer of that batch is faulty. Ignore it.
-                bincode::deserialize::<Vec<Tx>>(&ser_batch)
-                    .ok()
-                    .map(|proposed| (proposer_id.clone(), proposed))
+                // If deserialization fails, the proposer of that batch is
+                // faulty. Log the faulty proposer and ignore the batch.
+                if let Ok(proposed) = bincode::deserialize::<Vec<Tx>>(&ser_batch) {
+                    Some((proposer_id.clone(), proposed))
+                } else {
+                    let fault_kind = FaultKind::BatchDeserializationFailed;
+                    fault_log.append(proposer_id.clone(), fault_kind);
+                    None
+                }
             })
             .collect();
         let batch = Batch {
@@ -395,35 +411,40 @@ where
         );
         // Queue the output and advance the epoch.
         self.output.push_back(batch);
-        self.update_epoch()?;
-        Ok(true)
+        self.update_epoch()?.merge_into(&mut fault_log);
+        Ok(BoolWithFaultLog::True(fault_log))
     }
 
     /// Increments the epoch number and clears any state that is local to the finished epoch.
-    fn update_epoch(&mut self) -> HoneyBadgerResult<()> {
+    fn update_epoch(&mut self) -> HoneyBadgerResult<FaultLog<NodeUid>> {
         // Clear the state of the old epoch.
         self.ciphertexts.remove(&self.epoch);
         self.decrypted_selections.clear();
         self.received_shares.remove(&self.epoch);
         self.epoch += 1;
         let max_epoch = self.epoch + self.max_future_epochs;
+        let mut fault_log = FaultLog::new();
         // TODO: Once stable, use `Iterator::flatten`.
         for (sender_id, content) in
             Itertools::flatten(self.incoming_queue.remove(&max_epoch).into_iter())
         {
-            self.handle_message_content(&sender_id, max_epoch, content)?;
+            self.handle_message_content(&sender_id, max_epoch, content)?
+                .merge_into(&mut fault_log);
         }
         // Handle any decryption shares received for the new epoch.
-        if !self.try_decrypt_and_output_batch()? {
-            // Continue with this epoch if a batch is not output by `try_decrypt_and_output_batch`.
-            self.propose()?;
+        if let BoolWithFaultLog::True(faults) = self.try_decrypt_and_output_batch()? {
+            fault_log.extend(faults);
+        } else {
+            // Continue with this epoch if a batch is not output by
+            // `try_decrypt_and_output_batch`.
+            self.propose()?.merge_into(&mut fault_log);
         }
-        Ok(())
+        Ok(fault_log)
     }
 
     /// Tries to decrypt transaction selections from all proposers and output those transactions in
     /// a batch.
-    fn try_decrypt_and_output_batch(&mut self) -> HoneyBadgerResult<bool> {
+    fn try_decrypt_and_output_batch(&mut self) -> HoneyBadgerResult<BoolWithFaultLog<NodeUid>> {
         if let Some(proposer_ids) = self
             .received_shares
             .get(&self.epoch)
@@ -438,10 +459,10 @@ where
             {
                 self.try_output_batch()
             } else {
-                Ok(false)
+                Ok(BoolWithFaultLog::False)
             }
         } else {
-            Ok(false)
+            Ok(BoolWithFaultLog::False)
         }
     }
 
@@ -495,23 +516,27 @@ where
     fn send_decryption_shares(
         &mut self,
         cs_output: BTreeMap<NodeUid, Vec<u8>>,
-    ) -> Result<(), Error> {
+    ) -> HoneyBadgerResult<FaultLog<NodeUid>> {
+        let mut fault_log = FaultLog::new();
         for (proposer_id, v) in cs_output {
             let mut ciphertext: Ciphertext;
             if let Ok(ct) = bincode::deserialize(&v) {
                 ciphertext = ct;
             } else {
                 warn!("Invalid ciphertext from proposer {:?} ignored", proposer_id);
-                // TODO: Log the incorrect node `j`.
+                let fault_kind = FaultKind::InvalidCiphertext;
+                fault_log.append(proposer_id.clone(), fault_kind);
                 continue;
             }
-            let incorrect_senders =
+            let (incorrect_senders, faults) =
                 self.verify_pending_decryption_shares(&proposer_id, &ciphertext);
             self.remove_incorrect_decryption_shares(&proposer_id, incorrect_senders);
+            fault_log.extend(faults);
 
             if !self.send_decryption_share(&proposer_id, &ciphertext)? {
                 warn!("Share decryption failed for proposer {:?}", proposer_id);
-                // TODO: Log the decryption failure.
+                let fault_kind = FaultKind::ShareDecryptionFailed;
+                fault_log.append(proposer_id.clone(), fault_kind);
                 continue;
             }
             let ciphertexts = self
@@ -520,7 +545,7 @@ where
                 .or_insert_with(BTreeMap::new);
             ciphertexts.insert(proposer_id, ciphertext);
         }
-        Ok(())
+        Ok(fault_log)
     }
 
     /// Verifies the ciphertext and sends decryption shares. Returns whether it is valid.
@@ -528,12 +553,12 @@ where
         &mut self,
         proposer_id: &NodeUid,
         ciphertext: &Ciphertext,
-    ) -> HoneyBadgerResult<bool> {
+    ) -> HoneyBadgerResult<BoolWithFaultLog<NodeUid>> {
         if !self.netinfo.is_validator() {
-            return Ok(ciphertext.verify());
+            return Ok(ciphertext.verify().into());
         }
         let share = match self.netinfo.secret_key().decrypt_share(&ciphertext) {
-            None => return Ok(false),
+            None => return Ok(BoolWithFaultLog::False),
             Some(share) => share,
         };
         // Send the share to remote nodes.
@@ -546,8 +571,8 @@ where
         let our_id = self.netinfo.our_uid().clone();
         let epoch = self.epoch;
         // Receive the share locally.
-        self.handle_decryption_share_message(&our_id, epoch, proposer_id.clone(), share)?;
-        Ok(true)
+        self.handle_decryption_share_message(&our_id, epoch, proposer_id.clone(), share)
+            .map(|fault_log| fault_log.into())
     }
 
     /// Verifies the shares of the current epoch that are pending verification. Returned are the
@@ -556,8 +581,9 @@ where
         &self,
         proposer_id: &NodeUid,
         ciphertext: &Ciphertext,
-    ) -> BTreeSet<NodeUid> {
+    ) -> (BTreeSet<NodeUid>, FaultLog<NodeUid>) {
         let mut incorrect_senders = BTreeSet::new();
+        let mut fault_log = FaultLog::new();
         if let Some(sender_shares) = self
             .received_shares
             .get(&self.epoch)
@@ -565,11 +591,13 @@ where
         {
             for (sender_id, share) in sender_shares {
                 if !self.verify_decryption_share(sender_id, share, ciphertext) {
+                    let fault_kind = FaultKind::UnverifiedDecryptionShareSender;
+                    fault_log.append(sender_id.clone(), fault_kind);
                     incorrect_senders.insert(sender_id.clone());
                 }
             }
         }
-        incorrect_senders
+        (incorrect_senders, fault_log)
     }
 
     fn remove_incorrect_decryption_shares(
@@ -589,12 +617,14 @@ where
     }
 
     /// Checks whether the current epoch has output, and if it does, sends out our decryption shares.
-    fn process_output(&mut self) -> Result<(), Error> {
+    fn process_output(&mut self) -> HoneyBadgerResult<FaultLog<NodeUid>> {
+        let mut fault_log = FaultLog::new();
         if let Some(cs_output) = self.take_current_output() {
-            self.send_decryption_shares(cs_output)?;
+            self.send_decryption_shares(cs_output)?
+                .merge_into(&mut fault_log);
             // TODO: May also check that there is no further output from Common Subset.
         }
-        Ok(())
+        Ok(fault_log)
     }
 
     /// Returns the output of the current epoch's `CommonSubset` instance, if any.
@@ -699,5 +729,39 @@ impl<NodeUid: Clone + Debug + Ord> MessageQueue<NodeUid> {
             msg.map(|cs_msg| MessageContent::CommonSubset(cs_msg).with_epoch(epoch))
         };
         self.extend(cs.message_iter().map(convert));
+    }
+}
+
+// The return type for `HoneyBadger` methods that return a boolean and a
+// fault log.
+enum BoolWithFaultLog<NodeUid: Clone> {
+    True(FaultLog<NodeUid>),
+    False,
+}
+
+impl<NodeUid: Clone> Into<BoolWithFaultLog<NodeUid>> for bool {
+    fn into(self) -> BoolWithFaultLog<NodeUid> {
+        if self {
+            BoolWithFaultLog::True(FaultLog::new())
+        } else {
+            BoolWithFaultLog::False
+        }
+    }
+}
+
+impl<NodeUid: Clone> Into<BoolWithFaultLog<NodeUid>> for FaultLog<NodeUid> {
+    fn into(self) -> BoolWithFaultLog<NodeUid> {
+        BoolWithFaultLog::True(self)
+    }
+}
+
+impl<NodeUid: Clone> Not for BoolWithFaultLog<NodeUid> {
+    type Output = bool;
+
+    fn not(self) -> Self::Output {
+        match self {
+            BoolWithFaultLog::False => true,
+            _ => false,
+        }
     }
 }

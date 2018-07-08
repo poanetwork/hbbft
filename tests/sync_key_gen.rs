@@ -8,7 +8,7 @@ extern crate rand;
 use std::collections::BTreeMap;
 
 use hbbft::crypto::{PublicKey, SecretKey};
-use hbbft::sync_key_gen::SyncKeyGen;
+use hbbft::sync_key_gen::{ProposeOutcome, SyncKeyGen};
 
 fn test_sync_key_gen_with(threshold: usize, node_num: usize) {
     // Generate individual key pairs for encryption. These are not suitable for threshold schemes.
@@ -35,9 +35,11 @@ fn test_sync_key_gen_with(threshold: usize, node_num: usize) {
     let mut accepts = Vec::new();
     for (sender_id, proposal) in proposals[..=threshold].iter().enumerate() {
         for (node_id, node) in nodes.iter_mut().enumerate() {
-            let accept = node
-                .handle_propose(&sender_id, proposal.clone().expect("proposal"))
-                .expect("valid proposal");
+            let proposal = proposal.clone().expect("proposal");
+            let accept = match node.handle_propose(&sender_id, proposal) {
+                Some(ProposeOutcome::Valid(accept)) => accept,
+                _ => panic!("invalid proposal"),
+            };
             // Only the first `threshold + 1` manage to commit their `Accept`s.
             if node_id <= 2 * threshold {
                 accepts.push((node_id, accept));
