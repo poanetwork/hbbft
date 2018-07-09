@@ -25,13 +25,14 @@
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fmt::Debug;
+use std::mem::replace;
 use std::sync::Arc;
 
-use agreement::{self, Agreement, AgreementMessage, AgreementResult};
-use broadcast::{self, Broadcast, BroadcastMessage, BroadcastResult};
+use agreement::{self, Agreement, AgreementMessage, AgreementStep};
+use broadcast::{self, Broadcast, BroadcastMessage, BroadcastStep};
 use fault_log::FaultLog;
 use fmt::HexBytes;
-use messaging::{DistAlgorithm, NetworkInfo, TargetedMessage};
+use messaging::{DistAlgorithm, NetworkInfo, Step, TargetedMessage};
 
 error_chain!{
     types {
@@ -101,6 +102,8 @@ pub struct CommonSubset<NodeUid> {
     decided: bool,
 }
 
+pub type CommonSubsetStep<NodeUid> = Step<NodeUid, BTreeMap<NodeUid, ProposedValue>>;
+
 impl<NodeUid: Clone + Debug + Ord> DistAlgorithm for CommonSubset<NodeUid> {
     type NodeUid = NodeUid;
     type Input = ProposedValue;
@@ -108,32 +111,30 @@ impl<NodeUid: Clone + Debug + Ord> DistAlgorithm for CommonSubset<NodeUid> {
     type Message = Message<NodeUid>;
     type Error = Error;
 
-    fn input(&mut self, input: Self::Input) -> CommonSubsetResult<FaultLog<NodeUid>> {
+    fn input(&mut self, input: Self::Input) -> CommonSubsetResult<CommonSubsetStep<NodeUid>> {
         debug!(
             "{:?} Proposing {:?}",
             self.netinfo.our_uid(),
             HexBytes(&input)
         );
-        self.send_proposed_value(input)
+        let fault_log = self.send_proposed_value(input)?;
+        self.step().with_fault_log(fault_log)
     }
 
     fn handle_message(
         &mut self,
         sender_id: &Self::NodeUid,
         message: Self::Message,
-    ) -> CommonSubsetResult<FaultLog<NodeUid>> {
-        match message {
-            Message::Broadcast(p_id, b_msg) => self.handle_broadcast(sender_id, &p_id, b_msg),
-            Message::Agreement(p_id, a_msg) => self.handle_agreement(sender_id, &p_id, a_msg),
-        }
+    ) -> CommonSubsetResult<CommonSubsetStep<NodeUid>> {
+        let fault_log = match message {
+            Message::Broadcast(p_id, b_msg) => self.handle_broadcast(sender_id, &p_id, b_msg)?,
+            Message::Agreement(p_id, a_msg) => self.handle_agreement(sender_id, &p_id, a_msg)?,
+        };
+        self.step().with_fault_log(fault_log)
     }
 
     fn next_message(&mut self) -> Option<TargetedMessage<Self::Message, Self::NodeUid>> {
         self.messages.pop_front()
-    }
-
-    fn next_output(&mut self) -> Option<Self::Output> {
-        self.output.take()
     }
 
     fn terminated(&self) -> bool {
@@ -175,6 +176,10 @@ impl<NodeUid: Clone + Debug + Ord> CommonSubset<NodeUid> {
             output: None,
             decided: false,
         })
+    }
+
+    fn step(&mut self) -> CommonSubsetResult<CommonSubsetStep<NodeUid>> {
+        Ok(Step::new(replace(&mut self.output, None)))
     }
 
     /// Common Subset input message handler. It receives a value for broadcast
@@ -224,7 +229,7 @@ impl<NodeUid: Clone + Debug + Ord> CommonSubset<NodeUid> {
         f: F,
     ) -> CommonSubsetResult<FaultLog<NodeUid>>
     where
-        F: FnOnce(&mut Broadcast<NodeUid>) -> BroadcastResult<FaultLog<NodeUid>>,
+        F: FnOnce(&mut Broadcast<NodeUid>) -> Result<BroadcastStep<NodeUid>, broadcast::Error>,
     {
         let mut fault_log = FaultLog::new();
         let value = {
@@ -232,9 +237,10 @@ impl<NodeUid: Clone + Debug + Ord> CommonSubset<NodeUid> {
                 .broadcast_instances
                 .get_mut(proposer_id)
                 .ok_or(ErrorKind::NoSuchBroadcastInstance)?;
-            f(broadcast)?.merge_into(&mut fault_log);
+            let step = f(broadcast)?;
+            fault_log.extend(step.fault_log);
             self.messages.extend_broadcast(&proposer_id, broadcast);
-            if let Some(output) = broadcast.next_output() {
+            if let Some(output) = step.output {
                 output
             } else {
                 return Ok(fault_log);
@@ -243,9 +249,10 @@ impl<NodeUid: Clone + Debug + Ord> CommonSubset<NodeUid> {
         self.broadcast_results.insert(proposer_id.clone(), value);
         let set_agreement_input = |agreement: &mut Agreement<NodeUid>| {
             if agreement.accepts_input() {
-                agreement.set_input(true)
+                // FIXME: Use the result.
+                agreement.input(true)
             } else {
-                Ok(FaultLog::new())
+                Ok(Default::default())
             }
         };
         self.process_agreement(proposer_id, set_agreement_input)?
@@ -261,7 +268,7 @@ impl<NodeUid: Clone + Debug + Ord> CommonSubset<NodeUid> {
         f: F,
     ) -> CommonSubsetResult<FaultLog<NodeUid>>
     where
-        F: FnOnce(&mut Agreement<NodeUid>) -> AgreementResult<FaultLog<NodeUid>>,
+        F: FnOnce(&mut Agreement<NodeUid>) -> Result<AgreementStep<NodeUid>, agreement::Error>,
     {
         let mut fault_log = FaultLog::new();
         let value = {
@@ -272,9 +279,10 @@ impl<NodeUid: Clone + Debug + Ord> CommonSubset<NodeUid> {
             if agreement.terminated() {
                 return Ok(fault_log);
             }
-            f(agreement)?.merge_into(&mut fault_log);
+            let step = f(agreement)?;
+            fault_log.extend(step.fault_log);
             self.messages.extend_agreement(proposer_id, agreement);
-            if let Some(output) = agreement.next_output() {
+            if let Some(output) = step.output {
                 output
             } else {
                 return Ok(fault_log);
@@ -298,9 +306,10 @@ impl<NodeUid: Clone + Debug + Ord> CommonSubset<NodeUid> {
             // input 0 to each instance of BA that has not yet been provided input.
             for (uid, agreement) in &mut self.agreement_instances {
                 if agreement.accepts_input() {
-                    agreement.set_input(false)?.merge_into(&mut fault_log);
+                    let step = agreement.set_input(false)?;
+                    fault_log.extend(step.fault_log);
                     self.messages.extend_agreement(uid, agreement);
-                    if let Some(output) = agreement.next_output() {
+                    if let Some(output) = step.output {
                         if self.agreement_results.insert(uid.clone(), output).is_some() {
                             return Err(ErrorKind::MultipleAgreementResults.into());
                         }

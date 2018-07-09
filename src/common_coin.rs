@@ -23,12 +23,13 @@
 
 use std::collections::{BTreeMap, VecDeque};
 use std::fmt::Debug;
+use std::mem::replace;
 use std::sync::Arc;
 
 use crypto::error as cerror;
 use crypto::Signature;
 use fault_log::{FaultKind, FaultLog};
-use messaging::{DistAlgorithm, NetworkInfo, Target, TargetedMessage};
+use messaging::{DistAlgorithm, NetworkInfo, Step, Target, TargetedMessage};
 
 error_chain! {
     links {
@@ -78,6 +79,8 @@ pub struct CommonCoin<NodeUid, T> {
     terminated: bool,
 }
 
+pub type CommonCoinStep<N> = Step<N, bool>;
+
 impl<NodeUid, T> DistAlgorithm for CommonCoin<NodeUid, T>
 where
     NodeUid: Clone + Debug + Ord,
@@ -90,13 +93,14 @@ where
     type Error = Error;
 
     /// Sends our threshold signature share if not yet sent.
-    fn input(&mut self, _input: Self::Input) -> Result<FaultLog<NodeUid>> {
-        if !self.had_input {
+    fn input(&mut self, _input: Self::Input) -> Result<CommonCoinStep<NodeUid>> {
+        let fault_log = if !self.had_input {
             self.had_input = true;
-            self.get_coin()
+            self.get_coin()?
         } else {
-            Ok(FaultLog::new())
-        }
+            FaultLog::new()
+        };
+        self.step().with_fault_log(fault_log)
     }
 
     /// Receives input from a remote node.
@@ -104,12 +108,14 @@ where
         &mut self,
         sender_id: &Self::NodeUid,
         message: Self::Message,
-    ) -> Result<FaultLog<NodeUid>> {
-        if self.terminated {
-            return Ok(FaultLog::new());
-        }
-        let CommonCoinMessage(share) = message;
-        self.handle_share(sender_id, share)
+    ) -> Result<CommonCoinStep<NodeUid>> {
+        let fault_log = if !self.terminated {
+            let CommonCoinMessage(share) = message;
+            self.handle_share(sender_id, share)?
+        } else {
+            FaultLog::default()
+        };
+        self.step().with_fault_log(fault_log)
     }
 
     /// Takes the next share of a threshold signature message for multicasting to all other nodes.
@@ -117,11 +123,6 @@ where
         self.messages
             .pop_front()
             .map(|msg| Target::All.message(msg))
-    }
-
-    /// Consumes the output. Once consumed, the output stays `None` forever.
-    fn next_output(&mut self) -> Option<Self::Output> {
-        self.output.take()
     }
 
     /// Whether the algorithm has terminated.
@@ -149,6 +150,10 @@ where
             had_input: false,
             terminated: false,
         }
+    }
+
+    fn step(&mut self) -> Result<CommonCoinStep<NodeUid>> {
+        Ok(Step::new(replace(&mut self.output, None)))
     }
 
     fn get_coin(&mut self) -> Result<FaultLog<NodeUid>> {

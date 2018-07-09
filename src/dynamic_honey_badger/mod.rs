@@ -57,8 +57,8 @@ use serde::{Deserialize, Serialize};
 use self::votes::{SignedVote, VoteCounter};
 use crypto::{PublicKeySet, SecretKey, Signature};
 use fault_log::{FaultKind, FaultLog};
-use honey_badger::{HoneyBadger, Message as HbMessage};
-use messaging::{DistAlgorithm, NetworkInfo, Target, TargetedMessage};
+use honey_badger::{HoneyBadger, HoneyBadgerStep, Message as HbMessage};
+use messaging::{DistAlgorithm, NetworkInfo, Step, Target, TargetedMessage};
 use sync_key_gen::{Accept, Propose, ProposeOutcome, SyncKeyGen};
 
 pub use self::batch::Batch;
@@ -111,6 +111,8 @@ where
     output: VecDeque<Batch<C, NodeUid>>,
 }
 
+pub type DynamicHoneyBadgerStep<C, NodeUid> = Step<NodeUid, Batch<C, NodeUid>>;
+
 impl<C, NodeUid> DistAlgorithm for DynamicHoneyBadger<C, NodeUid>
 where
     C: Eq + Serialize + for<'r> Deserialize<'r> + Debug + Hash,
@@ -122,48 +124,48 @@ where
     type Message = Message<NodeUid>;
     type Error = Error;
 
-    fn input(&mut self, input: Self::Input) -> Result<FaultLog<NodeUid>> {
+    fn input(&mut self, input: Self::Input) -> Result<DynamicHoneyBadgerStep<C, NodeUid>> {
         // User contributions are forwarded to `HoneyBadger` right away. Votes are signed and
         // broadcast.
-        match input {
-            Input::User(contrib) => self.propose(contrib),
-            Input::Change(change) => {
-                self.vote_for(change)?;
-                Ok(FaultLog::new())
-            }
-        }
+        let fault_log = match input {
+            Input::User(contrib) => self.propose(contrib)?,
+            Input::Change(change) => self.vote_for(change)?,
+        };
+        self.step().with_fault_log(fault_log)
     }
 
     fn handle_message(
         &mut self,
         sender_id: &NodeUid,
         message: Self::Message,
-    ) -> Result<FaultLog<NodeUid>> {
+    ) -> Result<DynamicHoneyBadgerStep<C, NodeUid>> {
         let epoch = message.epoch();
-        if epoch < self.start_epoch {
-            return Ok(FaultLog::new()); // Obsolete message.
-        }
-        if epoch > self.start_epoch {
+        let fault_log = if epoch < self.start_epoch {
+            // Obsolete message.
+            FaultLog::new()
+        } else if epoch > self.start_epoch {
             // Message cannot be handled yet. Save it for later.
             let entry = (sender_id.clone(), message);
             self.incoming_queue.push(entry);
-            return Ok(FaultLog::new());
-        }
-        match message {
-            Message::HoneyBadger(_, hb_msg) => self.handle_honey_badger_message(sender_id, hb_msg),
-            Message::KeyGen(_, kg_msg, sig) => self.handle_key_gen_message(sender_id, kg_msg, *sig),
-            Message::SignedVote(signed_vote) => {
-                self.vote_counter.add_pending_vote(sender_id, signed_vote)
+            FaultLog::new()
+        } else {
+            match message {
+                Message::HoneyBadger(_, hb_msg) => {
+                    self.handle_honey_badger_message(sender_id, hb_msg)?
+                }
+                Message::KeyGen(_, kg_msg, sig) => {
+                    self.handle_key_gen_message(sender_id, kg_msg, *sig)?
+                }
+                Message::SignedVote(signed_vote) => {
+                    self.vote_counter.add_pending_vote(sender_id, signed_vote)?
+                }
             }
-        }
+        };
+        self.step().with_fault_log(fault_log)
     }
 
     fn next_message(&mut self) -> Option<TargetedMessage<Self::Message, NodeUid>> {
         self.messages.pop_front()
-    }
-
-    fn next_output(&mut self) -> Option<Self::Output> {
-        self.output.pop_front()
     }
 
     fn terminated(&self) -> bool {
@@ -180,6 +182,10 @@ where
     C: Eq + Serialize + for<'r> Deserialize<'r> + Debug + Hash,
     NodeUid: Eq + Ord + Clone + Debug + Serialize + for<'r> Deserialize<'r> + Hash,
 {
+    fn step(&mut self) -> Result<DynamicHoneyBadgerStep<C, NodeUid>> {
+        Ok(Step::new(self.output.take()))
+    }
+
     /// Returns a new `DynamicHoneyBadgerBuilder` configured to use the node IDs and cryptographic
     /// keys specified by `netinfo`.
     pub fn builder(netinfo: NetworkInfo<NodeUid>) -> DynamicHoneyBadgerBuilder<C, NodeUid> {
@@ -193,13 +199,13 @@ where
 
     /// Proposes a contribution in the current epoch.
     pub fn propose(&mut self, contrib: C) -> Result<FaultLog<NodeUid>> {
-        let mut fault_log = self.honey_badger.input(InternalContrib {
+        let mut fault_log = FaultLog::new();
+        let step = self.honey_badger.input(InternalContrib {
             contrib,
             key_gen_messages: self.key_gen_msg_buffer.clone(),
             votes: self.vote_counter.pending_votes().cloned().collect(),
         })?;
-        self.process_output()?.merge_into(&mut fault_log);
-        Ok(fault_log)
+        self.process_output(step)
     }
 
     /// Cast a vote to change the set of validators.
@@ -229,9 +235,8 @@ where
             return Err(ErrorKind::UnknownSender.into());
         }
         // Handle the message and put the outgoing messages into the queue.
-        let mut fault_log = self.honey_badger.handle_message(sender_id, message)?;
-        self.process_output()?.merge_into(&mut fault_log);
-        Ok(fault_log)
+        let step = self.honey_badger.handle_message(sender_id, message)?;
+        self.process_output(step)
     }
 
     /// Handles a vote or key generation message and tries to commit it as a transaction. These
@@ -245,14 +250,20 @@ where
         self.verify_signature(sender_id, &sig, &kg_msg)?;
         let tx = SignedKeyGenMsg(self.start_epoch, sender_id.clone(), kg_msg, sig);
         self.key_gen_msg_buffer.push(tx);
+        // FIXME: Remove the call to `process_output`. There wasn't any output from HB in this
+        // function.
         self.process_output()
     }
 
     /// Processes all pending batches output by Honey Badger.
-    fn process_output(&mut self) -> Result<FaultLog<NodeUid>> {
+    fn process_output(
+        &mut self,
+        step: HoneyBadgerStep<NodeUid, InternalContrib<C, NodeUid>>,
+    ) -> Result<FaultLog<NodeUid>> {
         let mut fault_log = FaultLog::new();
+        fault_log.extend(step.fault_log);
         let start_epoch = self.start_epoch;
-        while let Some(hb_batch) = self.honey_badger.next_output() {
+        while let Some(hb_batch) = step.output.iter().next() {
             // Create the batch we output ourselves. It will contain the _user_ transactions of
             // `hb_batch`, and the current change state.
             let mut batch = Batch::new(hb_batch.epoch + self.start_epoch);
@@ -460,7 +471,7 @@ where
 
 /// The contribution for the internal `HoneyBadger` instance: this includes a user-defined
 /// application-level contribution as well as internal signed messages.
-#[derive(Eq, PartialEq, Debug, Serialize, Deserialize, Hash)]
+#[derive(Clone, Eq, PartialEq, Debug, Serialize, Deserialize, Hash)]
 struct InternalContrib<C, NodeUid> {
     /// A user-defined contribution.
     contrib: C,

@@ -76,7 +76,7 @@ use agreement::bin_values::BinValues;
 use common_coin;
 use common_coin::{CommonCoin, CommonCoinMessage};
 use fault_log::FaultLog;
-use messaging::{DistAlgorithm, NetworkInfo, Target, TargetedMessage};
+use messaging::{DistAlgorithm, NetworkInfo, Step, Target, TargetedMessage};
 
 error_chain!{
     links {
@@ -189,6 +189,8 @@ pub struct Agreement<NodeUid> {
     coin_schedule: CoinSchedule,
 }
 
+pub type AgreementStep<N> = Step<N, bool>;
+
 impl<NodeUid: Clone + Debug + Ord> DistAlgorithm for Agreement<NodeUid> {
     type NodeUid = NodeUid;
     type Input = bool;
@@ -196,8 +198,9 @@ impl<NodeUid: Clone + Debug + Ord> DistAlgorithm for Agreement<NodeUid> {
     type Message = AgreementMessage;
     type Error = Error;
 
-    fn input(&mut self, input: Self::Input) -> AgreementResult<FaultLog<NodeUid>> {
-        self.set_input(input)
+    fn input(&mut self, input: Self::Input) -> AgreementResult<AgreementStep<NodeUid>> {
+        let fault_log = self.set_input(input);
+        self.step().with_fault_log(fault_log)
     }
 
     /// Receive input from a remote node.
@@ -205,23 +208,24 @@ impl<NodeUid: Clone + Debug + Ord> DistAlgorithm for Agreement<NodeUid> {
         &mut self,
         sender_id: &Self::NodeUid,
         message: Self::Message,
-    ) -> AgreementResult<FaultLog<NodeUid>> {
+    ) -> AgreementResult<AgreementStep<NodeUid>> {
         if self.terminated || message.epoch < self.epoch {
-            // Message is obsolete; we're already in a later epoch or terminated.
-            return Ok(FaultLog::new());
+            // Message is obsolete: We are already in a later epoch or terminated.
+            return self.step();
         }
         if message.epoch > self.epoch {
             // Message is for a later epoch. We can't handle that yet.
             self.incoming_queue.push((sender_id.clone(), message));
-            return Ok(FaultLog::new());
+            return self.step();
         }
-        match message.content {
-            AgreementContent::BVal(b) => self.handle_bval(sender_id, b),
-            AgreementContent::Aux(b) => self.handle_aux(sender_id, b),
-            AgreementContent::Conf(v) => self.handle_conf(sender_id, v),
-            AgreementContent::Term(v) => self.handle_term(sender_id, v).map(|()| FaultLog::new()),
-            AgreementContent::Coin(msg) => self.handle_coin(sender_id, *msg),
-        }
+        let fault_log = match message.content {
+            AgreementContent::BVal(b) => self.handle_bval(sender_id, b)?,
+            AgreementContent::Aux(b) => self.handle_aux(sender_id, b)?,
+            AgreementContent::Conf(v) => self.handle_conf(sender_id, v)?,
+            AgreementContent::Term(v) => self.handle_term(sender_id, v)?.map(|()| FaultLog::new()),
+            AgreementContent::Coin(msg) => self.handle_coin(sender_id, *msg)?,
+        };
+        self.step().with_fault_log(fault_log)
     }
 
     /// Take the next Agreement message for multicast to all other nodes.
@@ -229,11 +233,6 @@ impl<NodeUid: Clone + Debug + Ord> DistAlgorithm for Agreement<NodeUid> {
         self.messages
             .pop_front()
             .map(|msg| Target::All.message(msg))
-    }
-
-    /// Consume the output. Once consumed, the output stays `None` forever.
-    fn next_output(&mut self) -> Option<Self::Output> {
-        self.output.take()
     }
 
     /// Whether the algorithm has terminated.
@@ -283,8 +282,12 @@ impl<NodeUid: Clone + Debug + Ord> Agreement<NodeUid> {
         }
     }
 
+    fn step(&mut self) -> AgreementResult<AgreementStep<NodeUid>> {
+        Ok(Step::new(replace(&mut self.output, None)))
+    }
+
     /// Sets the input value for agreement.
-    pub fn set_input(&mut self, input: bool) -> AgreementResult<FaultLog<NodeUid>> {
+    fn set_input(&mut self, input: bool) -> AgreementResult<FaultLog<NodeUid>> {
         if self.epoch != 0 || self.estimated.is_some() {
             return Err(ErrorKind::InputNotAccepted.into());
         }
@@ -297,7 +300,7 @@ impl<NodeUid: Clone + Debug + Ord> Agreement<NodeUid> {
             // Set the initial estimated value to the input value.
             self.estimated = Some(input);
             // Record the input value as sent.
-            self.send_bval(input)
+            self.send_bval(input);
         }
     }
 
@@ -468,16 +471,16 @@ impl<NodeUid: Clone + Debug + Ord> Agreement<NodeUid> {
         sender_id: &NodeUid,
         msg: CommonCoinMessage,
     ) -> AgreementResult<FaultLog<NodeUid>> {
-        let mut fault_log = self.common_coin.handle_message(sender_id, msg)?;
+        let mut coin_step = self.common_coin.handle_message(sender_id, msg)?;
         self.extend_common_coin();
 
-        if let Some(coin) = self.common_coin.next_output() {
+        if let Some(coin) = coin_step.output {
             let def_bin_value = self.count_conf().1.definite();
             self.on_coin(coin, def_bin_value)?
-                .merge_into(&mut fault_log);
+                .merge_into(&mut coin_step.fault_log);
         }
 
-        Ok(fault_log)
+        Ok(coin_step.fault_log)
     }
 
     /// When the common coin has been computed, tries to decide on an output value, updates the
@@ -503,8 +506,13 @@ impl<NodeUid: Clone + Debug + Ord> Agreement<NodeUid> {
         let mut fault_log = self.send_bval(b)?;
         let queued_msgs = replace(&mut self.incoming_queue, Vec::new());
         for (sender_id, msg) in queued_msgs {
-            self.handle_message(&sender_id, msg)?
-                .merge_into(&mut fault_log);
+            let step = self.handle_message(&sender_id, msg)?;
+            fault_log.extend(step.fault_log);
+            // Save the output of the internal call.
+            self.output = step.output;
+            if self.terminated {
+                break;
+            }
         }
         Ok(fault_log)
     }

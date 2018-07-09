@@ -51,6 +51,45 @@ impl<M, N> TargetedMessage<M, N> {
     }
 }
 
+/// Result of one step of the local state machine of a distributed algorithm. Such a result should
+/// be used and never discarded by the client of the algorithm.
+pub struct Step<N, O>
+where
+    N: Clone,
+{
+    pub output: Option<O>,
+    pub fault_log: FaultLog<N>,
+}
+
+impl<N, O> Default for Step<N, O>
+where
+    N: Clone,
+{
+    fn default() -> Step<N, O> {
+        Step {
+            output: None,
+            fault_log: FaultLog::default(),
+        }
+    }
+}
+
+impl<N, O> Step<N, O>
+where
+    N: Clone,
+{
+    pub fn new(output: Option<O>) -> Self {
+        Step {
+            output,
+            fault_log: FaultLog::default(),
+        }
+    }
+
+    pub fn with_fault_log(&mut self, fault_log: FaultLog<N>) -> &mut Self {
+        self.fault_log = fault_log;
+        self
+    }
+}
+
 /// A distributed algorithm that defines a message flow.
 pub trait DistAlgorithm {
     /// Unique node identifier.
@@ -66,20 +105,22 @@ pub trait DistAlgorithm {
     type Error: Debug;
 
     /// Handles an input provided by the user, and returns
-    fn input(&mut self, input: Self::Input) -> Result<FaultLog<Self::NodeUid>, Self::Error>;
+    #[must_use]
+    fn input(
+        &mut self,
+        input: Self::Input,
+    ) -> Result<Step<Self::NodeUid, Self::Output>, Self::Error>;
 
     /// Handles a message received from node `sender_id`.
+    #[must_use]
     fn handle_message(
         &mut self,
         sender_id: &Self::NodeUid,
         message: Self::Message,
-    ) -> Result<FaultLog<Self::NodeUid>, Self::Error>;
+    ) -> Result<Step<Self::NodeUid, Self::Output>, Self::Error>;
 
     /// Returns a message that needs to be sent to another node.
     fn next_message(&mut self) -> Option<TargetedMessage<Self::Message, Self::NodeUid>>;
-
-    /// Returns the algorithm's output.
-    fn next_output(&mut self) -> Option<Self::Output>;
 
     /// Returns `true` if execution has completed and this instance can be dropped.
     fn terminated(&self) -> bool;
@@ -94,14 +135,6 @@ pub trait DistAlgorithm {
     {
         MessageIter { algorithm: self }
     }
-
-    /// Returns an iterator over the algorithm's outputs.
-    fn output_iter(&mut self) -> OutputIter<Self>
-    where
-        Self: Sized,
-    {
-        OutputIter { algorithm: self }
-    }
 }
 
 /// An iterator over a distributed algorithm's outgoing messages.
@@ -114,19 +147,6 @@ impl<'a, D: DistAlgorithm + 'a> Iterator for MessageIter<'a, D> {
 
     fn next(&mut self) -> Option<Self::Item> {
         self.algorithm.next_message()
-    }
-}
-
-/// An iterator over a distributed algorithm's pending outputs.
-pub struct OutputIter<'a, D: DistAlgorithm + 'a> {
-    algorithm: &'a mut D,
-}
-
-impl<'a, D: DistAlgorithm + 'a> Iterator for OutputIter<'a, D> {
-    type Item = D::Output;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        self.algorithm.next_output()
     }
 }
 
