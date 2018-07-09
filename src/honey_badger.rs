@@ -196,10 +196,6 @@ where
         Ok(())
     }
 
-    pub fn has_input(&self) -> bool {
-        self.has_input
-    }
-
     /// Handles a message for the given epoch.
     fn handle_message_content(
         &mut self,
