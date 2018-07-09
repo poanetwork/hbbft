@@ -287,11 +287,10 @@ impl<NodeUid: Clone + Debug + Ord> Agreement<NodeUid> {
             return Err(ErrorKind::InputNotAccepted.into());
         }
         if self.netinfo.num_nodes() == 1 {
-            self.decision = Some(input);
-            self.output = Some(input);
-            self.terminated = true;
             self.send_bval(input)?;
-            self.send_aux(input)
+            self.send_aux(input)?;
+            self.decide(input);
+            Ok(())
         } else {
             // Set the initial estimated value to the input value.
             self.estimated = Some(input);
@@ -515,6 +514,9 @@ impl<NodeUid: Clone + Debug + Ord> Agreement<NodeUid> {
 
     /// Decides on a value and broadcasts a `Term` message with that value.
     fn decide(&mut self, b: bool) {
+        if self.terminated {
+            return;
+        }
         // Output the agreement value.
         self.output = Some(b);
         // Latch the decided state.

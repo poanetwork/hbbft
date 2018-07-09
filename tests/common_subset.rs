@@ -108,3 +108,12 @@ fn test_common_subset_5_nodes_different_proposed_values() {
     let network = new_network(5, 0, adversary);
     test_common_subset(network, &proposals);
 }
+
+#[test]
+fn test_common_subset_1_node() {
+    let proposals: BTreeMap<NodeUid, ProposedValue> =
+        once((NodeUid(0), Vec::from("Node 0 is the greatest!"))).collect();
+    let adversary = |_| SilentAdversary::new(MessageScheduler::Random);
+    let network = new_network(1, 0, adversary);
+    test_common_subset(network, &proposals);
+}
