@@ -1,10 +1,10 @@
+use std::cmp;
 use std::collections::btree_map::Entry;
 use std::collections::{BTreeMap, BTreeSet, HashSet, VecDeque};
 use std::fmt::Debug;
 use std::hash::Hash;
 use std::marker::PhantomData;
 use std::rc::Rc;
-use std::{cmp, iter, mem};
 
 use bincode;
 use itertools::Itertools;
@@ -34,19 +34,17 @@ error_chain!{
 }
 
 /// A Honey Badger builder, to configure the parameters and create new instances of `HoneyBadger`.
-pub struct HoneyBadgerBuilder<Tx, NodeUid> {
+pub struct HoneyBadgerBuilder<C, NodeUid> {
     /// Shared network data.
     netinfo: Rc<NetworkInfo<NodeUid>>,
-    /// The target number of transactions to be included in each batch.
-    // TODO: Do experiments and pick a suitable default.
-    batch_size: usize,
     /// The maximum number of future epochs for which we handle messages simultaneously.
     max_future_epochs: usize,
-    _phantom: PhantomData<Tx>,
+    _phantom: PhantomData<C>,
 }
 
-impl<Tx, NodeUid> HoneyBadgerBuilder<Tx, NodeUid>
+impl<C, NodeUid> HoneyBadgerBuilder<C, NodeUid>
 where
+    C: Serialize + for<'r> Deserialize<'r> + Debug + Hash + Eq,
     NodeUid: Ord + Clone + Debug,
 {
     /// Returns a new `HoneyBadgerBuilder` configured to use the node IDs and cryptographic keys
@@ -54,16 +52,9 @@ where
     pub fn new(netinfo: Rc<NetworkInfo<NodeUid>>) -> Self {
         HoneyBadgerBuilder {
             netinfo,
-            batch_size: 100,
             max_future_epochs: 3,
             _phantom: PhantomData,
         }
-    }
-
-    /// Sets the target number of transactions per batch.
-    pub fn batch_size(&mut self, batch_size: usize) -> &mut Self {
-        self.batch_size = batch_size;
-        self
     }
 
     /// Sets the maximum number of future epochs for which we handle messages simultaneously.
@@ -72,64 +63,41 @@ where
         self
     }
 
-    /// Creates a new Honey Badger instance with an empty buffer.
-    pub fn build(&self) -> HoneyBadgerResult<HoneyBadger<Tx, NodeUid>>
-    where
-        Tx: Serialize + for<'r> Deserialize<'r> + Debug + Hash + Eq,
-    {
-        self.build_with_transactions(None)
-    }
-
-    /// Returns a new Honey Badger instance that starts with the given transactions in its buffer.
-    pub fn build_with_transactions<TI>(
-        &self,
-        txs: TI,
-    ) -> HoneyBadgerResult<HoneyBadger<Tx, NodeUid>>
-    where
-        TI: IntoIterator<Item = Tx>,
-        Tx: Serialize + for<'r> Deserialize<'r> + Debug + Hash + Eq,
-    {
-        let mut honey_badger = HoneyBadger {
+    /// Creates a new Honey Badger instance.
+    pub fn build(&self) -> HoneyBadger<C, NodeUid> {
+        HoneyBadger {
             netinfo: self.netinfo.clone(),
-            buffer: Vec::new(),
             epoch: 0,
+            has_input: false,
             common_subsets: BTreeMap::new(),
-            batch_size: self.batch_size,
             max_future_epochs: self.max_future_epochs as u64,
             messages: MessageQueue(VecDeque::new()),
             output: VecDeque::new(),
             incoming_queue: BTreeMap::new(),
             received_shares: BTreeMap::new(),
-            decrypted_selections: BTreeMap::new(),
+            decrypted_contributions: BTreeMap::new(),
             ciphertexts: BTreeMap::new(),
-        };
-        honey_badger.buffer.extend(txs);
-        honey_badger.propose()?;
-        Ok(honey_badger)
+        }
     }
 }
 
 /// An instance of the Honey Badger Byzantine fault tolerant consensus algorithm.
-pub struct HoneyBadger<Tx, NodeUid> {
+pub struct HoneyBadger<C, NodeUid> {
     /// Shared network data.
     netinfo: Rc<NetworkInfo<NodeUid>>,
-    /// The buffer of transactions that have not yet been included in any output batch.
-    buffer: Vec<Tx>,
     /// The earliest epoch from which we have not yet received output.
     epoch: u64,
+    /// Whether we have already submitted a proposal for the current epoch.
+    has_input: bool,
     /// The Asynchronous Common Subset instance that decides which nodes' transactions to include,
     /// indexed by epoch.
     common_subsets: BTreeMap<u64, CommonSubset<NodeUid>>,
-    /// The target number of transactions to be included in each batch.
-    // TODO: Do experiments and recommend a batch size. It should be proportional to
-    // `num_nodes * num_nodes * log(num_nodes)`.
-    batch_size: usize,
     /// The maximum number of `CommonSubset` instances that we run simultaneously.
     max_future_epochs: u64,
     /// The messages that need to be sent to other nodes.
     messages: MessageQueue<NodeUid>,
     /// The outputs from completed epochs.
-    output: VecDeque<Batch<Tx, NodeUid>>,
+    output: VecDeque<Batch<C, NodeUid>>,
     /// Messages for future epochs that couldn't be handled yet.
     incoming_queue: BTreeMap<u64, Vec<(NodeUid, MessageContent<NodeUid>)>>,
     /// Received decryption shares for an epoch. Each decryption share has a sender and a
@@ -137,25 +105,24 @@ pub struct HoneyBadger<Tx, NodeUid> {
     /// its key. The inner `BTreeMap` has the sender as its key.
     received_shares: BTreeMap<u64, BTreeMap<NodeUid, BTreeMap<NodeUid, DecryptionShare>>>,
     /// Decoded accepted proposals.
-    decrypted_selections: BTreeMap<NodeUid, Vec<u8>>,
+    decrypted_contributions: BTreeMap<NodeUid, Vec<u8>>,
     /// Ciphertexts output by Common Subset in an epoch.
     ciphertexts: BTreeMap<u64, BTreeMap<NodeUid, Ciphertext>>,
 }
 
-impl<Tx, NodeUid> DistAlgorithm for HoneyBadger<Tx, NodeUid>
+impl<C, NodeUid> DistAlgorithm for HoneyBadger<C, NodeUid>
 where
-    Tx: Serialize + for<'r> Deserialize<'r> + Debug + Hash + Eq,
+    C: Serialize + for<'r> Deserialize<'r> + Debug + Hash + Eq,
     NodeUid: Ord + Clone + Debug,
 {
     type NodeUid = NodeUid;
-    type Input = Tx;
-    type Output = Batch<Tx, NodeUid>;
+    type Input = C;
+    type Output = Batch<C, NodeUid>;
     type Message = Message<NodeUid>;
     type Error = Error;
 
     fn input(&mut self, input: Self::Input) -> HoneyBadgerResult<()> {
-        self.add_transactions(iter::once(input));
-        Ok(())
+        self.propose(&input)
     }
 
     fn handle_message(
@@ -199,62 +166,38 @@ where
     }
 }
 
-impl<Tx, NodeUid> HoneyBadger<Tx, NodeUid>
+impl<C, NodeUid> HoneyBadger<C, NodeUid>
 where
-    Tx: Serialize + for<'r> Deserialize<'r> + Debug + Hash + Eq,
+    C: Serialize + for<'r> Deserialize<'r> + Debug + Hash + Eq,
     NodeUid: Ord + Clone + Debug,
 {
     /// Returns a new `HoneyBadgerBuilder` configured to use the node IDs and cryptographic keys
     /// specified by `netinfo`.
-    pub fn builder(netinfo: Rc<NetworkInfo<NodeUid>>) -> HoneyBadgerBuilder<Tx, NodeUid> {
+    pub fn builder(netinfo: Rc<NetworkInfo<NodeUid>>) -> HoneyBadgerBuilder<C, NodeUid> {
         HoneyBadgerBuilder::new(netinfo)
     }
 
-    /// Adds transactions into the buffer.
-    pub fn add_transactions<I: IntoIterator<Item = Tx>>(&mut self, txs: I) {
-        self.buffer.extend(txs);
-    }
-
-    /// Empties and returns the transaction buffer.
-    pub fn drain_buffer(&mut self) -> Vec<Tx> {
-        mem::replace(&mut self.buffer, Vec::new())
-    }
-
-    /// Proposes a new batch in the current epoch.
-    fn propose(&mut self) -> HoneyBadgerResult<()> {
+    /// Proposes a new item in the current epoch.
+    pub fn propose(&mut self, proposal: &C) -> HoneyBadgerResult<()> {
         if !self.netinfo.is_validator() {
             return Ok(());
         }
-        let proposal = self.choose_transactions()?;
         let cs = match self.common_subsets.entry(self.epoch) {
             Entry::Occupied(entry) => entry.into_mut(),
             Entry::Vacant(entry) => {
                 entry.insert(CommonSubset::new(self.netinfo.clone(), self.epoch)?)
             }
         };
-        let ciphertext = self.netinfo.public_key_set().public_key().encrypt(proposal);
+        let ser_prop = bincode::serialize(&proposal)?;
+        let ciphertext = self.netinfo.public_key_set().public_key().encrypt(ser_prop);
         cs.input(bincode::serialize(&ciphertext).unwrap())?;
+        self.has_input = true;
         self.messages.extend_with_epoch(self.epoch, cs);
         Ok(())
     }
 
-    /// Returns a random choice of `batch_size / all_uids.len()` buffered transactions, and
-    /// serializes them.
-    fn choose_transactions(&self) -> HoneyBadgerResult<Vec<u8>> {
-        let mut rng = rand::thread_rng();
-        let amount = cmp::max(1, self.batch_size / self.netinfo.all_uids().len());
-        let batch_size = cmp::min(self.batch_size, self.buffer.len());
-        let sample = match rand::seq::sample_iter(&mut rng, &self.buffer[..batch_size], amount) {
-            Ok(choice) => choice,
-            Err(choice) => choice, // Fewer than `amount` were available, which is fine.
-        };
-        debug!(
-            "{:?} Proposing in epoch {}: {:?}",
-            self.netinfo.our_uid(),
-            self.epoch,
-            sample
-        );
-        Ok(bincode::serialize(&sample)?)
+    pub fn has_input(&self) -> bool {
+        self.has_input
     }
 
     /// Handles a message for the given epoch.
@@ -335,7 +278,7 @@ where
             proposer_shares.insert(sender_id.clone(), share);
         }
 
-        if epoch == self.epoch && self.try_decrypt_proposer_selection(proposer_id) {
+        if epoch == self.epoch && self.try_decrypt_proposer_contribution(proposer_id) {
             self.try_output_batch()?;
         }
 
@@ -358,40 +301,35 @@ where
         }
     }
 
-    /// When selections of transactions have been decrypted for all valid proposers in this epoch,
+    /// When contributions of transactions have been decrypted for all valid proposers in this epoch,
     /// moves those transactions into a batch, outputs the batch and updates the epoch.
     fn try_output_batch(&mut self) -> HoneyBadgerResult<bool> {
-        // Wait until selections have been successfully decoded for all proposer nodes with correct
+        // Wait until contributions have been successfully decoded for all proposer nodes with correct
         // ciphertext outputs.
-        if !self.all_selections_decrypted() {
+        if !self.all_contributions_decrypted() {
             return Ok(false);
         }
 
         // Deserialize the output.
-        let transactions: BTreeMap<NodeUid, Vec<Tx>> = self
-            .decrypted_selections
+        let contributions: BTreeMap<NodeUid, C> = self
+            .decrypted_contributions
             .iter()
-            .flat_map(|(proposer_id, ser_batch)| {
-                // If deserialization fails, the proposer of that batch is faulty. Ignore it.
-                bincode::deserialize::<Vec<Tx>>(&ser_batch)
+            .flat_map(|(proposer_id, ser_contrib)| {
+                // If deserialization fails, the proposer of that item is faulty. Ignore it.
+                bincode::deserialize::<C>(&ser_contrib)
                     .ok()
-                    .map(|proposed| (proposer_id.clone(), proposed))
+                    .map(|contrib| (proposer_id.clone(), contrib))
             })
             .collect();
         let batch = Batch {
             epoch: self.epoch,
-            transactions,
+            contributions,
         };
-        {
-            let tx_set: HashSet<&Tx> = batch.iter().collect();
-            // Remove the output transactions from our buffer.
-            self.buffer.retain(|tx| !tx_set.contains(&tx));
-        }
         debug!(
             "{:?} Epoch {} output {:?}",
             self.netinfo.our_uid(),
             self.epoch,
-            batch.transactions
+            batch.contributions
         );
         // Queue the output and advance the epoch.
         self.output.push_back(batch);
@@ -403,9 +341,10 @@ where
     fn update_epoch(&mut self) -> HoneyBadgerResult<()> {
         // Clear the state of the old epoch.
         self.ciphertexts.remove(&self.epoch);
-        self.decrypted_selections.clear();
+        self.decrypted_contributions.clear();
         self.received_shares.remove(&self.epoch);
         self.epoch += 1;
+        self.has_input = false;
         let max_epoch = self.epoch + self.max_future_epochs;
         // TODO: Once stable, use `Iterator::flatten`.
         for (sender_id, content) in
@@ -414,14 +353,11 @@ where
             self.handle_message_content(&sender_id, max_epoch, content)?;
         }
         // Handle any decryption shares received for the new epoch.
-        if !self.try_decrypt_and_output_batch()? {
-            // Continue with this epoch if a batch is not output by `try_decrypt_and_output_batch`.
-            self.propose()?;
-        }
+        let _ = self.try_decrypt_and_output_batch()?;
         Ok(())
     }
 
-    /// Tries to decrypt transaction selections from all proposers and output those transactions in
+    /// Tries to decrypt transaction contributions from all proposers and output those transactions in
     /// a batch.
     fn try_decrypt_and_output_batch(&mut self) -> HoneyBadgerResult<bool> {
         if let Some(proposer_ids) = self
@@ -429,12 +365,12 @@ where
             .get(&self.epoch)
             .map(|shares| shares.keys().cloned().collect::<BTreeSet<NodeUid>>())
         {
-            // Try to output a batch if there is a non-empty set of proposers for which we have already received
-            // decryption shares.
+            // Try to output a batch if there is a non-empty set of proposers for which we have
+            // already received decryption shares.
             if !proposer_ids.is_empty()
                 && proposer_ids
                     .iter()
-                    .all(|proposer_id| self.try_decrypt_proposer_selection(proposer_id.clone()))
+                    .all(|proposer_id| self.try_decrypt_proposer_contribution(proposer_id.clone()))
             {
                 self.try_output_batch()
             } else {
@@ -445,22 +381,22 @@ where
         }
     }
 
-    /// Returns true if and only if transaction selections have been decrypted for all proposers in
+    /// Returns true if and only if contributions have been decrypted for all selected proposers in
     /// this epoch.
-    fn all_selections_decrypted(&mut self) -> bool {
+    fn all_contributions_decrypted(&mut self) -> bool {
         let ciphertexts = self
             .ciphertexts
             .entry(self.epoch)
             .or_insert_with(BTreeMap::new);
         let all_ciphertext_proposers: BTreeSet<_> = ciphertexts.keys().collect();
-        let all_decrypted_selection_proposers: BTreeSet<_> =
-            self.decrypted_selections.keys().collect();
-        all_ciphertext_proposers == all_decrypted_selection_proposers
+        let all_decrypted_contribution_proposers: BTreeSet<_> =
+            self.decrypted_contributions.keys().collect();
+        all_ciphertext_proposers == all_decrypted_contribution_proposers
     }
 
-    /// Tries to decrypt the selection of transactions from a given proposer. Outputs `true` if and
-    /// only if decryption finished without errors.
-    fn try_decrypt_proposer_selection(&mut self, proposer_id: NodeUid) -> bool {
+    /// Tries to decrypt the contribution from a given proposer. Outputs `true` if and only if
+    /// decryption finished without errors.
+    fn try_decrypt_proposer_contribution(&mut self, proposer_id: NodeUid) -> bool {
         let shares = &self.received_shares[&self.epoch][&proposer_id];
         if shares.len() <= self.netinfo.num_faulty() {
             return false;
@@ -479,13 +415,13 @@ where
                 .into_iter()
                 .map(|(id, share)| (&ids_u64[id], share))
                 .collect();
-            if let Ok(decrypted_selection) = self
+            if let Ok(decrypted_contribution) = self
                 .netinfo
                 .public_key_set()
                 .decrypt(indexed_shares, ciphertext)
             {
-                self.decrypted_selections
-                    .insert(proposer_id, decrypted_selection);
+                self.decrypted_contributions
+                    .insert(proposer_id, decrypted_contribution);
                 return true;
             }
         }
@@ -623,34 +559,51 @@ where
     }
 }
 
-/// A batch of transactions the algorithm has output.
-///
-/// TODO: Consider adding a `faulty_nodes` field to describe and report failures detected by `HoneyBadger`.
+/// A batch of contributions the algorithm has output.
 #[derive(Clone)]
-pub struct Batch<Tx, NodeUid> {
+pub struct Batch<C, NodeUid> {
     pub epoch: u64,
-    pub transactions: BTreeMap<NodeUid, Vec<Tx>>,
+    pub contributions: BTreeMap<NodeUid, C>,
 }
 
-impl<Tx, NodeUid: Ord> Batch<Tx, NodeUid> {
+impl<C, NodeUid: Ord> Batch<C, NodeUid> {
     /// Returns an iterator over references to all transactions included in the batch.
-    pub fn iter(&self) -> impl Iterator<Item = &Tx> {
-        self.transactions.values().flat_map(|vec| vec)
+    pub fn iter<'a>(&'a self) -> impl Iterator<Item = <&'a C as IntoIterator>::Item>
+    where
+        &'a C: IntoIterator,
+    {
+        self.contributions.values().flat_map(|item| item)
     }
 
     /// Returns an iterator over all transactions included in the batch. Consumes the batch.
-    pub fn into_tx_iter(self) -> impl Iterator<Item = Tx> {
-        self.transactions.into_iter().flat_map(|(_, vec)| vec)
+    pub fn into_tx_iter(self) -> impl Iterator<Item = <C as IntoIterator>::Item>
+    where
+        C: IntoIterator,
+    {
+        self.contributions.into_iter().flat_map(|(_, vec)| vec)
     }
 
     /// Returns the number of transactions in the batch (without detecting duplicates).
-    pub fn len(&self) -> usize {
-        self.transactions.values().map(Vec::len).sum()
+    pub fn len<Tx>(&self) -> usize
+    where
+        C: AsRef<[Tx]>,
+    {
+        self.contributions
+            .values()
+            .map(C::as_ref)
+            .map(<[Tx]>::len)
+            .sum()
     }
 
     /// Returns `true` if the batch contains no transactions.
-    pub fn is_empty(&self) -> bool {
-        self.transactions.values().all(Vec::is_empty)
+    pub fn is_empty<Tx>(&self) -> bool
+    where
+        C: AsRef<[Tx]>,
+    {
+        self.contributions
+            .values()
+            .map(C::as_ref)
+            .all(<[Tx]>::is_empty)
     }
 }
 
@@ -699,5 +652,34 @@ impl<NodeUid: Clone + Debug + Ord> MessageQueue<NodeUid> {
             msg.map(|cs_msg| MessageContent::CommonSubset(cs_msg).with_epoch(epoch))
         };
         self.extend(cs.message_iter().map(convert));
+    }
+}
+
+/// A wrapper providing a few convenience methods for a queue of pending transactions.
+#[derive(Debug)]
+pub struct Queue<Tx>(pub VecDeque<Tx>);
+
+impl<Tx: Clone> Queue<Tx> {
+    /// Removes the given transactions from the queue.
+    pub fn remove_all<'a, I>(&mut self, txs: I)
+    where
+        I: IntoIterator<Item = &'a Tx>,
+        Tx: Eq + Hash + 'a,
+    {
+        let tx_set: HashSet<_> = txs.into_iter().collect();
+        self.0.retain(|tx| !tx_set.contains(tx));
+    }
+
+    /// Returns a new set of `amount` transactions, randomly chosen from the first `batch_size`.
+    /// No transactions are removed from the queue.
+    // TODO: Return references, once the `HoneyBadger` API accepts them. Remove `Clone` bound.
+    pub fn choose(&self, amount: usize, batch_size: usize) -> Vec<Tx> {
+        let mut rng = rand::thread_rng();
+        let limit = cmp::min(batch_size, self.0.len());
+        let sample = match rand::seq::sample_iter(&mut rng, self.0.iter().take(limit), amount) {
+            Ok(choice) => choice,
+            Err(choice) => choice, // Fewer than `amount` were available, which is fine.
+        };
+        sample.into_iter().cloned().collect()
     }
 }

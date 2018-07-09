@@ -18,7 +18,7 @@ use std::rc::Rc;
 
 use rand::Rng;
 
-use hbbft::honey_badger::{self, Batch, HoneyBadger, MessageContent};
+use hbbft::honey_badger::{self, Batch, HoneyBadger, MessageContent, Queue};
 use hbbft::messaging::{NetworkInfo, Target, TargetedMessage};
 
 use network::{
@@ -52,10 +52,10 @@ impl FaultyShareAdversary {
     }
 }
 
-impl Adversary<HoneyBadger<usize, NodeUid>> for FaultyShareAdversary {
+impl Adversary<HoneyBadger<Vec<usize>, NodeUid>> for FaultyShareAdversary {
     fn pick_node(
         &self,
-        nodes: &BTreeMap<NodeUid, TestNode<HoneyBadger<usize, NodeUid>>>,
+        nodes: &BTreeMap<NodeUid, TestNode<HoneyBadger<Vec<usize>, NodeUid>>>,
     ) -> NodeUid {
         self.scheduler.pick_node(nodes)
     }
@@ -79,7 +79,7 @@ impl Adversary<HoneyBadger<usize, NodeUid>> for FaultyShareAdversary {
         }
     }
 
-    fn step(&mut self) -> Vec<MessageWithSender<HoneyBadger<usize, NodeUid>>> {
+    fn step(&mut self) -> Vec<MessageWithSender<HoneyBadger<Vec<usize>, NodeUid>>> {
         let mut outgoing = vec![];
         let fake_proposal = &Vec::from("X marks the spot");
 
@@ -118,17 +118,24 @@ impl Adversary<HoneyBadger<usize, NodeUid>> for FaultyShareAdversary {
 }
 
 /// Proposes `num_txs` values and expects nodes to output and order them.
-fn test_honey_badger<A>(mut network: TestNetwork<A, HoneyBadger<usize, NodeUid>>, num_txs: usize)
-where
-    A: Adversary<HoneyBadger<usize, NodeUid>>,
+fn test_honey_badger<A>(
+    mut network: TestNetwork<A, HoneyBadger<Vec<usize>, NodeUid>>,
+    num_txs: usize,
+) where
+    A: Adversary<HoneyBadger<Vec<usize>, NodeUid>>,
 {
-    for tx in 0..num_txs {
-        network.input_all(tx);
+    let mut queues: BTreeMap<_, _> = network
+        .nodes
+        .keys()
+        .map(|id| (*id, Queue((0..num_txs).collect())))
+        .collect();
+    for (id, queue) in &queues {
+        network.input(*id, queue.choose(3, 10));
     }
 
     // Returns `true` if the node has not output all transactions yet.
     // If it has, and has advanced another epoch, it clears all messages for later epochs.
-    let node_busy = |node: &mut TestNode<HoneyBadger<usize, NodeUid>>| {
+    let node_busy = |node: &mut TestNode<HoneyBadger<Vec<usize>, NodeUid>>| {
         let mut min_missing = 0;
         for batch in node.outputs() {
             for tx in batch.iter() {
@@ -149,15 +156,22 @@ where
 
     // Handle messages in random order until all nodes have output all transactions.
     while network.nodes.values_mut().any(node_busy) {
-        network.step();
+        let id = network.step();
+        if !network.nodes[&id].instance().has_input() {
+            queues
+                .get_mut(&id)
+                .unwrap()
+                .remove_all(network.nodes[&id].outputs().last().unwrap().iter());
+            network.input(id, queues[&id].choose(3, 10));
+        }
     }
     verify_output_sequence(&network);
 }
 
 /// Verifies that all instances output the same sequence of batches.
-fn verify_output_sequence<A>(network: &TestNetwork<A, HoneyBadger<usize, NodeUid>>)
+fn verify_output_sequence<A>(network: &TestNetwork<A, HoneyBadger<Vec<usize>, NodeUid>>)
 where
-    A: Adversary<HoneyBadger<usize, NodeUid>>,
+    A: Adversary<HoneyBadger<Vec<usize>, NodeUid>>,
 {
     let mut expected: Option<BTreeMap<&_, &_>> = None;
     for node in network.nodes.values() {
@@ -168,8 +182,8 @@ where
             .map(
                 |Batch {
                      epoch,
-                     transactions,
-                 }| (epoch, transactions),
+                     contributions,
+                 }| (epoch, contributions),
             )
             .collect();
         if expected.is_none() {
@@ -180,16 +194,13 @@ where
     }
 }
 
-fn new_honey_badger(netinfo: Rc<NetworkInfo<NodeUid>>) -> HoneyBadger<usize, NodeUid> {
-    HoneyBadger::builder(netinfo)
-        .batch_size(12)
-        .build_with_transactions(0..5)
-        .expect("Instantiate honey_badger")
+fn new_honey_badger(netinfo: Rc<NetworkInfo<NodeUid>>) -> HoneyBadger<Vec<usize>, NodeUid> {
+    HoneyBadger::builder(netinfo).build()
 }
 
 fn test_honey_badger_different_sizes<A, F>(new_adversary: F, num_txs: usize)
 where
-    A: Adversary<HoneyBadger<usize, NodeUid>>,
+    A: Adversary<HoneyBadger<Vec<usize>, NodeUid>>,
     F: Fn(usize, usize, BTreeMap<NodeUid, Rc<NetworkInfo<NodeUid>>>) -> A,
 {
     // This returns an error in all but the first test.

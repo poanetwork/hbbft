@@ -57,7 +57,7 @@ use clear_on_drop::ClearOnDrop;
 use serde::{Deserialize, Serialize};
 
 use crypto::{PublicKey, PublicKeySet, SecretKey, Signature};
-use honey_badger::{self, Batch as HbBatch, HoneyBadger, Message as HbMessage};
+use honey_badger::{self, HoneyBadger, Message as HbMessage};
 use messaging::{DistAlgorithm, NetworkInfo, Target, TargetedMessage};
 use sync_key_gen::{Accept, Propose, SyncKeyGen};
 
@@ -111,30 +111,28 @@ pub enum ChangeState<NodeUid> {
 
 /// The user input for `DynamicHoneyBadger`.
 #[derive(Clone, Debug)]
-pub enum Input<Tx, NodeUid> {
-    /// A user-defined transaction.
-    User(Tx),
-    /// A vote to change the set of nodes.
+pub enum Input<C, NodeUid> {
+    /// A user-defined contribution for the next epoch.
+    User(C),
+    /// A vote to change the set of validators.
     Change(Change<NodeUid>),
 }
 
 /// A Dynamic Honey Badger builder, to configure the parameters and create new instances of
 /// `DynamicHoneyBadger`.
-pub struct DynamicHoneyBadgerBuilder<Tx, NodeUid> {
+pub struct DynamicHoneyBadgerBuilder<C, NodeUid> {
     /// Shared network data.
     netinfo: NetworkInfo<NodeUid>,
-    /// The target number of transactions to be included in each batch.
-    batch_size: usize,
     /// The epoch at which to join the network.
     start_epoch: u64,
     /// The maximum number of future epochs for which we handle messages simultaneously.
     max_future_epochs: usize,
-    _phantom: PhantomData<Tx>,
+    _phantom: PhantomData<C>,
 }
 
-impl<Tx, NodeUid> DynamicHoneyBadgerBuilder<Tx, NodeUid>
+impl<C, NodeUid> DynamicHoneyBadgerBuilder<C, NodeUid>
 where
-    Tx: Eq + Serialize + for<'r> Deserialize<'r> + Debug + Hash,
+    C: Eq + Serialize + for<'r> Deserialize<'r> + Debug + Hash,
     NodeUid: Eq + Ord + Clone + Debug + Serialize + for<'r> Deserialize<'r> + Hash,
 {
     /// Returns a new `DynamicHoneyBadgerBuilder` configured to use the node IDs and cryptographic
@@ -143,17 +141,10 @@ where
         // TODO: Use the defaults from `HoneyBadgerBuilder`.
         DynamicHoneyBadgerBuilder {
             netinfo,
-            batch_size: 100,
             start_epoch: 0,
             max_future_epochs: 3,
             _phantom: PhantomData,
         }
-    }
-
-    /// Sets the target number of transactions per batch.
-    pub fn batch_size(&mut self, batch_size: usize) -> &mut Self {
-        self.batch_size = batch_size;
-        self
     }
 
     /// Sets the maximum number of future epochs for which we handle messages simultaneously.
@@ -170,40 +161,33 @@ where
     }
 
     /// Creates a new Dynamic Honey Badger instance with an empty buffer.
-    pub fn build(&self) -> Result<DynamicHoneyBadger<Tx, NodeUid>>
-    where
-        Tx: Serialize + for<'r> Deserialize<'r> + Debug + Hash + Eq,
-    {
+    pub fn build(&self) -> DynamicHoneyBadger<C, NodeUid> {
         let honey_badger = HoneyBadger::builder(Rc::new(self.netinfo.clone()))
-            .batch_size(self.batch_size)
             .max_future_epochs(self.max_future_epochs)
-            .build()?;
-        let dyn_hb = DynamicHoneyBadger {
+            .build();
+        DynamicHoneyBadger {
             netinfo: self.netinfo.clone(),
-            batch_size: self.batch_size,
             max_future_epochs: self.max_future_epochs,
             start_epoch: self.start_epoch,
             votes: BTreeMap::new(),
+            node_tx_buffer: Vec::new(),
             honey_badger,
             key_gen: None,
             incoming_queue: Vec::new(),
             messages: MessageQueue(VecDeque::new()),
             output: VecDeque::new(),
-        };
-        Ok(dyn_hb)
+        }
     }
 }
 
 /// A Honey Badger instance that can handle adding and removing nodes.
-pub struct DynamicHoneyBadger<Tx, NodeUid>
+pub struct DynamicHoneyBadger<C, NodeUid>
 where
-    Tx: Eq + Serialize + for<'r> Deserialize<'r> + Debug + Hash,
+    C: Eq + Serialize + for<'r> Deserialize<'r> + Debug + Hash,
     NodeUid: Ord + Clone + Serialize + for<'r> Deserialize<'r> + Debug,
 {
     /// Shared network data.
     netinfo: NetworkInfo<NodeUid>,
-    /// The target number of transactions per batch.
-    batch_size: usize,
     /// The maximum number of future epochs for which we handle messages simultaneously.
     max_future_epochs: usize,
     /// The first epoch after the latest node change.
@@ -212,8 +196,10 @@ where
     /// vote revokes the previous one. Resets whenever the set of validators is successfully
     /// changed.
     votes: BTreeMap<NodeUid, Change<NodeUid>>,
+    /// Pending node transactions that we will propose in the next epoch.
+    node_tx_buffer: Vec<SignedTransaction<NodeUid>>,
     /// The `HoneyBadger` instance with the current set of nodes.
-    honey_badger: HoneyBadger<Transaction<Tx, NodeUid>, NodeUid>,
+    honey_badger: HoneyBadger<InternalContrib<C, NodeUid>, NodeUid>,
     /// The current key generation process, and the change it applies to.
     key_gen: Option<(SyncKeyGen<NodeUid>, Change<NodeUid>)>,
     /// A queue for messages from future epochs that cannot be handled yet.
@@ -221,26 +207,29 @@ where
     /// The messages that need to be sent to other nodes.
     messages: MessageQueue<NodeUid>,
     /// The outputs from completed epochs.
-    output: VecDeque<Batch<Tx, NodeUid>>,
+    output: VecDeque<Batch<C, NodeUid>>,
 }
 
-impl<Tx, NodeUid> DistAlgorithm for DynamicHoneyBadger<Tx, NodeUid>
+impl<C, NodeUid> DistAlgorithm for DynamicHoneyBadger<C, NodeUid>
 where
-    Tx: Eq + Serialize + for<'r> Deserialize<'r> + Debug + Hash,
+    C: Eq + Serialize + for<'r> Deserialize<'r> + Debug + Hash,
     NodeUid: Eq + Ord + Clone + Serialize + for<'r> Deserialize<'r> + Debug + Hash,
 {
     type NodeUid = NodeUid;
-    type Input = Input<Tx, NodeUid>;
-    type Output = Batch<Tx, NodeUid>;
+    type Input = Input<C, NodeUid>;
+    type Output = Batch<C, NodeUid>;
     type Message = Message<NodeUid>;
     type Error = Error;
 
     fn input(&mut self, input: Self::Input) -> Result<()> {
-        // User transactions are forwarded to `HoneyBadger` right away. Internal messages are
-        // in addition signed and broadcast.
+        // User contributions are forwarded to `HoneyBadger` right away. Votes are signed and
+        // broadcast.
         match input {
-            Input::User(tx) => {
-                self.honey_badger.input(Transaction::User(tx))?;
+            Input::User(contrib) => {
+                self.honey_badger.input(InternalContrib {
+                    contrib,
+                    transactions: self.node_tx_buffer.clone(),
+                })?;
                 self.process_output()
             }
             Input::Change(change) => self.send_transaction(NodeTransaction::Change(change)),
@@ -260,7 +249,9 @@ where
         }
         match message {
             Message::HoneyBadger(_, hb_msg) => self.handle_honey_badger_message(sender_id, hb_msg),
-            Message::Signed(_, node_tx, sig) => self.handle_signed_message(sender_id, node_tx, sig),
+            Message::Signed(_, node_tx, sig) => {
+                self.handle_signed_message(sender_id, node_tx, *sig)
+            }
         }
     }
 
@@ -313,11 +304,11 @@ where
         &mut self,
         sender_id: &NodeUid,
         node_tx: NodeTransaction<NodeUid>,
-        sig: Box<Signature>,
+        sig: Signature,
     ) -> Result<()> {
-        self.verify_signature(sender_id, &*sig, &node_tx)?;
-        let tx = Transaction::Signed(self.start_epoch, sender_id.clone(), node_tx, sig);
-        self.honey_badger.input(tx)?;
+        self.verify_signature(sender_id, &sig, &node_tx)?;
+        let tx = SignedTransaction(self.start_epoch, sender_id.clone(), node_tx, sig);
+        self.node_tx_buffer.push(tx);
         self.process_output()
     }
 
@@ -329,28 +320,22 @@ where
             // `hb_batch`, and the current change state.
             let mut batch = Batch::new(hb_batch.epoch + self.start_epoch);
             // Add the user transactions to `batch` and handle votes and DKG messages.
-            for (id, tx_vec) in hb_batch.transactions {
-                let entry = batch.transactions.entry(id);
-                let id_txs = entry.or_insert_with(Vec::new);
-                for tx in tx_vec {
-                    match tx {
-                        Transaction::User(tx) => id_txs.push(tx),
-                        Transaction::Signed(epoch, s_id, node_tx, sig) => {
-                            if epoch < self.start_epoch {
-                                info!("Obsolete node transaction: {:?}.", node_tx);
-                                continue;
-                            }
-                            if !self.verify_signature(&s_id, &sig, &node_tx)? {
-                                info!("Invalid signature from {:?} for: {:?}.", s_id, node_tx);
-                                continue;
-                            }
-                            use self::NodeTransaction::*;
-                            match node_tx {
-                                Change(change) => self.handle_vote(s_id, change),
-                                Propose(propose) => self.handle_propose(&s_id, propose)?,
-                                Accept(accept) => self.handle_accept(&s_id, accept)?,
-                            }
-                        }
+            for (id, int_contrib) in hb_batch.contributions {
+                batch.contributions.insert(id, int_contrib.contrib);
+                for SignedTransaction(epoch, s_id, node_tx, sig) in int_contrib.transactions {
+                    if epoch < self.start_epoch {
+                        info!("Obsolete node transaction: {:?}.", node_tx);
+                        continue;
+                    }
+                    if !self.verify_signature(&s_id, &sig, &node_tx)? {
+                        info!("Invalid signature from {:?} for: {:?}.", s_id, node_tx);
+                        continue;
+                    }
+                    use self::NodeTransaction::*;
+                    match node_tx {
+                        Change(change) => self.handle_vote(s_id, change),
+                        Propose(propose) => self.handle_propose(&s_id, propose)?,
+                        Accept(accept) => self.handle_accept(&s_id, accept)?,
                     }
                 }
             }
@@ -454,17 +439,9 @@ where
         self.messages
             .extend_with_epoch(self.start_epoch, &mut self.honey_badger);
         self.start_epoch = epoch;
-        let honey_badger = {
-            let netinfo = Rc::new(self.netinfo.clone());
-            let old_buf = self.honey_badger.drain_buffer();
-            let outputs = (self.honey_badger.output_iter()).flat_map(HbBatch::into_tx_iter);
-            let buffer = outputs.chain(old_buf).filter(Transaction::is_user);
-            HoneyBadger::builder(netinfo)
-                .batch_size(self.batch_size)
-                .max_future_epochs(self.max_future_epochs)
-                .build_with_transactions(buffer)?
-        };
-        self.honey_badger = honey_badger;
+        self.honey_badger = HoneyBadger::builder(Rc::new(self.netinfo.clone()))
+            .max_future_epochs(self.max_future_epochs)
+            .build();
         Ok(())
     }
 
@@ -496,9 +473,9 @@ where
             return Ok(());
         }
         let our_uid = self.netinfo.our_uid().clone();
-        let hb_tx = Transaction::Signed(self.start_epoch, our_uid, node_tx, sig);
-        self.honey_badger.input(hb_tx)?;
-        self.process_output()
+        self.node_tx_buffer
+            .push(SignedTransaction(self.start_epoch, our_uid, node_tx, *sig));
+        Ok(())
     }
 
     /// If the current Key Generation process is ready, returns the generated key set.
@@ -574,61 +551,40 @@ fn current_majority<'a, NodeUid: Ord + Clone + Hash + Eq>(
     None
 }
 
-/// The transactions for the internal `HoneyBadger` instance: this includes both user-defined
-/// "regular" transactions as well as internal signed messages.
+/// The contribution for the internal `HoneyBadger` instance: this includes a user-defined
+/// application-level contribution as well as internal signed messages.
 #[derive(Eq, PartialEq, Debug, Serialize, Deserialize, Hash)]
-enum Transaction<Tx, NodeUid> {
-    /// A user-defined transaction.
-    User(Tx),
-    /// A signed internal message that gets committed via Honey Badger to communicate synchronously.
-    Signed(u64, NodeUid, NodeTransaction<NodeUid>, Box<Signature>),
+struct InternalContrib<C, NodeUid> {
+    /// A user-defined contribution.
+    contrib: C,
+    /// Signed internal messages that get committed via Honey Badger to communicate synchronously.
+    transactions: Vec<SignedTransaction<NodeUid>>,
 }
 
-impl<Tx, NodeUid> Transaction<Tx, NodeUid> {
-    /// Returns `true` if this is a user transaction.
-    fn is_user(&self) -> bool {
-        match *self {
-            Transaction::User(_) => true,
-            Transaction::Signed(_, _, _, _) => false,
-        }
-    }
-}
+/// A signed internal message.
+#[derive(Eq, PartialEq, Debug, Serialize, Deserialize, Hash, Clone)]
+struct SignedTransaction<NodeUid>(u64, NodeUid, NodeTransaction<NodeUid>, Signature);
 
 /// A batch of transactions the algorithm has output.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct Batch<Tx, NodeUid> {
+pub struct Batch<C, NodeUid> {
     /// The sequence number: there is exactly one batch in each epoch.
     pub epoch: u64,
-    /// The user transactions committed in this epoch.
-    pub transactions: BTreeMap<NodeUid, Vec<Tx>>,
+    /// The user contributions committed in this epoch.
+    pub contributions: BTreeMap<NodeUid, C>,
     /// The current state of adding or removing a node: whether any is in progress, or completed
     /// this epoch.
     pub change: ChangeState<NodeUid>,
 }
 
-impl<Tx, NodeUid: Ord> Batch<Tx, NodeUid> {
+impl<C, NodeUid: Ord> Batch<C, NodeUid> {
     /// Returns a new, empty batch with the given epoch.
     pub fn new(epoch: u64) -> Self {
         Batch {
             epoch,
-            transactions: BTreeMap::new(),
+            contributions: BTreeMap::new(),
             change: ChangeState::None,
         }
-    }
-
-    /// Returns an iterator over all transactions included in the batch.
-    pub fn iter(&self) -> impl Iterator<Item = &Tx> {
-        self.transactions.values().flat_map(|vec| vec)
-    }
-
-    /// Returns the number of transactions in the batch (without detecting duplicates).
-    pub fn len(&self) -> usize {
-        self.transactions.values().map(Vec::len).sum()
-    }
-
-    /// Returns `true` if the batch contains no transactions.
-    pub fn is_empty(&self) -> bool {
-        self.transactions.values().all(Vec::is_empty)
     }
 
     /// Returns whether any change to the set of participating nodes is in progress or was

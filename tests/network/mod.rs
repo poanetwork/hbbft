@@ -42,6 +42,11 @@ impl<D: DistAlgorithm> TestNode<D> {
         self.outputs.extend(self.algo.output_iter());
     }
 
+    /// Returns the internal algorithm's instance.
+    pub fn instance(&self) -> &D {
+        &self.algo
+    }
+
     /// Creates a new test node with the given broadcast instance.
     fn new(mut algo: D) -> TestNode<D> {
         let outputs = algo.output_iter().collect();
