@@ -134,3 +134,20 @@ pub mod proto;
 #[cfg(feature = "serialization-protobuf")]
 pub mod proto_io;
 pub mod sync_key_gen;
+
+
+
+/// Common traits.
+pub mod traits {
+	use std::fmt::Debug;
+	use std::hash::Hash;
+
+	/// A transaction, user message, etc.
+ 	pub trait Contribution: Eq + Debug + Hash {}
+ 	impl<C> Contribution for C where C: Eq + Debug + Hash {}
+
+ 	/// A peer node's unique identifier.
+ 	pub trait NodeUid: Eq + Ord + Clone + Debug + Hash {}
+ 	impl<N> NodeUid for N where N: Eq + Ord + Clone + Debug + Hash  {}
+}
+

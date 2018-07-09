@@ -57,7 +57,7 @@ fn test_dynamic_honey_badger<A>(
         }
         let mut min_missing = 0;
         for batch in node.outputs() {
-            for tx in batch.iter() {
+            for tx in batch.contributions.iter() {
                 if *tx >= min_missing {
                     min_missing = tx + 1;
                 }
