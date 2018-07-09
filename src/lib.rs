@@ -134,4 +134,6 @@ pub mod messaging;
 pub mod proto;
 #[cfg(feature = "serialization-protobuf")]
 pub mod proto_io;
+pub mod queueing_honey_badger;
 pub mod sync_key_gen;
+pub mod transaction_queue;

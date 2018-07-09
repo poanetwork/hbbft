@@ -12,7 +12,6 @@ extern crate serde_derive;
 extern crate signifix;
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
-use std::rc::Rc;
 use std::time::{Duration, Instant};
 use std::{cmp, u64};
 
@@ -25,8 +24,8 @@ use serde::Serialize;
 use signifix::{metric, TryFrom};
 
 use hbbft::crypto::SecretKeySet;
-use hbbft::honey_badger::{Batch, HoneyBadger};
 use hbbft::messaging::{DistAlgorithm, NetworkInfo, Target};
+use hbbft::queueing_honey_badger::{Batch, QueueingHoneyBadger};
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 const USAGE: &str = "
@@ -338,7 +337,7 @@ impl EpochInfo {
         id: NodeUid,
         time: Duration,
         batch: &Batch<Transaction, NodeUid>,
-        network: &TestNetwork<HoneyBadger<Transaction, NodeUid>>,
+        network: &TestNetwork<QueueingHoneyBadger<Transaction, NodeUid>>,
     ) {
         if self.nodes.contains_key(&id) {
             return;
@@ -370,12 +369,12 @@ impl EpochInfo {
 
 /// Proposes `num_txs` values and expects nodes to output and order them.
 fn simulate_honey_badger(
-    mut network: TestNetwork<HoneyBadger<Transaction, NodeUid>>,
+    mut network: TestNetwork<QueueingHoneyBadger<Transaction, NodeUid>>,
     num_txs: usize,
 ) {
     // Returns `true` if the node has not output all transactions yet.
     // If it has, and has advanced another epoch, it clears all messages for later epochs.
-    let node_busy = |node: &mut TestNode<HoneyBadger<Transaction, NodeUid>>| {
+    let node_busy = |node: &mut TestNode<QueueingHoneyBadger<Transaction, NodeUid>>| {
         node.outputs
             .iter()
             .map(|&(_, ref batch)| batch.len())
@@ -430,17 +429,16 @@ fn main() {
     let sk_set = SecretKeySet::random(args.flag_f, &mut rand::thread_rng());
     let pk_set = sk_set.public_keys();
     let new_honey_badger = |id: NodeUid, all_ids: BTreeSet<NodeUid>| {
-        let netinfo = Rc::new(NetworkInfo::new(
+        let netinfo = NetworkInfo::new(
             id,
             all_ids,
             sk_set.secret_key_share(id.0 as u64),
             pk_set.clone(),
-        ));
-        HoneyBadger::builder(netinfo)
+        );
+        QueueingHoneyBadger::builder(netinfo)
             .batch_size(args.flag_b)
             .build_with_transactions(txs.clone())
             .expect("Instantiate honey_badger")
-            .0
     };
     let hw_quality = HwQuality {
         latency: Duration::from_millis(args.flag_lag),
