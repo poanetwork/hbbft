@@ -1,8 +1,6 @@
 use std::cmp;
 use std::collections::btree_map::Entry;
 use std::collections::{BTreeMap, BTreeSet, HashSet, VecDeque};
-use std::fmt::Debug;
-use std::hash::Hash;
 use std::marker::PhantomData;
 use std::rc::Rc;
 
@@ -14,6 +12,7 @@ use serde::{Deserialize, Serialize};
 use common_subset::{self, CommonSubset};
 use crypto::{Ciphertext, DecryptionShare};
 use messaging::{DistAlgorithm, NetworkInfo, Target, TargetedMessage};
+use traits::{Contribution, NodeUid};
 
 error_chain!{
     types {
@@ -34,22 +33,22 @@ error_chain!{
 }
 
 /// A Honey Badger builder, to configure the parameters and create new instances of `HoneyBadger`.
-pub struct HoneyBadgerBuilder<C, NodeUid> {
+pub struct HoneyBadgerBuilder<C, N> {
     /// Shared network data.
-    netinfo: Rc<NetworkInfo<NodeUid>>,
+    netinfo: Rc<NetworkInfo<N>>,
     /// The maximum number of future epochs for which we handle messages simultaneously.
     max_future_epochs: usize,
     _phantom: PhantomData<C>,
 }
 
-impl<C, NodeUid> HoneyBadgerBuilder<C, NodeUid>
+impl<C, N> HoneyBadgerBuilder<C, N>
 where
-    C: Serialize + for<'r> Deserialize<'r> + Debug + Hash + Eq,
-    NodeUid: Ord + Clone + Debug,
+    C: Contribution + Serialize + for<'r> Deserialize<'r>,
+    N: NodeUid,
 {
     /// Returns a new `HoneyBadgerBuilder` configured to use the node IDs and cryptographic keys
     /// specified by `netinfo`.
-    pub fn new(netinfo: Rc<NetworkInfo<NodeUid>>) -> Self {
+    pub fn new(netinfo: Rc<NetworkInfo<N>>) -> Self {
         HoneyBadgerBuilder {
             netinfo,
             max_future_epochs: 3,
@@ -64,7 +63,7 @@ where
     }
 
     /// Creates a new Honey Badger instance.
-    pub fn build(&self) -> HoneyBadger<C, NodeUid> {
+    pub fn build(&self) -> HoneyBadger<C, N> {
         HoneyBadger {
             netinfo: self.netinfo.clone(),
             epoch: 0,
@@ -82,43 +81,43 @@ where
 }
 
 /// An instance of the Honey Badger Byzantine fault tolerant consensus algorithm.
-pub struct HoneyBadger<C, NodeUid> {
+pub struct HoneyBadger<C, N> {
     /// Shared network data.
-    netinfo: Rc<NetworkInfo<NodeUid>>,
+    netinfo: Rc<NetworkInfo<N>>,
     /// The earliest epoch from which we have not yet received output.
     epoch: u64,
     /// Whether we have already submitted a proposal for the current epoch.
     has_input: bool,
     /// The Asynchronous Common Subset instance that decides which nodes' transactions to include,
     /// indexed by epoch.
-    common_subsets: BTreeMap<u64, CommonSubset<NodeUid>>,
+    common_subsets: BTreeMap<u64, CommonSubset<N>>,
     /// The maximum number of `CommonSubset` instances that we run simultaneously.
     max_future_epochs: u64,
     /// The messages that need to be sent to other nodes.
-    messages: MessageQueue<NodeUid>,
+    messages: MessageQueue<N>,
     /// The outputs from completed epochs.
-    output: VecDeque<Batch<C, NodeUid>>,
+    output: VecDeque<Batch<C, N>>,
     /// Messages for future epochs that couldn't be handled yet.
-    incoming_queue: BTreeMap<u64, Vec<(NodeUid, MessageContent<NodeUid>)>>,
+    incoming_queue: BTreeMap<u64, Vec<(N, MessageContent<N>)>>,
     /// Received decryption shares for an epoch. Each decryption share has a sender and a
     /// proposer. The outer `BTreeMap` has epochs as its key. The next `BTreeMap` has proposers as
     /// its key. The inner `BTreeMap` has the sender as its key.
-    received_shares: BTreeMap<u64, BTreeMap<NodeUid, BTreeMap<NodeUid, DecryptionShare>>>,
+    received_shares: BTreeMap<u64, BTreeMap<N, BTreeMap<N, DecryptionShare>>>,
     /// Decoded accepted proposals.
-    decrypted_contributions: BTreeMap<NodeUid, Vec<u8>>,
+    decrypted_contributions: BTreeMap<N, Vec<u8>>,
     /// Ciphertexts output by Common Subset in an epoch.
-    ciphertexts: BTreeMap<u64, BTreeMap<NodeUid, Ciphertext>>,
+    ciphertexts: BTreeMap<u64, BTreeMap<N, Ciphertext>>,
 }
 
-impl<C, NodeUid> DistAlgorithm for HoneyBadger<C, NodeUid>
+impl<C, N> DistAlgorithm for HoneyBadger<C, N>
 where
-    C: Serialize + for<'r> Deserialize<'r> + Debug + Hash + Eq,
-    NodeUid: Ord + Clone + Debug,
+    C: Contribution + Serialize + for<'r> Deserialize<'r>,
+    N: NodeUid,
 {
-    type NodeUid = NodeUid;
+    type NodeUid = N;
     type Input = C;
-    type Output = Batch<C, NodeUid>;
-    type Message = Message<NodeUid>;
+    type Output = Batch<C, N>;
+    type Message = Message<N>;
     type Error = Error;
 
     fn input(&mut self, input: Self::Input) -> HoneyBadgerResult<()> {
@@ -127,7 +126,7 @@ where
 
     fn handle_message(
         &mut self,
-        sender_id: &NodeUid,
+        sender_id: &N,
         message: Self::Message,
     ) -> HoneyBadgerResult<()> {
         if !self.netinfo.all_uids().contains(sender_id) {
@@ -149,7 +148,7 @@ where
         self.handle_message_content(sender_id, epoch, content)
     }
 
-    fn next_message(&mut self) -> Option<TargetedMessage<Self::Message, NodeUid>> {
+    fn next_message(&mut self) -> Option<TargetedMessage<Self::Message, N>> {
         self.messages.pop_front()
     }
 
@@ -161,19 +160,19 @@ where
         false
     }
 
-    fn our_id(&self) -> &NodeUid {
+    fn our_id(&self) -> &N {
         self.netinfo.our_uid()
     }
 }
 
-impl<C, NodeUid> HoneyBadger<C, NodeUid>
+impl<C, N> HoneyBadger<C, N>
 where
-    C: Serialize + for<'r> Deserialize<'r> + Debug + Hash + Eq,
-    NodeUid: Ord + Clone + Debug,
+    C: Contribution + Serialize + for<'r> Deserialize<'r>,
+    N: NodeUid,
 {
     /// Returns a new `HoneyBadgerBuilder` configured to use the node IDs and cryptographic keys
     /// specified by `netinfo`.
-    pub fn builder(netinfo: Rc<NetworkInfo<NodeUid>>) -> HoneyBadgerBuilder<C, NodeUid> {
+    pub fn builder(netinfo: Rc<NetworkInfo<N>>) -> HoneyBadgerBuilder<C, N> {
         HoneyBadgerBuilder::new(netinfo)
     }
 
@@ -196,16 +195,12 @@ where
         Ok(())
     }
 
-    pub fn has_input(&self) -> bool {
-        self.has_input
-    }
-
     /// Handles a message for the given epoch.
     fn handle_message_content(
         &mut self,
-        sender_id: &NodeUid,
+        sender_id: &N,
         epoch: u64,
-        content: MessageContent<NodeUid>,
+        content: MessageContent<N>,
     ) -> HoneyBadgerResult<()> {
         match content {
             MessageContent::CommonSubset(cs_msg) => {
@@ -220,9 +215,9 @@ where
     /// Handles a message for the common subset sub-algorithm.
     fn handle_common_subset_message(
         &mut self,
-        sender_id: &NodeUid,
+        sender_id: &N,
         epoch: u64,
-        message: common_subset::Message<NodeUid>,
+        message: common_subset::Message<N>,
     ) -> HoneyBadgerResult<()> {
         {
             // Borrow the instance for `epoch`, or create it.
@@ -251,9 +246,9 @@ where
     /// Handles decryption shares sent by `HoneyBadger` instances.
     fn handle_decryption_share_message(
         &mut self,
-        sender_id: &NodeUid,
+        sender_id: &N,
         epoch: u64,
-        proposer_id: NodeUid,
+        proposer_id: N,
         share: DecryptionShare,
     ) -> HoneyBadgerResult<()> {
         if let Some(ciphertext) = self
@@ -290,7 +285,7 @@ where
     /// has failed.
     fn verify_decryption_share(
         &self,
-        sender_id: &NodeUid,
+        sender_id: &N,
         share: &DecryptionShare,
         ciphertext: &Ciphertext,
     ) -> bool {
@@ -311,7 +306,7 @@ where
         }
 
         // Deserialize the output.
-        let contributions: BTreeMap<NodeUid, C> = self
+        let contributions: BTreeMap<N, C> = self
             .decrypted_contributions
             .iter()
             .flat_map(|(proposer_id, ser_contrib)| {
@@ -363,7 +358,7 @@ where
         if let Some(proposer_ids) = self
             .received_shares
             .get(&self.epoch)
-            .map(|shares| shares.keys().cloned().collect::<BTreeSet<NodeUid>>())
+            .map(|shares| shares.keys().cloned().collect::<BTreeSet<N>>())
         {
             // Try to output a batch if there is a non-empty set of proposers for which we have
             // already received decryption shares.
@@ -396,7 +391,7 @@ where
 
     /// Tries to decrypt the contribution from a given proposer. Outputs `true` if and only if
     /// decryption finished without errors.
-    fn try_decrypt_proposer_contribution(&mut self, proposer_id: NodeUid) -> bool {
+    fn try_decrypt_proposer_contribution(&mut self, proposer_id: N) -> bool {
         let shares = &self.received_shares[&self.epoch][&proposer_id];
         if shares.len() <= self.netinfo.num_faulty() {
             return false;
@@ -407,7 +402,7 @@ where
             .get(&self.epoch)
             .and_then(|cts| cts.get(&proposer_id))
         {
-            let ids_u64: BTreeMap<&NodeUid, u64> = shares
+            let ids_u64: BTreeMap<&N, u64> = shares
                 .keys()
                 .map(|id| (id, *self.netinfo.node_index(id).unwrap() as u64))
                 .collect();
@@ -430,7 +425,7 @@ where
 
     fn send_decryption_shares(
         &mut self,
-        cs_output: BTreeMap<NodeUid, Vec<u8>>,
+        cs_output: BTreeMap<N, Vec<u8>>,
     ) -> Result<(), Error> {
         for (proposer_id, v) in cs_output {
             let mut ciphertext: Ciphertext;
@@ -462,7 +457,7 @@ where
     /// Verifies the ciphertext and sends decryption shares. Returns whether it is valid.
     fn send_decryption_share(
         &mut self,
-        proposer_id: &NodeUid,
+        proposer_id: &N,
         ciphertext: &Ciphertext,
     ) -> HoneyBadgerResult<bool> {
         if !self.netinfo.is_validator() {
@@ -490,9 +485,9 @@ where
     /// senders with incorrect pending shares.
     fn verify_pending_decryption_shares(
         &self,
-        proposer_id: &NodeUid,
+        proposer_id: &N,
         ciphertext: &Ciphertext,
-    ) -> BTreeSet<NodeUid> {
+    ) -> BTreeSet<N> {
         let mut incorrect_senders = BTreeSet::new();
         if let Some(sender_shares) = self
             .received_shares
@@ -510,8 +505,8 @@ where
 
     fn remove_incorrect_decryption_shares(
         &mut self,
-        proposer_id: &NodeUid,
-        incorrect_senders: BTreeSet<NodeUid>,
+        proposer_id: &N,
+        incorrect_senders: BTreeSet<N>,
     ) {
         if let Some(sender_shares) = self
             .received_shares
@@ -534,7 +529,7 @@ where
     }
 
     /// Returns the output of the current epoch's `CommonSubset` instance, if any.
-    fn take_current_output(&mut self) -> Option<BTreeMap<NodeUid, Vec<u8>>> {
+    fn take_current_output(&mut self) -> Option<BTreeMap<N, Vec<u8>>> {
         self.common_subsets
             .get_mut(&self.epoch)
             .and_then(CommonSubset::next_output)
@@ -561,12 +556,12 @@ where
 
 /// A batch of contributions the algorithm has output.
 #[derive(Clone)]
-pub struct Batch<C, NodeUid> {
+pub struct Batch<C, N> {
     pub epoch: u64,
-    pub contributions: BTreeMap<NodeUid, C>,
+    pub contributions: BTreeMap<N, C>,
 }
 
-impl<C, NodeUid: Ord> Batch<C, NodeUid> {
+impl<C, N: NodeUid> Batch<C, N> {
     /// Returns an iterator over references to all transactions included in the batch.
     pub fn iter<'a>(&'a self) -> impl Iterator<Item = <&'a C as IntoIterator>::Item>
     where
@@ -609,18 +604,18 @@ impl<C, NodeUid: Ord> Batch<C, NodeUid> {
 
 /// The content of a `HoneyBadger` message. It should be further annotated with an epoch.
 #[derive(Clone, Debug, Deserialize, Serialize)]
-pub enum MessageContent<NodeUid> {
+pub enum MessageContent<N> {
     /// A message belonging to the common subset algorithm in the given epoch.
-    CommonSubset(common_subset::Message<NodeUid>),
+    CommonSubset(common_subset::Message<N>),
     /// A decrypted share of the output of `proposer_id`.
     DecryptionShare {
-        proposer_id: NodeUid,
+        proposer_id: N,
         share: DecryptionShare,
     },
 }
 
-impl<NodeUid> MessageContent<NodeUid> {
-    pub fn with_epoch(self, epoch: u64) -> Message<NodeUid> {
+impl<N> MessageContent<N> {
+    pub fn with_epoch(self, epoch: u64) -> Message<N> {
         Message {
             epoch,
             content: self,
@@ -630,12 +625,12 @@ impl<NodeUid> MessageContent<NodeUid> {
 
 /// A message sent to or received from another node's Honey Badger instance.
 #[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct Message<NodeUid> {
+pub struct Message<N> {
     epoch: u64,
-    content: MessageContent<NodeUid>,
+    content: MessageContent<N>,
 }
 
-impl<NodeUid> Message<NodeUid> {
+impl<N> Message<N> {
     pub fn epoch(&self) -> u64 {
         self.epoch
     }
@@ -643,12 +638,12 @@ impl<NodeUid> Message<NodeUid> {
 
 /// The queue of outgoing messages in a `HoneyBadger` instance.
 #[derive(Deref, DerefMut)]
-struct MessageQueue<NodeUid>(VecDeque<TargetedMessage<Message<NodeUid>, NodeUid>>);
+struct MessageQueue<N>(VecDeque<TargetedMessage<Message<N>, N>>);
 
-impl<NodeUid: Clone + Debug + Ord> MessageQueue<NodeUid> {
+impl<N: NodeUid> MessageQueue<N> {
     /// Appends to the queue the messages from `cs`, wrapped with `epoch`.
-    fn extend_with_epoch(&mut self, epoch: u64, cs: &mut CommonSubset<NodeUid>) {
-        let convert = |msg: TargetedMessage<common_subset::Message<NodeUid>, NodeUid>| {
+    fn extend_with_epoch(&mut self, epoch: u64, cs: &mut CommonSubset<N>) {
+        let convert = |msg: TargetedMessage<common_subset::Message<N>, N>| {
             msg.map(|cs_msg| MessageContent::CommonSubset(cs_msg).with_epoch(epoch))
         };
         self.extend(cs.message_iter().map(convert));
@@ -664,7 +659,7 @@ impl<Tx: Clone> Queue<Tx> {
     pub fn remove_all<'a, I>(&mut self, txs: I)
     where
         I: IntoIterator<Item = &'a Tx>,
-        Tx: Eq + Hash + 'a,
+        Tx: Contribution + 'a,
     {
         let tx_set: HashSet<_> = txs.into_iter().collect();
         self.0.retain(|tx| !tx_set.contains(tx));
