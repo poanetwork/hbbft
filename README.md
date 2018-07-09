@@ -71,12 +71,12 @@ $ cargo run --example simulation --release
 
 |  Heading    | Definition                       
 | ----------- | -------------------------------------------------------------------------- | 
-| Epoch       |  Epoch number. In each epoch, transactions are processed in a batch by simulated nodes (default is 10 nodes) on a network.                                                            | 
-| Min Time   | Timestamp on the _first_ Tx (transaction) processed in a batch of transactions.                                         |  
-| Max Time   | Timestamp on the _last_ Tx in a batch.                                                  |  
+| Epoch       |  Epoch number. In each epoch, transactions are processed in a batch by simulated nodes (default is 10 nodes) on a network. The batch is always output in one piece, with all transactions at once.                                                           | 
+| Min Time   | Time in simulated milliseconds until the first correct (i.e. not faulty) node outputs the batch.                                          |  
+| Max Time   | Time in simulated milliseconds until the last correct node outputs the batch.                                                  |  
 | Txs         | Number of transactions processed in the epoch.                                           |  
 | Msgs/Node   | Average number of messages handled by a node. The counter is cumulative and includes the number of messages handled in the current epoch and all previous epochs.                                                               |  
-| Size/Node   | Average message size (in kilobytes) handled by a node. This is cumulative and includes message size for the current epoch and all previous epochs.                                                             |  
+| Size/Node   | Average message size (in converted bytes) handled by a node. This is cumulative and includes message size for the current epoch and all previous epochs.                                                             |  
  
 
 #### Options
