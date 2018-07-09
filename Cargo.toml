@@ -1,7 +1,20 @@
 [package]
 name = "hbbft"
 version = "0.1.0"
-authors = ["Vladimir Komendantskiy <komendantsky@gmail.com>"]
+authors = ["Vladimir Komendantskiy <komendantsky@gmail.com>",
+           "Andreas Fackler <AndreasFackler@gmx.de>",
+           "Peter van Nostrand <jnz@riseup.net>",
+           "Andrew Gross <andogro@gmail.com>",
+           "Nick Sanders <nsan1129@gmail.com>"]
+description = "Honey Badger Byzantine fault tolerant consensus algorithm"
+license = "LGPL-3.0"
+repository = "https://github.com/poanetwork/hbbft"
+readme = "https://github.com/poanetwork/hbbft/blob/master/README.md"
+keywords = ["consensus", "asynchronous", "threshold"]
+categories = ["algorithms", "asynchronous", "cryptography", "network-programming"]
+
+[badges]
+travis-ci = { repository = "poanetwork/hbbft" }
 
 [dependencies]
 bincode = "1.0.0"
