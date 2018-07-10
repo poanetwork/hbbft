@@ -52,6 +52,7 @@ use reed_solomon_erasure as rse;
 use reed_solomon_erasure::ReedSolomon;
 use ring::digest;
 
+use fault_log::{FaultKind, FaultLog};
 use fmt::{HexBytes, HexList, HexProof};
 use messaging::{DistAlgorithm, NetworkInfo, Target, TargetedMessage};
 
@@ -126,7 +127,7 @@ impl<NodeUid: Debug + Clone + Ord> DistAlgorithm for Broadcast<NodeUid> {
     type Message = BroadcastMessage;
     type Error = Error;
 
-    fn input(&mut self, input: Self::Input) -> BroadcastResult<()> {
+    fn input(&mut self, input: Self::Input) -> BroadcastResult<FaultLog<NodeUid>> {
         if *self.netinfo.our_uid() != self.proposer_id {
             return Err(ErrorKind::InstanceCannotPropose.into());
         }
@@ -142,14 +143,16 @@ impl<NodeUid: Debug + Clone + Ord> DistAlgorithm for Broadcast<NodeUid> {
         &mut self,
         sender_id: &NodeUid,
         message: Self::Message,
-    ) -> BroadcastResult<()> {
+    ) -> BroadcastResult<FaultLog<NodeUid>> {
         if !self.netinfo.all_uids().contains(sender_id) {
             return Err(ErrorKind::UnknownSender.into());
         }
         match message {
             BroadcastMessage::Value(p) => self.handle_value(sender_id, p),
             BroadcastMessage::Echo(p) => self.handle_echo(sender_id, p),
-            BroadcastMessage::Ready(ref hash) => self.handle_ready(sender_id, hash),
+            BroadcastMessage::Ready(ref hash) => {
+                self.handle_ready(sender_id, hash).map(|()| FaultLog::new())
+            }
         }
     }
 
@@ -272,9 +275,12 @@ impl<NodeUid: Debug + Clone + Ord> Broadcast<NodeUid> {
     }
 
     /// Handles a received echo and verifies the proof it contains.
-    fn handle_value(&mut self, sender_id: &NodeUid, p: Proof<Vec<u8>>) -> BroadcastResult<()> {
-        // If the sender is not the proposer, this is not the first `Value` or the proof is invalid,
-        // ignore.
+    fn handle_value(
+        &mut self,
+        sender_id: &NodeUid,
+        p: Proof<Vec<u8>>,
+    ) -> BroadcastResult<FaultLog<NodeUid>> {
+        // If the sender is not the proposer or if this is not the first `Value`, ignore.
         if *sender_id != self.proposer_id {
             info!(
                 "Node {:?} received Value from {:?} instead of {:?}.",
@@ -282,17 +288,22 @@ impl<NodeUid: Debug + Clone + Ord> Broadcast<NodeUid> {
                 sender_id,
                 self.proposer_id
             );
-            return Ok(());
+            let fault_kind = FaultKind::ReceivedValueFromNonProposer;
+            return Ok(FaultLog::init(sender_id.clone(), fault_kind));
         }
         if self.echo_sent {
             info!(
                 "Node {:?} received multiple Values.",
                 self.netinfo.our_uid()
             );
-            return Ok(());
+            // TODO: should receiving two Values from a node be considered
+            // a fault? If so, return a `Fault` here. For now, ignore.
+            return Ok(FaultLog::new());
         }
+
+        // If the proof is invalid, log the faulty node behavior and ignore.
         if !self.validate_proof(&p, &self.netinfo.our_uid()) {
-            return Ok(());
+            return Ok(FaultLog::init(sender_id.clone(), FaultKind::InvalidProof));
         }
 
         // Otherwise multicast the proof in an `Echo` message, and handle it ourselves.
@@ -300,18 +311,26 @@ impl<NodeUid: Debug + Clone + Ord> Broadcast<NodeUid> {
     }
 
     /// Handles a received `Echo` message.
-    fn handle_echo(&mut self, sender_id: &NodeUid, p: Proof<Vec<u8>>) -> BroadcastResult<()> {
-        // If the proof is invalid or the sender has already sent `Echo`, ignore.
+    fn handle_echo(
+        &mut self,
+        sender_id: &NodeUid,
+        p: Proof<Vec<u8>>,
+    ) -> BroadcastResult<FaultLog<NodeUid>> {
+        let mut fault_log = FaultLog::new();
+        // If the sender has already sent `Echo`, ignore.
         if self.echos.contains_key(sender_id) {
             info!(
                 "Node {:?} received multiple Echos from {:?}.",
                 self.netinfo.our_uid(),
                 sender_id,
             );
-            return Ok(());
+            return Ok(fault_log);
         }
+
+        // If the proof is invalid, log the faulty-node behavior, and ignore.
         if !self.validate_proof(&p, sender_id) {
-            return Ok(());
+            fault_log.append(sender_id.clone(), FaultKind::InvalidProof);
+            return Ok(fault_log);
         }
 
         let hash = p.root_hash.clone();
@@ -322,11 +341,13 @@ impl<NodeUid: Debug + Clone + Ord> Broadcast<NodeUid> {
         if self.ready_sent
             || self.count_echos(&hash) < self.netinfo.num_nodes() - self.netinfo.num_faulty()
         {
-            return self.compute_output(&hash);
+            self.compute_output(&hash)?;
+            return Ok(fault_log);
         }
 
-        // Upon receiving _N - f_ `Echo`s with this root hash, multicast `Ready`.
-        self.send_ready(&hash)
+        // Upon receiving `N - f` `Echo`s with this root hash, multicast `Ready`.
+        self.send_ready(&hash)?;
+        Ok(fault_log)
     }
 
     /// Handles a received `Ready` message.
@@ -353,10 +374,10 @@ impl<NodeUid: Debug + Clone + Ord> Broadcast<NodeUid> {
     }
 
     /// Sends an `Echo` message and handles it. Does nothing if we are only an observer.
-    fn send_echo(&mut self, p: Proof<Vec<u8>>) -> BroadcastResult<()> {
+    fn send_echo(&mut self, p: Proof<Vec<u8>>) -> BroadcastResult<FaultLog<NodeUid>> {
         self.echo_sent = true;
         if !self.netinfo.is_validator() {
-            return Ok(());
+            return Ok(FaultLog::new());
         }
         let echo_msg = Target::All.message(BroadcastMessage::Echo(p.clone()));
         self.messages.push_back(echo_msg);

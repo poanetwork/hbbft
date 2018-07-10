@@ -45,6 +45,7 @@ use rand::OsRng;
 use crypto::poly::{BivarCommitment, BivarPoly, Poly};
 use crypto::serde_impl::field_vec::FieldWrap;
 use crypto::{Ciphertext, PublicKey, PublicKeySet, SecretKey};
+use fault_log::{FaultKind, FaultLog};
 
 // TODO: No need to send our own row and value to ourselves.
 
@@ -97,6 +98,16 @@ impl ProposalState {
     }
 }
 
+/// Returned from `SyncKeyGen.handle_propose()`.
+pub enum ProposeOutcome<NodeUid: Clone> {
+    // If the Propose message passed to `handle_propose()` is valid, an
+    // Accept message is returned.
+    Valid(Accept),
+    // If the Propose message passed to `handle_propose()` is invalid, the
+    // fault is logged and passed onto the caller.
+    Invalid(FaultLog<NodeUid>),
+}
+
 /// A synchronous algorithm for dealerless distributed key generation.
 ///
 /// It requires that all nodes handle all messages in the exact same order.
@@ -113,7 +124,7 @@ pub struct SyncKeyGen<NodeUid> {
     threshold: usize,
 }
 
-impl<NodeUid: Ord + Debug> SyncKeyGen<NodeUid> {
+impl<NodeUid: Ord + Clone + Debug> SyncKeyGen<NodeUid> {
     /// Creates a new `SyncKeyGen` instance, together with the `Propose` message that should be
     /// broadcast, if we are a peer.
     pub fn new(
@@ -153,7 +164,7 @@ impl<NodeUid: Ord + Debug> SyncKeyGen<NodeUid> {
         &mut self,
         sender_id: &NodeUid,
         Propose(commit, rows): Propose,
-    ) -> Option<Accept> {
+    ) -> Option<ProposeOutcome<NodeUid>> {
         let sender_idx = self.node_index(sender_id)?;
         let opt_commit_row = self.our_idx.map(|idx| commit.row(idx + 1));
         match self.proposals.entry(sender_idx) {
@@ -166,10 +177,17 @@ impl<NodeUid: Ord + Debug> SyncKeyGen<NodeUid> {
         let our_idx = self.our_idx?;
         let commit_row = opt_commit_row?;
         let ser_row = self.sec_key.decrypt(rows.get(our_idx as usize)?)?;
-        let row: Poly = bincode::deserialize(&ser_row).ok()?; // Ignore invalid messages.
+        let row: Poly = if let Ok(row) = bincode::deserialize(&ser_row) {
+            row
+        } else {
+            // Log the faulty node and ignore invalid messages.
+            let fault_log = FaultLog::init(sender_id.clone(), FaultKind::InvalidProposeMessage);
+            return Some(ProposeOutcome::Invalid(fault_log));
+        };
         if row.commitment() != commit_row {
             debug!("Invalid proposal from node {}.", sender_idx);
-            return None;
+            let fault_log = FaultLog::init(sender_id.clone(), FaultKind::InvalidProposeMessage);
+            return Some(ProposeOutcome::Invalid(fault_log));
         }
         // The row is valid: now encrypt one value for each node.
         let encrypt = |(idx, pk): (usize, &PublicKey)| {
@@ -180,16 +198,19 @@ impl<NodeUid: Ord + Debug> SyncKeyGen<NodeUid> {
             pk.encrypt(ser_val)
         };
         let values = self.pub_keys.values().enumerate().map(encrypt).collect();
-        Some(Accept(sender_idx, values))
+        Some(ProposeOutcome::Valid(Accept(sender_idx, values)))
     }
 
     /// Handles an `Accept` message.
-    pub fn handle_accept(&mut self, sender_id: &NodeUid, accept: Accept) {
+    pub fn handle_accept(&mut self, sender_id: &NodeUid, accept: Accept) -> FaultLog<NodeUid> {
+        let mut fault_log = FaultLog::new();
         if let Some(sender_idx) = self.node_index(sender_id) {
             if let Err(err) = self.handle_accept_or_err(sender_idx, accept) {
                 debug!("Invalid accept from node {}: {}", sender_idx, err);
+                fault_log.append(sender_id.clone(), FaultKind::InvalidAcceptMessage);
             }
         }
+        fault_log
     }
 
     /// Returns the number of complete proposals. If this is at least `threshold + 1`, the keys can
