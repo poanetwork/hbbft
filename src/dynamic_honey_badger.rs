@@ -56,7 +56,7 @@ use clear_on_drop::ClearOnDrop;
 use serde::{Deserialize, Serialize};
 
 use crypto::{PublicKey, PublicKeySet, SecretKey, Signature};
-use fault_log::FaultLog;
+use fault_log::{FaultKind, FaultLog};
 use honey_badger::{self, HoneyBadger, Message as HbMessage};
 use messaging::{DistAlgorithm, NetworkInfo, Target, TargetedMessage};
 use sync_key_gen::{Accept, Propose, ProposeOutcome, SyncKeyGen};
@@ -349,6 +349,8 @@ where
                     }
                     if !self.verify_signature(&s_id, &sig, &node_tx)? {
                         info!("Invalid signature from {:?} for: {:?}.", s_id, node_tx);
+                        let fault_kind = FaultKind::InvalidNodeTransactionSignature;
+                        fault_log.append(s_id.clone(), fault_kind);
                         continue;
                     }
                     use self::NodeTransaction::*;

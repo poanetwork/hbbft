@@ -1,9 +1,9 @@
 //! Network tests for Queueing Honey Badger.
 
+extern crate env_logger;
 extern crate hbbft;
 #[macro_use]
 extern crate log;
-extern crate env_logger;
 extern crate pairing;
 extern crate rand;
 #[macro_use]
@@ -16,10 +16,9 @@ use std::collections::BTreeMap;
 use std::iter::once;
 use std::rc::Rc;
 
-use rand::Rng;
-
 use hbbft::messaging::NetworkInfo;
 use hbbft::queueing_honey_badger::{Change, ChangeState, Input, QueueingHoneyBadger};
+use rand::Rng;
 
 use network::{Adversary, MessageScheduler, NodeUid, SilentAdversary, TestNetwork, TestNode};
 
