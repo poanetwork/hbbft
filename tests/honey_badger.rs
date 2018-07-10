@@ -36,41 +36,36 @@ pub struct FaultyShareAdversary {
 
 impl FaultyShareAdversary {
     /// Creates a new silent adversary with the given message scheduler.
-    pub fn new(
-        num_good: usize,
-        num_adv: usize,
-        adv_nodes: BTreeMap<NodeUid, Rc<NetworkInfo<NodeUid>>>,
-        scheduler: MessageScheduler,
-    ) -> FaultyShareAdversary {
-        FaultyShareAdversary {
-            num_good,
-            num_adv,
-            scheduler,
-            share_triggers: BTreeMap::new(),
-            adv_nodes,
-        }
+    pub fn new(num_good: usize,
+               num_adv: usize,
+               adv_nodes: BTreeMap<NodeUid, Rc<NetworkInfo<NodeUid>>>,
+               scheduler: MessageScheduler)
+               -> FaultyShareAdversary
+    {
+        FaultyShareAdversary { num_good,
+                               num_adv,
+                               scheduler,
+                               share_triggers: BTreeMap::new(),
+                               adv_nodes, }
     }
 }
 
 impl Adversary<HoneyBadger<usize, NodeUid>> for FaultyShareAdversary {
-    fn pick_node(
-        &self,
-        nodes: &BTreeMap<NodeUid, TestNode<HoneyBadger<usize, NodeUid>>>,
-    ) -> NodeUid {
+    fn pick_node(&self,
+                 nodes: &BTreeMap<NodeUid, TestNode<HoneyBadger<usize, NodeUid>>>)
+                 -> NodeUid
+    {
         self.scheduler.pick_node(nodes)
     }
 
-    fn push_message(
-        &mut self,
-        sender_id: NodeUid,
-        msg: TargetedMessage<honey_badger::Message<NodeUid>, NodeUid>,
-    ) {
+    fn push_message(&mut self,
+                    sender_id: NodeUid,
+                    msg: TargetedMessage<honey_badger::Message<NodeUid>, NodeUid>)
+    {
         let NodeUid(sender_id) = sender_id;
         if sender_id < self.num_good {
-            if let TargetedMessage {
-                target: Target::All,
-                message,
-            } = msg
+            if let TargetedMessage { target: Target::All,
+                                     message, } = msg
             {
                 let epoch = message.epoch();
                 // Set the trigger to simulate decryption share messages.
@@ -90,14 +85,12 @@ impl Adversary<HoneyBadger<usize, NodeUid>> for FaultyShareAdversary {
                 // Broadcast fake decryption shares from all adversarial nodes.
                 for sender_id in self.num_good..self.num_adv {
                     let adv_node = &self.adv_nodes[&NodeUid(sender_id)];
-                    let fake_ciphertext = (*adv_node)
-                        .public_key_set()
-                        .public_key()
-                        .encrypt(fake_proposal);
-                    let share = adv_node
-                        .secret_key()
-                        .decrypt_share(&fake_ciphertext)
-                        .expect("decryption share");
+                    let fake_ciphertext = (*adv_node).public_key_set()
+                                                     .public_key()
+                                                     .encrypt(fake_proposal);
+                    let share = adv_node.secret_key()
+                                        .decrypt_share(&fake_ciphertext)
+                                        .expect("decryption share");
                     // Send the share to remote nodes.
                     for proposer_id in 0..self.num_good + self.num_adv {
                         outgoing.push((
@@ -119,9 +112,7 @@ impl Adversary<HoneyBadger<usize, NodeUid>> for FaultyShareAdversary {
 
 /// Proposes `num_txs` values and expects nodes to output and order them.
 fn test_honey_badger<A>(mut network: TestNetwork<A, HoneyBadger<usize, NodeUid>>, num_txs: usize)
-where
-    A: Adversary<HoneyBadger<usize, NodeUid>>,
-{
+    where A: Adversary<HoneyBadger<usize, NodeUid>> {
     for tx in 0..num_txs {
         network.input_all(tx);
     }
@@ -156,22 +147,15 @@ where
 
 /// Verifies that all instances output the same sequence of batches.
 fn verify_output_sequence<A>(network: &TestNetwork<A, HoneyBadger<usize, NodeUid>>)
-where
-    A: Adversary<HoneyBadger<usize, NodeUid>>,
-{
+    where A: Adversary<HoneyBadger<usize, NodeUid>> {
     let mut expected: Option<BTreeMap<&_, &_>> = None;
     for node in network.nodes.values() {
         assert!(!node.outputs().is_empty());
-        let outputs: BTreeMap<&u64, &BTreeMap<NodeUid, Vec<usize>>> = node
-            .outputs()
-            .iter()
-            .map(
-                |Batch {
-                     epoch,
-                     transactions,
-                 }| (epoch, transactions),
-            )
-            .collect();
+        let outputs: BTreeMap<&u64, &BTreeMap<NodeUid, Vec<usize>>> =
+            node.outputs().iter()
+                .map(|Batch { epoch,
+                              transactions, }| (epoch, transactions))
+                .collect();
         if expected.is_none() {
             expected = Some(outputs);
         } else if let Some(expected) = &expected {
@@ -181,32 +165,27 @@ where
 }
 
 fn new_honey_badger(netinfo: Rc<NetworkInfo<NodeUid>>) -> HoneyBadger<usize, NodeUid> {
-    HoneyBadger::builder(netinfo)
-        .batch_size(12)
-        .build_with_transactions(0..5)
-        .expect("Instantiate honey_badger")
-        .0
+    HoneyBadger::builder(netinfo).batch_size(12)
+                                 .build_with_transactions(0..5)
+                                 .expect("Instantiate honey_badger")
+                                 .0
 }
 
 fn test_honey_badger_different_sizes<A, F>(new_adversary: F, num_txs: usize)
-where
-    A: Adversary<HoneyBadger<usize, NodeUid>>,
-    F: Fn(usize, usize, BTreeMap<NodeUid, Rc<NetworkInfo<NodeUid>>>) -> A,
+    where A: Adversary<HoneyBadger<usize, NodeUid>>,
+          F: Fn(usize, usize, BTreeMap<NodeUid, Rc<NetworkInfo<NodeUid>>>) -> A
 {
     // This returns an error in all but the first test.
     let _ = env_logger::try_init();
 
     let mut rng = rand::thread_rng();
-    let sizes = (2..5)
-        .chain(once(rng.gen_range(6, 10)))
-        .chain(once(rng.gen_range(11, 15)));
+    let sizes = (2..5).chain(once(rng.gen_range(6, 10)))
+                      .chain(once(rng.gen_range(11, 15)));
     for size in sizes {
         let num_adv_nodes = (size - 1) / 3;
         let num_good_nodes = size - num_adv_nodes;
-        info!(
-            "Network size: {} good nodes, {} faulty nodes",
-            num_good_nodes, num_adv_nodes
-        );
+        info!("Network size: {} good nodes, {} faulty nodes",
+              num_good_nodes, num_adv_nodes);
         let adversary = |adv_nodes| new_adversary(num_good_nodes, num_adv_nodes, adv_nodes);
         let network = TestNetwork::new(num_good_nodes, num_adv_nodes, adversary, new_honey_badger);
         test_honey_badger(network, num_txs);

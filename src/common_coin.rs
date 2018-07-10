@@ -79,9 +79,8 @@ pub struct CommonCoin<NodeUid, T> {
 }
 
 impl<NodeUid, T> DistAlgorithm for CommonCoin<NodeUid, T>
-where
-    NodeUid: Clone + Debug + Ord,
-    T: Clone + AsRef<[u8]>,
+    where NodeUid: Clone + Debug + Ord,
+          T: Clone + AsRef<[u8]>
 {
     type NodeUid = NodeUid;
     type Input = ();
@@ -100,11 +99,11 @@ where
     }
 
     /// Receives input from a remote node.
-    fn handle_message(
-        &mut self,
-        sender_id: &Self::NodeUid,
-        message: Self::Message,
-    ) -> Result<FaultLog<NodeUid>> {
+    fn handle_message(&mut self,
+                      sender_id: &Self::NodeUid,
+                      message: Self::Message)
+                      -> Result<FaultLog<NodeUid>>
+    {
         if self.terminated {
             return Ok(FaultLog::new());
         }
@@ -114,8 +113,7 @@ where
 
     /// Takes the next share of a threshold signature message for multicasting to all other nodes.
     fn next_message(&mut self) -> Option<TargetedMessage<Self::Message, Self::NodeUid>> {
-        self.messages
-            .pop_front()
+        self.messages.pop_front()
             .map(|msg| Target::All.message(msg))
     }
 
@@ -135,20 +133,17 @@ where
 }
 
 impl<NodeUid, T> CommonCoin<NodeUid, T>
-where
-    NodeUid: Clone + Debug + Ord,
-    T: Clone + AsRef<[u8]>,
+    where NodeUid: Clone + Debug + Ord,
+          T: Clone + AsRef<[u8]>
 {
     pub fn new(netinfo: Rc<NetworkInfo<NodeUid>>, nonce: T) -> Self {
-        CommonCoin {
-            netinfo,
-            nonce,
-            output: None,
-            messages: VecDeque::new(),
-            received_shares: BTreeMap::new(),
-            had_input: false,
-            terminated: false,
-        }
+        CommonCoin { netinfo,
+                     nonce,
+                     output: None,
+                     messages: VecDeque::new(),
+                     received_shares: BTreeMap::new(),
+                     had_input: false,
+                     terminated: false, }
     }
 
     fn get_coin(&mut self) -> Result<FaultLog<NodeUid>> {
@@ -193,27 +188,24 @@ where
     fn combine_and_verify_sig(&self) -> Result<Signature> {
         // Pass the indices of sender nodes to `combine_signatures`.
         let ids_shares: BTreeMap<&NodeUid, &Signature> = self.received_shares.iter().collect();
-        let ids_u64: BTreeMap<&NodeUid, u64> = ids_shares
-            .keys()
-            .map(|&id| (id, *self.netinfo.node_index(id).unwrap() as u64))
-            .collect();
+        let ids_u64: BTreeMap<&NodeUid, u64> =
+            ids_shares.keys()
+                      .map(|&id| (id, *self.netinfo.node_index(id).unwrap() as u64))
+                      .collect();
         // Convert indices to `u64` which is an interface type for `pairing`.
-        let shares: BTreeMap<&u64, &Signature> = ids_shares
-            .iter()
-            .map(|(id, &share)| (&ids_u64[id], share))
-            .collect();
+        let shares: BTreeMap<&u64, &Signature> =
+            ids_shares.iter()
+                      .map(|(id, &share)| (&ids_u64[id], share))
+                      .collect();
         let sig = self.netinfo.public_key_set().combine_signatures(shares)?;
-        if !self
-            .netinfo
-            .public_key_set()
-            .public_key()
-            .verify(&sig, &self.nonce)
+        if !self.netinfo
+                .public_key_set()
+                .public_key()
+                .verify(&sig, &self.nonce)
         {
             // Abort
-            error!(
-                "{:?} main public key verification failed",
-                self.netinfo.our_uid()
-            );
+            error!("{:?} main public key verification failed",
+                   self.netinfo.our_uid());
             Err(ErrorKind::VerificationFailed.into())
         } else {
             Ok(sig)

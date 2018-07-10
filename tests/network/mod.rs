@@ -45,20 +45,17 @@ impl<D: DistAlgorithm> TestNode<D> {
     /// Creates a new test node with the given broadcast instance.
     fn new(mut algo: D) -> TestNode<D> {
         let outputs = algo.output_iter().collect();
-        TestNode {
-            id: algo.our_id().clone(),
-            algo,
-            queue: VecDeque::new(),
-            outputs,
-        }
+        TestNode { id: algo.our_id().clone(),
+                   algo,
+                   queue: VecDeque::new(),
+                   outputs, }
     }
 
     /// Handles the first message in the node's queue.
     fn handle_message(&mut self) {
         let (from_id, msg) = self.queue.pop_front().expect("message not found");
         debug!("Handling {:?} -> {:?}: {:?}", from_id, self.id, msg);
-        self.algo
-            .handle_message(&from_id, msg)
+        self.algo.handle_message(&from_id, msg)
             .expect("handling message");
         self.outputs.extend(self.algo.output_iter());
     }
@@ -74,35 +71,31 @@ pub enum MessageScheduler {
 
 impl MessageScheduler {
     /// Chooses a node to be the next one to handle a message.
-    pub fn pick_node<D: DistAlgorithm>(
-        &self,
-        nodes: &BTreeMap<D::NodeUid, TestNode<D>>,
-    ) -> D::NodeUid {
+    pub fn pick_node<D: DistAlgorithm>(&self,
+                                       nodes: &BTreeMap<D::NodeUid, TestNode<D>>)
+                                       -> D::NodeUid
+    {
         match *self {
-            MessageScheduler::First => nodes
-                .iter()
-                .find(|(_, node)| !node.queue.is_empty())
-                .map(|(id, _)| id.clone())
-                .expect("no more messages in queue"),
+            MessageScheduler::First => nodes.iter()
+                                            .find(|(_, node)| !node.queue.is_empty())
+                                            .map(|(id, _)| id.clone())
+                                            .expect("no more messages in queue"),
             MessageScheduler::Random => {
-                let ids: Vec<D::NodeUid> = nodes
-                    .iter()
-                    .filter(|(_, node)| !node.queue.is_empty())
-                    .map(|(id, _)| id.clone())
-                    .collect();
-                rand::thread_rng()
-                    .choose(&ids)
-                    .expect("no more messages in queue")
-                    .clone()
-            }
+                let ids: Vec<D::NodeUid> = nodes.iter()
+                                                .filter(|(_, node)| !node.queue.is_empty())
+                                                .map(|(id, _)| id.clone())
+                                                .collect();
+                rand::thread_rng().choose(&ids)
+                                  .expect("no more messages in queue")
+                                  .clone()
+            },
         }
     }
 }
 
-pub type MessageWithSender<D> = (
-    <D as DistAlgorithm>::NodeUid,
-    TargetedMessage<<D as DistAlgorithm>::Message, <D as DistAlgorithm>::NodeUid>,
-);
+pub type MessageWithSender<D> = (<D as DistAlgorithm>::NodeUid,
+TargetedMessage<<D as DistAlgorithm>::Message,
+                                                 <D as DistAlgorithm>::NodeUid>);
 
 /// An adversary that can control a set of nodes and pick the next good node to receive a message.
 pub trait Adversary<D: DistAlgorithm> {
@@ -144,8 +137,7 @@ impl<D: DistAlgorithm> Adversary<D> for SilentAdversary {
 
 /// A collection of `TestNode`s representing a network.
 pub struct TestNetwork<A: Adversary<D>, D: DistAlgorithm>
-where
-    <D as DistAlgorithm>::NodeUid: Hash,
+    where <D as DistAlgorithm>::NodeUid: Hash
 {
     pub nodes: BTreeMap<D::NodeUid, TestNode<D>>,
     pub observer: TestNode<D>,
@@ -154,21 +146,17 @@ where
     adversary: A,
 }
 
-impl<A: Adversary<D>, D: DistAlgorithm<NodeUid = NodeUid>> TestNetwork<A, D>
-where
-    D::Message: Clone,
+impl<A: Adversary<D>, D: DistAlgorithm<NodeUid = NodeUid>> TestNetwork<A, D> where D::Message: Clone
 {
     /// Creates a new network with `good_num` good nodes, and the given `adversary` controlling
     /// `adv_num` nodes.
-    pub fn new<F, G>(
-        good_num: usize,
-        adv_num: usize,
-        adversary: G,
-        new_algo: F,
-    ) -> TestNetwork<A, D>
-    where
-        F: Fn(Rc<NetworkInfo<NodeUid>>) -> D,
-        G: Fn(BTreeMap<D::NodeUid, Rc<NetworkInfo<D::NodeUid>>>) -> A,
+    pub fn new<F, G>(good_num: usize,
+                     adv_num: usize,
+                     adversary: G,
+                     new_algo: F)
+                     -> TestNetwork<A, D>
+        where F: Fn(Rc<NetworkInfo<NodeUid>>) -> D,
+              G: Fn(BTreeMap<D::NodeUid, Rc<NetworkInfo<D::NodeUid>>>) -> A
     {
         let mut rng = rand::thread_rng();
         let sk_set = SecretKeySet::random(adv_num, &mut rng);
@@ -176,39 +164,29 @@ where
 
         let node_ids: BTreeSet<NodeUid> = (0..(good_num + adv_num)).map(NodeUid).collect();
         let new_node_by_id = |NodeUid(i): NodeUid| {
-            (
-                NodeUid(i),
-                TestNode::new(new_algo(Rc::new(NetworkInfo::new(
-                    NodeUid(i),
-                    node_ids.clone(),
-                    sk_set.secret_key_share(i as u64),
-                    pk_set.clone(),
-                )))),
-            )
+            (NodeUid(i),
+            TestNode::new(new_algo(Rc::new(NetworkInfo::new(NodeUid(i),
+                                                             node_ids.clone(),
+                                                             sk_set.secret_key_share(i as u64),
+                                                             pk_set.clone())))))
         };
         let new_adv_node_by_id = |NodeUid(i): NodeUid| {
-            (
-                NodeUid(i),
-                Rc::new(NetworkInfo::new(
-                    NodeUid(i),
-                    node_ids.clone(),
-                    sk_set.secret_key_share(i as u64),
-                    pk_set.clone(),
-                )),
-            )
+            (NodeUid(i),
+            Rc::new(NetworkInfo::new(NodeUid(i),
+                                      node_ids.clone(),
+                                      sk_set.secret_key_share(i as u64),
+                                      pk_set.clone())))
         };
-        let adv_nodes: BTreeMap<D::NodeUid, Rc<NetworkInfo<D::NodeUid>>> = (good_num
-            ..(good_num + adv_num))
-            .map(NodeUid)
-            .map(new_adv_node_by_id)
-            .collect();
-        let mut network = TestNetwork {
-            nodes: (0..good_num).map(NodeUid).map(new_node_by_id).collect(),
-            observer: new_node_by_id(NodeUid(good_num + adv_num)).1,
-            adversary: adversary(adv_nodes.clone()),
-            pk_set: pk_set.clone(),
-            adv_nodes,
-        };
+        let adv_nodes: BTreeMap<D::NodeUid, Rc<NetworkInfo<D::NodeUid>>> =
+            (good_num..(good_num + adv_num)).map(NodeUid)
+                                            .map(new_adv_node_by_id)
+                                            .collect();
+        let mut network =
+            TestNetwork { nodes: (0..good_num).map(NodeUid).map(new_node_by_id).collect(),
+                          observer: new_node_by_id(NodeUid(good_num + adv_num)).1,
+                          adversary: adversary(adv_nodes.clone()),
+                          pk_set: pk_set.clone(),
+                          adv_nodes, };
         let msgs = network.adversary.step();
         for (sender_id, msg) in msgs {
             network.dispatch_messages(sender_id, vec![msg]);
@@ -225,9 +203,7 @@ where
 
     /// Pushes the messages into the queues of the corresponding recipients.
     fn dispatch_messages<Q>(&mut self, sender_id: NodeUid, msgs: Q)
-    where
-        Q: IntoIterator<Item = TargetedMessage<D::Message, NodeUid>> + Debug,
-    {
+        where Q: IntoIterator<Item = TargetedMessage<D::Message, NodeUid>> + Debug {
         for msg in msgs {
             match msg.target {
                 Target::All => {
@@ -236,23 +212,20 @@ where
                             node.queue.push_back((sender_id, msg.message.clone()))
                         }
                     }
-                    self.observer
-                        .queue
+                    self.observer.queue
                         .push_back((sender_id, msg.message.clone()));
                     self.adversary.push_message(sender_id, msg);
-                }
+                },
                 Target::Node(to_id) => {
                     if self.adv_nodes.contains_key(&to_id) {
                         self.adversary.push_message(sender_id, msg);
                     } else if let Some(node) = self.nodes.get_mut(&to_id) {
                         node.queue.push_back((sender_id, msg.message));
                     } else {
-                        warn!(
-                            "Unknown recipient {:?} for message: {:?}",
-                            to_id, msg.message
-                        );
+                        warn!("Unknown recipient {:?} for message: {:?}",
+                              to_id, msg.message);
                     }
-                }
+                },
             }
         }
         while !self.observer.queue.is_empty() {
@@ -290,9 +263,7 @@ where
     /// Inputs a value in all nodes.
     #[allow(unused)] // Not used in all tests.
     pub fn input_all(&mut self, value: D::Input)
-    where
-        D::Input: Clone,
-    {
+        where D::Input: Clone {
         let ids: Vec<D::NodeUid> = self.nodes.keys().cloned().collect();
         for id in ids {
             self.input(id, value.clone());

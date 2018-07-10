@@ -1,0 +1,8 @@
+indent_style = "Visual"
+# brace_style = "PreferSameLine"
+# brace_style = "AlwaysNextLine"
+where_single_line = true
+format_strings = true
+match_block_trailing_comma = true
+# force_multiline_blocks = true
+blank_lines_upper_bound = 2

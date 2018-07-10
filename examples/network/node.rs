@@ -84,20 +84,18 @@ impl<T: Clone + Debug + AsRef<[u8]> + PartialEq + Send + Sync + From<Vec<u8>> + 
 {
     /// Consensus node constructor. It only initialises initial parameters.
     pub fn new(addr: SocketAddr, remotes: HashSet<SocketAddr>, value: Option<T>) -> Self {
-        Node {
-            addr,
-            remotes,
-            value,
-        }
+        Node { addr,
+               remotes,
+               value, }
     }
 
     /// Consensus node procedure implementing HoneyBadgerBFT.
     pub fn run(&self) -> Result<T, Error> {
         let value = &self.value;
         let (our_str, connections) = connection::make(&self.addr, &self.remotes);
-        let mut node_strs: Vec<String> = iter::once(our_str.clone())
-            .chain(connections.iter().map(|c| c.node_str.clone()))
-            .collect();
+        let mut node_strs: Vec<String> =
+            iter::once(our_str.clone()).chain(connections.iter().map(|c| c.node_str.clone()))
+                                       .collect();
         node_strs.sort();
         let our_id = node_strs.binary_search(&our_str).unwrap();
         let all_ids: BTreeSet<_> = (0..node_strs.len()).collect();
@@ -149,19 +147,16 @@ impl<T: Clone + Debug + AsRef<[u8]> + PartialEq + Send + Sync + From<Vec<u8>> + 
                     let message = rx_to_algo.recv().expect("receive from algo");
                     let SourcedMessage { source: i, message } = message;
                     debug!("{} received from {}: {:?}", our_id, i, message);
-                    broadcast
-                        .handle_message(&i, message)
-                        .expect("handle broadcast message");
+                    broadcast.handle_message(&i, message)
+                             .expect("handle broadcast message");
                     for msg in broadcast.message_iter() {
                         debug!("{} sending to {:?}: {:?}", our_id, msg.target, msg.message);
                         tx_from_algo.send(msg).expect("send from algo");
                     }
                     if let Some(output) = broadcast.next_output() {
-                        println!(
-                            "Broadcast succeeded! Node {} output: {}",
-                            our_id,
-                            String::from_utf8(output).unwrap()
-                        );
+                        println!("Broadcast succeeded! Node {} output: {}",
+                                 our_id,
+                                 String::from_utf8(output).unwrap());
                         break;
                     }
                 }
@@ -198,12 +193,11 @@ impl<T: Clone + Debug + AsRef<[u8]> + PartialEq + Send + Sync + From<Vec<u8>> + 
             thread::sleep(time::Duration::from_secs(1));
 
             // Stop the messaging task.
-            stop_tx
-                .send(())
-                .map_err(|e| {
-                    error!("{}", e);
-                })
-                .unwrap();
+            stop_tx.send(())
+                   .map_err(|e| {
+                                error!("{}", e);
+                            })
+                   .unwrap();
 
             process::exit(0);
         }) // end of thread scope

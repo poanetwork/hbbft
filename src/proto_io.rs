@@ -63,11 +63,9 @@ pub struct ProtoIo<S: Read + Write, M> {
 
 impl<M> ProtoIo<TcpStream, M> {
     pub fn try_clone(&self) -> Result<Self, ::std::io::Error> {
-        Ok(ProtoIo {
-            stream: self.stream.try_clone()?,
-            buffer: [0; 1024 * 4],
-            _phantom: PhantomData,
-        })
+        Ok(ProtoIo { stream: self.stream.try_clone()?,
+                     buffer: [0; 1024 * 4],
+                     _phantom: PhantomData, })
     }
 }
 
@@ -76,11 +74,9 @@ impl<S: Read + Write, M: Message> ProtoIo<S, M>
 //where T: Clone + Send + Sync + From<Vec<u8>> + Into<Vec<u8>>
 {
     pub fn from_stream(stream: S) -> Self {
-        ProtoIo {
-            stream,
-            buffer: [0; 1024 * 4],
-            _phantom: PhantomData,
-        }
+        ProtoIo { stream,
+                  buffer: [0; 1024 * 4],
+                  _phantom: PhantomData, }
     }
 
     pub fn recv(&mut self) -> ProtoIoResult<M> {

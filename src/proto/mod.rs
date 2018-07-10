@@ -13,8 +13,8 @@ use proto::message::*;
 
 impl From<message::BroadcastProto> for BroadcastMessage {
     fn from(proto: message::BroadcastProto) -> BroadcastMessage {
-        BroadcastMessage::from_proto(proto, &::ring::digest::SHA256)
-            .expect("invalid broadcast message")
+        BroadcastMessage::from_proto(proto, &::ring::digest::SHA256).expect("invalid broadcast \
+                                                                             message")
     }
 }
 
@@ -32,32 +32,30 @@ impl BroadcastMessage {
                 let mut v = ValueProto::new();
                 v.set_proof(ProofProto::from_proof(p));
                 b.set_value(v);
-            }
+            },
             BroadcastMessage::Echo(p) => {
                 let mut e = EchoProto::new();
                 e.set_proof(ProofProto::from_proof(p));
                 b.set_echo(e);
-            }
+            },
             BroadcastMessage::Ready(h) => {
                 let mut r = ReadyProto::new();
                 r.set_root_hash(h);
                 b.set_ready(r);
-            }
+            },
         }
         b
     }
 
     pub fn from_proto(mut mp: BroadcastProto, algorithm: &'static Algorithm) -> Option<Self> {
         if mp.has_value() {
-            mp.take_value()
-                .take_proof()
-                .into_proof(algorithm)
-                .map(BroadcastMessage::Value)
+            mp.take_value().take_proof()
+              .into_proof(algorithm)
+              .map(BroadcastMessage::Value)
         } else if mp.has_echo() {
-            mp.take_echo()
-                .take_proof()
-                .into_proof(algorithm)
-                .map(BroadcastMessage::Echo)
+            mp.take_echo().take_proof()
+              .into_proof(algorithm)
+              .map(BroadcastMessage::Echo)
         } else if mp.has_ready() {
             let h = mp.take_ready().take_root_hash();
             Some(BroadcastMessage::Ready(h))
@@ -74,10 +72,10 @@ impl AgreementMessage {
         match self.content {
             AgreementContent::BVal(b) => {
                 p.set_bval(b);
-            }
+            },
             AgreementContent::Aux(b) => {
                 p.set_aux(b);
-            }
+            },
             AgreementContent::Conf(v) => {
                 let bin_values = match v {
                     BinValues::None => 0,
@@ -86,14 +84,14 @@ impl AgreementMessage {
                     BinValues::Both => 3,
                 };
                 p.set_conf(bin_values);
-            }
+            },
             AgreementContent::Term(b) => {
                 p.set_term(b);
-            }
+            },
             AgreementContent::Coin(ccm) => {
                 let v = ccm.to_sig().to_vec();
                 p.set_coin(v);
-            }
+            },
         }
         p
     }
@@ -150,22 +148,20 @@ impl ProofProto {
         proto
     }
 
-    pub fn into_proof<T: From<Vec<u8>>>(
-        mut self,
-        algorithm: &'static Algorithm,
-    ) -> Option<Proof<T>> {
+    pub fn into_proof<T: From<Vec<u8>>>(mut self,
+                                        algorithm: &'static Algorithm)
+                                        -> Option<Proof<T>>
+    {
         if !self.has_lemma() {
             return None;
         }
 
         self.take_lemma().into_lemma().map(|lemma| {
-            Proof::new(
-                algorithm,
-                self.take_root_hash(),
-                lemma,
-                self.take_value().into(),
-            )
-        })
+                                               Proof::new(algorithm,
+                                                          self.take_root_hash(),
+                                                          lemma,
+                                                          self.take_value().into())
+                                           })
     }
 }
 
@@ -174,11 +170,9 @@ impl LemmaProto {
         let mut proto = Self::new();
 
         match lemma {
-            Lemma {
-                node_hash,
-                sibling_hash,
-                sub_lemma,
-            } => {
+            Lemma { node_hash,
+                    sibling_hash,
+                    sub_lemma, } => {
                 proto.set_node_hash(node_hash);
 
                 if let Some(sub_proto) = sub_lemma.map(|l| Self::from_lemma(*l)) {
@@ -190,9 +184,9 @@ impl LemmaProto {
 
                     Some(Positioned::Right(hash)) => proto.set_right_sibling_hash(hash),
 
-                    None => {}
+                    None => {},
                 }
-            }
+            },
         }
 
         proto
@@ -213,20 +207,17 @@ impl LemmaProto {
             // If a `sub_lemma` is present is the Protobuf,
             // then we expect it to unserialize to a valid `Lemma`,
             // otherwise we return `None`
-            self.take_sub_lemma().into_lemma().map(|sub_lemma| Lemma {
-                node_hash,
-                sibling_hash,
-                sub_lemma: Some(Box::new(sub_lemma)),
-            })
+            self.take_sub_lemma().into_lemma()
+                .map(|sub_lemma| Lemma { node_hash,
+                                         sibling_hash,
+                                         sub_lemma: Some(Box::new(sub_lemma)), })
         } else {
             // We might very well not have a sub_lemma,
             // in which case we just set it to `None`,
             // but still return a potentially valid `Lemma`.
-            Some(Lemma {
-                node_hash,
-                sibling_hash,
-                sub_lemma: None,
-            })
+            Some(Lemma { node_hash,
+                         sibling_hash,
+                         sub_lemma: None, })
         }
     }
 }

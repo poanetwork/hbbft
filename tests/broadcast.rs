@@ -32,17 +32,15 @@ struct ProposeAdversary {
 
 impl ProposeAdversary {
     /// Creates a new replay adversary with the given message scheduler.
-    fn new(
-        scheduler: MessageScheduler,
-        good_nodes: BTreeSet<NodeUid>,
-        adv_nodes: BTreeSet<NodeUid>,
-    ) -> ProposeAdversary {
-        ProposeAdversary {
-            scheduler,
-            good_nodes,
-            adv_nodes,
-            has_sent: false,
-        }
+    fn new(scheduler: MessageScheduler,
+           good_nodes: BTreeSet<NodeUid>,
+           adv_nodes: BTreeSet<NodeUid>)
+           -> ProposeAdversary
+    {
+        ProposeAdversary { scheduler,
+                           good_nodes,
+                           adv_nodes,
+                           has_sent: false, }
     }
 }
 
@@ -60,12 +58,11 @@ impl Adversary<Broadcast<NodeUid>> for ProposeAdversary {
             return vec![];
         }
         self.has_sent = true;
-        let node_ids: BTreeSet<NodeUid> = self
-            .adv_nodes
-            .iter()
-            .chain(self.good_nodes.iter())
-            .cloned()
-            .collect();
+        let node_ids: BTreeSet<NodeUid> = self.adv_nodes
+                                              .iter()
+                                              .chain(self.good_nodes.iter())
+                                              .cloned()
+                                              .collect();
         let id = match self.adv_nodes.iter().next() {
             Some(id) => *id,
             None => return vec![],
@@ -76,12 +73,7 @@ impl Adversary<Broadcast<NodeUid>> for ProposeAdversary {
         let sk_set = SecretKeySet::random(self.adv_nodes.len(), &mut rng);
         let pk_set = sk_set.public_keys();
 
-        let netinfo = Rc::new(NetworkInfo::new(
-            id,
-            node_ids,
-            sk_set.secret_key_share(0),
-            pk_set,
-        ));
+        let netinfo = Rc::new(NetworkInfo::new(id, node_ids, sk_set.secret_key_share(0), pk_set));
         let mut bc = Broadcast::new(netinfo, id).expect("broadcast instance");
         bc.input(b"Fake news".to_vec()).expect("propose");
         bc.message_iter().map(|msg| (id, msg)).collect()
@@ -89,10 +81,10 @@ impl Adversary<Broadcast<NodeUid>> for ProposeAdversary {
 }
 
 /// Broadcasts a value from node 0 and expects all good nodes to receive it.
-fn test_broadcast<A: Adversary<Broadcast<NodeUid>>>(
-    mut network: TestNetwork<A, Broadcast<NodeUid>>,
-    proposed_value: &[u8],
-) {
+fn test_broadcast<A: Adversary<Broadcast<NodeUid>>>(mut network: TestNetwork<A,
+                                                                Broadcast<NodeUid>>,
+                                                    proposed_value: &[u8])
+{
     // This returns an error in all but the first test.
     let _ = env_logger::try_init();
 
@@ -115,21 +107,17 @@ fn new_broadcast(netinfo: Rc<NetworkInfo<NodeUid>>) -> Broadcast<NodeUid> {
 }
 
 fn test_broadcast_different_sizes<A, F>(new_adversary: F, proposed_value: &[u8])
-where
-    A: Adversary<Broadcast<NodeUid>>,
-    F: Fn(usize, usize) -> A,
+    where A: Adversary<Broadcast<NodeUid>>,
+          F: Fn(usize, usize) -> A
 {
     let mut rng = rand::thread_rng();
-    let sizes = (1..6)
-        .chain(once(rng.gen_range(6, 20)))
-        .chain(once(rng.gen_range(30, 50)));
+    let sizes = (1..6).chain(once(rng.gen_range(6, 20)))
+                      .chain(once(rng.gen_range(30, 50)));
     for size in sizes {
         let num_faulty_nodes = (size - 1) / 3;
         let num_good_nodes = size - num_faulty_nodes;
-        info!(
-            "Network size: {} good nodes, {} faulty nodes",
-            num_good_nodes, num_faulty_nodes
-        );
+        info!("Network size: {} good nodes, {} faulty nodes",
+              num_good_nodes, num_faulty_nodes);
         let adversary = |_| new_adversary(num_good_nodes, num_faulty_nodes);
         let network = TestNetwork::new(num_good_nodes, num_faulty_nodes, adversary, new_broadcast);
         test_broadcast(network, proposed_value);
@@ -141,10 +129,8 @@ fn test_8_broadcast_equal_leaves_silent() {
     let adversary = |_| SilentAdversary::new(MessageScheduler::Random);
     // Space is ASCII character 32. So 32 spaces will create shards that are all equal, even if the
     // length of the value is inserted.
-    test_broadcast(
-        TestNetwork::new(8, 0, adversary, new_broadcast),
-        &[b' '; 32],
-    );
+    test_broadcast(TestNetwork::new(8, 0, adversary, new_broadcast),
+                   &[b' '; 32]);
 }
 
 #[test]
@@ -163,9 +149,9 @@ fn test_broadcast_first_delivery_silent() {
 fn test_broadcast_random_delivery_adv_propose() {
     let new_adversary = |num_good_nodes: usize, num_faulty_nodes: usize| {
         let good_nodes: BTreeSet<NodeUid> = (0..num_good_nodes).map(NodeUid).collect();
-        let adv_nodes: BTreeSet<NodeUid> = (num_good_nodes..(num_good_nodes + num_faulty_nodes))
-            .map(NodeUid)
-            .collect();
+        let adv_nodes: BTreeSet<NodeUid> =
+            (num_good_nodes..(num_good_nodes + num_faulty_nodes)).map(NodeUid)
+                                                                 .collect();
         ProposeAdversary::new(MessageScheduler::Random, good_nodes, adv_nodes)
     };
     test_broadcast_different_sizes(new_adversary, b"Foo");
@@ -175,9 +161,9 @@ fn test_broadcast_random_delivery_adv_propose() {
 fn test_broadcast_first_delivery_adv_propose() {
     let new_adversary = |num_good_nodes: usize, num_faulty_nodes: usize| {
         let good_nodes: BTreeSet<NodeUid> = (0..num_good_nodes).map(NodeUid).collect();
-        let adv_nodes: BTreeSet<NodeUid> = (num_good_nodes..(num_good_nodes + num_faulty_nodes))
-            .map(NodeUid)
-            .collect();
+        let adv_nodes: BTreeSet<NodeUid> =
+            (num_good_nodes..(num_good_nodes + num_faulty_nodes)).map(NodeUid)
+                                                                 .collect();
         ProposeAdversary::new(MessageScheduler::First, good_nodes, adv_nodes)
     };
     test_broadcast_different_sizes(new_adversary, b"Foo");

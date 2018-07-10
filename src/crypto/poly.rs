@@ -126,9 +126,7 @@ impl<B: Borrow<Self>> ops::MulAssign<B> for Poly {
 impl Poly {
     /// Creates a random polynomial.
     pub fn random<R: Rng>(degree: usize, rng: &mut R) -> Self {
-        Poly {
-            coeff: (0..(degree + 1)).map(|_| rng.gen()).collect(),
-        }
+        Poly { coeff: (0..(degree + 1)).map(|_| rng.gen()).collect(), }
     }
 
     /// Returns the polynomial with constant value `0`.
@@ -153,20 +151,16 @@ impl Poly {
 
     /// Returns the (monic) monomial "`x.pow(degree)`".
     pub fn monomial(degree: usize) -> Self {
-        Poly {
-            coeff: iter::repeat(Fr::zero())
-                .take(degree)
-                .chain(iter::once(Fr::one()))
-                .collect(),
-        }
+        Poly { coeff: iter::repeat(Fr::zero()).take(degree)
+                                              .chain(iter::once(Fr::one()))
+                                              .collect(), }
     }
 
     /// Returns the unique polynomial `f` of degree `samples.len() - 1` with the given values
     /// `(x, f(x))`.
     pub fn interpolate<'a, T, I>(samples_repr: I) -> Self
-    where
-        I: IntoIterator<Item = (&'a T, &'a Fr)>,
-        T: Into<FrRepr> + Clone + 'a,
+        where I: IntoIterator<Item = (&'a T, &'a Fr)>,
+              T: Into<FrRepr> + Clone + 'a
     {
         let convert = |(x_repr, y): (&T, &Fr)| {
             let x = Fr::from_repr(x_repr.clone().into()).expect("invalid index");
@@ -198,9 +192,7 @@ impl Poly {
     /// Returns the corresponding commitment.
     pub fn commitment(&self) -> Commitment {
         let to_g1 = |c: &Fr| G1Affine::one().mul(*c);
-        Commitment {
-            coeff: self.coeff.iter().map(to_g1).collect(),
-        }
+        Commitment { coeff: self.coeff.iter().map(to_g1).collect(), }
     }
 
     /// Removes all trailing zero coefficients.
@@ -330,10 +322,8 @@ pub struct BivarPoly {
 impl BivarPoly {
     /// Creates a random polynomial.
     pub fn random<R: Rng>(degree: usize, rng: &mut R) -> Self {
-        BivarPoly {
-            degree,
-            coeff: (0..coeff_pos(degree + 1, 0)).map(|_| rng.gen()).collect(),
-        }
+        BivarPoly { degree,
+                    coeff: (0..coeff_pos(degree + 1, 0)).map(|_| rng.gen()).collect(), }
     }
 
     /// Returns the polynomial's degree: It is the same in both variables.
@@ -361,27 +351,25 @@ impl BivarPoly {
     /// Returns the `x`-th row, as a univariate polynomial.
     pub fn row<T: Into<FrRepr>>(&self, x: T) -> Poly {
         let x_pow = self.powers(x);
-        let coeff: Vec<Fr> = (0..=self.degree)
-            .map(|i| {
-                let mut result = Fr::zero();
-                for (j, x_pow_j) in x_pow.iter().enumerate() {
-                    let mut summand = self.coeff[coeff_pos(i, j)];
-                    summand.mul_assign(x_pow_j);
-                    result.add_assign(&summand);
-                }
-                result
-            })
-            .collect();
+        let coeff: Vec<Fr> =
+            (0..=self.degree).map(|i| {
+                                      let mut result = Fr::zero();
+                                      for (j, x_pow_j) in x_pow.iter().enumerate() {
+                                          let mut summand = self.coeff[coeff_pos(i, j)];
+                                          summand.mul_assign(x_pow_j);
+                                          result.add_assign(&summand);
+                                      }
+                                      result
+                                  })
+                             .collect();
         Poly { coeff }
     }
 
     /// Returns the corresponding commitment. That information can be shared publicly.
     pub fn commitment(&self) -> BivarCommitment {
         let to_pub = |c: &Fr| G1Affine::one().mul(*c);
-        BivarCommitment {
-            degree: self.degree,
-            coeff: self.coeff.iter().map(to_pub).collect(),
-        }
+        BivarCommitment { degree: self.degree,
+                          coeff: self.coeff.iter().map(to_pub).collect(), }
     }
 
     /// Returns the `0`-th to `degree`-th power of `x`.
@@ -435,17 +423,17 @@ impl BivarCommitment {
     /// Returns the `x`-th row, as a commitment to a univariate polynomial.
     pub fn row<T: Into<FrRepr>>(&self, x: T) -> Commitment {
         let x_pow = self.powers(x);
-        let coeff: Vec<G1> = (0..=self.degree)
-            .map(|i| {
-                let mut result = G1::zero();
-                for (j, x_pow_j) in x_pow.iter().enumerate() {
-                    let mut summand = self.coeff[coeff_pos(i, j)];
-                    summand.mul_assign(*x_pow_j);
-                    result.add_assign(&summand);
-                }
-                result
-            })
-            .collect();
+        let coeff: Vec<G1> =
+            (0..=self.degree).map(|i| {
+                                      let mut result = G1::zero();
+                                      for (j, x_pow_j) in x_pow.iter().enumerate() {
+                                          let mut summand = self.coeff[coeff_pos(i, j)];
+                                          summand.mul_assign(*x_pow_j);
+                                          result.add_assign(&summand);
+                                      }
+                                      result
+                                  })
+                             .collect();
         Commitment { coeff }
     }
 
@@ -459,12 +447,11 @@ impl BivarCommitment {
 fn powers<P: PrimeField, T: Into<P::Repr>>(x_repr: T, degree: usize) -> Vec<P> {
     let x = &P::from_repr(x_repr.into()).expect("invalid index");
     let mut x_pow_i = P::one();
-    iter::once(x_pow_i)
-        .chain((0..degree).map(|_| {
-            x_pow_i.mul_assign(x);
-            x_pow_i
-        }))
-        .collect()
+    iter::once(x_pow_i).chain((0..degree).map(|_| {
+                                                  x_pow_i.mul_assign(x);
+                                                  x_pow_i
+                                              }))
+                       .collect()
 }
 
 /// Returns the position of coefficient `(i, j)` in the vector describing a symmetric bivariate
@@ -518,12 +505,10 @@ mod tests {
             Poly::monomial(3) * Poly::constant(fr(5)) + Poly::monomial(1) - Poly::constant(fr(2));
         let coeff = vec![fr(-2), fr(1), fr(0), fr(5)];
         assert_eq!(Poly { coeff }, poly);
-        let samples = vec![
-            (fr(-1), fr(-8)),
-            (fr(2), fr(40)),
-            (fr(3), fr(136)),
-            (fr(5), fr(628)),
-        ];
+        let samples = vec![(fr(-1), fr(-8)),
+                           (fr(2), fr(40)),
+                           (fr(3), fr(136)),
+                           (fr(5), fr(628)),];
         for &(x, y) in &samples {
             assert_eq!(y, poly.evaluate(x));
         }
@@ -541,9 +526,9 @@ mod tests {
         // For distributed key generation, a number of dealers, only one of who needs to be honest,
         // generates random bivariate polynomials and publicly commits to them. In partice, the
         // dealers can e.g. be any `faulty_num + 1` nodes.
-        let bi_polys: Vec<BivarPoly> = (0..dealer_num)
-            .map(|_| BivarPoly::random(faulty_num, &mut rng))
-            .collect();
+        let bi_polys: Vec<BivarPoly> =
+            (0..dealer_num).map(|_| BivarPoly::random(faulty_num, &mut rng))
+                           .collect();
         let pub_bi_commits: Vec<_> = bi_polys.iter().map(BivarPoly::commitment).collect();
 
         let mut sec_keys = vec![fr(0); node_num];
@@ -577,10 +562,10 @@ mod tests {
                 // reconstruct the full row and in particular value `0` (which no other node knows,
                 // only the dealer). E.g. let's say nodes `1`, `2` and `4` are honest. Then node
                 // `m` received three correct entries from that row:
-                let received: BTreeMap<_, _> = [1, 2, 4]
-                    .iter()
-                    .map(|&i| (i, bi_poly.evaluate(m as u64, i as u64)))
-                    .collect();
+                let received: BTreeMap<_, _> =
+                    [1, 2, 4].iter()
+                             .map(|&i| (i, bi_poly.evaluate(m as u64, i as u64)))
+                             .collect();
                 let my_row = Poly::interpolate(&received);
                 assert_eq!(bi_poly.evaluate(m as u64, 0), my_row.evaluate(0));
                 assert_eq!(row_poly, my_row);
