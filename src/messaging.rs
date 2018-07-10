@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fmt::Debug;
 
 use clear_on_drop::ClearOnDrop;
@@ -57,7 +57,7 @@ pub struct Step<N, O>
 where
     N: Clone,
 {
-    pub output: Option<O>,
+    pub output: VecDeque<O>,
     pub fault_log: FaultLog<N>,
 }
 
@@ -67,7 +67,7 @@ where
 {
     fn default() -> Step<N, O> {
         Step {
-            output: None,
+            output: Default::default(),
             fault_log: FaultLog::default(),
         }
     }
@@ -77,16 +77,11 @@ impl<N, O> Step<N, O>
 where
     N: Clone,
 {
-    pub fn new(output: Option<O>) -> Self {
+    pub fn new(output: VecDeque<O>, fault_log: FaultLog<N>) -> Self {
         Step {
             output,
-            fault_log: FaultLog::default(),
+            fault_log,
         }
-    }
-
-    pub fn with_fault_log(&mut self, fault_log: FaultLog<N>) -> &mut Self {
-        self.fault_log = fault_log;
-        self
     }
 }
 

@@ -15,7 +15,7 @@ pub struct NodeUid(pub usize);
 /// A "node" running an instance of the algorithm `D`.
 pub struct TestNode<D: DistAlgorithm> {
     /// This node's own ID.
-    id: D::NodeUid,
+    pub id: D::NodeUid,
     /// The instance of the broadcast algorithm.
     algo: D,
     /// Incoming messages from other nodes that this node has not yet handled.

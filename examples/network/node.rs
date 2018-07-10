@@ -149,14 +149,14 @@ impl<T: Clone + Debug + AsRef<[u8]> + PartialEq + Send + Sync + From<Vec<u8>> + 
                     let message = rx_to_algo.recv().expect("receive from algo");
                     let SourcedMessage { source: i, message } = message;
                     debug!("{} received from {}: {:?}", our_id, i, message);
-                    broadcast
+                    let step = broadcast
                         .handle_message(&i, message)
                         .expect("handle broadcast message");
                     for msg in broadcast.message_iter() {
                         debug!("{} sending to {:?}: {:?}", our_id, msg.target, msg.message);
                         tx_from_algo.send(msg).expect("send from algo");
                     }
-                    if let Some(output) = broadcast.next_output() {
+                    if let Some(output) = step.output.into_iter().next() {
                         println!(
                             "Broadcast succeeded! Node {} output: {}",
                             our_id,

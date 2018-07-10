@@ -66,6 +66,10 @@ where
                 }
             }
         }
+        debug!(
+            "{:?} min_missing {}, num_txs {}",
+            node.id, min_missing, num_txs
+        );
         if min_missing < num_txs {
             return true;
         }

@@ -3,7 +3,6 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fmt::Debug;
 use std::hash::Hash;
 use std::marker::PhantomData;
-use std::mem::replace;
 use std::ops::Not;
 use std::sync::Arc;
 
@@ -73,7 +72,7 @@ where
             common_subsets: BTreeMap::new(),
             max_future_epochs: self.max_future_epochs as u64,
             messages: MessageQueue(VecDeque::new()),
-            output: None,
+            output: Vec::new(),
             incoming_queue: BTreeMap::new(),
             received_shares: BTreeMap::new(),
             decrypted_contributions: BTreeMap::new(),
@@ -97,8 +96,8 @@ pub struct HoneyBadger<C, NodeUid> {
     max_future_epochs: u64,
     /// The messages that need to be sent to other nodes.
     messages: MessageQueue<NodeUid>,
-    /// The output from a completed epoch.
-    output: Option<Batch<C, NodeUid>>,
+    /// The outputs from completed epochs.
+    pub(crate) output: Vec<Batch<C, NodeUid>>,
     /// Messages for future epochs that couldn't be handled yet.
     incoming_queue: BTreeMap<u64, Vec<(NodeUid, MessageContent<NodeUid>)>>,
     /// Received decryption shares for an epoch. Each decryption share has a sender and a
@@ -126,7 +125,7 @@ where
 
     fn input(&mut self, input: Self::Input) -> HoneyBadgerResult<HoneyBadgerStep<C, NodeUid>> {
         let fault_log = self.propose(&input)?;
-        self.step().with_fault_log(fault_log)
+        self.step(fault_log)
     }
 
     fn handle_message(
@@ -148,7 +147,7 @@ where
         } else if epoch == self.epoch {
             fault_log.extend(self.handle_message_content(sender_id, epoch, content)?);
         } // And ignore all messages from past epochs.
-        self.step().with_fault_log(fault_log)
+        self.step(fault_log)
     }
 
     fn next_message(&mut self) -> Option<TargetedMessage<Self::Message, NodeUid>> {
@@ -175,8 +174,11 @@ where
         HoneyBadgerBuilder::new(netinfo)
     }
 
-    fn step(&mut self) -> HoneyBadgerResult<HoneyBadgerStep<C, NodeUid>> {
-        Ok(Step::new(replace(&mut self.output, Default::default())))
+    fn step(
+        &mut self,
+        fault_log: FaultLog<NodeUid>,
+    ) -> HoneyBadgerResult<HoneyBadgerStep<C, NodeUid>> {
+        Ok(Step::new(self.output.drain(0..).collect(), fault_log))
     }
 
     /// Proposes a new item in the current epoch.
@@ -192,10 +194,11 @@ where
         };
         let ser_prop = bincode::serialize(&proposal)?;
         let ciphertext = self.netinfo.public_key_set().public_key().encrypt(ser_prop);
-        let fault_log = cs.input(bincode::serialize(&ciphertext).unwrap())?;
+        let step = cs.input(bincode::serialize(&ciphertext).unwrap())?;
+        // FIXME: Use `step.output`.
         self.has_input = true;
         self.messages.extend_with_epoch(self.epoch, cs);
-        Ok(fault_log)
+        Ok(step.fault_log)
     }
 
     /// Returns `true` if input for the current epoch has already been provided.
@@ -242,10 +245,9 @@ where
                 }
             };
             // Handle the message and put the outgoing messages into the queue.
-            let step = cs.handle_message(sender_id, message)?;
-            fault_log.extend(step.fault_log);
+            let cs_step = cs.handle_message(sender_id, message)?;
             self.messages.extend_with_epoch(epoch, cs);
-            step
+            cs_step
         };
         // If this is the current epoch, the message could cause a new output.
         if epoch == self.epoch {
@@ -347,7 +349,7 @@ where
             batch.contributions
         );
         // Queue the output and advance the epoch.
-        self.output = Some(batch);
+        self.output.push(batch);
         fault_log.extend(self.update_epoch()?);
         Ok(fault_log)
     }
@@ -552,7 +554,8 @@ where
         step: CommonSubsetStep<NodeUid>,
     ) -> HoneyBadgerResult<FaultLog<NodeUid>> {
         let mut fault_log = FaultLog::new();
-        if let Some(cs_output) = step.output {
+        fault_log.extend(step.fault_log);
+        for cs_output in step.output {
             fault_log.extend(self.send_decryption_shares(cs_output)?);
             // TODO: May also check that there is no further output from Common Subset.
         }

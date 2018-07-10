@@ -99,7 +99,7 @@ where
         } else {
             FaultLog::new()
         };
-        self.step().with_fault_log(fault_log)
+        self.step(fault_log)
     }
 
     /// Receives input from a remote node.
@@ -114,7 +114,7 @@ where
         } else {
             FaultLog::default()
         };
-        self.step().with_fault_log(fault_log)
+        self.step(fault_log)
     }
 
     /// Takes the next share of a threshold signature message for multicasting to all other nodes.
@@ -151,8 +151,11 @@ where
         }
     }
 
-    fn step(&mut self) -> Result<CommonCoinStep<NodeUid>> {
-        Ok(Step::new(self.output.take()))
+    fn step(&mut self, fault_log: FaultLog<NodeUid>) -> Result<CommonCoinStep<NodeUid>> {
+        Ok(Step::new(
+            self.output.take().into_iter().collect(),
+            fault_log,
+        ))
     }
 
     fn get_coin(&mut self) -> Result<FaultLog<NodeUid>> {

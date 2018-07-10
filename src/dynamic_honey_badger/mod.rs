@@ -131,7 +131,7 @@ where
             Input::User(contrib) => self.propose(contrib)?,
             Input::Change(change) => self.vote_for(change).map(|()| FaultLog::new())?,
         };
-        self.step().with_fault_log(fault_log)
+        self.step(fault_log)
     }
 
     fn handle_message(
@@ -161,7 +161,7 @@ where
                 }
             }
         };
-        self.step().with_fault_log(fault_log)
+        self.step(fault_log)
     }
 
     fn next_message(&mut self) -> Option<TargetedMessage<Self::Message, NodeUid>> {
@@ -182,8 +182,8 @@ where
     C: Eq + Serialize + for<'r> Deserialize<'r> + Debug + Hash,
     NodeUid: Eq + Ord + Clone + Debug + Serialize + for<'r> Deserialize<'r> + Hash,
 {
-    fn step(&mut self) -> Result<DynamicHoneyBadgerStep<C, NodeUid>> {
-        Ok(Step::new(self.output.drain(0..).collect()))
+    fn step(&mut self, fault_log: FaultLog<NodeUid>) -> Result<DynamicHoneyBadgerStep<C, NodeUid>> {
+        Ok(Step::new(self.output.drain(0..).collect(), fault_log))
     }
 
     /// Returns a new `DynamicHoneyBadgerBuilder` configured to use the node IDs and cryptographic
@@ -199,7 +199,6 @@ where
 
     /// Proposes a contribution in the current epoch.
     pub fn propose(&mut self, contrib: C) -> Result<FaultLog<NodeUid>> {
-        let mut fault_log = FaultLog::new();
         let step = self.honey_badger.input(InternalContrib {
             contrib,
             key_gen_messages: self.key_gen_msg_buffer.clone(),
@@ -252,7 +251,7 @@ where
         self.key_gen_msg_buffer.push(tx);
         // FIXME: Remove the call to `process_output`. There wasn't any output from HB in this
         // function.
-        self.process_output()
+        self.process_output(Default::default())
     }
 
     /// Processes all pending batches output by Honey Badger.
@@ -263,7 +262,7 @@ where
         let mut fault_log = FaultLog::new();
         fault_log.extend(step.fault_log);
         let start_epoch = self.start_epoch;
-        while let Some(hb_batch) = step.output.iter().next() {
+        for hb_batch in step.output {
             // Create the batch we output ourselves. It will contain the _user_ transactions of
             // `hb_batch`, and the current change state.
             let mut batch = Batch::new(hb_batch.epoch + self.start_epoch);

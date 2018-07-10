@@ -25,7 +25,6 @@
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fmt::Debug;
-use std::mem::replace;
 use std::sync::Arc;
 
 use agreement::{self, Agreement, AgreementMessage, AgreementStep};
@@ -118,7 +117,7 @@ impl<NodeUid: Clone + Debug + Ord> DistAlgorithm for CommonSubset<NodeUid> {
             HexBytes(&input)
         );
         let fault_log = self.send_proposed_value(input)?;
-        self.step().with_fault_log(fault_log)
+        self.step(fault_log)
     }
 
     fn handle_message(
@@ -130,7 +129,7 @@ impl<NodeUid: Clone + Debug + Ord> DistAlgorithm for CommonSubset<NodeUid> {
             Message::Broadcast(p_id, b_msg) => self.handle_broadcast(sender_id, &p_id, b_msg)?,
             Message::Agreement(p_id, a_msg) => self.handle_agreement(sender_id, &p_id, a_msg)?,
         };
-        self.step().with_fault_log(fault_log)
+        self.step(fault_log)
     }
 
     fn next_message(&mut self) -> Option<TargetedMessage<Self::Message, Self::NodeUid>> {
@@ -178,8 +177,14 @@ impl<NodeUid: Clone + Debug + Ord> CommonSubset<NodeUid> {
         })
     }
 
-    fn step(&mut self) -> CommonSubsetResult<CommonSubsetStep<NodeUid>> {
-        Ok(Step::new(replace(&mut self.output, None)))
+    fn step(
+        &mut self,
+        fault_log: FaultLog<NodeUid>,
+    ) -> CommonSubsetResult<CommonSubsetStep<NodeUid>> {
+        Ok(Step::new(
+            self.output.take().into_iter().collect(),
+            fault_log,
+        ))
     }
 
     /// Common Subset input message handler. It receives a value for broadcast
@@ -240,7 +245,7 @@ impl<NodeUid: Clone + Debug + Ord> CommonSubset<NodeUid> {
             let step = f(broadcast)?;
             fault_log.extend(step.fault_log);
             self.messages.extend_broadcast(&proposer_id, broadcast);
-            if let Some(output) = step.output {
+            if let Some(output) = step.output.into_iter().next() {
                 output
             } else {
                 return Ok(fault_log);
@@ -282,7 +287,7 @@ impl<NodeUid: Clone + Debug + Ord> CommonSubset<NodeUid> {
             let step = f(agreement)?;
             fault_log.extend(step.fault_log);
             self.messages.extend_agreement(proposer_id, agreement);
-            if let Some(output) = step.output {
+            if let Some(output) = step.output.into_iter().next() {
                 output
             } else {
                 return Ok(fault_log);
@@ -306,10 +311,10 @@ impl<NodeUid: Clone + Debug + Ord> CommonSubset<NodeUid> {
             // input 0 to each instance of BA that has not yet been provided input.
             for (uid, agreement) in &mut self.agreement_instances {
                 if agreement.accepts_input() {
-                    let step = agreement.set_input(false)?;
+                    let step = agreement.input(false)?;
                     fault_log.extend(step.fault_log);
                     self.messages.extend_agreement(uid, agreement);
-                    if let Some(output) = step.output {
+                    if let Some(output) = step.output.into_iter().next() {
                         if self.agreement_results.insert(uid.clone(), output).is_some() {
                             return Err(ErrorKind::MultipleAgreementResults.into());
                         }

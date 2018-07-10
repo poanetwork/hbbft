@@ -148,7 +148,7 @@ where
                 step.fault_log
             }
         };
-        self.step().with_fault_log(fault_log)
+        self.step(fault_log)
     }
 
     fn handle_message(
@@ -157,16 +157,16 @@ where
         message: Self::Message,
     ) -> Result<QueueingHoneyBadgerStep<Tx, NodeUid>> {
         let step = self.dyn_hb.handle_message(sender_id, message)?;
-        let fault_log = FaultLog::new();
+        let mut fault_log = FaultLog::new();
         fault_log.extend(step.fault_log);
-        if let Some(batch) = step.output {
+        for batch in step.output {
             self.queue.remove_all(batch.iter());
             self.output.push_back(batch);
         }
         if !self.dyn_hb.has_input() {
             fault_log.extend(self.propose()?);
         }
-        self.step().with_fault_log(fault_log)
+        self.step(fault_log)
     }
 
     fn next_message(&mut self) -> Option<TargetedMessage<Self::Message, NodeUid>> {
@@ -193,8 +193,11 @@ where
         QueueingHoneyBadgerBuilder::new(netinfo)
     }
 
-    fn step(&mut self) -> Result<QueueingHoneyBadgerStep<Tx, NodeUid>> {
-        Ok(Step::new(self.output.take()))
+    fn step(
+        &mut self,
+        fault_log: FaultLog<NodeUid>,
+    ) -> Result<QueueingHoneyBadgerStep<Tx, NodeUid>> {
+        Ok(Step::new(self.output.drain(0..).collect(), fault_log))
     }
 
     /// Initiates the next epoch by proposing a batch from the queue.

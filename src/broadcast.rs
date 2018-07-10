@@ -44,7 +44,6 @@
 use std::collections::{BTreeMap, VecDeque};
 use std::fmt::{self, Debug};
 use std::iter::once;
-use std::mem::replace;
 use std::sync::Arc;
 
 use byteorder::{BigEndian, ByteOrder};
@@ -140,7 +139,7 @@ impl<NodeUid: Debug + Clone + Ord> DistAlgorithm for Broadcast<NodeUid> {
         let proof = self.send_shards(input)?;
         let our_uid = &self.netinfo.our_uid().clone();
         let fault_log = self.handle_value(our_uid, proof)?;
-        self.step().with_fault_log(fault_log)
+        self.step(fault_log)
     }
 
     fn handle_message(
@@ -155,10 +154,10 @@ impl<NodeUid: Debug + Clone + Ord> DistAlgorithm for Broadcast<NodeUid> {
             BroadcastMessage::Value(p) => self.handle_value(sender_id, p)?,
             BroadcastMessage::Echo(p) => self.handle_echo(sender_id, p)?,
             BroadcastMessage::Ready(ref hash) => self
-                .handle_ready(sender_id, hash)?
-                .map(|()| FaultLog::new()),
+                .handle_ready(sender_id, hash)
+                .map(|()| FaultLog::new())?,
         };
-        self.step().with_fault_log(fault_log)
+        self.step(fault_log)
     }
 
     fn next_message(&mut self) -> Option<TargetedMessage<Self::Message, NodeUid>> {
@@ -197,8 +196,11 @@ impl<NodeUid: Debug + Clone + Ord> Broadcast<NodeUid> {
         })
     }
 
-    fn step(&mut self) -> BroadcastResult<BroadcastStep<NodeUid>> {
-        Ok(Step::new(replace(&mut self.output, None)))
+    fn step(&mut self, fault_log: FaultLog<NodeUid>) -> BroadcastResult<BroadcastStep<NodeUid>> {
+        Ok(Step::new(
+            self.output.take().into_iter().collect(),
+            fault_log,
+        ))
     }
 
     /// Breaks the input value into shards of equal length and encodes them --
