@@ -27,10 +27,8 @@ pub enum Target<N> {
 impl<N> Target<N> {
     /// Returns a `TargetedMessage` with this target, and the given message.
     pub fn message<M>(self, message: M) -> TargetedMessage<M, N> {
-        TargetedMessage {
-            target: self,
-            message,
-        }
+        TargetedMessage { target: self,
+                          message, }
     }
 }
 
@@ -44,10 +42,8 @@ pub struct TargetedMessage<M, N> {
 impl<M, N> TargetedMessage<M, N> {
     /// Applies the given transformation of messages, preserving the target.
     pub fn map<T, F: Fn(M) -> T>(self, f: F) -> TargetedMessage<T, N> {
-        TargetedMessage {
-            target: self.target,
-            message: f(self.message),
-        }
+        TargetedMessage { target: self.target,
+                          message: f(self.message), }
     }
 }
 
@@ -69,11 +65,10 @@ pub trait DistAlgorithm {
     fn input(&mut self, input: Self::Input) -> Result<FaultLog<Self::NodeUid>, Self::Error>;
 
     /// Handles a message received from node `sender_id`.
-    fn handle_message(
-        &mut self,
-        sender_id: &Self::NodeUid,
-        message: Self::Message,
-    ) -> Result<FaultLog<Self::NodeUid>, Self::Error>;
+    fn handle_message(&mut self,
+                      sender_id: &Self::NodeUid,
+                      message: Self::Message)
+                      -> Result<FaultLog<Self::NodeUid>, Self::Error>;
 
     /// Returns a message that needs to be sent to another node.
     fn next_message(&mut self) -> Option<TargetedMessage<Self::Message, Self::NodeUid>>;
@@ -89,17 +84,13 @@ pub trait DistAlgorithm {
 
     /// Returns an iterator over the outgoing messages.
     fn message_iter(&mut self) -> MessageIter<Self>
-    where
-        Self: Sized,
-    {
+        where Self: Sized {
         MessageIter { algorithm: self }
     }
 
     /// Returns an iterator over the algorithm's outputs.
     fn output_iter(&mut self) -> OutputIter<Self>
-    where
-        Self: Sized,
-    {
+        where Self: Sized {
         OutputIter { algorithm: self }
     }
 }
@@ -151,34 +142,31 @@ pub struct NetworkInfo<NodeUid> {
 }
 
 impl<NodeUid: Clone + Ord> NetworkInfo<NodeUid> {
-    pub fn new(
-        our_uid: NodeUid,
-        all_uids: BTreeSet<NodeUid>,
-        secret_key: ClearOnDrop<Box<SecretKey>>,
-        public_key_set: PublicKeySet,
-    ) -> Self {
+    pub fn new(our_uid: NodeUid,
+               all_uids: BTreeSet<NodeUid>,
+               secret_key: ClearOnDrop<Box<SecretKey>>,
+               public_key_set: PublicKeySet)
+               -> Self
+    {
         let num_nodes = all_uids.len();
         let is_validator = all_uids.contains(&our_uid);
-        let node_indices: BTreeMap<NodeUid, usize> = all_uids
-            .iter()
-            .enumerate()
-            .map(|(n, id)| (id.clone(), n))
-            .collect();
-        let public_keys = node_indices
-            .iter()
-            .map(|(id, idx)| (id.clone(), public_key_set.public_key_share(*idx as u64)))
-            .collect();
-        NetworkInfo {
-            our_uid,
-            all_uids,
-            num_nodes,
-            num_faulty: (num_nodes - 1) / 3,
-            is_validator,
-            secret_key,
-            public_key_set,
-            public_keys,
-            node_indices,
-        }
+        let node_indices: BTreeMap<NodeUid, usize> = all_uids.iter()
+                                                             .enumerate()
+                                                             .map(|(n, id)| (id.clone(), n))
+                                                             .collect();
+        let public_keys =
+            node_indices.iter()
+                        .map(|(id, idx)| (id.clone(), public_key_set.public_key_share(*idx as u64)))
+                        .collect();
+        NetworkInfo { our_uid,
+                      all_uids,
+                      num_nodes,
+                      num_faulty: (num_nodes - 1) / 3,
+                      is_validator,
+                      secret_key,
+                      public_key_set,
+                      public_keys,
+                      node_indices, }
     }
 
     /// The ID of the node the algorithm runs on.

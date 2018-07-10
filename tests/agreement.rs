@@ -34,10 +34,10 @@ use hbbft::messaging::NetworkInfo;
 
 use network::{Adversary, MessageScheduler, NodeUid, SilentAdversary, TestNetwork, TestNode};
 
-fn test_agreement<A: Adversary<Agreement<NodeUid>>>(
-    mut network: TestNetwork<A, Agreement<NodeUid>>,
-    input: Option<bool>,
-) {
+fn test_agreement<A: Adversary<Agreement<NodeUid>>>(mut network: TestNetwork<A,
+                                                                Agreement<NodeUid>>,
+                                                    input: Option<bool>)
+{
     let ids: Vec<NodeUid> = network.nodes.keys().cloned().collect();
     for id in ids {
         network.input(id, input.unwrap_or_else(rand::random));
@@ -61,24 +61,19 @@ fn test_agreement<A: Adversary<Agreement<NodeUid>>>(
 }
 
 fn test_agreement_different_sizes<A, F>(new_adversary: F)
-where
-    A: Adversary<Agreement<NodeUid>>,
-    F: Fn(usize, usize) -> A,
-{
+    where A: Adversary<Agreement<NodeUid>>,
+          F: Fn(usize, usize) -> A {
     // This returns an error in all but the first test.
     let _ = env_logger::try_init();
 
     let mut rng = rand::thread_rng();
-    let sizes = (1..6)
-        .chain(once(rng.gen_range(6, 20)))
-        .chain(once(rng.gen_range(30, 50)));
+    let sizes = (1..6).chain(once(rng.gen_range(6, 20)))
+                      .chain(once(rng.gen_range(30, 50)));
     for size in sizes {
         let num_faulty_nodes = (size - 1) / 3;
         let num_good_nodes = size - num_faulty_nodes;
-        info!(
-            "Network size: {} good nodes, {} faulty nodes",
-            num_good_nodes, num_faulty_nodes
-        );
+        info!("Network size: {} good nodes, {} faulty nodes",
+              num_good_nodes, num_faulty_nodes);
         for &input in &[None, Some(false), Some(true)] {
             let adversary = |_| new_adversary(num_good_nodes, num_faulty_nodes);
             let new_agreement = |netinfo: Rc<NetworkInfo<NodeUid>>| {

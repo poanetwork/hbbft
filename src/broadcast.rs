@@ -139,11 +139,11 @@ impl<NodeUid: Debug + Clone + Ord> DistAlgorithm for Broadcast<NodeUid> {
         self.handle_value(our_uid, proof)
     }
 
-    fn handle_message(
-        &mut self,
-        sender_id: &NodeUid,
-        message: Self::Message,
-    ) -> BroadcastResult<FaultLog<NodeUid>> {
+    fn handle_message(&mut self,
+                      sender_id: &NodeUid,
+                      message: Self::Message)
+                      -> BroadcastResult<FaultLog<NodeUid>>
+    {
         if !self.netinfo.all_uids().contains(sender_id) {
             return Err(ErrorKind::UnknownSender.into());
         }
@@ -152,7 +152,7 @@ impl<NodeUid: Debug + Clone + Ord> DistAlgorithm for Broadcast<NodeUid> {
             BroadcastMessage::Echo(p) => self.handle_echo(sender_id, p),
             BroadcastMessage::Ready(ref hash) => {
                 self.handle_ready(sender_id, hash).map(|()| FaultLog::new())
-            }
+            },
         }
     }
 
@@ -181,19 +181,17 @@ impl<NodeUid: Debug + Clone + Ord> Broadcast<NodeUid> {
         let data_shard_num = netinfo.num_nodes() - parity_shard_num;
         let coding = Coding::new(data_shard_num, parity_shard_num)?;
 
-        Ok(Broadcast {
-            netinfo,
-            proposer_id,
-            data_shard_num,
-            coding,
-            echo_sent: false,
-            ready_sent: false,
-            decided: false,
-            echos: BTreeMap::new(),
-            readys: BTreeMap::new(),
-            messages: VecDeque::new(),
-            output: None,
-        })
+        Ok(Broadcast { netinfo,
+                       proposer_id,
+                       data_shard_num,
+                       coding,
+                       echo_sent: false,
+                       ready_sent: false,
+                       decided: false,
+                       echos: BTreeMap::new(),
+                       readys: BTreeMap::new(),
+                       messages: VecDeque::new(),
+                       output: None, })
     }
 
     /// Breaks the input value into shards of equal length and encodes them --
@@ -205,10 +203,8 @@ impl<NodeUid: Debug + Clone + Ord> Broadcast<NodeUid> {
         let data_shard_num = self.coding.data_shard_count();
         let parity_shard_num = self.coding.parity_shard_count();
 
-        debug!(
-            "Data shards: {}, parity shards: {}",
-            self.data_shard_num, parity_shard_num
-        );
+        debug!("Data shards: {}, parity shards: {}",
+               self.data_shard_num, parity_shard_num);
         // Insert the length of `v` so it can be decoded without the padding.
         let payload_len = value.len() as u32;
         value.splice(0..0, 0..4); // Insert four bytes at the beginning.
@@ -234,19 +230,18 @@ impl<NodeUid: Debug + Clone + Ord> Broadcast<NodeUid> {
         debug!("Shards before encoding: {:?}", HexList(&shards));
 
         // Construct the parity chunks/shards
-        self.coding
-            .encode(&mut shards)
+        self.coding.encode(&mut shards)
             .expect("the size and number of shards is correct");
 
         debug!("Shards: {:?}", HexList(&shards));
 
         // TODO: `MerkleTree` generates the wrong proof if a leaf occurs more than once, so we
         // prepend an "index byte" to each shard. Consider using the `merkle_light` crate instead.
-        let shards_t: Vec<Vec<u8>> = shards
-            .into_iter()
-            .enumerate()
-            .map(|(i, s)| once(i as u8).chain(s.iter().cloned()).collect())
-            .collect();
+        let shards_t: Vec<Vec<u8>> =
+            shards.into_iter()
+                  .enumerate()
+                  .map(|(i, s)| once(i as u8).chain(s.iter().cloned()).collect())
+                  .collect();
 
         // Convert the Merkle tree into a partial binary tree for later
         // deconstruction into compound branches.
@@ -258,9 +253,8 @@ impl<NodeUid: Debug + Clone + Ord> Broadcast<NodeUid> {
 
         // Send each proof to a node.
         for (leaf_value, uid) in mtree.iter().zip(self.netinfo.all_uids()) {
-            let proof = mtree
-                .gen_proof(leaf_value.to_vec())
-                .ok_or(ErrorKind::ProofConstructionFailed)?;
+            let proof = mtree.gen_proof(leaf_value.to_vec())
+                             .ok_or(ErrorKind::ProofConstructionFailed)?;
             if *uid == *self.netinfo.our_uid() {
                 // The proof is addressed to this node.
                 result = Ok(proof);
@@ -275,27 +269,23 @@ impl<NodeUid: Debug + Clone + Ord> Broadcast<NodeUid> {
     }
 
     /// Handles a received echo and verifies the proof it contains.
-    fn handle_value(
-        &mut self,
-        sender_id: &NodeUid,
-        p: Proof<Vec<u8>>,
-    ) -> BroadcastResult<FaultLog<NodeUid>> {
+    fn handle_value(&mut self,
+                    sender_id: &NodeUid,
+                    p: Proof<Vec<u8>>)
+                    -> BroadcastResult<FaultLog<NodeUid>>
+    {
         // If the sender is not the proposer or if this is not the first `Value`, ignore.
         if *sender_id != self.proposer_id {
-            info!(
-                "Node {:?} received Value from {:?} instead of {:?}.",
-                self.netinfo.our_uid(),
-                sender_id,
-                self.proposer_id
-            );
+            info!("Node {:?} received Value from {:?} instead of {:?}.",
+                  self.netinfo.our_uid(),
+                  sender_id,
+                  self.proposer_id);
             let fault_kind = FaultKind::ReceivedValueFromNonProposer;
             return Ok(FaultLog::init(sender_id.clone(), fault_kind));
         }
         if self.echo_sent {
-            info!(
-                "Node {:?} received multiple Values.",
-                self.netinfo.our_uid()
-            );
+            info!("Node {:?} received multiple Values.",
+                  self.netinfo.our_uid());
             // TODO: should receiving two Values from a node be considered
             // a fault? If so, return a `Fault` here. For now, ignore.
             return Ok(FaultLog::new());
@@ -311,19 +301,17 @@ impl<NodeUid: Debug + Clone + Ord> Broadcast<NodeUid> {
     }
 
     /// Handles a received `Echo` message.
-    fn handle_echo(
-        &mut self,
-        sender_id: &NodeUid,
-        p: Proof<Vec<u8>>,
-    ) -> BroadcastResult<FaultLog<NodeUid>> {
+    fn handle_echo(&mut self,
+                   sender_id: &NodeUid,
+                   p: Proof<Vec<u8>>)
+                   -> BroadcastResult<FaultLog<NodeUid>>
+    {
         let mut fault_log = FaultLog::new();
         // If the sender has already sent `Echo`, ignore.
         if self.echos.contains_key(sender_id) {
-            info!(
-                "Node {:?} received multiple Echos from {:?}.",
-                self.netinfo.our_uid(),
-                sender_id,
-            );
+            info!("Node {:?} received multiple Echos from {:?}.",
+                  self.netinfo.our_uid(),
+                  sender_id,);
             return Ok(fault_log);
         }
 
@@ -339,7 +327,7 @@ impl<NodeUid: Debug + Clone + Ord> Broadcast<NodeUid> {
         self.echos.insert(sender_id.clone(), p);
 
         if self.ready_sent
-            || self.count_echos(&hash) < self.netinfo.num_nodes() - self.netinfo.num_faulty()
+           || self.count_echos(&hash) < self.netinfo.num_nodes() - self.netinfo.num_faulty()
         {
             self.compute_output(&hash)?;
             return Ok(fault_log);
@@ -354,11 +342,9 @@ impl<NodeUid: Debug + Clone + Ord> Broadcast<NodeUid> {
     fn handle_ready(&mut self, sender_id: &NodeUid, hash: &[u8]) -> BroadcastResult<()> {
         // If the sender has already sent a `Ready` before, ignore.
         if self.readys.contains_key(sender_id) {
-            info!(
-                "Node {:?} received multiple Readys from {:?}.",
-                self.netinfo.our_uid(),
-                sender_id
-            );
+            info!("Node {:?} received multiple Readys from {:?}.",
+                  self.netinfo.our_uid(),
+                  sender_id);
             return Ok(());
         }
 
@@ -401,27 +387,28 @@ impl<NodeUid: Debug + Clone + Ord> Broadcast<NodeUid> {
     /// value.
     fn compute_output(&mut self, hash: &[u8]) -> BroadcastResult<()> {
         if self.decided
-            || self.count_readys(hash) <= 2 * self.netinfo.num_faulty()
-            || self.count_echos(hash) <= self.netinfo.num_faulty()
+           || self.count_readys(hash) <= 2 * self.netinfo.num_faulty()
+           || self.count_echos(hash) <= self.netinfo.num_faulty()
         {
             return Ok(());
         }
 
         // Upon receiving 2f + 1 matching Ready(h) messages, wait for N − 2f Echo messages.
-        let mut leaf_values: Vec<Option<Box<[u8]>>> = self
-            .netinfo
-            .all_uids()
-            .iter()
-            .map(|id| {
-                self.echos.get(id).and_then(|p| {
-                    if p.root_hash.as_slice() == hash {
-                        Some(p.value.clone().into_boxed_slice())
-                    } else {
-                        None
-                    }
-                })
-            })
-            .collect();
+        let mut leaf_values: Vec<Option<Box<[u8]>>> =
+            self.netinfo.all_uids()
+                .iter()
+                .map(|id| {
+                         self.echos.get(id).and_then(|p| {
+                                                         if p.root_hash.as_slice() == hash {
+                                                             Some(p.value
+                                                                   .clone()
+                                                                   .into_boxed_slice())
+                                                         } else {
+                                                             None
+                                                         }
+                                                     })
+                     })
+                .collect();
         let value = decode_from_shards(&mut leaf_values, &self.coding, self.data_shard_num, hash);
         self.decided = value.is_some();
         self.output = value;
@@ -437,20 +424,16 @@ impl<NodeUid: Debug + Clone + Ord> Broadcast<NodeUid> {
     /// logs an info message.
     fn validate_proof(&self, p: &Proof<Vec<u8>>, id: &NodeUid) -> bool {
         if !p.validate(&p.root_hash) {
-            info!(
-                "Node {:?} received invalid proof: {:?}",
-                self.netinfo.our_uid(),
-                HexProof(&p)
-            );
+            info!("Node {:?} received invalid proof: {:?}",
+                  self.netinfo.our_uid(),
+                  HexProof(&p));
             false
         } else if self.index_of_node(id) != Some(p.value[0] as usize)
-            || p.index(self.netinfo.num_nodes()) != p.value[0] as usize
+                  || p.index(self.netinfo.num_nodes()) != p.value[0] as usize
         {
-            info!(
-                "Node {:?} received proof for wrong position: {:?}.",
-                self.netinfo.our_uid(),
-                HexProof(&p)
-            );
+            info!("Node {:?} received proof for wrong position: {:?}.",
+                  self.netinfo.our_uid(),
+                  HexProof(&p));
             false
         } else {
             true
@@ -459,16 +442,14 @@ impl<NodeUid: Debug + Clone + Ord> Broadcast<NodeUid> {
 
     /// Returns the number of nodes that have sent us an `Echo` message with this hash.
     fn count_echos(&self, hash: &[u8]) -> usize {
-        self.echos
-            .values()
+        self.echos.values()
             .filter(|p| p.root_hash.as_slice() == hash)
             .count()
     }
 
     /// Returns the number of nodes that have sent us a `Ready` message with this hash.
     fn count_readys(&self, hash: &[u8]) -> usize {
-        self.readys
-            .values()
+        self.readys.values()
             .filter(|h| h.as_slice() == hash)
             .count()
     }
@@ -526,18 +507,18 @@ impl Coding {
                 if shards.iter().any(Option::is_none) {
                     return Err(rse::Error::TooFewShardsPresent.into());
                 }
-            }
+            },
         }
         Ok(())
     }
 }
 
-fn decode_from_shards(
-    leaf_values: &mut [Option<Box<[u8]>>],
-    coding: &Coding,
-    data_shard_num: usize,
-    root_hash: &[u8],
-) -> Option<Vec<u8>> {
+fn decode_from_shards(leaf_values: &mut [Option<Box<[u8]>>],
+                      coding: &Coding,
+                      data_shard_num: usize,
+                      root_hash: &[u8])
+                      -> Option<Vec<u8>>
+{
     // Try to interpolate the Merkle tree using the Reed-Solomon erasure coding scheme.
     if let Err(err) = coding.reconstruct_shards(leaf_values) {
         debug!("Shard reconstruction failed: {:?}", err); // Faulty proposer
@@ -547,10 +528,9 @@ fn decode_from_shards(
     // Recompute the Merkle tree root.
 
     // Collect shards for tree construction.
-    let shards: Vec<Vec<u8>> = leaf_values
-        .iter()
-        .filter_map(|l| l.as_ref().map(|v| v.to_vec()))
-        .collect();
+    let shards: Vec<Vec<u8>> = leaf_values.iter()
+                                          .filter_map(|l| l.as_ref().map(|v| v.to_vec()))
+                                          .collect();
 
     debug!("Reconstructed shards: {:?}", HexList(&shards));
 

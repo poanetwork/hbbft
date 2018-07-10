@@ -85,11 +85,9 @@ struct ProposalState {
 impl ProposalState {
     /// Creates a new proposal state with a commitment.
     fn new(commit: BivarCommitment) -> ProposalState {
-        ProposalState {
-            commit,
-            values: BTreeMap::new(),
-            accepts: BTreeSet::new(),
-        }
+        ProposalState { commit,
+                        values: BTreeMap::new(),
+                        accepts: BTreeSet::new(), }
     }
 
     /// Returns `true` if at least `2 * threshold + 1` nodes have accepted.
@@ -127,23 +125,20 @@ pub struct SyncKeyGen<NodeUid> {
 impl<NodeUid: Ord + Clone + Debug> SyncKeyGen<NodeUid> {
     /// Creates a new `SyncKeyGen` instance, together with the `Propose` message that should be
     /// broadcast, if we are a peer.
-    pub fn new(
-        our_uid: &NodeUid,
-        sec_key: SecretKey,
-        pub_keys: BTreeMap<NodeUid, PublicKey>,
-        threshold: usize,
-    ) -> (SyncKeyGen<NodeUid>, Option<Propose>) {
-        let our_idx = pub_keys
-            .keys()
-            .position(|uid| uid == our_uid)
-            .map(|idx| idx as u64);
-        let key_gen = SyncKeyGen {
-            our_idx,
-            sec_key,
-            pub_keys,
-            proposals: BTreeMap::new(),
-            threshold,
-        };
+    pub fn new(our_uid: &NodeUid,
+               sec_key: SecretKey,
+               pub_keys: BTreeMap<NodeUid, PublicKey>,
+               threshold: usize)
+               -> (SyncKeyGen<NodeUid>, Option<Propose>)
+    {
+        let our_idx = pub_keys.keys()
+                              .position(|uid| uid == our_uid)
+                              .map(|idx| idx as u64);
+        let key_gen = SyncKeyGen { our_idx,
+                                   sec_key,
+                                   pub_keys,
+                                   proposals: BTreeMap::new(),
+                                   threshold, };
         if our_idx.is_none() {
             return (key_gen, None); // No proposal: we are an observer.
         }
@@ -160,18 +155,18 @@ impl<NodeUid: Ord + Clone + Debug> SyncKeyGen<NodeUid> {
     }
 
     /// Handles a `Propose` message. If it is valid, returns an `Accept` message to be broadcast.
-    pub fn handle_propose(
-        &mut self,
-        sender_id: &NodeUid,
-        Propose(commit, rows): Propose,
-    ) -> Option<ProposeOutcome<NodeUid>> {
+    pub fn handle_propose(&mut self,
+                          sender_id: &NodeUid,
+                          Propose(commit, rows): Propose)
+                          -> Option<ProposeOutcome<NodeUid>>
+    {
         let sender_idx = self.node_index(sender_id)?;
         let opt_commit_row = self.our_idx.map(|idx| commit.row(idx + 1));
         match self.proposals.entry(sender_idx) {
             Entry::Occupied(_) => return None, // Ignore multiple proposals.
             Entry::Vacant(entry) => {
                 entry.insert(ProposalState::new(commit));
-            }
+            },
         }
         // If we are only an observer, return `None`. We don't need to send `Accept`.
         let our_idx = self.our_idx?;
@@ -216,17 +211,17 @@ impl<NodeUid: Ord + Clone + Debug> SyncKeyGen<NodeUid> {
     /// Returns the number of complete proposals. If this is at least `threshold + 1`, the keys can
     /// be generated, but it is possible to wait for more to increase security.
     pub fn count_complete(&self) -> usize {
-        self.proposals
-            .values()
+        self.proposals.values()
             .filter(|proposal| proposal.is_complete(self.threshold))
             .count()
     }
 
     /// Returns `true` if the proposal of the given node is complete.
     pub fn is_node_ready(&self, proposer_id: &NodeUid) -> bool {
-        self.node_index(proposer_id)
-            .and_then(|proposer_idx| self.proposals.get(&proposer_idx))
-            .map_or(false, |proposal| proposal.is_complete(self.threshold))
+        self.node_index(proposer_id).and_then(|proposer_idx| self.proposals.get(&proposer_idx))
+            .map_or(false, |proposal| {
+                proposal.is_complete(self.threshold)
+            })
     }
 
     /// Returns `true` if enough proposals are complete to safely generate the new key.
@@ -255,18 +250,17 @@ impl<NodeUid: Ord + Clone + Debug> SyncKeyGen<NodeUid> {
     }
 
     /// Handles an `Accept` message or returns an error string.
-    fn handle_accept_or_err(
-        &mut self,
-        sender_idx: u64,
-        Accept(proposer_idx, values): Accept,
-    ) -> Result<(), String> {
+    fn handle_accept_or_err(&mut self,
+                            sender_idx: u64,
+                            Accept(proposer_idx, values): Accept)
+                            -> Result<(), String>
+    {
         if values.len() != self.pub_keys.len() {
             return Err("wrong node count".to_string());
         }
-        let proposal = self
-            .proposals
-            .get_mut(&proposer_idx)
-            .ok_or_else(|| "sender does not exist".to_string())?;
+        let proposal = self.proposals
+                           .get_mut(&proposer_idx)
+                           .ok_or_else(|| "sender does not exist".to_string())?;
         if !proposal.accepts.insert(sender_idx) {
             return Err("duplicate accept".to_string());
         }
@@ -274,10 +268,9 @@ impl<NodeUid: Ord + Clone + Debug> SyncKeyGen<NodeUid> {
             Some(our_idx) => our_idx,
             None => return Ok(()), // We are only an observer. Nothing to decrypt for us.
         };
-        let ser_val: Vec<u8> = self
-            .sec_key
-            .decrypt(&values[our_idx as usize])
-            .ok_or_else(|| "value decryption failed".to_string())?;
+        let ser_val: Vec<u8> = self.sec_key
+                                   .decrypt(&values[our_idx as usize])
+                                   .ok_or_else(|| "value decryption failed".to_string())?;
         let val = bincode::deserialize::<FieldWrap<Fr, Fr>>(&ser_val)
             .map_err(|err| format!("deserialization failed: {:?}", err))?
             .into_inner();

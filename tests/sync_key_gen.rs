@@ -13,23 +13,23 @@ use hbbft::sync_key_gen::{ProposeOutcome, SyncKeyGen};
 fn test_sync_key_gen_with(threshold: usize, node_num: usize) {
     // Generate individual key pairs for encryption. These are not suitable for threshold schemes.
     let sec_keys: Vec<SecretKey> = (0..node_num).map(|_| rand::random()).collect();
-    let pub_keys: BTreeMap<usize, PublicKey> = sec_keys
-        .iter()
-        .map(|sk| sk.public_key())
-        .enumerate()
-        .collect();
+    let pub_keys: BTreeMap<usize, PublicKey> = sec_keys.iter()
+                                                       .map(|sk| sk.public_key())
+                                                       .enumerate()
+                                                       .collect();
 
     // Create the `SyncKeyGen` instances and initial proposals.
     let mut nodes = Vec::new();
-    let proposals: Vec<_> = sec_keys
-        .into_iter()
-        .enumerate()
-        .map(|(id, sk)| {
-            let (sync_key_gen, proposal) = SyncKeyGen::new(&id, sk, pub_keys.clone(), threshold);
-            nodes.push(sync_key_gen);
-            proposal
-        })
-        .collect();
+    let proposals: Vec<_> =
+        sec_keys.into_iter()
+                .enumerate()
+                .map(|(id, sk)| {
+                         let (sync_key_gen, proposal) =
+                             SyncKeyGen::new(&id, sk, pub_keys.clone(), threshold);
+                         nodes.push(sync_key_gen);
+                         proposal
+                     })
+                .collect();
 
     // Handle the first `threshold + 1` proposals. Those should suffice for key generation.
     let mut accepts = Vec::new();
@@ -58,22 +58,21 @@ fn test_sync_key_gen_with(threshold: usize, node_num: usize) {
     // Compute the keys and test a threshold signature.
     let msg = "Help I'm trapped in a unit test factory";
     let pub_key_set = nodes[0].generate().0;
-    let sig_shares: BTreeMap<_, _> = nodes
-        .iter()
-        .enumerate()
-        .map(|(idx, node)| {
-            assert!(node.is_ready());
-            let (pks, opt_sk) = node.generate();
-            let sk = opt_sk.expect("new secret key");
-            assert_eq!(pks, pub_key_set);
-            let sig = sk.sign(msg);
-            assert!(pks.public_key_share(idx as u64).verify(&sig, msg));
-            (idx as u64, sig)
-        })
-        .collect();
-    let sig = pub_key_set
-        .combine_signatures(sig_shares.iter().take(threshold + 1))
-        .expect("signature shares match");
+    let sig_shares: BTreeMap<_, _> = nodes.iter()
+                                          .enumerate()
+                                          .map(|(idx, node)| {
+                                                   assert!(node.is_ready());
+                                                   let (pks, opt_sk) = node.generate();
+                                                   let sk = opt_sk.expect("new secret key");
+                                                   assert_eq!(pks, pub_key_set);
+                                                   let sig = sk.sign(msg);
+                                                   assert!(pks.public_key_share(idx as u64)
+                                                              .verify(&sig, msg));
+                                                   (idx as u64, sig)
+                                               })
+                                          .collect();
+    let sig = pub_key_set.combine_signatures(sig_shares.iter().take(threshold + 1))
+                         .expect("signature shares match");
     assert!(pub_key_set.public_key().verify(&sig, msg));
 }
 

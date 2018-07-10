@@ -25,7 +25,7 @@ type ProposedValue = Vec<u8>;
 fn test_common_subset<A: Adversary<CommonSubset<NodeUid>>>(
     mut network: TestNetwork<A, CommonSubset<NodeUid>>,
     inputs: &BTreeMap<NodeUid, ProposedValue>,
-) {
+){
     let ids: Vec<NodeUid> = network.nodes.keys().cloned().collect();
 
     for id in ids {
@@ -59,14 +59,12 @@ fn test_common_subset<A: Adversary<CommonSubset<NodeUid>>>(
     }
 }
 
-fn new_network<A, F>(
-    good_num: usize,
-    bad_num: usize,
-    adversary: F,
-) -> TestNetwork<A, CommonSubset<NodeUid>>
-where
-    A: Adversary<CommonSubset<NodeUid>>,
-    F: Fn(BTreeMap<NodeUid, Rc<NetworkInfo<NodeUid>>>) -> A,
+fn new_network<A, F>(good_num: usize,
+                     bad_num: usize,
+                     adversary: F)
+                     -> TestNetwork<A, CommonSubset<NodeUid>>
+    where A: Adversary<CommonSubset<NodeUid>>,
+          F: Fn(BTreeMap<NodeUid, Rc<NetworkInfo<NodeUid>>>) -> A
 {
     // This returns an error in all but the first test.
     let _ = env_logger::try_init();
@@ -81,10 +79,10 @@ where
 fn test_common_subset_3_out_of_4_nodes_propose() {
     let proposed_value = Vec::from("Fake news");
     let proposing_ids: BTreeSet<NodeUid> = (0..3).map(NodeUid).collect();
-    let proposals: BTreeMap<NodeUid, ProposedValue> = proposing_ids
-        .iter()
-        .map(|id| (*id, proposed_value.clone()))
-        .collect();
+    let proposals: BTreeMap<NodeUid, ProposedValue> =
+        proposing_ids.iter()
+                     .map(|id| (*id, proposed_value.clone()))
+                     .collect();
     let adversary = |_| SilentAdversary::new(MessageScheduler::First);
     let network = new_network(3, 1, adversary);
     test_common_subset(network, &proposals);
@@ -92,18 +90,15 @@ fn test_common_subset_3_out_of_4_nodes_propose() {
 
 #[test]
 fn test_common_subset_5_nodes_different_proposed_values() {
-    let proposed_values = vec![
-        Vec::from("Alpha"),
-        Vec::from("Bravo"),
-        Vec::from("Charlie"),
-        Vec::from("Delta"),
-        Vec::from("Echo"),
-    ];
-    let proposals: BTreeMap<NodeUid, ProposedValue> = (0..5)
-        .into_iter()
-        .map(NodeUid)
-        .zip(proposed_values)
-        .collect();
+    let proposed_values = vec![Vec::from("Alpha"),
+                               Vec::from("Bravo"),
+                               Vec::from("Charlie"),
+                               Vec::from("Delta"),
+                               Vec::from("Echo"),];
+    let proposals: BTreeMap<NodeUid, ProposedValue> = (0..5).into_iter()
+                                                            .map(NodeUid)
+                                                            .zip(proposed_values)
+                                                            .collect();
     let adversary = |_| SilentAdversary::new(MessageScheduler::Random);
     let network = new_network(5, 0, adversary);
     test_common_subset(network, &proposals);

@@ -46,22 +46,20 @@ impl<M: Send> Messaging<M> {
 
         let (stop_tx, stop_rx) = bounded(1);
 
-        Messaging {
-            // internally used handles
-            txs_to_comms,
-            rx_from_comms,
-            tx_to_algo,
-            rx_from_algo,
+        Messaging { // internally used handles
+                    txs_to_comms,
+                    rx_from_comms,
+                    tx_to_algo,
+                    rx_from_algo,
 
-            // externally used handles
-            rxs_to_comms,
-            tx_from_comms,
-            rx_to_algo,
-            tx_from_algo,
+                    // externally used handles
+                    rxs_to_comms,
+                    tx_from_comms,
+                    rx_to_algo,
+                    tx_from_algo,
 
-            stop_tx,
-            stop_rx,
-        }
+                    stop_tx,
+                    stop_rx, }
     }
 
     pub fn rxs_to_comms(&self) -> &Vec<Receiver<M>> {
@@ -87,9 +85,7 @@ impl<M: Send> Messaging<M> {
 
     /// Spawns the message delivery thread in a given thread scope.
     pub fn spawn<'a>(&self, scope: &Scope<'a>) -> ScopedJoinHandle<Result<(), Error>>
-    where
-        M: Clone + 'a,
-    {
+        where M: Clone + 'a {
         let txs_to_comms = self.txs_to_comms.to_owned();
         let rx_from_comms = self.rx_from_comms.to_owned();
         let tx_to_algo = self.tx_to_algo.to_owned();
@@ -99,52 +95,50 @@ impl<M: Send> Messaging<M> {
         let mut stop = false;
 
         // TODO: `select_loop!` seems to really confuse Clippy.
-        #[cfg_attr(
-            feature = "cargo-clippy",
-            allow(never_loop, if_let_redundant_pattern_matching, deref_addrof)
-        )]
+        #[cfg_attr(feature = "cargo-clippy",
+                   allow(never_loop, if_let_redundant_pattern_matching, deref_addrof))]
         scope.spawn(move || {
-            let mut result = Ok(());
-            // This loop forwards messages according to their metadata.
-            while !stop && result.is_ok() {
-                select_loop! {
-                    recv(rx_from_algo, tm) => {
-                        match tm.target {
-                            Target::All => {
-                                // Send the message to all remote nodes, stopping at
-                                // the first error.
-                                result = txs_to_comms.iter()
-                                    .fold(Ok(()), |result, tx| {
-                                        if result.is_ok() {
-                                            tx.send(tm.message.clone())
-                                        } else {
-                                            result
+                        let mut result = Ok(());
+                        // This loop forwards messages according to their metadata.
+                        while !stop && result.is_ok() {
+                            select_loop! {
+                                recv(rx_from_algo, tm) => {
+                                    match tm.target {
+                                        Target::All => {
+                                            // Send the message to all remote nodes, stopping at
+                                            // the first error.
+                                            result = txs_to_comms.iter()
+                                                .fold(Ok(()), |result, tx| {
+                                                    if result.is_ok() {
+                                                        tx.send(tm.message.clone())
+                                                    } else {
+                                                        result
+                                                    }
+                                                }).map_err(Error::from);
+                                        },
+                                        Target::Node(i) => {
+                                            result = if i < txs_to_comms.len() {
+                                                txs_to_comms[i].send(tm.message)
+                                                    .map_err(Error::from)
+                                            } else {
+                                                Err(Error::NoSuchTarget)
+                                            };
                                         }
-                                    }).map_err(Error::from);
-                            },
-                            Target::Node(i) => {
-                                result = if i < txs_to_comms.len() {
-                                    txs_to_comms[i].send(tm.message)
-                                        .map_err(Error::from)
-                                } else {
-                                    Err(Error::NoSuchTarget)
-                                };
+                                    }
+                                },
+                                recv(rx_from_comms, message) => {
+                                    // Send the message to all algorithm instances, stopping at
+                                    // the first error.
+                                    result = tx_to_algo.send(message.clone()).map_err(Error::from)
+                                },
+                                recv(stop_rx, _) => {
+                                    // Flag the thread ready to exit.
+                                    stop = true;
+                                }
                             }
-                        }
-                    },
-                    recv(rx_from_comms, message) => {
-                        // Send the message to all algorithm instances, stopping at
-                        // the first error.
-                        result = tx_to_algo.send(message.clone()).map_err(Error::from)
-                    },
-                    recv(stop_rx, _) => {
-                        // Flag the thread ready to exit.
-                        stop = true;
-                    }
-                }
-            } // end of select_loop!
-            result
-        })
+                        } // end of select_loop!
+                        result
+                    })
     }
 }
 

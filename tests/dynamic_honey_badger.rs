@@ -24,11 +24,9 @@ use hbbft::messaging::NetworkInfo;
 use network::{Adversary, MessageScheduler, NodeUid, SilentAdversary, TestNetwork, TestNode};
 
 /// Proposes `num_txs` values and expects nodes to output and order them.
-fn test_dynamic_honey_badger<A>(
-    mut network: TestNetwork<A, DynamicHoneyBadger<usize, NodeUid>>,
-    num_txs: usize,
-) where
-    A: Adversary<DynamicHoneyBadger<usize, NodeUid>>,
+fn test_dynamic_honey_badger<A>(mut network: TestNetwork<A, DynamicHoneyBadger<usize, NodeUid>>,
+                                num_txs: usize)
+    where A: Adversary<DynamicHoneyBadger<usize, NodeUid>>
 {
     // The second half of the transactions will be input only after a node has been removed.
     network.input_all(Input::Change(Change::Remove(NodeUid(0))));
@@ -37,16 +35,17 @@ fn test_dynamic_honey_badger<A>(
     }
 
     fn has_remove(node: &TestNode<DynamicHoneyBadger<usize, NodeUid>>) -> bool {
-        node.outputs()
-            .iter()
+        node.outputs().iter()
             .any(|batch| batch.change == ChangeState::Complete(Change::Remove(NodeUid(0))))
     }
 
     fn has_add(node: &TestNode<DynamicHoneyBadger<usize, NodeUid>>) -> bool {
         node.outputs().iter().any(|batch| match batch.change {
-            ChangeState::Complete(Change::Add(ref id, _)) => *id == NodeUid(0),
-            _ => false,
-        })
+                                      ChangeState::Complete(Change::Add(ref id, _)) => {
+                                          *id == NodeUid(0)
+                                      },
+                                      _ => false,
+                                  })
     }
 
     // Returns `true` if the node has not output all transactions yet.
@@ -94,9 +93,7 @@ fn test_dynamic_honey_badger<A>(
 /// them have output all transactions and events, but some may have advanced a few empty batches
 /// more than others, so we ignore those.
 fn verify_output_sequence<A>(network: &TestNetwork<A, DynamicHoneyBadger<usize, NodeUid>>)
-where
-    A: Adversary<DynamicHoneyBadger<usize, NodeUid>>,
-{
+    where A: Adversary<DynamicHoneyBadger<usize, NodeUid>> {
     let expected = network.nodes[&NodeUid(0)].outputs().to_vec();
     assert!(!expected.is_empty());
     for node in network.nodes.values() {
@@ -108,18 +105,15 @@ where
 // Allow passing `netinfo` by value. `TestNetwork` expects this function signature.
 #[cfg_attr(feature = "cargo-clippy", allow(needless_pass_by_value))]
 fn new_dynamic_hb(netinfo: Rc<NetworkInfo<NodeUid>>) -> DynamicHoneyBadger<usize, NodeUid> {
-    DynamicHoneyBadger::builder((*netinfo).clone())
-        .batch_size(12)
-        .build()
-        .expect("Instantiate dynamic_honey_badger")
-        .0
+    DynamicHoneyBadger::builder((*netinfo).clone()).batch_size(12)
+                                                   .build()
+                                                   .expect("Instantiate dynamic_honey_badger")
+                                                   .0
 }
 
 fn test_dynamic_honey_badger_different_sizes<A, F>(new_adversary: F, num_txs: usize)
-where
-    A: Adversary<DynamicHoneyBadger<usize, NodeUid>>,
-    F: Fn(usize, usize, BTreeMap<NodeUid, Rc<NetworkInfo<NodeUid>>>) -> A,
-{
+    where A: Adversary<DynamicHoneyBadger<usize, NodeUid>>,
+          F: Fn(usize, usize, BTreeMap<NodeUid, Rc<NetworkInfo<NodeUid>>>) -> A {
     // This returns an error in all but the first test.
     let _ = env_logger::try_init();
 
@@ -129,10 +123,8 @@ where
         // The test is removing one correct node, so we allow fewer faulty ones.
         let num_adv_nodes = (size - 2) / 3;
         let num_good_nodes = size - num_adv_nodes;
-        info!(
-            "Network size: {} good nodes, {} faulty nodes",
-            num_good_nodes, num_adv_nodes
-        );
+        info!("Network size: {} good nodes, {} faulty nodes",
+              num_good_nodes, num_adv_nodes);
         let adversary = |adv_nodes| new_adversary(num_good_nodes, num_adv_nodes, adv_nodes);
         let network = TestNetwork::new(num_good_nodes, num_adv_nodes, adversary, new_dynamic_hb);
         test_dynamic_honey_badger(network, num_txs);

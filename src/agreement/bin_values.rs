@@ -35,15 +35,15 @@ impl BinValues {
             BinValues::None => {
                 replace(self, BinValues::from_bool(b));
                 true
-            }
+            },
             BinValues::False if b => {
                 replace(self, BinValues::Both);
                 true
-            }
+            },
             BinValues::True if !b => {
                 replace(self, BinValues::Both);
                 true
-            }
+            },
             _ => false,
         }
     }
@@ -52,14 +52,14 @@ impl BinValues {
         match self {
             BinValues::None => {
                 replace(self, other);
-            }
+            },
             BinValues::False if other == BinValues::True => {
                 replace(self, BinValues::Both);
-            }
+            },
             BinValues::True if other == BinValues::False => {
                 replace(self, BinValues::Both);
-            }
-            _ => {}
+            },
+            _ => {},
         }
     }
 

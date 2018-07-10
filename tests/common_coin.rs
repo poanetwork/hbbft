@@ -22,9 +22,7 @@ use network::{Adversary, MessageScheduler, NodeUid, SilentAdversary, TestNetwork
 /// Tests a network of Common Coin instances with an optional expected value. Outputs the computed
 /// common coin value if the test is successful.
 fn test_common_coin<A>(mut network: TestNetwork<A, CommonCoin<NodeUid, String>>) -> bool
-where
-    A: Adversary<CommonCoin<NodeUid, String>>,
-{
+    where A: Adversary<CommonCoin<NodeUid, String>> {
     network.input_all(());
     network.observer.input(()); // Observer will only return after `input` was called.
 
@@ -60,19 +58,16 @@ fn check_coin_distribution(num_samples: usize, count_true: usize, count_false: u
     let gain = num_samples_f64.log2().min(max_gain);
     let step = EXPECTED_SHARE / max_gain;
     let min_throws = (num_samples_f64 * gain * step) as usize;
-    info!(
-        "Expecting a minimum of {} throws for each coin side. Throws of true: {}. Throws of false: {}.",
-        min_throws, count_true, count_false
-    );
+    info!("Expecting a minimum of {} throws for each coin side. Throws of true: {}. Throws of \
+           false: {}.",
+          min_throws, count_true, count_false);
     assert!(count_true > min_throws);
     assert!(count_false > min_throws);
 }
 
 fn test_common_coin_different_sizes<A, F>(new_adversary: F, num_samples: usize)
-where
-    A: Adversary<CommonCoin<NodeUid, String>>,
-    F: Fn(usize, usize) -> A,
-{
+    where A: Adversary<CommonCoin<NodeUid, String>>,
+          F: Fn(usize, usize) -> A {
     assert!(num_samples > 0);
 
     // This returns an error in all but the first test.
@@ -91,10 +86,8 @@ where
     for size in sizes {
         let num_faulty_nodes = (size - 1) / 3;
         let num_good_nodes = size - num_faulty_nodes;
-        info!(
-            "Network size: {} good nodes, {} faulty nodes",
-            num_good_nodes, num_faulty_nodes
-        );
+        info!("Network size: {} good nodes, {} faulty nodes",
+              num_good_nodes, num_faulty_nodes);
         let unique_id: u64 = rng.gen();
         let mut count_true = 0;
         let mut count_false = 0;
