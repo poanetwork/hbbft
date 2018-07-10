@@ -23,7 +23,6 @@
 
 use std::collections::{BTreeMap, VecDeque};
 use std::fmt::Debug;
-use std::mem::replace;
 use std::sync::Arc;
 
 use crypto::error as cerror;
@@ -153,7 +152,7 @@ where
     }
 
     fn step(&mut self) -> Result<CommonCoinStep<NodeUid>> {
-        Ok(Step::new(replace(&mut self.output, None)))
+        Ok(Step::new(self.output.take()))
     }
 
     fn get_coin(&mut self) -> Result<FaultLog<NodeUid>> {
@@ -185,10 +184,17 @@ where
 
     fn try_output(&mut self) -> Result<()> {
         let received_shares = &self.received_shares;
+        debug!(
+            "{:?} received {} shares, had_input = {}",
+            self.netinfo.our_uid(),
+            received_shares.len(),
+            self.had_input
+        );
         if self.had_input && received_shares.len() > self.netinfo.num_faulty() {
             let sig = self.combine_and_verify_sig()?;
             // Output the parity of the verified signature.
             let parity = sig.parity();
+            debug!("{:?} output {}", self.netinfo.our_uid(), parity);
             self.output = Some(parity);
             self.terminated = true;
         }

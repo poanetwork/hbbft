@@ -129,7 +129,7 @@ where
         // broadcast.
         let fault_log = match input {
             Input::User(contrib) => self.propose(contrib)?,
-            Input::Change(change) => self.vote_for(change)?,
+            Input::Change(change) => self.vote_for(change).map(|()| FaultLog::new())?,
         };
         self.step().with_fault_log(fault_log)
     }
@@ -183,7 +183,7 @@ where
     NodeUid: Eq + Ord + Clone + Debug + Serialize + for<'r> Deserialize<'r> + Hash,
 {
     fn step(&mut self) -> Result<DynamicHoneyBadgerStep<C, NodeUid>> {
-        Ok(Step::new(self.output.take()))
+        Ok(Step::new(self.output.drain(0..).collect()))
     }
 
     /// Returns a new `DynamicHoneyBadgerBuilder` configured to use the node IDs and cryptographic
@@ -258,7 +258,7 @@ where
     /// Processes all pending batches output by Honey Badger.
     fn process_output(
         &mut self,
-        step: HoneyBadgerStep<NodeUid, InternalContrib<C, NodeUid>>,
+        step: HoneyBadgerStep<InternalContrib<C, NodeUid>, NodeUid>,
     ) -> Result<FaultLog<NodeUid>> {
         let mut fault_log = FaultLog::new();
         fault_log.extend(step.fault_log);
@@ -314,8 +314,9 @@ where
         if start_epoch < self.start_epoch {
             let queue = mem::replace(&mut self.incoming_queue, Vec::new());
             for (sender_id, msg) in queue {
-                self.handle_message(&sender_id, msg)?
-                    .merge_into(&mut fault_log);
+                let rec_step = self.handle_message(&sender_id, msg)?;
+                self.output.extend(rec_step.output);
+                fault_log.extend(rec_step.fault_log);
             }
         }
         Ok(fault_log)
