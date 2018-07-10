@@ -64,8 +64,53 @@ $ cargo test --release
 A basic [example](https://github.com/poanetwork/hbbft/blob/master/examples/README.md) is included to run a network simulation.
 
 ```
-$ cargo run --example simulation --release -- -h
+$ cargo run --example simulation --release
 ```
+
+![Screenshot](screenshot.png)
+
+|  Heading    | Definition                       
+| ----------- | -------------------------------------------------------------------------- | 
+| Epoch       |  Epoch number. In each epoch, transactions are processed in a batch by simulated nodes (default is 10 nodes) on a network. The batch is always output in one piece, with all transactions at once.                                                           | 
+| Min Time   | Time in simulated milliseconds until the first correct (i.e. not faulty) node outputs the batch.                                          |  
+| Max Time   | Time in simulated milliseconds until the last correct node outputs the batch.                                                  |  
+| Txs         | Number of transactions processed in the epoch.                                           |  
+| Msgs/Node   | Average number of messages handled by a node. The counter is cumulative and includes the number of messages handled in the current epoch and all previous epochs.                                                               |  
+| Size/Node   | Average message size (in converted bytes) handled by a node. This is cumulative and includes message size for the current epoch and all previous epochs.                                                             |  
+ 
+
+#### Options
+
+Set different parameters to simulate different transaction and network conditions.
+
+|  Flag                  | Description                         | 
+| ---------------------- | -------------------------------- | 
+| `-h, --help`            | Show help options                   | 
+| `--version`             | Show the version of hbbft |  
+| `-n <n>, --nodes <n>`   | The total number of nodes [default: 10]        |  
+| `-f <f>, --faulty <f>`  | The number of faulty nodes [default: 0]|  
+| `-t <txs>, --txs <txs>` | The number of transactions to process [default: 1000]                     |  
+| `-b <b>, --batch <b>`   | The batch size, i.e. txs per epoch [default: 100]                    |  
+|  `-l <lag>, --lag <lag>` | The network lag between sending and receiving [default: 100]                     |  
+|  `--bw <bw>`             | The bandwidth, in kbit/s [default: 2000]                    |  
+|  `--cpu <cpu>`           | The CPU speed, in percent of this machine's [default: 100]                     |  
+|  `--tx-size <size>`      | The size of a transaction, in bytes [default: 10]                     |  
+
+
+**Examples:**
+
+```bash
+# view options
+$ cargo run --example simulation --release -- -h
+
+# simulate a network with 12 nodes, 2 of which are faulty
+$ cargo run --example simulation --release -- -n 12 -f 2
+
+# increase batch size to 500 transactions per epoch
+$ cargo run --example simulation --release -- -b 500
+
+```
+
 
 ## Current TODOs
 
