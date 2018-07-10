@@ -35,24 +35,20 @@ pub struct CommsTask<'a, P: 'a, M: 'a> {
 }
 
 impl<'a, P: Message + 'a, M: Into<P> + From<P> + Send + 'a> CommsTask<'a, P, M> {
-    pub fn new(
-        tx: &'a Sender<SourcedMessage<M, usize>>,
-        rx: &'a Receiver<M>,
-        stream: TcpStream,
-        node_index: usize,
-    ) -> Self {
-        debug!(
-            "Creating comms task #{} for {:?}",
-            node_index,
-            stream.peer_addr().unwrap()
-        );
+    pub fn new(tx: &'a Sender<SourcedMessage<M, usize>>,
+               rx: &'a Receiver<M>,
+               stream: TcpStream,
+               node_index: usize)
+               -> Self
+    {
+        debug!("Creating comms task #{} for {:?}",
+               node_index,
+               stream.peer_addr().unwrap());
 
-        CommsTask {
-            tx,
-            rx,
-            io: ProtoIo::from_stream(stream),
-            node_index,
-        }
+        CommsTask { tx,
+                    rx,
+                    io: ProtoIo::from_stream(stream),
+                    node_index, }
     }
 
     /// The main socket IO loop and an asynchronous thread responding to manager
@@ -65,36 +61,35 @@ impl<'a, P: Message + 'a, M: Into<P> + From<P> + Send + 'a> CommsTask<'a, P, M> 
         let node_index = self.node_index;
 
         crossbeam::scope(move |scope| {
-            // Local comms receive loop thread.
-            scope.spawn(move || {
-                loop {
-                    // Receive a multicast message from the manager thread.
-                    let message = rx.recv().unwrap();
-                    // Forward the message to the remote node.
-                    io1.send(&message.into()).unwrap();
-                }
-            });
+                             // Local comms receive loop thread.
+                             scope.spawn(move || {
+                            loop {
+                                // Receive a multicast message from the manager thread.
+                                let message = rx.recv().unwrap();
+                                // Forward the message to the remote node.
+                                io1.send(&message.into()).unwrap();
+                            }
+                        });
 
-            // Remote comms receive loop.
-            debug!("Starting remote RX loop for node {}", node_index);
-            loop {
-                match self.io.recv() {
-                    Ok(message) => {
-                        tx.send(SourcedMessage {
-                            source: node_index,
-                            message: message.into(),
-                        }).unwrap();
-                    }
-                    Err(proto_io::Error(proto_io::ErrorKind::Protobuf(e), _)) => {
-                        warn!("Node {} - Protobuf error {}", node_index, e)
-                    }
-                    Err(e) => {
-                        warn!("Node {} - Critical error {:?}", node_index, e);
-                        break;
-                    }
-                }
-            }
-        });
+                             // Remote comms receive loop.
+                             debug!("Starting remote RX loop for node {}", node_index);
+                             loop {
+                                 match self.io.recv() {
+                                     Ok(message) => {
+                                         tx.send(SourcedMessage { source: node_index,
+                                                                  message: message.into(), })
+                                           .unwrap();
+                                     },
+                                     Err(proto_io::Error(proto_io::ErrorKind::Protobuf(e), _)) => {
+                                         warn!("Node {} - Protobuf error {}", node_index, e)
+                                     },
+                                     Err(e) => {
+                                         warn!("Node {} - Critical error {:?}", node_index, e);
+                                         break;
+                                     },
+                                 }
+                             }
+                         });
         Ok(())
     }
 }

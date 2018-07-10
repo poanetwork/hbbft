@@ -109,19 +109,17 @@ impl<NodeUid: Clone + Debug + Ord> DistAlgorithm for CommonSubset<NodeUid> {
     type Error = Error;
 
     fn input(&mut self, input: Self::Input) -> CommonSubsetResult<FaultLog<NodeUid>> {
-        debug!(
-            "{:?} Proposing {:?}",
-            self.netinfo.our_uid(),
-            HexBytes(&input)
-        );
+        debug!("{:?} Proposing {:?}",
+               self.netinfo.our_uid(),
+               HexBytes(&input));
         self.send_proposed_value(input)
     }
 
-    fn handle_message(
-        &mut self,
-        sender_id: &Self::NodeUid,
-        message: Self::Message,
-    ) -> CommonSubsetResult<FaultLog<NodeUid>> {
+    fn handle_message(&mut self,
+                      sender_id: &Self::NodeUid,
+                      message: Self::Message)
+                      -> CommonSubsetResult<FaultLog<NodeUid>>
+    {
         match message {
             Message::Broadcast(p_id, b_msg) => self.handle_broadcast(sender_id, &p_id, b_msg),
             Message::Agreement(p_id, a_msg) => self.handle_agreement(sender_id, &p_id, a_msg),
@@ -150,39 +148,33 @@ impl<NodeUid: Clone + Debug + Ord> CommonSubset<NodeUid> {
         // Create all broadcast instances.
         let mut broadcast_instances: BTreeMap<NodeUid, Broadcast<NodeUid>> = BTreeMap::new();
         for proposer_id in netinfo.all_uids() {
-            broadcast_instances.insert(
-                proposer_id.clone(),
-                Broadcast::new(netinfo.clone(), proposer_id.clone())?,
-            );
+            broadcast_instances.insert(proposer_id.clone(),
+                                       Broadcast::new(netinfo.clone(), proposer_id.clone())?);
         }
 
         // Create all agreement instances.
         let mut agreement_instances: BTreeMap<NodeUid, Agreement<NodeUid>> = BTreeMap::new();
         for proposer_id in netinfo.all_uids().iter().cloned() {
-            agreement_instances.insert(
-                proposer_id.clone(),
-                Agreement::new(netinfo.clone(), session_id, proposer_id)?,
-            );
+            agreement_instances.insert(proposer_id.clone(),
+                                       Agreement::new(netinfo.clone(), session_id, proposer_id)?);
         }
 
-        Ok(CommonSubset {
-            netinfo,
-            broadcast_instances,
-            agreement_instances,
-            broadcast_results: BTreeMap::new(),
-            agreement_results: BTreeMap::new(),
-            messages: MessageQueue(VecDeque::new()),
-            output: None,
-            decided: false,
-        })
+        Ok(CommonSubset { netinfo,
+                          broadcast_instances,
+                          agreement_instances,
+                          broadcast_results: BTreeMap::new(),
+                          agreement_results: BTreeMap::new(),
+                          messages: MessageQueue(VecDeque::new()),
+                          output: None,
+                          decided: false, })
     }
 
     /// Common Subset input message handler. It receives a value for broadcast
     /// and redirects it to the corresponding broadcast instance.
-    pub fn send_proposed_value(
-        &mut self,
-        value: ProposedValue,
-    ) -> CommonSubsetResult<FaultLog<NodeUid>> {
+    pub fn send_proposed_value(&mut self,
+                               value: ProposedValue)
+                               -> CommonSubsetResult<FaultLog<NodeUid>>
+    {
         if !self.netinfo.is_validator() {
             return Ok(FaultLog::new());
         }
@@ -193,23 +185,23 @@ impl<NodeUid: Clone + Debug + Ord> CommonSubset<NodeUid> {
 
     /// Receives a broadcast message from a remote node `sender_id` concerning a
     /// value proposed by the node `proposer_id`.
-    fn handle_broadcast(
-        &mut self,
-        sender_id: &NodeUid,
-        proposer_id: &NodeUid,
-        bmessage: BroadcastMessage,
-    ) -> CommonSubsetResult<FaultLog<NodeUid>> {
+    fn handle_broadcast(&mut self,
+                        sender_id: &NodeUid,
+                        proposer_id: &NodeUid,
+                        bmessage: BroadcastMessage)
+                        -> CommonSubsetResult<FaultLog<NodeUid>>
+    {
         self.process_broadcast(proposer_id, |bc| bc.handle_message(sender_id, bmessage))
     }
 
     /// Receives an agreement message from a remote node `sender_id` concerning
     /// a value proposed by the node `proposer_id`.
-    fn handle_agreement(
-        &mut self,
-        sender_id: &NodeUid,
-        proposer_id: &NodeUid,
-        amessage: AgreementMessage,
-    ) -> CommonSubsetResult<FaultLog<NodeUid>> {
+    fn handle_agreement(&mut self,
+                        sender_id: &NodeUid,
+                        proposer_id: &NodeUid,
+                        amessage: AgreementMessage)
+                        -> CommonSubsetResult<FaultLog<NodeUid>>
+    {
         // Send the message to the local instance of Agreement
         self.process_agreement(proposer_id, |agreement| {
             agreement.handle_message(sender_id, amessage)
@@ -218,20 +210,17 @@ impl<NodeUid: Clone + Debug + Ord> CommonSubset<NodeUid> {
 
     /// Upon delivery of v_j from RBC_j, if input has not yet been provided to
     /// BA_j, then provide input 1 to BA_j. See Figure 11.
-    fn process_broadcast<F>(
-        &mut self,
-        proposer_id: &NodeUid,
-        f: F,
-    ) -> CommonSubsetResult<FaultLog<NodeUid>>
-    where
-        F: FnOnce(&mut Broadcast<NodeUid>) -> BroadcastResult<FaultLog<NodeUid>>,
+    fn process_broadcast<F>(&mut self,
+                            proposer_id: &NodeUid,
+                            f: F)
+                            -> CommonSubsetResult<FaultLog<NodeUid>>
+        where F: FnOnce(&mut Broadcast<NodeUid>) -> BroadcastResult<FaultLog<NodeUid>>
     {
         let mut fault_log = FaultLog::new();
         let value = {
-            let broadcast = self
-                .broadcast_instances
-                .get_mut(proposer_id)
-                .ok_or(ErrorKind::NoSuchBroadcastInstance)?;
+            let broadcast = self.broadcast_instances
+                                .get_mut(proposer_id)
+                                .ok_or(ErrorKind::NoSuchBroadcastInstance)?;
             f(broadcast)?.merge_into(&mut fault_log);
             self.messages.extend_broadcast(&proposer_id, broadcast);
             if let Some(output) = broadcast.next_output() {
@@ -255,20 +244,17 @@ impl<NodeUid: Clone + Debug + Ord> CommonSubset<NodeUid> {
 
     /// Callback to be invoked on receipt of the decision value of the Agreement
     /// instance `uid`.
-    fn process_agreement<F>(
-        &mut self,
-        proposer_id: &NodeUid,
-        f: F,
-    ) -> CommonSubsetResult<FaultLog<NodeUid>>
-    where
-        F: FnOnce(&mut Agreement<NodeUid>) -> AgreementResult<FaultLog<NodeUid>>,
+    fn process_agreement<F>(&mut self,
+                            proposer_id: &NodeUid,
+                            f: F)
+                            -> CommonSubsetResult<FaultLog<NodeUid>>
+        where F: FnOnce(&mut Agreement<NodeUid>) -> AgreementResult<FaultLog<NodeUid>>
     {
         let mut fault_log = FaultLog::new();
         let value = {
-            let agreement = self
-                .agreement_instances
-                .get_mut(proposer_id)
-                .ok_or(ErrorKind::NoSuchAgreementInstance)?;
+            let agreement = self.agreement_instances
+                                .get_mut(proposer_id)
+                                .ok_or(ErrorKind::NoSuchAgreementInstance)?;
             if agreement.terminated() {
                 return Ok(fault_log);
             }
@@ -280,18 +266,15 @@ impl<NodeUid: Clone + Debug + Ord> CommonSubset<NodeUid> {
                 return Ok(fault_log);
             }
         };
-        if self
-            .agreement_results
-            .insert(proposer_id.clone(), value)
-            .is_some()
+        if self.agreement_results
+               .insert(proposer_id.clone(), value)
+               .is_some()
         {
             return Err(ErrorKind::MultipleAgreementResults.into());
         }
-        debug!(
-            "{:?} Updated Agreement results: {:?}",
-            self.netinfo.our_uid(),
-            self.agreement_results
-        );
+        debug!("{:?} Updated Agreement results: {:?}",
+               self.netinfo.our_uid(),
+               self.agreement_results);
 
         if value && self.count_true() == self.netinfo.num_nodes() - self.netinfo.num_faulty() {
             // Upon delivery of value 1 from at least N − f instances of BA, provide
@@ -328,32 +311,26 @@ impl<NodeUid: Clone + Debug + Ord> CommonSubset<NodeUid> {
         if self.agreement_results.len() < self.netinfo.num_nodes() {
             return;
         }
-        debug!(
-            "{:?} All Agreement instances have terminated",
-            self.netinfo.our_uid()
-        );
+        debug!("{:?} All Agreement instances have terminated",
+               self.netinfo.our_uid());
         // All instances of Agreement that delivered `true` (or "1" in the paper).
-        let delivered_1: BTreeSet<&NodeUid> = self
-            .agreement_results
-            .iter()
-            .filter(|(_, v)| **v)
-            .map(|(k, _)| k)
-            .collect();
+        let delivered_1: BTreeSet<&NodeUid> = self.agreement_results
+                                                  .iter()
+                                                  .filter(|(_, v)| **v)
+                                                  .map(|(k, _)| k)
+                                                  .collect();
         debug!("Agreement instances that delivered 1: {:?}", delivered_1);
 
         // Results of Broadcast instances in `delivered_1`
-        let broadcast_results: BTreeMap<NodeUid, ProposedValue> = self
-            .broadcast_results
-            .iter()
-            .filter(|(k, _)| delivered_1.contains(k))
-            .map(|(k, v)| (k.clone(), v.clone()))
-            .collect();
+        let broadcast_results: BTreeMap<NodeUid, ProposedValue> =
+            self.broadcast_results.iter()
+                .filter(|(k, _)| delivered_1.contains(k))
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect();
 
         if delivered_1.len() == broadcast_results.len() {
-            debug!(
-                "{:?} Agreement instances completed:",
-                self.netinfo.our_uid()
-            );
+            debug!("{:?} Agreement instances completed:",
+                   self.netinfo.our_uid());
             for (uid, result) in &broadcast_results {
                 debug!("    {:?} → {:?}", uid, HexBytes(&result));
             }

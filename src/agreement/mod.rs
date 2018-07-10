@@ -114,10 +114,8 @@ pub enum AgreementContent {
 impl AgreementContent {
     /// Creates an message with a given epoch number.
     pub fn with_epoch(self, epoch: u32) -> AgreementMessage {
-        AgreementMessage {
-            epoch,
-            content: self,
-        }
+        AgreementMessage { epoch,
+                           content: self, }
     }
 }
 
@@ -201,11 +199,11 @@ impl<NodeUid: Clone + Debug + Ord> DistAlgorithm for Agreement<NodeUid> {
     }
 
     /// Receive input from a remote node.
-    fn handle_message(
-        &mut self,
-        sender_id: &Self::NodeUid,
-        message: Self::Message,
-    ) -> AgreementResult<FaultLog<NodeUid>> {
+    fn handle_message(&mut self,
+                      sender_id: &Self::NodeUid,
+                      message: Self::Message)
+                      -> AgreementResult<FaultLog<NodeUid>>
+    {
         if self.terminated || message.epoch < self.epoch {
             // Message is obsolete; we're already in a later epoch or terminated.
             return Ok(FaultLog::new());
@@ -226,8 +224,7 @@ impl<NodeUid: Clone + Debug + Ord> DistAlgorithm for Agreement<NodeUid> {
 
     /// Take the next Agreement message for multicast to all other nodes.
     fn next_message(&mut self) -> Option<TargetedMessage<Self::Message, Self::NodeUid>> {
-        self.messages
-            .pop_front()
+        self.messages.pop_front()
             .map(|msg| Target::All.message(msg))
     }
 
@@ -247,37 +244,36 @@ impl<NodeUid: Clone + Debug + Ord> DistAlgorithm for Agreement<NodeUid> {
 }
 
 impl<NodeUid: Clone + Debug + Ord> Agreement<NodeUid> {
-    pub fn new(
-        netinfo: Rc<NetworkInfo<NodeUid>>,
-        session_id: u64,
-        proposer_id: NodeUid,
-    ) -> AgreementResult<Self> {
+    pub fn new(netinfo: Rc<NetworkInfo<NodeUid>>,
+               session_id: u64,
+               proposer_id: NodeUid)
+               -> AgreementResult<Self>
+    {
         let invocation_id = netinfo.invocation_id();
         if let Some(&proposer_i) = netinfo.node_index(&proposer_id) {
-            Ok(Agreement {
-                netinfo: netinfo.clone(),
-                session_id,
-                proposer_id,
-                epoch: 0,
-                bin_values: BinValues::new(),
-                received_bval: BTreeMap::new(),
-                sent_bval: BTreeSet::new(),
-                received_aux: BTreeMap::new(),
-                received_conf: BTreeMap::new(),
-                received_term: BTreeMap::new(),
-                estimated: None,
-                output: None,
-                decision: None,
-                incoming_queue: Vec::new(),
-                terminated: false,
-                messages: VecDeque::new(),
-                conf_round: false,
-                common_coin: CommonCoin::new(
-                    netinfo,
-                    Nonce::new(invocation_id.as_ref(), session_id, proposer_i, 0),
-                ),
-                coin_schedule: CoinSchedule::True,
-            })
+            Ok(Agreement { netinfo: netinfo.clone(),
+                           session_id,
+                           proposer_id,
+                           epoch: 0,
+                           bin_values: BinValues::new(),
+                           received_bval: BTreeMap::new(),
+                           sent_bval: BTreeSet::new(),
+                           received_aux: BTreeMap::new(),
+                           received_conf: BTreeMap::new(),
+                           received_term: BTreeMap::new(),
+                           estimated: None,
+                           output: None,
+                           decision: None,
+                           incoming_queue: Vec::new(),
+                           terminated: false,
+                           messages: VecDeque::new(),
+                           conf_round: false,
+                           common_coin: CommonCoin::new(netinfo,
+                                                        Nonce::new(invocation_id.as_ref(),
+                                                                   session_id,
+                                                                   proposer_i,
+                                                                   0)),
+                           coin_schedule: CoinSchedule::True, })
         } else {
             Err(ErrorKind::UnknownProposer.into())
         }
@@ -307,15 +303,13 @@ impl<NodeUid: Clone + Debug + Ord> Agreement<NodeUid> {
     }
 
     fn handle_bval(&mut self, sender_id: &NodeUid, b: bool) -> AgreementResult<FaultLog<NodeUid>> {
-        self.received_bval
-            .entry(sender_id.clone())
+        self.received_bval.entry(sender_id.clone())
             .or_insert_with(BTreeSet::new)
             .insert(b);
-        let count_bval = self
-            .received_bval
-            .values()
-            .filter(|values| values.contains(&b))
-            .count();
+        let count_bval = self.received_bval
+                             .values()
+                             .filter(|values| values.contains(&b))
+                             .count();
 
         // upon receiving `BVal(b)` messages from 2f + 1 nodes,
         // bin_values := bin_values ∪ {b}
@@ -353,7 +347,7 @@ impl<NodeUid: Clone + Debug + Ord> Agreement<NodeUid> {
                 } else {
                     Ok(FaultLog::new())
                 }
-            }
+            },
             CoinSchedule::True => {
                 let (aux_count, aux_vals) = self.count_aux();
                 if aux_count >= self.netinfo.num_nodes() - self.netinfo.num_faulty() {
@@ -361,12 +355,12 @@ impl<NodeUid: Clone + Debug + Ord> Agreement<NodeUid> {
                 } else {
                     Ok(FaultLog::new())
                 }
-            }
+            },
             CoinSchedule::Random => {
                 // If the `Conf` round has already started, a change in `bin_values` can lead to its
                 // end. Try if it has indeed finished.
                 self.try_finish_conf_round()
-            }
+            },
         }
     }
 
@@ -377,8 +371,7 @@ impl<NodeUid: Clone + Debug + Ord> Agreement<NodeUid> {
         // Record the value `b` as sent.
         self.sent_bval.insert(b);
         // Multicast `BVal`.
-        self.messages
-            .push_back(AgreementContent::BVal(b).with_epoch(self.epoch));
+        self.messages.push_back(AgreementContent::BVal(b).with_epoch(self.epoch));
         // Receive the `BVal` message locally.
         let our_uid = &self.netinfo.our_uid().clone();
         self.handle_bval(our_uid, b)
@@ -399,8 +392,7 @@ impl<NodeUid: Clone + Debug + Ord> Agreement<NodeUid> {
 
         let v = self.bin_values;
         // Multicast `Conf`.
-        self.messages
-            .push_back(AgreementContent::Conf(v).with_epoch(self.epoch));
+        self.messages.push_back(AgreementContent::Conf(v).with_epoch(self.epoch));
         // Receive the `Conf` message locally.
         let our_uid = &self.netinfo.our_uid().clone();
         self.handle_conf(our_uid, v)
@@ -433,15 +425,15 @@ impl<NodeUid: Clone + Debug + Ord> Agreement<NodeUid> {
             CoinSchedule::Random => {
                 // Start the `Conf` message round.
                 self.send_conf()
-            }
+            },
         }
     }
 
-    fn handle_conf(
-        &mut self,
-        sender_id: &NodeUid,
-        v: BinValues,
-    ) -> AgreementResult<FaultLog<NodeUid>> {
+    fn handle_conf(&mut self,
+                   sender_id: &NodeUid,
+                   v: BinValues)
+                   -> AgreementResult<FaultLog<NodeUid>>
+    {
         self.received_conf.insert(sender_id.clone(), v);
         self.try_finish_conf_round()
     }
@@ -453,8 +445,7 @@ impl<NodeUid: Clone + Debug + Ord> Agreement<NodeUid> {
         self.received_term.insert(sender_id.clone(), b);
         // Check for the expedite termination condition.
         if self.decision.is_none()
-            && self.received_term.iter().filter(|(_, &c)| b == c).count()
-                > self.netinfo.num_faulty()
+           && self.received_term.iter().filter(|(_, &c)| b == c).count() > self.netinfo.num_faulty()
         {
             self.decide(b);
         }
@@ -463,11 +454,11 @@ impl<NodeUid: Clone + Debug + Ord> Agreement<NodeUid> {
 
     /// Handles a Common Coin message. If there is output from Common Coin, starts the next
     /// epoch. The function may output a decision value.
-    fn handle_coin(
-        &mut self,
-        sender_id: &NodeUid,
-        msg: CommonCoinMessage,
-    ) -> AgreementResult<FaultLog<NodeUid>> {
+    fn handle_coin(&mut self,
+                   sender_id: &NodeUid,
+                   msg: CommonCoinMessage)
+                   -> AgreementResult<FaultLog<NodeUid>>
+    {
         let mut fault_log = self.common_coin.handle_message(sender_id, msg)?;
         self.extend_common_coin();
 
@@ -482,11 +473,11 @@ impl<NodeUid: Clone + Debug + Ord> Agreement<NodeUid> {
 
     /// When the common coin has been computed, tries to decide on an output value, updates the
     /// `Agreement` epoch and handles queued messages for the new epoch.
-    fn on_coin(
-        &mut self,
-        coin: bool,
-        def_bin_value: Option<bool>,
-    ) -> AgreementResult<FaultLog<NodeUid>> {
+    fn on_coin(&mut self,
+               coin: bool,
+               def_bin_value: Option<bool>)
+               -> AgreementResult<FaultLog<NodeUid>>
+    {
         let b = if let Some(b) = def_bin_value {
             // Outputting a value is allowed only once.
             if self.decision.is_none() && b == coin {
@@ -521,11 +512,11 @@ impl<NodeUid: Clone + Debug + Ord> Agreement<NodeUid> {
     /// Propagates Common Coin messages to the top level.
     fn extend_common_coin(&mut self) {
         let epoch = self.epoch;
-        self.messages.extend(self.common_coin.message_iter().map(
-            |msg: TargetedMessage<CommonCoinMessage, NodeUid>| {
-                AgreementContent::Coin(Box::new(msg.message)).with_epoch(epoch)
-            },
-        ));
+        self.messages.extend(self.common_coin
+                        .message_iter()
+                        .map(|msg: TargetedMessage<CommonCoinMessage, NodeUid>| {
+                                 AgreementContent::Coin(Box::new(msg.message)).with_epoch(epoch)
+                             }));
     }
 
     /// Decides on a value and broadcasts a `Term` message with that value.
@@ -538,16 +529,13 @@ impl<NodeUid: Clone + Debug + Ord> Agreement<NodeUid> {
         // Latch the decided state.
         self.decision = Some(b);
         if self.netinfo.is_validator() {
-            self.messages
-                .push_back(AgreementContent::Term(b).with_epoch(self.epoch));
+            self.messages.push_back(AgreementContent::Term(b).with_epoch(self.epoch));
             self.received_term.insert(self.netinfo.our_uid().clone(), b);
         }
         self.terminated = true;
-        debug!(
-            "Agreement instance {:?} decided: {}",
-            self.netinfo.our_uid(),
-            b
-        );
+        debug!("Agreement instance {:?} decided: {}",
+               self.netinfo.our_uid(),
+               b);
     }
 
     fn try_finish_conf_round(&mut self) -> AgreementResult<FaultLog<NodeUid>> {
@@ -569,8 +557,7 @@ impl<NodeUid: Clone + Debug + Ord> Agreement<NodeUid> {
             return Ok(FaultLog::new());
         }
         // Multicast `Aux`.
-        self.messages
-            .push_back(AgreementContent::Aux(b).with_epoch(self.epoch));
+        self.messages.push_back(AgreementContent::Aux(b).with_epoch(self.epoch));
         // Receive the `Aux` message locally.
         let our_uid = &self.netinfo.our_uid().clone();
         self.handle_aux(our_uid, b)
@@ -584,17 +571,15 @@ impl<NodeUid: Clone + Debug + Ord> Agreement<NodeUid> {
     /// f agreeing messages would not always terminate. We can, however, expect every good node to
     /// send an `Aux` value that will eventually end up in our `bin_values`.
     fn count_aux(&self) -> (usize, BinValues) {
-        let mut aux: BTreeMap<_, _> = self
-            .received_aux
-            .iter()
-            .filter(|(_, &b)| self.bin_values.contains(b))
-            .collect();
+        let mut aux: BTreeMap<_, _> = self.received_aux
+                                          .iter()
+                                          .filter(|(_, &b)| self.bin_values.contains(b))
+                                          .collect();
 
-        let term: BTreeMap<_, _> = self
-            .received_term
-            .iter()
-            .filter(|(_, &b)| self.bin_values.contains(b))
-            .collect();
+        let term: BTreeMap<_, _> = self.received_term
+                                       .iter()
+                                       .filter(|(_, &b)| self.bin_values.contains(b))
+                                       .collect();
 
         // Ensure that nodes are not counted twice.
         aux.extend(term);
@@ -604,11 +589,10 @@ impl<NodeUid: Clone + Debug + Ord> Agreement<NodeUid> {
 
     /// Counts the number of received `Conf` messages.
     fn count_conf(&self) -> (usize, BinValues) {
-        let (vals_cnt, vals) = self
-            .received_conf
-            .values()
-            .filter(|&conf| conf.is_subset(self.bin_values))
-            .tee();
+        let (vals_cnt, vals) = self.received_conf
+                                   .values()
+                                   .filter(|&conf| conf.is_subset(self.bin_values))
+                                   .tee();
 
         (vals_cnt.count(), vals.cloned().collect())
     }
@@ -621,22 +605,18 @@ impl<NodeUid: Clone + Debug + Ord> Agreement<NodeUid> {
         self.received_conf.clear();
         self.conf_round = false;
         self.epoch += 1;
-        let nonce = Nonce::new(
-            self.netinfo.invocation_id().as_ref(),
-            self.session_id,
-            *self.netinfo.node_index(&self.proposer_id).unwrap(),
-            self.epoch,
-        );
+        let nonce = Nonce::new(self.netinfo.invocation_id().as_ref(),
+                               self.session_id,
+                               *self.netinfo.node_index(&self.proposer_id).unwrap(),
+                               self.epoch);
         // TODO: Don't spend time creating a `CommonCoin` instance in epochs where the common coin
         // is known.
         self.common_coin = CommonCoin::new(self.netinfo.clone(), nonce);
         self.coin_schedule = self.coin_schedule();
-        debug!(
-            "{:?} Agreement instance {:?} started epoch {}",
-            self.netinfo.our_uid(),
-            self.proposer_id,
-            self.epoch
-        );
+        debug!("{:?} Agreement instance {:?} started epoch {}",
+               self.netinfo.our_uid(),
+               self.proposer_id,
+               self.epoch);
     }
 }
 
@@ -644,16 +624,14 @@ impl<NodeUid: Clone + Debug + Ord> Agreement<NodeUid> {
 struct Nonce(Vec<u8>);
 
 impl Nonce {
-    pub fn new(
-        invocation_id: &[u8],
-        session_id: u64,
-        proposer_id: usize,
-        agreement_epoch: u32,
-    ) -> Self {
-        Nonce(Vec::from(format!(
-            "Nonce for Honey Badger {:?}@{}:{}:{}",
-            invocation_id, session_id, agreement_epoch, proposer_id
-        )))
+    pub fn new(invocation_id: &[u8],
+               session_id: u64,
+               proposer_id: usize,
+               agreement_epoch: u32)
+               -> Self
+    {
+        Nonce(Vec::from(format!("Nonce for Honey Badger {:?}@{}:{}:{}",
+                                invocation_id, session_id, agreement_epoch, proposer_id)))
     }
 }
 

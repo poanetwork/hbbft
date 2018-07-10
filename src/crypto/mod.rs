@@ -177,11 +177,9 @@ impl SecretKey {
 
 /// An encrypted message.
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq)]
-pub struct Ciphertext(
-    #[serde(with = "serde_impl::projective")] G1,
-    Vec<u8>,
-    #[serde(with = "serde_impl::projective")] G2,
-);
+pub struct Ciphertext(#[serde(with = "serde_impl::projective")] G1,
+                      Vec<u8>,
+                      #[serde(with = "serde_impl::projective")] G2);
 
 impl Hash for Ciphertext {
     fn hash<H: Hasher>(&self, state: &mut H) {
@@ -251,20 +249,16 @@ impl PublicKeySet {
 
     /// Combines the shares into a signature that can be verified with the main public key.
     pub fn combine_signatures<'a, ITR, IND>(&self, shares: ITR) -> Result<Signature>
-    where
-        ITR: IntoIterator<Item = (&'a IND, &'a Signature)>,
-        IND: Into<FrRepr> + Clone + 'a,
-    {
+        where ITR: IntoIterator<Item = (&'a IND, &'a Signature)>,
+              IND: Into<FrRepr> + Clone + 'a {
         let samples = shares.into_iter().map(|(i, share)| (i, &share.0));
         Ok(Signature(interpolate(self.commit.degree() + 1, samples)?))
     }
 
     /// Combines the shares to decrypt the ciphertext.
     pub fn decrypt<'a, ITR, IND>(&self, shares: ITR, ct: &Ciphertext) -> Result<Vec<u8>>
-    where
-        ITR: IntoIterator<Item = (&'a IND, &'a DecryptionShare)>,
-        IND: Into<FrRepr> + Clone + 'a,
-    {
+        where ITR: IntoIterator<Item = (&'a IND, &'a DecryptionShare)>,
+              IND: Into<FrRepr> + Clone + 'a {
         let samples = shares.into_iter().map(|(i, share)| (i, &share.0));
         let g = interpolate(self.commit.degree() + 1, samples)?;
         Ok(xor_vec(&hash_bytes(g, ct.1.len()), &ct.1))
@@ -288,9 +282,7 @@ impl SecretKeySet {
     /// Creates a set of secret key shares, where any `threshold + 1` of them can collaboratively
     /// sign and decrypt.
     pub fn random<R: Rng>(threshold: usize, rng: &mut R) -> Self {
-        SecretKeySet {
-            poly: Poly::random(threshold, rng),
-        }
+        SecretKeySet { poly: Poly::random(threshold, rng), }
     }
 
     /// Returns the threshold `t`: any set of `t + 1` signature shares can be combined into a full
@@ -301,16 +293,12 @@ impl SecretKeySet {
 
     /// Returns the `i`-th secret key share.
     pub fn secret_key_share<T: Into<FrRepr>>(&self, i: T) -> ClearOnDrop<Box<SecretKey>> {
-        ClearOnDrop::new(Box::new(SecretKey(
-            self.poly.evaluate(from_repr_plus_1::<Fr>(i.into())),
-        )))
+        ClearOnDrop::new(Box::new(SecretKey(self.poly.evaluate(from_repr_plus_1::<Fr>(i.into())))))
     }
 
     /// Returns the corresponding public key set. That information can be shared publicly.
     pub fn public_keys(&self) -> PublicKeySet {
-        PublicKeySet {
-            commit: self.poly.commitment(),
-        }
+        PublicKeySet { commit: self.poly.commitment(), }
     }
 
     /// Returns the secret master key.
@@ -324,8 +312,8 @@ impl SecretKeySet {
 fn hash_g2<M: AsRef<[u8]>>(msg: M) -> G2 {
     let digest = digest::digest(&digest::SHA256, msg.as_ref());
     let seed = <[u32; CHACHA_RNG_SEED_SIZE]>::init_with_indices(|i| {
-        BigEndian::read_u32(&digest.as_ref()[(4 * i)..(4 * i + 4)])
-    });
+                                                                    BigEndian::read_u32(&digest.as_ref()[(4 * i)..(4 * i + 4)])
+                                                                });
     let mut rng = ChaChaRng::from_seed(&seed);
     rng.gen()
 }
@@ -348,8 +336,8 @@ fn hash_g1_g2<M: AsRef<[u8]>>(g1: G1, msg: M) -> G2 {
 fn hash_bytes(g1: G1, len: usize) -> Vec<u8> {
     let digest = digest::digest(&digest::SHA256, g1.into_affine().into_compressed().as_ref());
     let seed = <[u32; CHACHA_RNG_SEED_SIZE]>::init_with_indices(|i| {
-        BigEndian::read_u32(&digest.as_ref()[(4 * i)..(4 * i + 4)])
-    });
+                                                                    BigEndian::read_u32(&digest.as_ref()[(4 * i)..(4 * i + 4)])
+                                                                });
     let mut rng = ChaChaRng::from_seed(&seed);
     rng.gen_iter().take(len).collect()
 }
@@ -362,15 +350,13 @@ fn xor_vec(x: &[u8], y: &[u8]) -> Vec<u8> {
 /// Given a list of `t` samples `(i - 1, f(i) * g)` for a polynomial `f` of degree `t - 1`, and a
 /// group generator `g`, returns `f(0) * g`.
 fn interpolate<'a, C, ITR, IND>(t: usize, items: ITR) -> Result<C>
-where
-    C: CurveProjective,
-    ITR: IntoIterator<Item = (&'a IND, &'a C)>,
-    IND: Into<<C::Scalar as PrimeField>::Repr> + Clone + 'a,
-{
-    let samples: Vec<_> = items
-        .into_iter()
-        .map(|(i, sample)| (from_repr_plus_1::<C::Scalar>(i.clone().into()), sample))
-        .collect();
+    where C: CurveProjective,
+          ITR: IntoIterator<Item = (&'a IND, &'a C)>,
+          IND: Into<<C::Scalar as PrimeField>::Repr> + Clone + 'a {
+    let samples: Vec<_> =
+        items.into_iter()
+             .map(|(i, sample)| (from_repr_plus_1::<C::Scalar>(i.clone().into()), sample))
+             .collect();
     if samples.len() < t {
         return Err(ErrorKind::NotEnoughShares.into());
     }
@@ -440,10 +426,10 @@ mod tests {
         let msg = "Totally real news";
 
         // The threshold is 3, so 4 signature shares will suffice to recreate the share.
-        let sigs: BTreeMap<_, _> = [5, 8, 7, 10]
-            .into_iter()
-            .map(|i| (*i, sk_set.secret_key_share(*i).sign(msg)))
-            .collect();
+        let sigs: BTreeMap<_, _> =
+            [5, 8, 7, 10].into_iter()
+                         .map(|i| (*i, sk_set.secret_key_share(*i).sign(msg)))
+                         .collect();
 
         // Each of the shares is a valid signature matching its public key share.
         for (i, sig) in &sigs {
@@ -455,10 +441,10 @@ mod tests {
         assert!(pk_set.public_key().verify(&sig, msg));
 
         // A different set of signatories produces the same signature.
-        let sigs2: BTreeMap<_, _> = [42, 43, 44, 45]
-            .into_iter()
-            .map(|i| (*i, sk_set.secret_key_share(*i).sign(msg)))
-            .collect();
+        let sigs2: BTreeMap<_, _> =
+            [42, 43, 44, 45].into_iter()
+                            .map(|i| (*i, sk_set.secret_key_share(*i).sign(msg)))
+                            .collect();
         let sig2 = pk_set.combine_signatures(&sigs2).expect("signatures match");
         assert_eq!(sig, sig2);
     }
@@ -496,26 +482,25 @@ mod tests {
         let ciphertext = pk_set.public_key().encrypt(&msg[..]);
 
         // The threshold is 3, so 4 signature shares will suffice to decrypt.
-        let shares: BTreeMap<_, _> = [5, 8, 7, 10]
-            .into_iter()
-            .map(|i| {
-                let ski = sk_set.secret_key_share(*i);
-                let share = ski.decrypt_share(&ciphertext).expect("ciphertext is valid");
-                (*i, share)
-            })
-            .collect();
+        let shares: BTreeMap<_, _> = [5, 8, 7, 10].into_iter()
+                                                  .map(|i| {
+                                                           let ski = sk_set.secret_key_share(*i);
+                                                           let share =
+                                                               ski.decrypt_share(&ciphertext)
+                                                                  .expect("ciphertext is valid");
+                                                           (*i, share)
+                                                       })
+                                                  .collect();
 
         // Each of the shares is valid matching its public key share.
         for (i, share) in &shares {
-            pk_set
-                .public_key_share(*i)
-                .verify_decryption_share(share, &ciphertext);
+            pk_set.public_key_share(*i)
+                  .verify_decryption_share(share, &ciphertext);
         }
 
         // Combined, they can decrypt the message.
-        let decrypted = pk_set
-            .decrypt(&shares, &ciphertext)
-            .expect("decryption shares match");
+        let decrypted = pk_set.decrypt(&shares, &ciphertext)
+                              .expect("decryption shares match");
         assert_eq!(msg[..], decrypted[..]);
     }
 
