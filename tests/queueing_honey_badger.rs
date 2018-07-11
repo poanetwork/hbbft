@@ -1,9 +1,9 @@
-//! Network tests for Dynamic Honey Badger.
+//! Network tests for Queueing Honey Badger.
 
+extern crate env_logger;
 extern crate hbbft;
 #[macro_use]
 extern crate log;
-extern crate env_logger;
 extern crate pairing;
 extern crate rand;
 #[macro_use]
@@ -16,36 +16,32 @@ use std::collections::BTreeMap;
 use std::iter::once;
 use std::rc::Rc;
 
-use rand::Rng;
-
-use hbbft::dynamic_honey_badger::{Batch, Change, ChangeState, DynamicHoneyBadger, Input};
 use hbbft::messaging::NetworkInfo;
-use hbbft::transaction_queue::TransactionQueue;
+use hbbft::queueing_honey_badger::{Change, ChangeState, Input, QueueingHoneyBadger};
+use rand::Rng;
 
 use network::{Adversary, MessageScheduler, NodeUid, SilentAdversary, TestNetwork, TestNode};
 
-type UsizeDhb = DynamicHoneyBadger<Vec<usize>, NodeUid>;
-
 /// Proposes `num_txs` values and expects nodes to output and order them.
-fn test_dynamic_honey_badger<A>(mut network: TestNetwork<A, UsizeDhb>, num_txs: usize)
-where
-    A: Adversary<UsizeDhb>,
+fn test_queueing_honey_badger<A>(
+    mut network: TestNetwork<A, QueueingHoneyBadger<usize, NodeUid>>,
+    num_txs: usize,
+) where
+    A: Adversary<QueueingHoneyBadger<usize, NodeUid>>,
 {
-    let new_queue = |id: &NodeUid| (*id, TransactionQueue((0..num_txs).collect()));
-    let mut queues: BTreeMap<_, _> = network.nodes.keys().map(new_queue).collect();
-    for (id, queue) in &queues {
-        network.input(*id, Input::User(queue.choose(3, 10)));
+    // The second half of the transactions will be input only after a node has been removed.
+    network.input_all(Input::Change(Change::Remove(NodeUid(0))));
+    for tx in 0..(num_txs / 2) {
+        network.input_all(Input::User(tx));
     }
 
-    network.input_all(Input::Change(Change::Remove(NodeUid(0))));
-
-    fn has_remove(node: &TestNode<UsizeDhb>) -> bool {
+    fn has_remove(node: &TestNode<QueueingHoneyBadger<usize, NodeUid>>) -> bool {
         node.outputs()
             .iter()
             .any(|batch| batch.change == ChangeState::Complete(Change::Remove(NodeUid(0))))
     }
 
-    fn has_add(node: &TestNode<UsizeDhb>) -> bool {
+    fn has_add(node: &TestNode<QueueingHoneyBadger<usize, NodeUid>>) -> bool {
         node.outputs().iter().any(|batch| match batch.change {
             ChangeState::Complete(Change::Add(ref id, _)) => *id == NodeUid(0),
             _ => false,
@@ -54,7 +50,7 @@ where
 
     // Returns `true` if the node has not output all transactions yet.
     // If it has, and has advanced another epoch, it clears all messages for later epochs.
-    let node_busy = |node: &mut TestNode<UsizeDhb>| {
+    let node_busy = |node: &mut TestNode<QueueingHoneyBadger<usize, NodeUid>>| {
         if !has_remove(node) || !has_add(node) {
             return true;
         }
@@ -79,15 +75,11 @@ where
     let mut input_add = false;
     // Handle messages in random order until all nodes have output all transactions.
     while network.nodes.values_mut().any(node_busy) {
-        let id = network.step();
-        if !network.nodes[&id].instance().has_input() {
-            queues
-                .get_mut(&id)
-                .unwrap()
-                .remove_all(network.nodes[&id].outputs().iter().flat_map(Batch::iter));
-            network.input(id, Input::User(queues[&id].choose(3, 10)));
-        }
+        network.step();
         if !input_add && network.nodes.values().all(has_remove) {
+            for tx in (num_txs / 2)..num_txs {
+                network.input_all(Input::User(tx));
+            }
             let pk = network.pk_set.public_key_share(0);
             network.input_all(Input::Change(Change::Add(NodeUid(0), pk)));
             info!("Input!");
@@ -100,9 +92,9 @@ where
 /// Verifies that all instances output the same sequence of batches. We already know that all of
 /// them have output all transactions and events, but some may have advanced a few empty batches
 /// more than others, so we ignore those.
-fn verify_output_sequence<A>(network: &TestNetwork<A, UsizeDhb>)
+fn verify_output_sequence<A>(network: &TestNetwork<A, QueueingHoneyBadger<usize, NodeUid>>)
 where
-    A: Adversary<UsizeDhb>,
+    A: Adversary<QueueingHoneyBadger<usize, NodeUid>>,
 {
     let expected = network.nodes[&NodeUid(0)].outputs().to_vec();
     assert!(!expected.is_empty());
@@ -114,13 +106,15 @@ where
 
 // Allow passing `netinfo` by value. `TestNetwork` expects this function signature.
 #[cfg_attr(feature = "cargo-clippy", allow(needless_pass_by_value))]
-fn new_dynamic_hb(netinfo: Rc<NetworkInfo<NodeUid>>) -> UsizeDhb {
-    DynamicHoneyBadger::builder((*netinfo).clone()).build()
+fn new_queueing_hb(netinfo: Rc<NetworkInfo<NodeUid>>) -> QueueingHoneyBadger<usize, NodeUid> {
+    QueueingHoneyBadger::builder((*netinfo).clone())
+        .batch_size(12)
+        .build()
 }
 
-fn test_dynamic_honey_badger_different_sizes<A, F>(new_adversary: F, num_txs: usize)
+fn test_queueing_honey_badger_different_sizes<A, F>(new_adversary: F, num_txs: usize)
 where
-    A: Adversary<UsizeDhb>,
+    A: Adversary<QueueingHoneyBadger<usize, NodeUid>>,
     F: Fn(usize, usize, BTreeMap<NodeUid, Rc<NetworkInfo<NodeUid>>>) -> A,
 {
     // This returns an error in all but the first test.
@@ -137,19 +131,19 @@ where
             num_good_nodes, num_adv_nodes
         );
         let adversary = |adv_nodes| new_adversary(num_good_nodes, num_adv_nodes, adv_nodes);
-        let network = TestNetwork::new(num_good_nodes, num_adv_nodes, adversary, new_dynamic_hb);
-        test_dynamic_honey_badger(network, num_txs);
+        let network = TestNetwork::new(num_good_nodes, num_adv_nodes, adversary, new_queueing_hb);
+        test_queueing_honey_badger(network, num_txs);
     }
 }
 
 #[test]
-fn test_dynamic_honey_badger_random_delivery_silent() {
+fn test_queueing_honey_badger_random_delivery_silent() {
     let new_adversary = |_: usize, _: usize, _| SilentAdversary::new(MessageScheduler::Random);
-    test_dynamic_honey_badger_different_sizes(new_adversary, 10);
+    test_queueing_honey_badger_different_sizes(new_adversary, 10);
 }
 
 #[test]
-fn test_dynamic_honey_badger_first_delivery_silent() {
+fn test_queueing_honey_badger_first_delivery_silent() {
     let new_adversary = |_: usize, _: usize, _| SilentAdversary::new(MessageScheduler::First);
-    test_dynamic_honey_badger_different_sizes(new_adversary, 10);
+    test_queueing_honey_badger_different_sizes(new_adversary, 10);
 }
