@@ -4,7 +4,7 @@ use std::fmt::Debug;
 use std::hash::Hash;
 use std::marker::PhantomData;
 use std::ops::Not;
-use std::rc::Rc;
+use std::sync::Arc;
 
 use bincode;
 use itertools::Itertools;
@@ -36,7 +36,7 @@ error_chain!{
 /// A Honey Badger builder, to configure the parameters and create new instances of `HoneyBadger`.
 pub struct HoneyBadgerBuilder<C, NodeUid> {
     /// Shared network data.
-    netinfo: Rc<NetworkInfo<NodeUid>>,
+    netinfo: Arc<NetworkInfo<NodeUid>>,
     /// The maximum number of future epochs for which we handle messages simultaneously.
     max_future_epochs: usize,
     _phantom: PhantomData<C>,
@@ -49,7 +49,7 @@ where
 {
     /// Returns a new `HoneyBadgerBuilder` configured to use the node IDs and cryptographic keys
     /// specified by `netinfo`.
-    pub fn new(netinfo: Rc<NetworkInfo<NodeUid>>) -> Self {
+    pub fn new(netinfo: Arc<NetworkInfo<NodeUid>>) -> Self {
         HoneyBadgerBuilder {
             netinfo,
             max_future_epochs: 3,
@@ -84,7 +84,7 @@ where
 /// An instance of the Honey Badger Byzantine fault tolerant consensus algorithm.
 pub struct HoneyBadger<C, NodeUid> {
     /// Shared network data.
-    netinfo: Rc<NetworkInfo<NodeUid>>,
+    netinfo: Arc<NetworkInfo<NodeUid>>,
     /// The earliest epoch from which we have not yet received output.
     epoch: u64,
     /// Whether we have already submitted a proposal for the current epoch.
@@ -173,7 +173,7 @@ where
 {
     /// Returns a new `HoneyBadgerBuilder` configured to use the node IDs and cryptographic keys
     /// specified by `netinfo`.
-    pub fn builder(netinfo: Rc<NetworkInfo<NodeUid>>) -> HoneyBadgerBuilder<C, NodeUid> {
+    pub fn builder(netinfo: Arc<NetworkInfo<NodeUid>>) -> HoneyBadgerBuilder<C, NodeUid> {
         HoneyBadgerBuilder::new(netinfo)
     }
 

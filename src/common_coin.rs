@@ -23,7 +23,7 @@
 
 use std::collections::{BTreeMap, VecDeque};
 use std::fmt::Debug;
-use std::rc::Rc;
+use std::sync::Arc;
 
 use crypto::error as cerror;
 use crypto::Signature;
@@ -63,7 +63,7 @@ impl CommonCoinMessage {
 /// signature is valid, the instance outputs it and terminates; otherwise the instance aborts.
 #[derive(Debug)]
 pub struct CommonCoin<NodeUid, T> {
-    netinfo: Rc<NetworkInfo<NodeUid>>,
+    netinfo: Arc<NetworkInfo<NodeUid>>,
     /// The name of this common coin. It is required to be unique for each common coin round.
     nonce: T,
     /// The result of combination of at least `num_faulty + 1` threshold signature shares.
@@ -139,7 +139,7 @@ where
     NodeUid: Clone + Debug + Ord,
     T: Clone + AsRef<[u8]>,
 {
-    pub fn new(netinfo: Rc<NetworkInfo<NodeUid>>, nonce: T) -> Self {
+    pub fn new(netinfo: Arc<NetworkInfo<NodeUid>>, nonce: T) -> Self {
         CommonCoin {
             netinfo,
             nonce,

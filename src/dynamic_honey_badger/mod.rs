@@ -48,7 +48,7 @@ use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::fmt::Debug;
 use std::hash::Hash;
 use std::mem;
-use std::rc::Rc;
+use std::sync::Arc;
 
 use bincode;
 use clear_on_drop::ClearOnDrop;
@@ -367,7 +367,7 @@ where
         self.messages
             .extend_with_epoch(self.start_epoch, &mut self.honey_badger);
         self.start_epoch = epoch;
-        self.honey_badger = HoneyBadger::builder(Rc::new(self.netinfo.clone()))
+        self.honey_badger = HoneyBadger::builder(Arc::new(self.netinfo.clone()))
             .max_future_epochs(self.max_future_epochs)
             .build();
         Ok(())

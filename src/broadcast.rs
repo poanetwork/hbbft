@@ -44,7 +44,7 @@
 use std::collections::{BTreeMap, VecDeque};
 use std::fmt::{self, Debug};
 use std::iter::once;
-use std::rc::Rc;
+use std::sync::Arc;
 
 use byteorder::{BigEndian, ByteOrder};
 use merkle::{MerkleTree, Proof};
@@ -97,7 +97,7 @@ impl Debug for BroadcastMessage {
 /// Reliable Broadcast algorithm instance.
 pub struct Broadcast<NodeUid> {
     /// Shared network data.
-    netinfo: Rc<NetworkInfo<NodeUid>>,
+    netinfo: Arc<NetworkInfo<NodeUid>>,
     /// The UID of the sending node.
     proposer_id: NodeUid,
     data_shard_num: usize,
@@ -176,7 +176,7 @@ impl<NodeUid: Debug + Clone + Ord> DistAlgorithm for Broadcast<NodeUid> {
 impl<NodeUid: Debug + Clone + Ord> Broadcast<NodeUid> {
     /// Creates a new broadcast instance to be used by node `our_id` which expects a value proposal
     /// from node `proposer_id`.
-    pub fn new(netinfo: Rc<NetworkInfo<NodeUid>>, proposer_id: NodeUid) -> BroadcastResult<Self> {
+    pub fn new(netinfo: Arc<NetworkInfo<NodeUid>>, proposer_id: NodeUid) -> BroadcastResult<Self> {
         let parity_shard_num = 2 * netinfo.num_faulty();
         let data_shard_num = netinfo.num_nodes() - parity_shard_num;
         let coding = Coding::new(data_shard_num, parity_shard_num)?;

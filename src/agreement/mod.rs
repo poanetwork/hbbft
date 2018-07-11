@@ -68,7 +68,7 @@ pub mod bin_values;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fmt::Debug;
 use std::mem::replace;
-use std::rc::Rc;
+use std::sync::Arc;
 
 use itertools::Itertools;
 
@@ -139,7 +139,7 @@ enum CoinSchedule {
 /// Binary Agreement instance
 pub struct Agreement<NodeUid> {
     /// Shared network information.
-    netinfo: Rc<NetworkInfo<NodeUid>>,
+    netinfo: Arc<NetworkInfo<NodeUid>>,
     /// Session ID, e.g, the Honey Badger algorithm epoch.
     session_id: u64,
     /// The ID of the proposer of the value for this agreement instance.
@@ -248,7 +248,7 @@ impl<NodeUid: Clone + Debug + Ord> DistAlgorithm for Agreement<NodeUid> {
 
 impl<NodeUid: Clone + Debug + Ord> Agreement<NodeUid> {
     pub fn new(
-        netinfo: Rc<NetworkInfo<NodeUid>>,
+        netinfo: Arc<NetworkInfo<NodeUid>>,
         session_id: u64,
         proposer_id: NodeUid,
     ) -> AgreementResult<Self> {

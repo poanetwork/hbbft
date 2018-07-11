@@ -14,7 +14,7 @@ mod network;
 use std::cmp;
 use std::collections::BTreeMap;
 use std::iter::once;
-use std::rc::Rc;
+use std::sync::Arc;
 
 use hbbft::messaging::NetworkInfo;
 use hbbft::queueing_honey_badger::{Change, ChangeState, Input, QueueingHoneyBadger};
@@ -106,7 +106,7 @@ where
 
 // Allow passing `netinfo` by value. `TestNetwork` expects this function signature.
 #[cfg_attr(feature = "cargo-clippy", allow(needless_pass_by_value))]
-fn new_queueing_hb(netinfo: Rc<NetworkInfo<NodeUid>>) -> QueueingHoneyBadger<usize, NodeUid> {
+fn new_queueing_hb(netinfo: Arc<NetworkInfo<NodeUid>>) -> QueueingHoneyBadger<usize, NodeUid> {
     QueueingHoneyBadger::builder((*netinfo).clone())
         .batch_size(12)
         .build()
@@ -115,7 +115,7 @@ fn new_queueing_hb(netinfo: Rc<NetworkInfo<NodeUid>>) -> QueueingHoneyBadger<usi
 fn test_queueing_honey_badger_different_sizes<A, F>(new_adversary: F, num_txs: usize)
 where
     A: Adversary<QueueingHoneyBadger<usize, NodeUid>>,
-    F: Fn(usize, usize, BTreeMap<NodeUid, Rc<NetworkInfo<NodeUid>>>) -> A,
+    F: Fn(usize, usize, BTreeMap<NodeUid, Arc<NetworkInfo<NodeUid>>>) -> A,
 {
     // This returns an error in all but the first test.
     let _ = env_logger::try_init();

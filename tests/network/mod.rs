@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fmt::Debug;
 use std::hash::Hash;
-use std::rc::Rc;
+use std::sync::Arc;
 
 use rand::{self, Rng};
 
@@ -155,7 +155,7 @@ where
 {
     pub nodes: BTreeMap<D::NodeUid, TestNode<D>>,
     pub observer: TestNode<D>,
-    pub adv_nodes: BTreeMap<D::NodeUid, Rc<NetworkInfo<D::NodeUid>>>,
+    pub adv_nodes: BTreeMap<D::NodeUid, Arc<NetworkInfo<D::NodeUid>>>,
     pub pk_set: PublicKeySet,
     adversary: A,
 }
@@ -173,8 +173,8 @@ where
         new_algo: F,
     ) -> TestNetwork<A, D>
     where
-        F: Fn(Rc<NetworkInfo<NodeUid>>) -> D,
-        G: Fn(BTreeMap<D::NodeUid, Rc<NetworkInfo<D::NodeUid>>>) -> A,
+        F: Fn(Arc<NetworkInfo<NodeUid>>) -> D,
+        G: Fn(BTreeMap<D::NodeUid, Arc<NetworkInfo<D::NodeUid>>>) -> A,
     {
         let mut rng = rand::thread_rng();
         let sk_set = SecretKeySet::random(adv_num, &mut rng);
@@ -184,7 +184,7 @@ where
         let new_node_by_id = |NodeUid(i): NodeUid| {
             (
                 NodeUid(i),
-                TestNode::new(new_algo(Rc::new(NetworkInfo::new(
+                TestNode::new(new_algo(Arc::new(NetworkInfo::new(
                     NodeUid(i),
                     node_ids.clone(),
                     sk_set.secret_key_share(i as u64),
@@ -195,7 +195,7 @@ where
         let new_adv_node_by_id = |NodeUid(i): NodeUid| {
             (
                 NodeUid(i),
-                Rc::new(NetworkInfo::new(
+                Arc::new(NetworkInfo::new(
                     NodeUid(i),
                     node_ids.clone(),
                     sk_set.secret_key_share(i as u64),
@@ -203,7 +203,7 @@ where
                 )),
             )
         };
-        let adv_nodes: BTreeMap<D::NodeUid, Rc<NetworkInfo<D::NodeUid>>> = (good_num
+        let adv_nodes: BTreeMap<D::NodeUid, Arc<NetworkInfo<D::NodeUid>>> = (good_num
             ..(good_num + adv_num))
             .map(NodeUid)
             .map(new_adv_node_by_id)

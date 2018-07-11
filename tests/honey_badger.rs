@@ -14,7 +14,7 @@ mod network;
 
 use std::collections::BTreeMap;
 use std::iter::once;
-use std::rc::Rc;
+use std::sync::Arc;
 
 use rand::Rng;
 
@@ -32,7 +32,7 @@ type UsizeHoneyBadger = HoneyBadger<Vec<usize>, NodeUid>;
 pub struct FaultyShareAdversary {
     num_good: usize,
     num_adv: usize,
-    adv_nodes: BTreeMap<NodeUid, Rc<NetworkInfo<NodeUid>>>,
+    adv_nodes: BTreeMap<NodeUid, Arc<NetworkInfo<NodeUid>>>,
     scheduler: MessageScheduler,
     share_triggers: BTreeMap<u64, bool>,
 }
@@ -42,7 +42,7 @@ impl FaultyShareAdversary {
     pub fn new(
         num_good: usize,
         num_adv: usize,
-        adv_nodes: BTreeMap<NodeUid, Rc<NetworkInfo<NodeUid>>>,
+        adv_nodes: BTreeMap<NodeUid, Arc<NetworkInfo<NodeUid>>>,
         scheduler: MessageScheduler,
     ) -> FaultyShareAdversary {
         FaultyShareAdversary {
@@ -189,14 +189,14 @@ where
     }
 }
 
-fn new_honey_badger(netinfo: Rc<NetworkInfo<NodeUid>>) -> UsizeHoneyBadger {
+fn new_honey_badger(netinfo: Arc<NetworkInfo<NodeUid>>) -> UsizeHoneyBadger {
     HoneyBadger::builder(netinfo).build()
 }
 
 fn test_honey_badger_different_sizes<A, F>(new_adversary: F, num_txs: usize)
 where
     A: Adversary<UsizeHoneyBadger>,
-    F: Fn(usize, usize, BTreeMap<NodeUid, Rc<NetworkInfo<NodeUid>>>) -> A,
+    F: Fn(usize, usize, BTreeMap<NodeUid, Arc<NetworkInfo<NodeUid>>>) -> A,
 {
     // This returns an error in all but the first test.
     let _ = env_logger::try_init();
