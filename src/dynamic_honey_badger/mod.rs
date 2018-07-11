@@ -47,7 +47,6 @@
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::fmt::Debug;
 use std::hash::Hash;
-use std::marker::PhantomData;
 use std::mem;
 use std::rc::Rc;
 
@@ -55,59 +54,23 @@ use bincode;
 use clear_on_drop::ClearOnDrop;
 use serde::{Deserialize, Serialize};
 
-use crypto::{PublicKey, PublicKeySet, SecretKey, Signature};
+use crypto::{PublicKeySet, SecretKey, Signature};
 use fault_log::{FaultKind, FaultLog};
-use honey_badger::{self, HoneyBadger, Message as HbMessage};
+use honey_badger::{HoneyBadger, Message as HbMessage};
 use messaging::{DistAlgorithm, NetworkInfo, Target, TargetedMessage};
 use sync_key_gen::{Accept, Propose, ProposeOutcome, SyncKeyGen};
 
+pub use self::batch::Batch;
+pub use self::builder::DynamicHoneyBadgerBuilder;
+pub use self::change::{Change, ChangeState};
+pub use self::err::{Error, ErrorKind, Result};
+
+mod batch;
+mod builder;
+mod change;
+mod err;
+
 type KeyGenOutput = (PublicKeySet, Option<ClearOnDrop<Box<SecretKey>>>);
-
-error_chain!{
-    links {
-        HoneyBadger(honey_badger::Error, honey_badger::ErrorKind);
-    }
-
-    foreign_links {
-        Bincode(Box<bincode::ErrorKind>);
-    }
-
-    errors {
-        UnknownSender
-    }
-}
-
-/// A node change action: adding or removing a node.
-#[derive(Clone, Eq, PartialEq, Serialize, Deserialize, Hash, Debug)]
-pub enum Change<NodeUid> {
-    /// Add a node. The public key is used only temporarily, for key generation.
-    Add(NodeUid, PublicKey),
-    /// Remove a node.
-    Remove(NodeUid),
-}
-
-impl<NodeUid> Change<NodeUid> {
-    /// Returns the ID of the current candidate for being added, if any.
-    fn candidate(&self) -> Option<&NodeUid> {
-        match *self {
-            Change::Add(ref id, _) => Some(id),
-            Change::Remove(_) => None,
-        }
-    }
-}
-
-/// A change status: whether a node addition or removal is currently in progress or completed.
-#[derive(Clone, Eq, PartialEq, Serialize, Deserialize, Hash, Debug)]
-pub enum ChangeState<NodeUid> {
-    /// No node is currently being considered for addition or removal.
-    None,
-    /// A change is currently in progress. If it is an addition, all broadcast messages must be
-    /// sent to the new node, too.
-    InProgress(Change<NodeUid>),
-    /// A change has been completed in this epoch. From the next epoch on, the new composition of
-    /// the network will perform the consensus process.
-    Complete(Change<NodeUid>),
-}
 
 /// The user input for `DynamicHoneyBadger`.
 #[derive(Clone, Debug)]
@@ -116,68 +79,6 @@ pub enum Input<C, NodeUid> {
     User(C),
     /// A vote to change the set of validators.
     Change(Change<NodeUid>),
-}
-
-/// A Dynamic Honey Badger builder, to configure the parameters and create new instances of
-/// `DynamicHoneyBadger`.
-pub struct DynamicHoneyBadgerBuilder<C, NodeUid> {
-    /// Shared network data.
-    netinfo: NetworkInfo<NodeUid>,
-    /// The epoch at which to join the network.
-    start_epoch: u64,
-    /// The maximum number of future epochs for which we handle messages simultaneously.
-    max_future_epochs: usize,
-    _phantom: PhantomData<C>,
-}
-
-impl<C, NodeUid> DynamicHoneyBadgerBuilder<C, NodeUid>
-where
-    C: Eq + Serialize + for<'r> Deserialize<'r> + Debug + Hash,
-    NodeUid: Eq + Ord + Clone + Debug + Serialize + for<'r> Deserialize<'r> + Hash,
-{
-    /// Returns a new `DynamicHoneyBadgerBuilder` configured to use the node IDs and cryptographic
-    /// keys specified by `netinfo`.
-    pub fn new(netinfo: NetworkInfo<NodeUid>) -> Self {
-        // TODO: Use the defaults from `HoneyBadgerBuilder`.
-        DynamicHoneyBadgerBuilder {
-            netinfo,
-            start_epoch: 0,
-            max_future_epochs: 3,
-            _phantom: PhantomData,
-        }
-    }
-
-    /// Sets the maximum number of future epochs for which we handle messages simultaneously.
-    pub fn max_future_epochs(&mut self, max_future_epochs: usize) -> &mut Self {
-        self.max_future_epochs = max_future_epochs;
-        self
-    }
-
-    /// Sets the epoch at which to join the network as an observer. This requires the node to
-    /// receive all broadcast messages for `start_epoch` and later.
-    pub fn start_epoch(&mut self, start_epoch: u64) -> &mut Self {
-        self.start_epoch = start_epoch;
-        self
-    }
-
-    /// Creates a new Dynamic Honey Badger instance with an empty buffer.
-    pub fn build(&self) -> DynamicHoneyBadger<C, NodeUid> {
-        let honey_badger = HoneyBadger::builder(Rc::new(self.netinfo.clone()))
-            .max_future_epochs(self.max_future_epochs)
-            .build();
-        DynamicHoneyBadger {
-            netinfo: self.netinfo.clone(),
-            max_future_epochs: self.max_future_epochs,
-            start_epoch: self.start_epoch,
-            votes: BTreeMap::new(),
-            node_tx_buffer: Vec::new(),
-            honey_badger,
-            key_gen: None,
-            incoming_queue: Vec::new(),
-            messages: MessageQueue(VecDeque::new()),
-            output: VecDeque::new(),
-        }
-    }
 }
 
 /// A Honey Badger instance that can handle adding and removing nodes.
@@ -600,74 +501,6 @@ struct InternalContrib<C, NodeUid> {
 /// A signed internal message.
 #[derive(Eq, PartialEq, Debug, Serialize, Deserialize, Hash, Clone)]
 struct SignedTransaction<NodeUid>(u64, NodeUid, NodeTransaction<NodeUid>, Signature);
-
-/// A batch of transactions the algorithm has output.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct Batch<C, NodeUid> {
-    /// The sequence number: there is exactly one batch in each epoch.
-    pub epoch: u64,
-    /// The user contributions committed in this epoch.
-    pub contributions: BTreeMap<NodeUid, C>,
-    /// The current state of adding or removing a node: whether any is in progress, or completed
-    /// this epoch.
-    pub change: ChangeState<NodeUid>,
-}
-
-impl<C, NodeUid: Ord> Batch<C, NodeUid> {
-    /// Returns a new, empty batch with the given epoch.
-    pub fn new(epoch: u64) -> Self {
-        Batch {
-            epoch,
-            contributions: BTreeMap::new(),
-            change: ChangeState::None,
-        }
-    }
-
-    /// Returns whether any change to the set of participating nodes is in progress or was
-    /// completed in this epoch.
-    pub fn change(&self) -> &ChangeState<NodeUid> {
-        &self.change
-    }
-
-    /// Returns an iterator over references to all transactions included in the batch.
-    pub fn iter<'a>(&'a self) -> impl Iterator<Item = <&'a C as IntoIterator>::Item>
-    where
-        &'a C: IntoIterator,
-    {
-        self.contributions.values().flat_map(|item| item)
-    }
-
-    /// Returns an iterator over all transactions included in the batch. Consumes the batch.
-    pub fn into_tx_iter(self) -> impl Iterator<Item = <C as IntoIterator>::Item>
-    where
-        C: IntoIterator,
-    {
-        self.contributions.into_iter().flat_map(|(_, vec)| vec)
-    }
-
-    /// Returns the number of transactions in the batch (without detecting duplicates).
-    pub fn len<Tx>(&self) -> usize
-    where
-        C: AsRef<[Tx]>,
-    {
-        self.contributions
-            .values()
-            .map(C::as_ref)
-            .map(<[Tx]>::len)
-            .sum()
-    }
-
-    /// Returns `true` if the batch contains no transactions.
-    pub fn is_empty<Tx>(&self) -> bool
-    where
-        C: AsRef<[Tx]>,
-    {
-        self.contributions
-            .values()
-            .map(C::as_ref)
-            .all(<[Tx]>::is_empty)
-    }
-}
 
 /// An internal message containing a vote for adding or removing a validator, or a message for key
 /// generation. It gets committed via Honey Badger and is only handled after it has been output in
