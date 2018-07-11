@@ -23,9 +23,9 @@ pub enum FaultKind {
     /// `HoneyBadger` could not deserialize bytes (i.e. a serialized Batch)
     /// from a given proposer into a vector of transactions.
     BatchDeserializationFailed,
-    /// `DynamicHoneyBadger` received a node transaction with an invalid
+    /// `DynamicHoneyBadger` received a key generation message with an invalid
     /// signature.
-    InvalidNodeTransactionSignature,
+    InvalidKeyGenMessageSignature,
     /// `DynamicHoneyBadger` received a message (Accept, Propose, or Change)
     /// with an invalid signature.
     IncorrectPayloadSignature,
