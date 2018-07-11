@@ -33,12 +33,16 @@ pub enum FaultKind {
     InvalidAcceptMessage,
     /// `DynamicHoneyBadger`/`SyncKeyGen` received an invalid Propose message.
     InvalidProposeMessage,
+    /// `DynamicHoneyBadger` received a change vote with an invalid signature.
+    InvalidVoteSignature,
+    /// A validator committed an invalid vote in `DynamicHoneyBadger`.
+    InvalidCommittedVote,
 }
 
 /// A structure representing the context of a faulty node. This structure
 /// describes which node is faulty (`node_id`) and which faulty behavior
 /// that the node exhibited ('kind').
-#[derive(Clone)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Fault<NodeUid: Clone> {
     pub node_id: NodeUid,
     pub kind: FaultKind,
@@ -59,7 +63,7 @@ impl<NodeUid: Clone> Into<FaultLog<NodeUid>> for Fault<NodeUid> {
 }
 
 /// A structure used to contain reports of faulty node behavior.
-#[derive(Clone)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct FaultLog<NodeUid: Clone>(pub Vec<Fault<NodeUid>>);
 
 impl<NodeUid: Clone> FaultLog<NodeUid> {

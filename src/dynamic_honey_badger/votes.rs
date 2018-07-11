@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use super::{Change, Result};
 use crypto::Signature;
+use fault_log::{Fault, FaultKind, FaultLog};
 
 /// A buffer and counter collecting pending and committed votes for validator set changes.
 ///
@@ -59,13 +60,16 @@ where
     }
 
     /// Inserts a pending vote into the buffer, if it has a higher number than the existing one.
-    // TODO: Detect and report double votes where feasible.
-    pub fn add_pending_vote(&mut self, signed_vote: SignedVote<NodeUid>) -> Result<()> {
-        if !self.validate(&signed_vote)? {
-            return Ok(());
-        }
+    pub fn add_pending_vote(
+        &mut self,
+        sender_id: &NodeUid,
+        signed_vote: SignedVote<NodeUid>,
+    ) -> Result<FaultLog<NodeUid>> {
         if signed_vote.vote.era != self.era {
-            return Ok(()); // The vote is obsolete.
+            return Ok(FaultLog::new()); // The vote is obsolete.
+        }
+        if !self.validate(&signed_vote)? {
+            return Ok(Fault::new(sender_id.clone(), FaultKind::InvalidVoteSignature).into());
         }
         match self.pending.entry(signed_vote.voter.clone()) {
             btree_map::Entry::Vacant(entry) => {
@@ -77,7 +81,7 @@ where
                 }
             }
         }
-        Ok(())
+        Ok(FaultLog::new())
     }
 
     /// Returns an iterator over all pending votes that are newer than their voter's committed
@@ -91,20 +95,29 @@ where
     }
 
     // TODO: Document and return fault logs?
-    pub fn add_committed_votes<I>(&mut self, signed_votes: I) -> Result<()>
+    pub fn add_committed_votes<I>(
+        &mut self,
+        proposer_id: &NodeUid,
+        signed_votes: I,
+    ) -> Result<FaultLog<NodeUid>>
     where
         I: IntoIterator<Item = SignedVote<NodeUid>>,
     {
+        let mut fault_log = FaultLog::new();
         for signed_vote in signed_votes {
-            self.add_committed_vote(signed_vote)?;
+            fault_log.extend(self.add_committed_vote(proposer_id, signed_vote)?);
         }
-        Ok(())
+        Ok(fault_log)
     }
 
     /// Inserts a committed vote into the counter, if it has a higher number than the existing one.
-    pub fn add_committed_vote(&mut self, signed_vote: SignedVote<NodeUid>) -> Result<()> {
+    pub fn add_committed_vote(
+        &mut self,
+        proposer_id: &NodeUid,
+        signed_vote: SignedVote<NodeUid>,
+    ) -> Result<FaultLog<NodeUid>> {
         if !self.validate(&signed_vote)? || signed_vote.vote.era != self.era {
-            return Ok(());
+            return Ok(Fault::new(proposer_id.clone(), FaultKind::InvalidCommittedVote).into());
         }
         match self.committed.entry(signed_vote.voter.clone()) {
             btree_map::Entry::Vacant(entry) => {
@@ -116,7 +129,7 @@ where
                 }
             }
         }
-        Ok(())
+        Ok(FaultLog::new())
     }
 
     /// Returns the change that has a majority of votes, if any.
@@ -175,6 +188,7 @@ mod tests {
 
     use super::{Change, SignedVote, VoteCounter};
     use crypto::SecretKeySet;
+    use fault_log::{Fault, FaultKind, FaultLog};
     use messaging::NetworkInfo;
 
     /// Returns a vector of `node_num` `VoteCounter`s, and some signed example votes.
@@ -213,13 +227,22 @@ mod tests {
         let ct = &mut counters[0];
 
         // Node 0 already contains its own vote for `Remove(3)`. Add two more.
-        ct.add_pending_vote(sv[1][2].clone()).expect("add pending");
-        ct.add_pending_vote(sv[2][1].clone()).expect("add pending");
+        let faults = ct
+            .add_pending_vote(&1, sv[1][2].clone())
+            .expect("add pending");
+        assert_eq!(faults, FaultLog::new());
+        let faults = ct
+            .add_pending_vote(&2, sv[2][1].clone())
+            .expect("add pending");
+        assert_eq!(faults, FaultLog::new());
         // Include a vote with a wrong signature.
-        ct.add_pending_vote(SignedVote {
+        let fake_vote = SignedVote {
             sig: sv[2][1].sig.clone(),
             ..sv[3][1].clone()
-        }).expect("add pending");
+        };
+        let faults = ct.add_pending_vote(&1, fake_vote).expect("add pending");
+        let expected_fault = Fault::new(1, FaultKind::InvalidVoteSignature);
+        assert_eq!(faults, expected_fault.into());
         assert_eq!(
             ct.pending_votes().collect::<Vec<_>>(),
             vec![&sv[0][3], &sv[1][2], &sv[2][1]]
@@ -227,8 +250,14 @@ mod tests {
 
         // Now add an older vote by node 1 and a newer one by node 2. Only the latter should be
         // included.
-        ct.add_pending_vote(sv[1][1].clone()).expect("add pending");
-        ct.add_pending_vote(sv[2][2].clone()).expect("add pending");
+        let faults = ct
+            .add_pending_vote(&3, sv[1][1].clone())
+            .expect("add pending");
+        assert_eq!(faults, FaultLog::new());
+        let faults = ct
+            .add_pending_vote(&1, sv[2][2].clone())
+            .expect("add pending");
+        assert_eq!(faults, FaultLog::new());
         assert_eq!(
             ct.pending_votes().collect::<Vec<_>>(),
             vec![&sv[0][3], &sv[1][2], &sv[2][2]]
@@ -236,7 +265,8 @@ mod tests {
 
         // Adding a committed vote removes it from the pending ones, unless it is older.
         let vote_batch = vec![sv[1][3].clone(), sv[2][1].clone(), sv[0][3].clone()];
-        ct.add_committed_votes(vote_batch).expect("add committed");
+        ct.add_committed_votes(&1, vote_batch)
+            .expect("add committed");
         assert_eq!(ct.pending_votes().collect::<Vec<_>>(), vec![&sv[2][2]]);
     }
 
@@ -255,12 +285,18 @@ mod tests {
             sig: sv[2][1].sig.clone(),
             ..sv[3][1].clone()
         });
-        ct.add_committed_votes(vote_batch).expect("add committed");
+        let faults = ct
+            .add_committed_votes(&1, vote_batch)
+            .expect("add committed");
+        let expected_fault = Fault::new(1, FaultKind::InvalidCommittedVote);
+        assert_eq!(faults, expected_fault.into(),);
         assert_eq!(ct.compute_majority(), None);
 
         // Adding the third vote for `Remove(1)` should return the change: It has the majority.
-        ct.add_committed_vote(sv[3][1].clone())
+        let faults = ct
+            .add_committed_vote(&1, sv[3][1].clone())
             .expect("add committed");
+        assert_eq!(faults, FaultLog::new());
         assert_eq!(ct.compute_majority(), Some(&Change::Remove(1)));
     }
 }

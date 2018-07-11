@@ -153,8 +153,7 @@ where
             Message::HoneyBadger(_, hb_msg) => self.handle_honey_badger_message(sender_id, hb_msg),
             Message::KeyGen(_, kg_msg, sig) => self.handle_key_gen_message(sender_id, kg_msg, *sig),
             Message::SignedVote(signed_vote) => {
-                self.vote_counter.add_pending_vote(signed_vote)?;
-                Ok(FaultLog::new())
+                self.vote_counter.add_pending_vote(sender_id, signed_vote)
             }
         }
     }
@@ -259,7 +258,8 @@ where
             let mut batch = Batch::new(hb_batch.epoch + self.start_epoch);
             // Add the user transactions to `batch` and handle votes and DKG messages.
             for (id, int_contrib) in hb_batch.contributions {
-                self.vote_counter.add_committed_votes(int_contrib.votes)?;
+                let votes = int_contrib.votes;
+                fault_log.extend(self.vote_counter.add_committed_votes(&id, votes)?);
                 batch.contributions.insert(id, int_contrib.contrib);
                 for SignedKeyGenMsg(epoch, s_id, kg_msg, sig) in int_contrib.key_gen_messages {
                     if epoch < self.start_epoch {
