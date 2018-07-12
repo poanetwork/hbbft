@@ -1,4 +1,3 @@
-use messaging::NetworkInfo;
 use std::collections::{btree_map, BTreeMap, HashMap};
 use std::fmt::Debug;
 use std::hash::Hash;
@@ -9,7 +8,8 @@ use serde::{Deserialize, Serialize};
 
 use super::{Change, Result};
 use crypto::Signature;
-use fault_log::{Fault, FaultKind, FaultLog};
+use fault_log::{FaultKind, FaultLog};
+use messaging::NetworkInfo;
 
 /// A buffer and counter collecting pending and committed votes for validator set changes.
 ///
@@ -69,7 +69,10 @@ where
             return Ok(FaultLog::new()); // The vote is obsolete.
         }
         if !self.validate(&signed_vote)? {
-            return Ok(Fault::new(sender_id.clone(), FaultKind::InvalidVoteSignature).into());
+            return Ok(FaultLog::init(
+                sender_id.clone(),
+                FaultKind::InvalidVoteSignature,
+            ));
         }
         match self.pending.entry(signed_vote.voter.clone()) {
             btree_map::Entry::Vacant(entry) => {
@@ -117,7 +120,10 @@ where
         signed_vote: SignedVote<NodeUid>,
     ) -> Result<FaultLog<NodeUid>> {
         if !self.validate(&signed_vote)? || signed_vote.vote.era != self.era {
-            return Ok(Fault::new(proposer_id.clone(), FaultKind::InvalidCommittedVote).into());
+            return Ok(FaultLog::init(
+                proposer_id.clone(),
+                FaultKind::InvalidCommittedVote,
+            ));
         }
         match self.committed.entry(signed_vote.voter.clone()) {
             btree_map::Entry::Vacant(entry) => {
@@ -188,7 +194,7 @@ mod tests {
 
     use super::{Change, SignedVote, VoteCounter};
     use crypto::SecretKeySet;
-    use fault_log::{Fault, FaultKind, FaultLog};
+    use fault_log::{FaultKind, FaultLog};
     use messaging::NetworkInfo;
 
     /// Returns a vector of `node_num` `VoteCounter`s, and some signed example votes.
@@ -230,19 +236,19 @@ mod tests {
         let faults = ct
             .add_pending_vote(&1, sv[1][2].clone())
             .expect("add pending");
-        assert_eq!(faults, FaultLog::new());
+        assert!(faults.is_empty());
         let faults = ct
             .add_pending_vote(&2, sv[2][1].clone())
             .expect("add pending");
-        assert_eq!(faults, FaultLog::new());
+        assert!(faults.is_empty());
         // Include a vote with a wrong signature.
         let fake_vote = SignedVote {
             sig: sv[2][1].sig.clone(),
             ..sv[3][1].clone()
         };
         let faults = ct.add_pending_vote(&1, fake_vote).expect("add pending");
-        let expected_fault = Fault::new(1, FaultKind::InvalidVoteSignature);
-        assert_eq!(faults, expected_fault.into());
+        let expected_faults = FaultLog::init(1, FaultKind::InvalidVoteSignature);
+        assert_eq!(faults, expected_faults);
         assert_eq!(
             ct.pending_votes().collect::<Vec<_>>(),
             vec![&sv[0][3], &sv[1][2], &sv[2][1]]
@@ -253,11 +259,11 @@ mod tests {
         let faults = ct
             .add_pending_vote(&3, sv[1][1].clone())
             .expect("add pending");
-        assert_eq!(faults, FaultLog::new());
+        assert!(faults.is_empty());
         let faults = ct
             .add_pending_vote(&1, sv[2][2].clone())
             .expect("add pending");
-        assert_eq!(faults, FaultLog::new());
+        assert!(faults.is_empty());
         assert_eq!(
             ct.pending_votes().collect::<Vec<_>>(),
             vec![&sv[0][3], &sv[1][2], &sv[2][2]]
@@ -288,15 +294,15 @@ mod tests {
         let faults = ct
             .add_committed_votes(&1, vote_batch)
             .expect("add committed");
-        let expected_fault = Fault::new(1, FaultKind::InvalidCommittedVote);
-        assert_eq!(faults, expected_fault.into(),);
+        let expected_faults = FaultLog::init(1, FaultKind::InvalidCommittedVote);
+        assert_eq!(faults, expected_faults);
         assert_eq!(ct.compute_majority(), None);
 
         // Adding the third vote for `Remove(1)` should return the change: It has the majority.
         let faults = ct
             .add_committed_vote(&1, sv[3][1].clone())
             .expect("add committed");
-        assert_eq!(faults, FaultLog::new());
+        assert!(faults.is_empty());
         assert_eq!(ct.compute_majority(), Some(&Change::Remove(1)));
     }
 }

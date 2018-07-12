@@ -91,6 +91,11 @@ impl<NodeUid: Clone> FaultLog<NodeUid> {
     pub fn merge_into(self, logs: &mut FaultLog<NodeUid>) {
         logs.extend(self);
     }
+
+    /// Returns `true` if there are no fault entries in the log.
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
 }
 
 impl<NodeUid: Clone> Default for FaultLog<NodeUid> {
