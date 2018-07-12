@@ -2,6 +2,7 @@
 //!
 //! This works exactly like Dynamic Honey Badger, but it has a transaction queue built in.
 
+use std::cmp;
 use std::collections::VecDeque;
 use std::fmt::Debug;
 use std::hash::Hash;
@@ -154,9 +155,7 @@ where
             self.queue.remove_all(batch.iter());
             self.output.push_back(batch);
         }
-        if !self.dyn_hb.has_input() {
-            self.propose()?.merge_into(&mut fault_log);
-        }
+        self.propose()?.merge_into(&mut fault_log);
         Ok(fault_log)
     }
 
@@ -190,9 +189,18 @@ where
 
     /// Initiates the next epoch by proposing a batch from the queue.
     fn propose(&mut self) -> Result<FaultLog<NodeUid>> {
-        let amount = self.batch_size / self.dyn_hb.netinfo().num_nodes();
-        let proposal = self.queue.choose(amount, self.batch_size);
-        Ok(self.dyn_hb.input(Input::User(proposal))?)
+        let amount = cmp::max(1, self.batch_size / self.dyn_hb.netinfo().num_nodes());
+        // TODO: This will loop forever if we are the only validator.
+        let mut fault_log = FaultLog::new();
+        while !self.dyn_hb.has_input() {
+            let proposal = self.queue.choose(amount, self.batch_size);
+            fault_log.extend(self.dyn_hb.input(Input::User(proposal))?);
+            while let Some(batch) = self.dyn_hb.next_output() {
+                self.queue.remove_all(batch.iter());
+                self.output.push_back(batch);
+            }
+        }
+        Ok(fault_log)
     }
 }
 

@@ -139,7 +139,7 @@ where
         sender_id: &NodeUid,
         message: Self::Message,
     ) -> Result<FaultLog<NodeUid>> {
-        let epoch = message.epoch();
+        let epoch = message.start_epoch();
         if epoch < self.start_epoch {
             return Ok(FaultLog::new()); // Obsolete message.
         }
@@ -303,8 +303,7 @@ where
         if start_epoch < self.start_epoch {
             let queue = mem::replace(&mut self.incoming_queue, Vec::new());
             for (sender_id, msg) in queue {
-                self.handle_message(&sender_id, msg)?
-                    .merge_into(&mut fault_log);
+                fault_log.extend(self.handle_message(&sender_id, msg)?);
             }
         }
         Ok(fault_log)
@@ -366,6 +365,7 @@ where
         self.messages
             .extend_with_epoch(self.start_epoch, &mut self.honey_badger);
         self.start_epoch = epoch;
+        self.key_gen_msg_buffer.retain(|kg_msg| kg_msg.0 >= epoch);
         let netinfo = Arc::new(self.netinfo.clone());
         let counter = VoteCounter::new(netinfo.clone(), epoch);
         mem::replace(&mut self.vote_counter, counter);
@@ -497,9 +497,17 @@ pub enum Message<NodeUid> {
 }
 
 impl<NodeUid> Message<NodeUid> {
-    pub fn epoch(&self) -> u64 {
+    fn start_epoch(&self) -> u64 {
         match *self {
             Message::HoneyBadger(epoch, _) => epoch,
+            Message::KeyGen(epoch, _, _) => epoch,
+            Message::SignedVote(ref signed_vote) => signed_vote.era(),
+        }
+    }
+
+    pub fn epoch(&self) -> u64 {
+        match *self {
+            Message::HoneyBadger(start_epoch, ref msg) => start_epoch + msg.epoch(),
             Message::KeyGen(epoch, _, _) => epoch,
             Message::SignedVote(ref signed_vote) => signed_vote.era(),
         }

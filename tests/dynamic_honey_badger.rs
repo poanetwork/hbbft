@@ -13,7 +13,6 @@ mod network;
 
 use std::cmp;
 use std::collections::BTreeMap;
-use std::iter::once;
 use std::sync::Arc;
 
 use rand::Rng;
@@ -59,11 +58,9 @@ where
             return true;
         }
         let mut min_missing = 0;
-        for batch in node.outputs() {
-            for tx in batch.iter() {
-                if *tx >= min_missing {
-                    min_missing = tx + 1;
-                }
+        for tx in node.outputs().iter().flat_map(Batch::iter) {
+            if *tx >= min_missing {
+                min_missing = tx + 1;
             }
         }
         if min_missing < num_txs {
@@ -76,17 +73,28 @@ where
         false
     };
 
+    let mut rng = rand::thread_rng();
+
     let mut input_add = false;
     // Handle messages in random order until all nodes have output all transactions.
     while network.nodes.values_mut().any(node_busy) {
-        let id = network.step();
-        if !network.nodes[&id].instance().has_input() {
-            queues
-                .get_mut(&id)
-                .unwrap()
-                .remove_all(network.nodes[&id].outputs().iter().flat_map(Batch::iter));
-            network.input(id, Input::User(queues[&id].choose(3, 10)));
+        // If a node is expecting input, take it from the queue. Otherwise handle a message.
+        let input_ids: Vec<_> = network
+            .nodes
+            .iter()
+            .filter(|(_, node)| {
+                !node.instance().has_input() && node.instance().netinfo().is_validator()
+            })
+            .map(|(id, _)| *id)
+            .collect();
+        if let Some(id) = rng.choose(&input_ids) {
+            let queue = queues.get_mut(id).unwrap();
+            queue.remove_all(network.nodes[id].outputs().iter().flat_map(Batch::iter));
+            network.input(*id, Input::User(queue.choose(3, 10)));
+        } else {
+            network.step();
         }
+        // Once all nodes have processed the removal of node 0, add it again.
         if !input_add && network.nodes.values().all(has_remove) {
             let pk = network.pk_set.public_key_share(0);
             network.input_all(Input::Change(Change::Add(NodeUid(0), pk)));
@@ -127,7 +135,8 @@ where
     let _ = env_logger::try_init();
 
     let mut rng = rand::thread_rng();
-    let sizes = (3..5).chain(once(rng.gen_range(6, 10)));
+    // TODO: This should also work with two nodes.
+    let sizes = vec![3, 5, rng.gen_range(6, 10)];
     for size in sizes {
         // The test is removing one correct node, so we allow fewer faulty ones.
         let num_adv_nodes = (size - 2) / 3;

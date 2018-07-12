@@ -13,7 +13,6 @@ extern crate serde_derive;
 mod network;
 
 use std::collections::BTreeMap;
-use std::iter::once;
 use std::sync::Arc;
 
 use rand::Rng;
@@ -124,19 +123,14 @@ where
 {
     let new_queue = |id: &NodeUid| (*id, TransactionQueue((0..num_txs).collect()));
     let mut queues: BTreeMap<_, _> = network.nodes.keys().map(new_queue).collect();
-    for (id, queue) in &queues {
-        network.input(*id, queue.choose(3, 10));
-    }
 
     // Returns `true` if the node has not output all transactions yet.
     // If it has, and has advanced another epoch, it clears all messages for later epochs.
     let node_busy = |node: &mut TestNode<UsizeHoneyBadger>| {
         let mut min_missing = 0;
-        for batch in node.outputs() {
-            for tx in batch.iter() {
-                if *tx >= min_missing {
-                    min_missing = tx + 1;
-                }
+        for tx in node.outputs().iter().flat_map(Batch::iter) {
+            if *tx >= min_missing {
+                min_missing = tx + 1;
             }
         }
         if min_missing < num_txs {
@@ -149,15 +143,23 @@ where
         false
     };
 
+    let mut rng = rand::thread_rng();
+
     // Handle messages in random order until all nodes have output all transactions.
     while network.nodes.values_mut().any(node_busy) {
-        let id = network.step();
-        if !network.nodes[&id].instance().has_input() {
-            queues
-                .get_mut(&id)
-                .unwrap()
-                .remove_all(network.nodes[&id].outputs().iter().flat_map(Batch::iter));
-            network.input(id, queues[&id].choose(3, 10));
+        // If a node is expecting input, take it from the queue. Otherwise handle a message.
+        let input_ids: Vec<_> = network
+            .nodes
+            .iter()
+            .filter(|(_, node)| !node.instance().has_input())
+            .map(|(id, _)| *id)
+            .collect();
+        if let Some(id) = rng.choose(&input_ids) {
+            let queue = queues.get_mut(id).unwrap();
+            queue.remove_all(network.nodes[id].outputs().iter().flat_map(Batch::iter));
+            network.input(*id, queue.choose(3, 10));
+        } else {
+            network.step();
         }
     }
     verify_output_sequence(&network);
@@ -202,9 +204,7 @@ where
     let _ = env_logger::try_init();
 
     let mut rng = rand::thread_rng();
-    let sizes = (2..5)
-        .chain(once(rng.gen_range(6, 10)))
-        .chain(once(rng.gen_range(11, 15)));
+    let sizes = vec![1, 2, 3, 5, rng.gen_range(6, 10)];
     for size in sizes {
         let num_adv_nodes = (size - 1) / 3;
         let num_good_nodes = size - num_adv_nodes;
@@ -221,13 +221,13 @@ where
 #[test]
 fn test_honey_badger_random_delivery_silent() {
     let new_adversary = |_: usize, _: usize, _| SilentAdversary::new(MessageScheduler::Random);
-    test_honey_badger_different_sizes(new_adversary, 10);
+    test_honey_badger_different_sizes(new_adversary, 30);
 }
 
 #[test]
 fn test_honey_badger_first_delivery_silent() {
     let new_adversary = |_: usize, _: usize, _| SilentAdversary::new(MessageScheduler::First);
-    test_honey_badger_different_sizes(new_adversary, 10);
+    test_honey_badger_different_sizes(new_adversary, 30);
 }
 
 #[test]
