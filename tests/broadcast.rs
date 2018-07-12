@@ -13,7 +13,7 @@ mod network;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::iter::once;
-use std::rc::Rc;
+use std::sync::Arc;
 
 use rand::Rng;
 
@@ -76,7 +76,7 @@ impl Adversary<Broadcast<NodeUid>> for ProposeAdversary {
         let sk_set = SecretKeySet::random(self.adv_nodes.len(), &mut rng);
         let pk_set = sk_set.public_keys();
 
-        let netinfo = Rc::new(NetworkInfo::new(
+        let netinfo = Arc::new(NetworkInfo::new(
             id,
             node_ids,
             sk_set.secret_key_share(0),
@@ -110,7 +110,7 @@ fn test_broadcast<A: Adversary<Broadcast<NodeUid>>>(
     assert!(once(&proposed_value.to_vec()).eq(network.observer.outputs()));
 }
 
-fn new_broadcast(netinfo: Rc<NetworkInfo<NodeUid>>) -> Broadcast<NodeUid> {
+fn new_broadcast(netinfo: Arc<NetworkInfo<NodeUid>>) -> Broadcast<NodeUid> {
     Broadcast::new(netinfo, NodeUid(0)).expect("Instantiate broadcast")
 }
 

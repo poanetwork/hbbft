@@ -25,7 +25,7 @@
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fmt::Debug;
-use std::rc::Rc;
+use std::sync::Arc;
 
 use agreement::{self, Agreement, AgreementMessage, AgreementResult};
 use broadcast::{self, Broadcast, BroadcastMessage, BroadcastResult};
@@ -88,7 +88,7 @@ impl<NodeUid: Clone + Debug + Ord> MessageQueue<NodeUid> {
 /// Asynchronous Common Subset algorithm instance
 pub struct CommonSubset<NodeUid> {
     /// Shared network information.
-    netinfo: Rc<NetworkInfo<NodeUid>>,
+    netinfo: Arc<NetworkInfo<NodeUid>>,
     broadcast_instances: BTreeMap<NodeUid, Broadcast<NodeUid>>,
     agreement_instances: BTreeMap<NodeUid, Agreement<NodeUid>>,
     broadcast_results: BTreeMap<NodeUid, ProposedValue>,
@@ -146,7 +146,7 @@ impl<NodeUid: Clone + Debug + Ord> DistAlgorithm for CommonSubset<NodeUid> {
 }
 
 impl<NodeUid: Clone + Debug + Ord> CommonSubset<NodeUid> {
-    pub fn new(netinfo: Rc<NetworkInfo<NodeUid>>, session_id: u64) -> CommonSubsetResult<Self> {
+    pub fn new(netinfo: Arc<NetworkInfo<NodeUid>>, session_id: u64) -> CommonSubsetResult<Self> {
         // Create all broadcast instances.
         let mut broadcast_instances: BTreeMap<NodeUid, Broadcast<NodeUid>> = BTreeMap::new();
         for proposer_id in netinfo.all_uids() {

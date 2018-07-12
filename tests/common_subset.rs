@@ -13,7 +13,7 @@ mod network;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::iter::once;
-use std::rc::Rc;
+use std::sync::Arc;
 
 use hbbft::common_subset::CommonSubset;
 use hbbft::messaging::NetworkInfo;
@@ -66,12 +66,12 @@ fn new_network<A, F>(
 ) -> TestNetwork<A, CommonSubset<NodeUid>>
 where
     A: Adversary<CommonSubset<NodeUid>>,
-    F: Fn(BTreeMap<NodeUid, Rc<NetworkInfo<NodeUid>>>) -> A,
+    F: Fn(BTreeMap<NodeUid, Arc<NetworkInfo<NodeUid>>>) -> A,
 {
     // This returns an error in all but the first test.
     let _ = env_logger::try_init();
 
-    let new_common_subset = |netinfo: Rc<NetworkInfo<NodeUid>>| {
+    let new_common_subset = |netinfo: Arc<NetworkInfo<NodeUid>>| {
         CommonSubset::new(netinfo, 0).expect("new Common Subset instance")
     };
     TestNetwork::new(good_num, bad_num, adversary, new_common_subset)

@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, VecDeque};
 use std::fmt::Debug;
 use std::hash::Hash;
 use std::marker::PhantomData;
-use std::rc::Rc;
+use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 
@@ -54,7 +54,7 @@ where
 
     /// Creates a new Dynamic Honey Badger instance with an empty buffer.
     pub fn build(&self) -> DynamicHoneyBadger<C, NodeUid> {
-        let honey_badger = HoneyBadger::builder(Rc::new(self.netinfo.clone()))
+        let honey_badger = HoneyBadger::builder(Arc::new(self.netinfo.clone()))
             .max_future_epochs(self.max_future_epochs)
             .build();
         DynamicHoneyBadger {

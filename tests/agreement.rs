@@ -25,7 +25,7 @@ extern crate serde_derive;
 mod network;
 
 use std::iter::once;
-use std::rc::Rc;
+use std::sync::Arc;
 
 use rand::Rng;
 
@@ -81,7 +81,7 @@ where
         );
         for &input in &[None, Some(false), Some(true)] {
             let adversary = |_| new_adversary(num_good_nodes, num_faulty_nodes);
-            let new_agreement = |netinfo: Rc<NetworkInfo<NodeUid>>| {
+            let new_agreement = |netinfo: Arc<NetworkInfo<NodeUid>>| {
                 Agreement::new(netinfo, 0, NodeUid(0)).expect("agreement instance")
             };
             let network =

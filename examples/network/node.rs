@@ -39,7 +39,7 @@ use std::collections::{BTreeSet, HashSet};
 use std::fmt::Debug;
 use std::marker::{Send, Sync};
 use std::net::SocketAddr;
-use std::rc::Rc;
+use std::sync::Arc;
 use std::{io, iter, process, thread, time};
 
 use hbbft::broadcast::{Broadcast, BroadcastMessage};
@@ -135,7 +135,7 @@ impl<T: Clone + Debug + AsRef<[u8]> + PartialEq + Send + Sync + From<Vec<u8>> + 
             // node index is 0.
             let broadcast_handle = scope.spawn(move || {
                 let mut broadcast =
-                    Broadcast::new(Rc::new(netinfo), 0).expect("failed to instantiate broadcast");
+                    Broadcast::new(Arc::new(netinfo), 0).expect("failed to instantiate broadcast");
 
                 if let Some(v) = value {
                     broadcast.input(v.clone().into()).expect("propose value");
