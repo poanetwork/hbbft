@@ -78,10 +78,7 @@ where
     N: Clone,
 {
     pub fn new(output: VecDeque<O>, fault_log: FaultLog<N>) -> Self {
-        Step {
-            output,
-            fault_log,
-        }
+        Step { output, fault_log }
     }
 }
 
