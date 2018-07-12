@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::VecDeque;
 use std::fmt::Debug;
 use std::hash::Hash;
 use std::marker::PhantomData;
@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 
-use super::{DynamicHoneyBadger, MessageQueue};
+use super::{DynamicHoneyBadger, MessageQueue, VoteCounter};
 use honey_badger::HoneyBadger;
 use messaging::NetworkInfo;
 
@@ -54,15 +54,16 @@ where
 
     /// Creates a new Dynamic Honey Badger instance with an empty buffer.
     pub fn build(&self) -> DynamicHoneyBadger<C, NodeUid> {
-        let honey_badger = HoneyBadger::builder(Arc::new(self.netinfo.clone()))
+        let netinfo = Arc::new(self.netinfo.clone());
+        let honey_badger = HoneyBadger::builder(netinfo.clone())
             .max_future_epochs(self.max_future_epochs)
             .build();
         DynamicHoneyBadger {
             netinfo: self.netinfo.clone(),
             max_future_epochs: self.max_future_epochs,
             start_epoch: self.start_epoch,
-            votes: BTreeMap::new(),
-            node_tx_buffer: Vec::new(),
+            vote_counter: VoteCounter::new(netinfo, self.start_epoch),
+            key_gen_msg_buffer: Vec::new(),
             honey_badger,
             key_gen: None,
             incoming_queue: Vec::new(),

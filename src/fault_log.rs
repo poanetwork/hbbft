@@ -23,9 +23,9 @@ pub enum FaultKind {
     /// `HoneyBadger` could not deserialize bytes (i.e. a serialized Batch)
     /// from a given proposer into a vector of transactions.
     BatchDeserializationFailed,
-    /// `DynamicHoneyBadger` received a node transaction with an invalid
+    /// `DynamicHoneyBadger` received a key generation message with an invalid
     /// signature.
-    InvalidNodeTransactionSignature,
+    InvalidKeyGenMessageSignature,
     /// `DynamicHoneyBadger` received a message (Accept, Propose, or Change)
     /// with an invalid signature.
     IncorrectPayloadSignature,
@@ -33,12 +33,16 @@ pub enum FaultKind {
     InvalidAcceptMessage,
     /// `DynamicHoneyBadger`/`SyncKeyGen` received an invalid Propose message.
     InvalidProposeMessage,
+    /// `DynamicHoneyBadger` received a change vote with an invalid signature.
+    InvalidVoteSignature,
+    /// A validator committed an invalid vote in `DynamicHoneyBadger`.
+    InvalidCommittedVote,
 }
 
 /// A structure representing the context of a faulty node. This structure
 /// describes which node is faulty (`node_id`) and which faulty behavior
 /// that the node exhibited ('kind').
-#[derive(Clone)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Fault<NodeUid: Clone> {
     pub node_id: NodeUid,
     pub kind: FaultKind,
@@ -59,7 +63,7 @@ impl<NodeUid: Clone> Into<FaultLog<NodeUid>> for Fault<NodeUid> {
 }
 
 /// A structure used to contain reports of faulty node behavior.
-#[derive(Clone)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct FaultLog<NodeUid: Clone>(pub Vec<Fault<NodeUid>>);
 
 impl<NodeUid: Clone> FaultLog<NodeUid> {
@@ -86,6 +90,11 @@ impl<NodeUid: Clone> FaultLog<NodeUid> {
     /// Consumes `self`, appending its logs onto the end of `logs`.
     pub fn merge_into(self, logs: &mut FaultLog<NodeUid>) {
         logs.extend(self);
+    }
+
+    /// Returns `true` if there are no fault entries in the log.
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
     }
 }
 
