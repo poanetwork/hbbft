@@ -208,7 +208,7 @@ pub struct Agreement<NodeUid> {
     coin_schedule: CoinSchedule,
 }
 
-pub type AgreementStep<N> = Step<N, bool>;
+pub type AgreementStep<NodeUid> = Step<NodeUid, bool>;
 
 impl<NodeUid: Clone + Debug + Ord> DistAlgorithm for Agreement<NodeUid> {
     type NodeUid = NodeUid;
@@ -230,11 +230,11 @@ impl<NodeUid: Clone + Debug + Ord> DistAlgorithm for Agreement<NodeUid> {
     ) -> AgreementResult<AgreementStep<NodeUid>> {
         let fault_log = if self.terminated || message.epoch < self.epoch {
             // Message is obsolete: We are already in a later epoch or terminated.
-            FaultLog::default()
+            FaultLog::new()
         } else if message.epoch > self.epoch {
             // Message is for a later epoch. We can't handle that yet.
             self.incoming_queue.push((sender_id.clone(), message));
-            FaultLog::default()
+            FaultLog::new()
         } else {
             match message.content {
                 AgreementContent::BVal(b) => self.handle_bval(sender_id, b)?,
@@ -502,8 +502,7 @@ impl<NodeUid: Clone + Debug + Ord> Agreement<NodeUid> {
         &mut self,
         coin_step: CommonCoinStep<NodeUid>,
     ) -> AgreementResult<FaultLog<NodeUid>> {
-        let mut fault_log = FaultLog::new();
-        fault_log.extend(coin_step.fault_log);
+        let mut fault_log = coin_step.fault_log.clone();
         if let Some(coin) = coin_step.output.into_iter().next() {
             let def_bin_value = self.count_conf().1.definite();
             fault_log.extend(self.on_coin(coin, def_bin_value)?);
@@ -604,7 +603,7 @@ impl<NodeUid: Clone + Debug + Ord> Agreement<NodeUid> {
             self.on_coin_step(coin_step)
         } else {
             // Continue waiting for (N - f) `Conf` messages
-            Ok(FaultLog::default())
+            Ok(FaultLog::new())
         }
     }
 

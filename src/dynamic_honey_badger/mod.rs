@@ -184,7 +184,7 @@ where
     NodeUid: Eq + Ord + Clone + Debug + Serialize + for<'r> Deserialize<'r> + Hash + Rand,
 {
     fn step(&mut self, fault_log: FaultLog<NodeUid>) -> Result<DynamicHoneyBadgerStep<C, NodeUid>> {
-        Ok(Step::new(self.output.drain(0..).collect(), fault_log))
+        Ok(Step::new(self.output.drain(..).collect(), fault_log))
     }
 
     /// Returns a new `DynamicHoneyBadgerBuilder` configured to use the node IDs and cryptographic
@@ -252,7 +252,7 @@ where
         self.key_gen_msg_buffer.push(tx);
         // FIXME: Remove the call to `process_output`. There wasn't any output from HB in this
         // function.
-        self.process_output(Default::default())
+        self.process_output(Step::default())
     }
 
     /// Processes all pending batches output by Honey Badger.

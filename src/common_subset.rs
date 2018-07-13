@@ -258,7 +258,7 @@ impl<NodeUid: Clone + Debug + Ord + Rand> CommonSubset<NodeUid> {
                 // FIXME: Use the result.
                 agreement.input(true)
             } else {
-                Ok(Default::default())
+                Ok(Step::default())
             }
         };
         self.process_agreement(proposer_id, set_agreement_input)?

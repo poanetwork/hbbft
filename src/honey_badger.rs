@@ -179,7 +179,7 @@ where
         &mut self,
         fault_log: FaultLog<NodeUid>,
     ) -> HoneyBadgerResult<HoneyBadgerStep<C, NodeUid>> {
-        Ok(Step::new(self.output.drain(0..).collect(), fault_log))
+        Ok(Step::new(self.output.drain(..).collect(), fault_log))
     }
 
     /// Proposes a new item in the current epoch.
@@ -554,8 +554,7 @@ where
         &mut self,
         step: CommonSubsetStep<NodeUid>,
     ) -> HoneyBadgerResult<FaultLog<NodeUid>> {
-        let mut fault_log = FaultLog::new();
-        fault_log.extend(step.fault_log);
+        let mut fault_log = step.fault_log.clone();
         for cs_output in step.output {
             fault_log.extend(self.send_decryption_shares(cs_output)?);
             // TODO: May also check that there is no further output from Common Subset.

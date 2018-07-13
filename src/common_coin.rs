@@ -78,7 +78,7 @@ pub struct CommonCoin<NodeUid, T> {
     terminated: bool,
 }
 
-pub type CommonCoinStep<N> = Step<N, bool>;
+pub type CommonCoinStep<NodeUid> = Step<NodeUid, bool>;
 
 impl<NodeUid, T> DistAlgorithm for CommonCoin<NodeUid, T>
 where
@@ -112,7 +112,7 @@ where
             let CommonCoinMessage(share) = message;
             self.handle_share(sender_id, share)?
         } else {
-            FaultLog::default()
+            FaultLog::new()
         };
         self.step(fault_log)
     }

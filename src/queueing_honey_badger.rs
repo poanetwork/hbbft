@@ -158,8 +158,7 @@ where
         message: Self::Message,
     ) -> Result<QueueingHoneyBadgerStep<Tx, NodeUid>> {
         let step = self.dyn_hb.handle_message(sender_id, message)?;
-        let mut fault_log = FaultLog::new();
-        fault_log.extend(step.fault_log);
+        let mut fault_log = step.fault_log.clone();
         for batch in step.output {
             self.queue.remove_all(batch.iter());
             self.output.push_back(batch);
@@ -198,7 +197,7 @@ where
         &mut self,
         fault_log: FaultLog<NodeUid>,
     ) -> Result<QueueingHoneyBadgerStep<Tx, NodeUid>> {
-        Ok(Step::new(self.output.drain(0..).collect(), fault_log))
+        Ok(Step::new(self.output.drain(..).collect(), fault_log))
     }
 
     /// Returns a reference to the internal `DynamicHoneyBadger` instance.
