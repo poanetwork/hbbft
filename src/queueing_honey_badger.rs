@@ -201,6 +201,11 @@ where
         Ok(Step::new(self.output.drain(0..).collect(), fault_log))
     }
 
+    /// Returns a reference to the internal `DynamicHoneyBadger` instance.
+    pub fn dyn_hb(&self) -> &DynamicHoneyBadger<Vec<Tx>, NodeUid> {
+        &self.dyn_hb
+    }
+
     /// Initiates the next epoch by proposing a batch from the queue.
     fn propose(&mut self) -> Result<FaultLog<NodeUid>> {
         let amount = self.batch_size / self.dyn_hb.netinfo().num_nodes();
