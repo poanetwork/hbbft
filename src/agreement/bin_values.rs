@@ -3,7 +3,7 @@ use std::mem::replace;
 
 /// A lattice-valued description of the state of `bin_values`, essentially the same as the set of
 /// subsets of `bool`.
-#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Rand)]
 pub enum BinValues {
     None,
     False,

@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
-use std::fmt::Debug;
-use std::hash::Hash;
+use std::fmt::{self, Debug};
+use std::mem;
 use std::sync::Arc;
 
 use rand::{self, Rng};
@@ -9,7 +9,7 @@ use hbbft::crypto::{PublicKeySet, SecretKeySet};
 use hbbft::messaging::{DistAlgorithm, NetworkInfo, Target, TargetedMessage};
 
 /// A node identifier. In the tests, nodes are simply numbered.
-#[derive(Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Clone, Copy, Serialize, Deserialize, Rand)]
 pub struct NodeUid(pub usize);
 
 /// A "node" running an instance of the algorithm `D`.
@@ -68,6 +68,11 @@ impl<D: DistAlgorithm> TestNode<D> {
             .expect("handling message");
         self.outputs.extend(self.algo.output_iter());
     }
+
+    /// Checks whether the node has messages to process
+    fn is_idle(&self) -> bool {
+        self.queue.is_empty()
+    }
 }
 
 /// A strategy for picking the next good node to handle a message.
@@ -105,21 +110,61 @@ impl MessageScheduler {
     }
 }
 
-pub type MessageWithSender<D> = (
-    <D as DistAlgorithm>::NodeUid,
-    TargetedMessage<<D as DistAlgorithm>::Message, <D as DistAlgorithm>::NodeUid>,
-);
+/// A message combined with a sender.
+pub struct MessageWithSender<D: DistAlgorithm> {
+    /// The sender of the message.
+    pub sender: <D as DistAlgorithm>::NodeUid,
+    /// The targeted message (recipient and message body).
+    pub tm: TargetedMessage<<D as DistAlgorithm>::Message, <D as DistAlgorithm>::NodeUid>,
+}
+
+// The Debug implementation cannot be derived automatically, possibly due to a compiler bug. For
+// this reason, it is implemented manually here.
+impl<D: DistAlgorithm> fmt::Debug for MessageWithSender<D> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "MessageWithSender {{ sender: {:?}, tm: {:?} }}",
+            self.sender, self.tm.target
+        )
+    }
+}
+
+impl<D: DistAlgorithm> MessageWithSender<D> {
+    /// Creates a new message with a sender.
+    pub fn new(
+        sender: D::NodeUid,
+        tm: TargetedMessage<D::Message, D::NodeUid>,
+    ) -> MessageWithSender<D> {
+        MessageWithSender { sender, tm }
+    }
+}
 
 /// An adversary that can control a set of nodes and pick the next good node to receive a message.
+///
+/// See `TestNetwork::step()` for a more detailed description of its capabilities.
 pub trait Adversary<D: DistAlgorithm> {
     /// Chooses a node to be the next one to handle a message.
+    ///
+    /// Starvation is illegal, i.e. in every iteration a node that has pending incoming messages
+    /// must be chosen.
     fn pick_node(&self, nodes: &BTreeMap<D::NodeUid, TestNode<D>>) -> D::NodeUid;
 
-    /// Adds a message sent to one of the adversary's nodes.
+    /// Called when a node controlled by the adversary receives a message.
     fn push_message(&mut self, sender_id: D::NodeUid, msg: TargetedMessage<D::Message, D::NodeUid>);
 
     /// Produces a list of messages to be sent from the adversary's nodes.
     fn step(&mut self) -> Vec<MessageWithSender<D>>;
+
+    /// Initialize an adversary. This function's primary purpose is to inform the adversary over
+    /// some aspects of the network, such as which nodes they control.
+    fn init(
+        &mut self,
+        _all_nodes: &BTreeMap<D::NodeUid, TestNode<D>>,
+        _adv_nodes: &BTreeMap<D::NodeUid, Arc<NetworkInfo<D::NodeUid>>>,
+    ) {
+        // default: does nothing
+    }
 }
 
 /// An adversary whose nodes never send any messages.
@@ -148,11 +193,165 @@ impl<D: DistAlgorithm> Adversary<D> for SilentAdversary {
     }
 }
 
-/// A collection of `TestNode`s representing a network.
-pub struct TestNetwork<A: Adversary<D>, D: DistAlgorithm>
-where
-    <D as DistAlgorithm>::NodeUid: Hash,
+/// Return true with a certain `probability` ([0 .. 1.0]).
+fn randomly(probability: f32) -> bool {
+    assert!(probability <= 1.0);
+    assert!(probability >= 0.0);
+
+    let mut rng = rand::thread_rng();
+    rng.gen_range(0.0, 1.0) <= probability
+}
+
+#[test]
+fn test_randomly() {
+    assert!(randomly(1.0));
+    assert!(!randomly(0.0));
+}
+
+/// An adversary that performs naive replay attacks.
+///
+/// The adversary will randomly take a message that is sent to one of its nodes and re-send it to
+/// a different node. Additionally, it will inject unrelated messages at random.
+#[allow(unused)] // not used in all tests
+pub struct RandomAdversary<D: DistAlgorithm, F> {
+    /// The underlying scheduler used
+    scheduler: MessageScheduler,
+
+    /// Node ids seen by the adversary.
+    known_node_ids: Vec<D::NodeUid>,
+    /// Node ids under control of adversary
+    known_adversarial_ids: Vec<D::NodeUid>,
+
+    /// Internal queue for messages to be returned on the next `Adversary::step()` call
+    outgoing: Vec<MessageWithSender<D>>,
+    /// Generates random messages to be injected
+    generator: F,
+
+    /// Probability of a message replay
+    p_replay: f32,
+    /// Probability of a message injection
+    p_inject: f32,
+}
+
+impl<D: DistAlgorithm, F> RandomAdversary<D, F> {
+    /// Creates a new random adversary instance.
+    #[allow(unused)]
+    pub fn new(p_replay: f32, p_inject: f32, generator: F) -> RandomAdversary<D, F> {
+        assert!(
+            p_inject < 0.95,
+            "injections are repeated, p_inject must be smaller than 0.95"
+        );
+
+        RandomAdversary {
+            // The random adversary, true to its name, always schedules randomly.
+            scheduler: MessageScheduler::Random,
+            known_node_ids: Vec::new(),
+            known_adversarial_ids: Vec::new(),
+            outgoing: Vec::new(),
+            generator,
+            p_replay,
+            p_inject,
+        }
+    }
+}
+
+impl<D: DistAlgorithm, F: Fn() -> TargetedMessage<D::Message, D::NodeUid>> Adversary<D>
+    for RandomAdversary<D, F>
 {
+    fn init(
+        &mut self,
+        all_nodes: &BTreeMap<D::NodeUid, TestNode<D>>,
+        nodes: &BTreeMap<D::NodeUid, Arc<NetworkInfo<D::NodeUid>>>,
+    ) {
+        self.known_adversarial_ids = nodes.keys().cloned().collect();
+        self.known_node_ids = all_nodes.keys().cloned().collect();
+    }
+
+    fn pick_node(&self, nodes: &BTreeMap<D::NodeUid, TestNode<D>>) -> D::NodeUid {
+        // Just let the scheduler pick a node.
+        self.scheduler.pick_node(nodes)
+    }
+
+    fn push_message(&mut self, _: D::NodeUid, msg: TargetedMessage<D::Message, D::NodeUid>) {
+        // If we have not discovered the network topology yet, abort.
+        if self.known_node_ids.is_empty() {
+            return;
+        }
+
+        // only replay a message in some cases
+        if !randomly(self.p_replay) {
+            return;
+        }
+
+        let TargetedMessage { message, target } = msg;
+
+        match target {
+            Target::All => {
+                // Ideally, we would want to handle broadcast messages as well; however the
+                // adversary API is quite cumbersome at the moment in regards to access to the
+                // network topology. To re-send a broadcast message from one of the attacker
+                // controlled nodes, we would have to get a list of attacker controlled nodes
+                // here and use a random one as the origin/sender, this is not done here.
+                return;
+            }
+            Target::Node(our_node_id) => {
+                // Choose a new target to send the message to. The unwrap never fails, because we
+                // ensured that `known_node_ids` is non-empty earlier.
+                let mut rng = rand::thread_rng();
+                let new_target_node = rng.choose(&self.known_node_ids).unwrap().clone();
+
+                // TODO: We could randomly broadcast it instead, if we had access to topology
+                //       information.
+                self.outgoing.push(MessageWithSender::new(
+                    our_node_id,
+                    TargetedMessage {
+                        target: Target::Node(new_target_node),
+                        message,
+                    },
+                ));
+            }
+        }
+    }
+
+    fn step(&mut self) -> Vec<MessageWithSender<D>> {
+        // Clear messages.
+        let mut tmp = Vec::new();
+        mem::swap(&mut tmp, &mut self.outgoing);
+
+        // Possibly inject more messages:
+        while randomly(self.p_inject) {
+            let mut rng = rand::thread_rng();
+
+            // Pick a random adversarial node and create a message using the generator.
+            if let Some(sender) = rng.choose(&self.known_adversarial_ids[..]) {
+                let tm = (self.generator)();
+
+                // Add to outgoing queue.
+                tmp.push(MessageWithSender::new(sender.clone(), tm));
+            }
+        }
+
+        if !tmp.is_empty() {
+            println!("Injecting random messages: {:?}", tmp);
+        }
+        tmp
+    }
+}
+
+/// A collection of `TestNode`s representing a network.
+///
+/// Each `TestNetwork` type is tied to a specific adversary and a distributed algorithm. It consists
+/// of a set of nodes, some of which are controlled by the adversary and some of which may be
+/// observer nodes, as well as a set of threshold-cryptography public keys.
+///
+/// In addition to being able to participate correctly in the network using his nodes, the
+/// adversary can:
+///
+/// 1. Decide which node is the next one to make progress,
+/// 2. Send arbitrary messages to any node originating from one of the nodes they control.
+///
+/// See the `step` function for details on actual operation of the network.
+pub struct TestNetwork<A: Adversary<D>, D: DistAlgorithm> {
     pub nodes: BTreeMap<D::NodeUid, TestNode<D>>,
     pub observer: TestNode<D>,
     pub adv_nodes: BTreeMap<D::NodeUid, Arc<NetworkInfo<D::NodeUid>>>,
@@ -208,6 +407,7 @@ where
             .map(NodeUid)
             .map(new_adv_node_by_id)
             .collect();
+
         let mut network = TestNetwork {
             nodes: (0..good_num).map(NodeUid).map(new_node_by_id).collect(),
             observer: new_node_by_id(NodeUid(good_num + adv_num)).1,
@@ -215,9 +415,13 @@ where
             pk_set: pk_set.clone(),
             adv_nodes,
         };
+
+        // Inform the adversary about their nodes.
+        network.adversary.init(&network.nodes, &network.adv_nodes);
+
         let msgs = network.adversary.step();
-        for (sender_id, msg) in msgs {
-            network.dispatch_messages(sender_id, vec![msg]);
+        for MessageWithSender { sender, tm } in msgs {
+            network.dispatch_messages(sender, vec![tm]);
         }
         let mut initial_msgs: Vec<(D::NodeUid, Vec<_>)> = Vec::new();
         for (id, node) in &mut network.nodes {
@@ -266,20 +470,40 @@ where
         }
     }
 
-    /// Handles a queued message in a randomly selected node and returns the selected node's ID.
+    /// Performs one iteration of the network, consisting of the following steps:
+    ///
+    /// 1. Give the adversary a chance to send messages of his choosing through `Adversary::step()`,
+    /// 2. Let the adversary pick a node that receives its next message through
+    ///    `Adversary::pick_node()`.
+    ///
+    /// Returns the node ID of the node that made progress.
     pub fn step(&mut self) -> NodeUid {
+        // We let the adversary send out messages to any number of nodes.
         let msgs = self.adversary.step();
-        for (sender_id, msg) in msgs {
-            self.dispatch_messages(sender_id, Some(msg));
+        for MessageWithSender { sender, tm } in msgs {
+            self.dispatch_messages(sender, Some(tm));
         }
-        // Pick a random non-idle node..
+
+        // Now one node is chosen to make progress, we let the adversary decide which.
         let id = self.adversary.pick_node(&self.nodes);
+
+        // The node handles the incoming message and creates new outgoing ones to be dispatched.
         let msgs: Vec<_> = {
             let node = self.nodes.get_mut(&id).unwrap();
+
+            // Ensure the adversary is playing fair by selecting a node that will result in actual
+            // progress being made, otherwise `TestNode::handle_message()` will panic on `expect()`
+            // with a much more cryptic error message.
+            assert!(
+                !node.is_idle(),
+                "adversary illegally selected an idle node in pick_node()"
+            );
+
             node.handle_message();
             node.algo.message_iter().collect()
         };
         self.dispatch_messages(id, msgs);
+
         id
     }
 

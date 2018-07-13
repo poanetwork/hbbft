@@ -4,6 +4,7 @@ use std::hash::Hash;
 use std::marker::PhantomData;
 use std::sync::Arc;
 
+use rand::Rand;
 use serde::{Deserialize, Serialize};
 
 use super::{DynamicHoneyBadger, MessageQueue, VoteCounter};
@@ -25,7 +26,7 @@ pub struct DynamicHoneyBadgerBuilder<C, NodeUid> {
 impl<C, NodeUid> DynamicHoneyBadgerBuilder<C, NodeUid>
 where
     C: Eq + Serialize + for<'r> Deserialize<'r> + Debug + Hash,
-    NodeUid: Eq + Ord + Clone + Debug + Serialize + for<'r> Deserialize<'r> + Hash,
+    NodeUid: Eq + Ord + Clone + Debug + Serialize + for<'r> Deserialize<'r> + Hash + Rand,
 {
     /// Returns a new `DynamicHoneyBadgerBuilder` configured to use the node IDs and cryptographic
     /// keys specified by `netinfo`.

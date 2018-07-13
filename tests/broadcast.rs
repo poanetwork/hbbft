@@ -8,6 +8,8 @@ extern crate pairing;
 extern crate rand;
 #[macro_use]
 extern crate serde_derive;
+#[macro_use]
+extern crate rand_derive;
 
 mod network;
 
@@ -19,8 +21,11 @@ use rand::Rng;
 
 use hbbft::broadcast::{Broadcast, BroadcastMessage};
 use hbbft::crypto::SecretKeySet;
-use hbbft::messaging::{DistAlgorithm, NetworkInfo, TargetedMessage};
-use network::{Adversary, MessageScheduler, NodeUid, SilentAdversary, TestNetwork, TestNode};
+use hbbft::messaging::{DistAlgorithm, NetworkInfo, Target, TargetedMessage};
+use network::{
+    Adversary, MessageScheduler, MessageWithSender, NodeUid, RandomAdversary, SilentAdversary,
+    TestNetwork, TestNode,
+};
 
 /// An adversary that inputs an alternate value.
 struct ProposeAdversary {
@@ -55,7 +60,7 @@ impl Adversary<Broadcast<NodeUid>> for ProposeAdversary {
         // All messages are ignored.
     }
 
-    fn step(&mut self) -> Vec<(NodeUid, TargetedMessage<BroadcastMessage, NodeUid>)> {
+    fn step(&mut self) -> Vec<MessageWithSender<Broadcast<NodeUid>>> {
         if self.has_sent {
             return vec![];
         }
@@ -84,7 +89,9 @@ impl Adversary<Broadcast<NodeUid>> for ProposeAdversary {
         ));
         let mut bc = Broadcast::new(netinfo, id).expect("broadcast instance");
         bc.input(b"Fake news".to_vec()).expect("propose");
-        bc.message_iter().map(|msg| (id, msg)).collect()
+        bc.message_iter()
+            .map(|msg| MessageWithSender::new(id, msg))
+            .collect()
     }
 }
 
@@ -181,4 +188,16 @@ fn test_broadcast_first_delivery_adv_propose() {
         ProposeAdversary::new(MessageScheduler::First, good_nodes, adv_nodes)
     };
     test_broadcast_different_sizes(new_adversary, b"Foo");
+}
+
+#[test]
+fn test_broadcast_random_adversary() {
+    let new_adversary = |_, _| {
+        // Note: Set this to 0.8 to watch 30 gigs of RAM disappear.
+        RandomAdversary::new(0.2, 0.2, || TargetedMessage {
+            target: Target::All,
+            message: rand::random(),
+        })
+    };
+    test_broadcast_different_sizes(new_adversary, b"RandomFoo");
 }

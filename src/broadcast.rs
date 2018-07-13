@@ -40,6 +40,102 @@
 //! node will eventually be able to decode (i.e. receive at least _2 f + 1_ `Echo` messages).
 //! * So a node with _2 f + 1_ `Ready`s and _2 f + 1_ `Echos` will decode and _output_ the value,
 //! knowing that every other correct node will eventually do the same.
+//!
+//! ## Example usage
+//!
+//! ```rust
+//!# extern crate clear_on_drop;
+//!# extern crate hbbft;
+//!# extern crate rand;
+//!# fn main() {
+//!#
+//! use clear_on_drop::ClearOnDrop;
+//! use hbbft::broadcast::Broadcast;
+//! use hbbft::crypto::SecretKeySet;
+//! use hbbft::messaging::{DistAlgorithm, NetworkInfo, Target, TargetedMessage};
+//! use rand::{Rng, thread_rng};
+//! use std::collections::{BTreeSet, BTreeMap};
+//! use std::sync::Arc;
+//!
+//! // In the example, we will "simulate" a network by passing messages by hand between
+//! // instantiated nodes. We use u64 as network ids, and start by creating a common
+//! // network info.
+//!
+//! // Our simulated network will use seven nodes in total, node 3 will be the proposer.
+//! const NUM_NODES: u64 = 7;
+//! const PROPOSER_ID: u64 = 3;
+//!
+//! // Create set of node ids.
+//! let all_uids: BTreeSet<_> = (0..NUM_NODES).collect();
+//!
+//! // Secret keys are required to complete the NetworkInfo structure, but not used in the
+//! // broadcast algorithm.
+//! let mut rng = thread_rng();
+//! let secret_keys = SecretKeySet::random(4, &mut rng);
+//!
+//! // Create initial nodes by instantiating a `NetworkInfo` for each:
+//! let mut nodes: BTreeMap<_, _> = all_uids.iter().cloned().map(|i| {
+//!     let netinfo = NetworkInfo::new(
+//!         i,
+//!         all_uids.clone(),
+//!         secret_keys.secret_key_share(i),
+//!         secret_keys.public_keys(),
+//!     );
+//!
+//!     let bc = Broadcast::new(Arc::new(netinfo), PROPOSER_ID)
+//!                  .expect("could not instantiate Broadcast");
+//!
+//!     (i, bc)
+//! }).collect();
+//!
+//! // We are ready to start. First we generate a payload to broadcast:
+//! let mut payload: Vec<_> = vec![0; 128];
+//! rng.fill_bytes(&mut payload[..]);
+//!
+//! // Now we can start the algorithm, its input is the payload to be broadcast.
+//! let mut next_message = {
+//!        let proposer = nodes.get_mut(&PROPOSER_ID).unwrap();
+//!        proposer.input(payload.clone()).unwrap();
+//!
+//!        // attach the sender to the resulting message
+//!        proposer.next_message().map(|tm| (PROPOSER_ID, tm))
+//! };
+//!
+//! // We can sanity-check that a message is scheduled by the proposer:
+//! assert!(next_message.is_some());
+//!
+//! // The network is simulated by passing messages around from node to node.
+//! while let Some((sender, TargetedMessage { target, message })) = next_message {
+//!     println!("Message [{:?} -> {:?}]: {:?}", sender, target, message);
+//!
+//!     match target {
+//!         Target::All => {
+//!             let msg = &message;
+//!             nodes.iter_mut()
+//!                  .for_each(|(_, node)| { node.handle_message(&sender, msg.clone())
+//!                                              .expect("could not handle message"); });
+//!         },
+//!         Target::Node(ref dest) => {
+//!             let dest_node = nodes.get_mut(dest).expect("destination node not found");
+//!             dest_node.handle_message(&sender, message)
+//!                      .expect("could not handle message");
+//!         },
+//!     }
+//!
+//!     // We have handled the message, now we check all nodes for new messages, in order:
+//!     next_message = nodes
+//!                        .iter_mut()
+//!                        .filter_map(|(&id, node)| node.next_message()
+//!                                                      .map(|tm| (id, tm)))
+//!                        .next();
+//! }
+//!
+//! // The algorithm output of every node will be the original payload.
+//! for (_, mut node) in nodes {
+//!     assert_eq!(node.next_output().expect("missing output"), payload);
+//! }
+//!# }
+//! ```
 
 use std::collections::{BTreeMap, VecDeque};
 use std::fmt::{self, Debug};
@@ -48,6 +144,7 @@ use std::sync::Arc;
 
 use byteorder::{BigEndian, ByteOrder};
 use merkle::{MerkleTree, Proof};
+use rand;
 use reed_solomon_erasure as rse;
 use reed_solomon_erasure::ReedSolomon;
 use ring::digest;
@@ -82,6 +179,29 @@ pub enum BroadcastMessage {
     Value(Proof<Vec<u8>>),
     Echo(Proof<Vec<u8>>),
     Ready(Vec<u8>),
+}
+
+// A random generation impl is provided for test cases. Unfortunately `#[cfg(test)]` does not work
+// for integration tests.
+impl rand::Rand for BroadcastMessage {
+    fn rand<R: rand::Rng>(rng: &mut R) -> Self {
+        let message_type = *rng.choose(&["value", "echo", "ready"]).unwrap();
+
+        // Create a random buffer for our proof.
+        let mut buffer: [u8; 32] = [0; 32];
+        rng.fill_bytes(&mut buffer);
+
+        // Generate a dummy proof to fill broadcast messages with.
+        let tree = MerkleTree::from_vec(&digest::SHA256, vec![buffer.to_vec()]);
+        let proof = tree.gen_proof(buffer.to_vec()).unwrap();
+
+        match message_type {
+            "value" => BroadcastMessage::Value(proof),
+            "echo" => BroadcastMessage::Echo(proof),
+            "ready" => BroadcastMessage::Ready(b"dummy-ready".to_vec()),
+            _ => unreachable!(),
+        }
+    }
 }
 
 impl Debug for BroadcastMessage {
