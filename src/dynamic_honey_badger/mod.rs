@@ -44,6 +44,7 @@
 //! `SyncKeyGen` instance is dropped, and a new one is started to create keys according to the new
 //! pending change.
 
+use rand::Rand;
 use std::collections::VecDeque;
 use std::fmt::Debug;
 use std::hash::Hash;
@@ -84,7 +85,7 @@ pub enum Input<C, NodeUid> {
 }
 
 /// A Honey Badger instance that can handle adding and removing nodes.
-pub struct DynamicHoneyBadger<C, NodeUid>
+pub struct DynamicHoneyBadger<C, NodeUid: Rand>
 where
     C: Eq + Serialize + for<'r> Deserialize<'r> + Debug + Hash,
     NodeUid: Ord + Clone + Serialize + for<'r> Deserialize<'r> + Debug,
@@ -116,7 +117,7 @@ pub type DynamicHoneyBadgerStep<C, NodeUid> = Step<NodeUid, Batch<C, NodeUid>>;
 impl<C, NodeUid> DistAlgorithm for DynamicHoneyBadger<C, NodeUid>
 where
     C: Eq + Serialize + for<'r> Deserialize<'r> + Debug + Hash,
-    NodeUid: Eq + Ord + Clone + Serialize + for<'r> Deserialize<'r> + Debug + Hash,
+    NodeUid: Eq + Ord + Clone + Serialize + for<'r> Deserialize<'r> + Debug + Hash + Rand,
 {
     type NodeUid = NodeUid;
     type Input = Input<C, NodeUid>;
@@ -180,7 +181,7 @@ where
 impl<C, NodeUid> DynamicHoneyBadger<C, NodeUid>
 where
     C: Eq + Serialize + for<'r> Deserialize<'r> + Debug + Hash,
-    NodeUid: Eq + Ord + Clone + Debug + Serialize + for<'r> Deserialize<'r> + Hash,
+    NodeUid: Eq + Ord + Clone + Debug + Serialize + for<'r> Deserialize<'r> + Hash + Rand,
 {
     fn step(&mut self, fault_log: FaultLog<NodeUid>) -> Result<DynamicHoneyBadgerStep<C, NodeUid>> {
         Ok(Step::new(self.output.drain(0..).collect(), fault_log))
@@ -498,7 +499,7 @@ pub enum KeyGenMessage {
 
 /// A message sent to or received from another node's Honey Badger instance.
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub enum Message<NodeUid> {
+pub enum Message<NodeUid: Rand> {
     /// A message belonging to the `HoneyBadger` algorithm started in the given epoch.
     HoneyBadger(u64, HbMessage<NodeUid>),
     /// A transaction to be committed, signed by a node.
@@ -507,7 +508,7 @@ pub enum Message<NodeUid> {
     SignedVote(SignedVote<NodeUid>),
 }
 
-impl<NodeUid> Message<NodeUid> {
+impl<NodeUid: Rand> Message<NodeUid> {
     pub fn epoch(&self) -> u64 {
         match *self {
             Message::HoneyBadger(epoch, _) => epoch,
@@ -519,11 +520,11 @@ impl<NodeUid> Message<NodeUid> {
 
 /// The queue of outgoing messages in a `HoneyBadger` instance.
 #[derive(Deref, DerefMut)]
-struct MessageQueue<NodeUid>(VecDeque<TargetedMessage<Message<NodeUid>, NodeUid>>);
+struct MessageQueue<NodeUid: Rand>(VecDeque<TargetedMessage<Message<NodeUid>, NodeUid>>);
 
 impl<NodeUid> MessageQueue<NodeUid>
 where
-    NodeUid: Eq + Hash + Ord + Clone + Debug + Serialize + for<'r> Deserialize<'r>,
+    NodeUid: Eq + Hash + Ord + Clone + Debug + Serialize + for<'r> Deserialize<'r> + Rand,
 {
     /// Appends to the queue the messages from `hb`, wrapped with `epoch`.
     fn extend_with_epoch<Tx>(&mut self, epoch: u64, hb: &mut HoneyBadger<Tx, NodeUid>)

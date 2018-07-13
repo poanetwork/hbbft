@@ -65,6 +65,7 @@
 
 pub mod bin_values;
 
+use rand;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fmt::Debug;
 use std::mem::replace;
@@ -122,10 +123,30 @@ impl AgreementContent {
 }
 
 /// Messages sent during the binary Byzantine agreement stage.
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Rand)]
 pub struct AgreementMessage {
     pub epoch: u32,
     pub content: AgreementContent,
+}
+
+// NOTE: Extending rand_derive to correctly generate random values from boxes would make this
+// implementation obsolete; however at the time of this writing, `rand::Rand` is already deprecated
+// with no replacement in sight.
+impl rand::Rand for AgreementContent {
+    fn rand<R: rand::Rng>(rng: &mut R) -> Self {
+        let message_type = *rng
+            .choose(&["bval", "aux", "conf", "term", "coin"])
+            .unwrap();
+
+        match message_type {
+            "bval" => AgreementContent::BVal(rand::random()),
+            "aux" => AgreementContent::Aux(rand::random()),
+            "conf" => AgreementContent::Conf(rand::random()),
+            "term" => AgreementContent::Term(rand::random()),
+            "coin" => AgreementContent::Coin(Box::new(rand::random())),
+            _ => unreachable!(),
+        }
+    }
 }
 
 /// Possible values of the common coin schedule defining the method to derive the common coin in a

@@ -8,6 +8,8 @@ extern crate env_logger;
 extern crate pairing;
 extern crate rand;
 #[macro_use]
+extern crate rand_derive;
+#[macro_use]
 extern crate serde_derive;
 
 mod network;
@@ -23,7 +25,8 @@ use hbbft::messaging::{NetworkInfo, Target, TargetedMessage};
 use hbbft::transaction_queue::TransactionQueue;
 
 use network::{
-    Adversary, MessageScheduler, MessageWithSender, NodeUid, SilentAdversary, TestNetwork, TestNode,
+    Adversary, MessageScheduler, MessageWithSender, NodeUid, RandomAdversary, SilentAdversary,
+    TestNetwork, TestNode,
 };
 
 type UsizeHoneyBadger = HoneyBadger<Vec<usize>, NodeUid>;
@@ -100,7 +103,7 @@ impl Adversary<UsizeHoneyBadger> for FaultyShareAdversary {
                         .expect("decryption share");
                     // Send the share to remote nodes.
                     for proposer_id in 0..self.num_good + self.num_adv {
-                        outgoing.push((
+                        outgoing.push(MessageWithSender::new(
                             NodeUid(sender_id),
                             Target::All.message(
                                 MessageContent::DecryptionShare {
@@ -234,6 +237,18 @@ fn test_honey_badger_first_delivery_silent() {
 fn test_honey_badger_faulty_share() {
     let new_adversary = |num_good: usize, num_adv: usize, adv_nodes| {
         FaultyShareAdversary::new(num_good, num_adv, adv_nodes, MessageScheduler::Random)
+    };
+    test_honey_badger_different_sizes(new_adversary, 8);
+}
+
+#[test]
+fn test_honey_badger_random_adversary() {
+    let new_adversary = |_, _, _| {
+        // A 10% injection chance is roughly ~13k extra messages added.
+        RandomAdversary::new(0.1, 0.1, || TargetedMessage {
+            target: Target::All,
+            message: rand::random(),
+        })
     };
     test_honey_badger_different_sizes(new_adversary, 8);
 }
