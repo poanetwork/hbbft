@@ -43,7 +43,7 @@
 //!
 //! ## Example usage
 //!
-//! ```rust
+//! ```ignore
 //!# extern crate clear_on_drop;
 //!# extern crate hbbft;
 //!# extern crate rand;
