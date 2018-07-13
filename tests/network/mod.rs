@@ -1,6 +1,5 @@
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fmt::{self, Debug};
-use std::hash::Hash;
 use std::mem;
 use std::sync::Arc;
 
@@ -352,10 +351,7 @@ impl<D: DistAlgorithm, F: Fn() -> TargetedMessage<D::Message, D::NodeUid>> Adver
 /// 2. Send arbitrary messages to any node originating from one of the nodes they control.
 ///
 /// See the `step` function for details on actual operation of the network.
-pub struct TestNetwork<A: Adversary<D>, D: DistAlgorithm>
-where
-    <D as DistAlgorithm>::NodeUid: Hash,
-{
+pub struct TestNetwork<A: Adversary<D>, D: DistAlgorithm> {
     pub nodes: BTreeMap<D::NodeUid, TestNode<D>>,
     pub observer: TestNode<D>,
     pub adv_nodes: BTreeMap<D::NodeUid, Arc<NetworkInfo<D::NodeUid>>>,
