@@ -63,7 +63,7 @@ impl BinValues {
         }
     }
 
-    pub fn contains(&self, b: bool) -> bool {
+    pub fn contains(self, b: bool) -> bool {
         match self {
             BinValues::None => false,
             BinValues::Both => true,
@@ -73,7 +73,7 @@ impl BinValues {
         }
     }
 
-    pub fn is_subset(&self, other: BinValues) -> bool {
+    pub fn is_subset(self, other: BinValues) -> bool {
         match self {
             BinValues::None => true,
             BinValues::False if other == BinValues::False || other == BinValues::Both => true,
@@ -83,7 +83,7 @@ impl BinValues {
         }
     }
 
-    pub fn definite(&self) -> Option<bool> {
+    pub fn definite(self) -> Option<bool> {
         match self {
             BinValues::False => Some(false),
             BinValues::True => Some(true),
