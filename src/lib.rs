@@ -114,6 +114,8 @@ extern crate pairing;
 #[cfg(feature = "serialization-protobuf")]
 extern crate protobuf;
 extern crate rand;
+#[macro_use]
+extern crate rand_derive;
 extern crate reed_solomon_erasure;
 extern crate ring;
 extern crate serde;

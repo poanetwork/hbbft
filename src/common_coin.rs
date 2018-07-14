@@ -45,7 +45,7 @@ error_chain! {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Rand)]
 pub struct CommonCoinMessage(Signature);
 
 impl CommonCoinMessage {

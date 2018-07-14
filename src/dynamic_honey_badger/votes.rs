@@ -85,7 +85,7 @@ where
 
     /// Returns an iterator over all pending votes that are newer than their voter's committed
     /// vote.
-    pub fn pending_votes<'a>(&'a self) -> impl Iterator<Item = &'a SignedVote<NodeUid>> {
+    pub fn pending_votes(&self) -> impl Iterator<Item = &SignedVote<NodeUid>> {
         self.pending.values().filter(move |signed_vote| {
             self.committed
                 .get(&signed_vote.voter)

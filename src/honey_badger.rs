@@ -1,3 +1,4 @@
+use rand::Rand;
 use std::collections::btree_map::Entry;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fmt::Debug;
@@ -44,7 +45,7 @@ pub struct HoneyBadgerBuilder<C, NodeUid> {
 impl<C, NodeUid> HoneyBadgerBuilder<C, NodeUid>
 where
     C: Serialize + for<'r> Deserialize<'r> + Debug + Hash + Eq,
-    NodeUid: Ord + Clone + Debug,
+    NodeUid: Ord + Clone + Debug + Rand,
 {
     /// Returns a new `HoneyBadgerBuilder` configured to use the node IDs and cryptographic keys
     /// specified by `netinfo`.
@@ -81,7 +82,7 @@ where
 }
 
 /// An instance of the Honey Badger Byzantine fault tolerant consensus algorithm.
-pub struct HoneyBadger<C, NodeUid> {
+pub struct HoneyBadger<C, NodeUid: Rand> {
     /// Shared network data.
     netinfo: Arc<NetworkInfo<NodeUid>>,
     /// The earliest epoch from which we have not yet received output.
@@ -112,7 +113,7 @@ pub struct HoneyBadger<C, NodeUid> {
 impl<C, NodeUid> DistAlgorithm for HoneyBadger<C, NodeUid>
 where
     C: Serialize + for<'r> Deserialize<'r> + Debug + Hash + Eq,
-    NodeUid: Ord + Clone + Debug,
+    NodeUid: Ord + Clone + Debug + Rand,
 {
     type NodeUid = NodeUid;
     type Input = C;
@@ -168,7 +169,7 @@ where
 impl<C, NodeUid> HoneyBadger<C, NodeUid>
 where
     C: Serialize + for<'r> Deserialize<'r> + Debug + Hash + Eq,
-    NodeUid: Ord + Clone + Debug,
+    NodeUid: Ord + Clone + Debug + Rand,
 {
     /// Returns a new `HoneyBadgerBuilder` configured to use the node IDs and cryptographic keys
     /// specified by `netinfo`.
@@ -634,8 +635,8 @@ impl<C, NodeUid: Ord> Batch<C, NodeUid> {
 }
 
 /// The content of a `HoneyBadger` message. It should be further annotated with an epoch.
-#[derive(Clone, Debug, Deserialize, Serialize)]
-pub enum MessageContent<NodeUid> {
+#[derive(Clone, Debug, Deserialize, Rand, Serialize)]
+pub enum MessageContent<NodeUid: Rand> {
     /// A message belonging to the common subset algorithm in the given epoch.
     CommonSubset(common_subset::Message<NodeUid>),
     /// A decrypted share of the output of `proposer_id`.
@@ -645,7 +646,7 @@ pub enum MessageContent<NodeUid> {
     },
 }
 
-impl<NodeUid> MessageContent<NodeUid> {
+impl<NodeUid: Rand> MessageContent<NodeUid> {
     pub fn with_epoch(self, epoch: u64) -> Message<NodeUid> {
         Message {
             epoch,
@@ -655,13 +656,13 @@ impl<NodeUid> MessageContent<NodeUid> {
 }
 
 /// A message sent to or received from another node's Honey Badger instance.
-#[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct Message<NodeUid> {
+#[derive(Clone, Debug, Deserialize, Rand, Serialize)]
+pub struct Message<NodeUid: Rand> {
     epoch: u64,
     content: MessageContent<NodeUid>,
 }
 
-impl<NodeUid> Message<NodeUid> {
+impl<NodeUid: Rand> Message<NodeUid> {
     pub fn epoch(&self) -> u64 {
         self.epoch
     }
@@ -669,9 +670,9 @@ impl<NodeUid> Message<NodeUid> {
 
 /// The queue of outgoing messages in a `HoneyBadger` instance.
 #[derive(Deref, DerefMut)]
-struct MessageQueue<NodeUid>(VecDeque<TargetedMessage<Message<NodeUid>, NodeUid>>);
+struct MessageQueue<NodeUid: Rand>(VecDeque<TargetedMessage<Message<NodeUid>, NodeUid>>);
 
-impl<NodeUid: Clone + Debug + Ord> MessageQueue<NodeUid> {
+impl<NodeUid: Clone + Debug + Ord + Rand> MessageQueue<NodeUid> {
     /// Appends to the queue the messages from `cs`, wrapped with `epoch`.
     fn extend_with_epoch(&mut self, epoch: u64, cs: &mut CommonSubset<NodeUid>) {
         let convert = |msg: TargetedMessage<common_subset::Message<NodeUid>, NodeUid>| {

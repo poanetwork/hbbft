@@ -16,7 +16,7 @@ use clear_on_drop::ClearOnDrop;
 use init_with::InitWith;
 use pairing::bls12_381::{Bls12, Fr, FrRepr, G1, G1Affine, G2, G2Affine};
 use pairing::{CurveAffine, CurveProjective, Engine, Field, PrimeField};
-use rand::{ChaChaRng, OsRng, Rand, Rng, SeedableRng};
+use rand::{ChaChaRng, OsRng, Rng, SeedableRng};
 use ring::digest;
 
 use self::error::{ErrorKind, Result};
@@ -83,7 +83,8 @@ impl PublicKey {
 }
 
 /// A signature, or a signature share.
-#[derive(Deserialize, Serialize, Clone, PartialEq, Eq)]
+// note: random signatures can be generated for testing
+#[derive(Deserialize, Serialize, Clone, PartialEq, Eq, Rand)]
 pub struct Signature(#[serde(with = "serde_impl::projective")] G2);
 
 impl fmt::Debug for Signature {
@@ -112,7 +113,7 @@ impl Signature {
 }
 
 /// A secret key, or a secret key share.
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq, Rand)]
 pub struct SecretKey(Fr);
 
 impl fmt::Debug for SecretKey {
@@ -126,12 +127,6 @@ impl fmt::Debug for SecretKey {
 impl Default for SecretKey {
     fn default() -> Self {
         SecretKey(Fr::zero())
-    }
-}
-
-impl Rand for SecretKey {
-    fn rand<R: Rng>(rng: &mut R) -> Self {
-        SecretKey(rng.gen())
     }
 }
 
@@ -203,7 +198,7 @@ impl Ciphertext {
 }
 
 /// A decryption share. A threshold of decryption shares can be used to decrypt a message.
-#[derive(Clone, Deserialize, Serialize, Debug, PartialEq, Eq)]
+#[derive(Clone, Deserialize, Serialize, Debug, PartialEq, Eq, Rand)]
 pub struct DecryptionShare(#[serde(with = "serde_impl::projective")] G1);
 
 impl Hash for DecryptionShare {

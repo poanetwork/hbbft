@@ -6,6 +6,8 @@ extern crate hbbft;
 extern crate itertools;
 extern crate pairing;
 extern crate rand;
+#[macro_use]
+extern crate rand_derive;
 extern crate serde;
 #[macro_use(Deserialize, Serialize)]
 extern crate serde_derive;
@@ -62,7 +64,7 @@ struct Args {
 }
 
 /// A node identifier. In the simulation, nodes are simply numbered.
-#[derive(Serialize, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Clone, Copy)]
+#[derive(Serialize, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Clone, Copy, Rand)]
 pub struct NodeUid(pub usize);
 
 /// A transaction.

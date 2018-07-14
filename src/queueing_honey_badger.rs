@@ -8,6 +8,7 @@ use std::fmt::Debug;
 use std::hash::Hash;
 use std::marker::PhantomData;
 
+use rand::Rand;
 use serde::{Deserialize, Serialize};
 
 use dynamic_honey_badger::{self, Batch as DhbBatch, DynamicHoneyBadger, Message};
@@ -40,7 +41,7 @@ pub struct QueueingHoneyBadgerBuilder<Tx, NodeUid> {
 impl<Tx, NodeUid> QueueingHoneyBadgerBuilder<Tx, NodeUid>
 where
     Tx: Eq + Serialize + for<'r> Deserialize<'r> + Debug + Hash + Clone,
-    NodeUid: Eq + Ord + Clone + Debug + Serialize + for<'r> Deserialize<'r> + Hash,
+    NodeUid: Eq + Ord + Clone + Debug + Serialize + for<'r> Deserialize<'r> + Hash + Rand,
 {
     /// Returns a new `QueueingHoneyBadgerBuilder` configured to use the node IDs and cryptographic
     /// keys specified by `netinfo`.
@@ -110,7 +111,7 @@ where
 pub struct QueueingHoneyBadger<Tx, NodeUid>
 where
     Tx: Eq + Serialize + for<'r> Deserialize<'r> + Debug + Hash,
-    NodeUid: Ord + Clone + Serialize + for<'r> Deserialize<'r> + Debug,
+    NodeUid: Ord + Clone + Serialize + for<'r> Deserialize<'r> + Debug + Rand,
 {
     /// The target number of transactions to be included in each batch.
     batch_size: usize,
@@ -125,7 +126,7 @@ where
 impl<Tx, NodeUid> DistAlgorithm for QueueingHoneyBadger<Tx, NodeUid>
 where
     Tx: Eq + Serialize + for<'r> Deserialize<'r> + Debug + Hash + Clone,
-    NodeUid: Eq + Ord + Clone + Serialize + for<'r> Deserialize<'r> + Debug + Hash,
+    NodeUid: Eq + Ord + Clone + Serialize + for<'r> Deserialize<'r> + Debug + Hash + Rand,
 {
     type NodeUid = NodeUid;
     type Input = Input<Tx, NodeUid>;
@@ -179,12 +180,17 @@ where
 impl<Tx, NodeUid> QueueingHoneyBadger<Tx, NodeUid>
 where
     Tx: Eq + Serialize + for<'r> Deserialize<'r> + Debug + Hash + Clone,
-    NodeUid: Eq + Ord + Clone + Debug + Serialize + for<'r> Deserialize<'r> + Hash,
+    NodeUid: Eq + Ord + Clone + Debug + Serialize + for<'r> Deserialize<'r> + Hash + Rand,
 {
     /// Returns a new `QueueingHoneyBadgerBuilder` configured to use the node IDs and cryptographic
     /// keys specified by `netinfo`.
     pub fn builder(netinfo: NetworkInfo<NodeUid>) -> QueueingHoneyBadgerBuilder<Tx, NodeUid> {
         QueueingHoneyBadgerBuilder::new(netinfo)
+    }
+
+    /// Returns a reference to the internal `DynamicHoneyBadger` instance.
+    pub fn dyn_hb(&self) -> &DynamicHoneyBadger<Vec<Tx>, NodeUid> {
+        &self.dyn_hb
     }
 
     /// Initiates the next epoch by proposing a batch from the queue.

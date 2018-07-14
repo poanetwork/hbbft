@@ -1,4 +1,5 @@
 use super::ChangeState;
+use rand::Rand;
 use std::collections::BTreeMap;
 
 /// A batch of transactions the algorithm has output.
@@ -13,7 +14,7 @@ pub struct Batch<C, NodeUid> {
     pub change: ChangeState<NodeUid>,
 }
 
-impl<C, NodeUid: Ord> Batch<C, NodeUid> {
+impl<C, NodeUid: Ord + Rand> Batch<C, NodeUid> {
     /// Returns a new, empty batch with the given epoch.
     pub fn new(epoch: u64) -> Self {
         Batch {

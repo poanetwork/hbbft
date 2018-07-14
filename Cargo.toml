@@ -30,6 +30,7 @@ merkle = { git = "https://github.com/afck/merkle.rs", branch = "public-proof", f
 pairing = { version = "0.14.2", features = ["u128-support"] }
 protobuf = { version = "2.0.0", optional = true }
 rand = "0.4.2"
+rand_derive = "0.3.1"
 reed-solomon-erasure = "3.1.0"
 ring = "^0.12"
 serde = "1.0.55"
