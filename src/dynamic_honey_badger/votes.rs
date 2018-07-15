@@ -1,4 +1,4 @@
-use std::collections::{btree_map, BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap};
 use std::fmt::Debug;
 use std::hash::Hash;
 use std::sync::Arc;
@@ -65,8 +65,13 @@ where
         sender_id: &NodeUid,
         signed_vote: SignedVote<NodeUid>,
     ) -> Result<FaultLog<NodeUid>> {
-        if signed_vote.vote.era != self.era {
-            return Ok(FaultLog::new()); // The vote is obsolete.
+        if signed_vote.vote.era != self.era
+            || self
+                .pending
+                .get(&signed_vote.voter)
+                .map_or(false, |sv| sv.vote.num >= signed_vote.vote.num)
+        {
+            return Ok(FaultLog::new()); // The vote is obsolete or already exists.
         }
         if !self.validate(&signed_vote)? {
             return Ok(FaultLog::init(
@@ -74,16 +79,7 @@ where
                 FaultKind::InvalidVoteSignature,
             ));
         }
-        match self.pending.entry(signed_vote.voter.clone()) {
-            btree_map::Entry::Vacant(entry) => {
-                entry.insert(signed_vote);
-            }
-            btree_map::Entry::Occupied(mut entry) => {
-                if entry.get().vote.num < signed_vote.vote.num {
-                    entry.insert(signed_vote);
-                }
-            }
-        }
+        self.pending.insert(signed_vote.voter.clone(), signed_vote);
         Ok(FaultLog::new())
     }
 
@@ -119,22 +115,20 @@ where
         proposer_id: &NodeUid,
         signed_vote: SignedVote<NodeUid>,
     ) -> Result<FaultLog<NodeUid>> {
-        if !self.validate(&signed_vote)? || signed_vote.vote.era != self.era {
+        if self
+            .committed
+            .get(&signed_vote.voter)
+            .map_or(false, |vote| vote.num >= signed_vote.vote.num)
+        {
+            return Ok(FaultLog::new()); // The vote is obsolete or already exists.
+        }
+        if signed_vote.vote.era != self.era || !self.validate(&signed_vote)? {
             return Ok(FaultLog::init(
                 proposer_id.clone(),
                 FaultKind::InvalidCommittedVote,
             ));
         }
-        match self.committed.entry(signed_vote.voter.clone()) {
-            btree_map::Entry::Vacant(entry) => {
-                entry.insert(signed_vote.vote);
-            }
-            btree_map::Entry::Occupied(mut entry) => {
-                if entry.get().num < signed_vote.vote.num {
-                    entry.insert(signed_vote.vote);
-                }
-            }
-        }
+        self.committed.insert(signed_vote.voter, signed_vote.vote);
         Ok(FaultLog::new())
     }
 
