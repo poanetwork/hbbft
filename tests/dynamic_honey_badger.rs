@@ -45,11 +45,11 @@ where
     fn has_remove(node: &TestNode<UsizeDhb>) -> bool {
         node.outputs()
             .iter()
-            .any(|batch| batch.change == ChangeState::Complete(Change::Remove(NodeUid(0))))
+            .any(|batch| *batch.change() == ChangeState::Complete(Change::Remove(NodeUid(0))))
     }
 
     fn has_add(node: &TestNode<UsizeDhb>) -> bool {
-        node.outputs().iter().any(|batch| match batch.change {
+        node.outputs().iter().any(|batch| match *batch.change() {
             ChangeState::Complete(Change::Add(ref id, _)) => *id == NodeUid(0),
             _ => false,
         })
@@ -70,7 +70,7 @@ where
     while network.nodes.values().any(node_busy) {
         // Remove all messages belonging to epochs after all expected outputs.
         for node in network.nodes.values_mut().filter(|node| !node_busy(node)) {
-            if let Some(last) = node.outputs().last().map(|out| out.epoch) {
+            if let Some(last) = node.outputs().last().map(Batch::epoch) {
                 node.queue.retain(|(_, ref msg)| msg.epoch() < last);
             }
         }
@@ -122,7 +122,9 @@ where
 // Allow passing `netinfo` by value. `TestNetwork` expects this function signature.
 #[cfg_attr(feature = "cargo-clippy", allow(needless_pass_by_value))]
 fn new_dynamic_hb(netinfo: Arc<NetworkInfo<NodeUid>>) -> UsizeDhb {
-    DynamicHoneyBadger::builder((*netinfo).clone()).build()
+    DynamicHoneyBadger::builder((*netinfo).clone())
+        .build()
+        .expect("instantiate DHB")
 }
 
 fn test_dynamic_honey_badger_different_sizes<A, F>(new_adversary: F, num_txs: usize)

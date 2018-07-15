@@ -41,11 +41,11 @@ fn test_queueing_honey_badger<A>(
     fn has_remove(node: &TestNode<QueueingHoneyBadger<usize, NodeUid>>) -> bool {
         node.outputs()
             .iter()
-            .any(|batch| batch.change == ChangeState::Complete(Change::Remove(NodeUid(0))))
+            .any(|batch| *batch.change() == ChangeState::Complete(Change::Remove(NodeUid(0))))
     }
 
     fn has_add(node: &TestNode<QueueingHoneyBadger<usize, NodeUid>>) -> bool {
-        node.outputs().iter().any(|batch| match batch.change {
+        node.outputs().iter().any(|batch| match *batch.change() {
             ChangeState::Complete(Change::Add(ref id, _)) => *id == NodeUid(0),
             _ => false,
         })
@@ -61,7 +61,7 @@ fn test_queueing_honey_badger<A>(
             return true;
         }
         if node.outputs().last().unwrap().is_empty() {
-            let last = node.outputs().last().unwrap().epoch;
+            let last = node.outputs().last().unwrap().epoch();
             node.queue.retain(|(_, ref msg)| msg.epoch() < last);
         }
         false
