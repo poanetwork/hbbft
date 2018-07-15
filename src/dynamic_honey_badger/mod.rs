@@ -52,7 +52,6 @@ use std::mem;
 use std::sync::Arc;
 
 use bincode;
-use clear_on_drop::ClearOnDrop;
 use serde::{Deserialize, Serialize};
 
 use self::votes::{SignedVote, VoteCounter};
@@ -73,7 +72,7 @@ mod change;
 mod error;
 mod votes;
 
-type KeyGenOutput = (PublicKeySet, Option<ClearOnDrop<Box<SecretKey>>>);
+type KeyGenOutput = (PublicKeySet, Option<SecretKey>);
 
 /// The user input for `DynamicHoneyBadger`.
 #[derive(Clone, Debug)]
@@ -283,9 +282,7 @@ where
                 // If DKG completed, apply the change.
                 debug!("{:?} DKG for {:?} complete!", self.our_id(), change);
                 // If we are a validator, we received a new secret key. Otherwise keep the old one.
-                let sk = sk.unwrap_or_else(|| {
-                    ClearOnDrop::new(Box::new(self.netinfo.secret_key().clone()))
-                });
+                let sk = sk.unwrap_or_else(|| self.netinfo.secret_key().clone());
                 // Restart Honey Badger in the next epoch, and inform the user about the change.
                 self.apply_change(&change, pub_key_set, sk, batch.epoch + 1)?;
                 batch.change = ChangeState::Complete(change);
@@ -316,7 +313,7 @@ where
         &mut self,
         change: &Change<NodeUid>,
         pub_key_set: PublicKeySet,
-        sk: ClearOnDrop<Box<SecretKey>>,
+        sk: SecretKey,
         epoch: u64,
     ) -> Result<()> {
         self.key_gen = None;

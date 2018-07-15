@@ -37,7 +37,6 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::{self, Debug, Formatter};
 
 use bincode;
-use clear_on_drop::ClearOnDrop;
 use pairing::bls12_381::{Fr, G1Affine};
 use pairing::{CurveAffine, Field};
 use rand::OsRng;
@@ -238,7 +237,7 @@ impl<NodeUid: Ord + Clone + Debug> SyncKeyGen<NodeUid> {
     ///
     /// These are only secure if `is_ready` returned `true`. Otherwise it is not guaranteed that
     /// none of the nodes knows the secret master key.
-    pub fn generate(&self) -> (PublicKeySet, Option<ClearOnDrop<Box<SecretKey>>>) {
+    pub fn generate(&self) -> (PublicKeySet, Option<SecretKey>) {
         let mut pk_commit = Poly::zero().commitment();
         let mut opt_sk_val = self.our_idx.map(|_| Fr::zero());
         let is_complete = |proposal: &&ProposalState| proposal.is_complete(self.threshold);
@@ -249,8 +248,7 @@ impl<NodeUid: Ord + Clone + Debug> SyncKeyGen<NodeUid> {
                 sk_val.add_assign(&row.evaluate(0));
             }
         }
-        let opt_sk =
-            opt_sk_val.map(|sk_val| ClearOnDrop::new(Box::new(SecretKey::from_value(sk_val))));
+        let opt_sk = opt_sk_val.map(SecretKey::from_value);
         (pk_commit.into(), opt_sk)
     }
 
