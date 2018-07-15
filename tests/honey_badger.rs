@@ -2,6 +2,7 @@
 
 extern crate bincode;
 extern crate hbbft;
+extern crate itertools;
 #[macro_use]
 extern crate log;
 extern crate env_logger;
@@ -17,6 +18,7 @@ mod network;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
+use itertools::Itertools;
 use rand::Rng;
 
 use hbbft::honey_badger::{self, Batch, HoneyBadger, MessageContent};
@@ -130,13 +132,7 @@ where
     // Returns `true` if the node has not output all transactions yet.
     // If it has, and has advanced another epoch, it clears all messages for later epochs.
     let node_busy = |node: &mut TestNode<UsizeHoneyBadger>| {
-        let mut min_missing = 0;
-        for tx in node.outputs().iter().flat_map(Batch::iter) {
-            if *tx >= min_missing {
-                min_missing = tx + 1;
-            }
-        }
-        if min_missing < num_txs {
+        if node.outputs().iter().flat_map(Batch::iter).unique().count() < num_txs {
             return true;
         }
         if node.outputs().last().unwrap().is_empty() {

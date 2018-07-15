@@ -2,6 +2,7 @@
 
 extern crate env_logger;
 extern crate hbbft;
+extern crate itertools;
 #[macro_use]
 extern crate log;
 extern crate pairing;
@@ -19,6 +20,7 @@ use std::sync::Arc;
 
 use hbbft::messaging::NetworkInfo;
 use hbbft::queueing_honey_badger::{Batch, Change, ChangeState, Input, QueueingHoneyBadger};
+use itertools::Itertools;
 use rand::Rng;
 
 use network::{Adversary, MessageScheduler, NodeUid, SilentAdversary, TestNetwork, TestNode};
@@ -55,13 +57,7 @@ fn test_queueing_honey_badger<A>(
         if !has_remove(node) || !has_add(node) {
             return true;
         }
-        let mut min_missing = 0;
-        for tx in node.outputs().iter().flat_map(Batch::iter) {
-            if *tx >= min_missing {
-                min_missing = tx + 1;
-            }
-        }
-        if min_missing < num_txs {
+        if node.outputs().iter().flat_map(Batch::iter).unique().count() < num_txs {
             return true;
         }
         if node.outputs().last().unwrap().is_empty() {
@@ -81,7 +77,6 @@ fn test_queueing_honey_badger<A>(
             }
             let pk = network.pk_set.public_key_share(0);
             network.input_all(Input::Change(Change::Add(NodeUid(0), pk)));
-            info!("Input!");
             input_add = true;
         }
     }

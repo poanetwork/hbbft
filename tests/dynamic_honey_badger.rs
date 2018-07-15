@@ -1,6 +1,7 @@
 //! Network tests for Dynamic Honey Badger.
 
 extern crate hbbft;
+extern crate itertools;
 #[macro_use]
 extern crate log;
 extern crate env_logger;
@@ -17,6 +18,7 @@ use std::cmp;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
+use itertools::Itertools;
 use rand::Rng;
 
 use hbbft::dynamic_honey_badger::{Batch, Change, ChangeState, DynamicHoneyBadger, Input};
@@ -54,38 +56,35 @@ where
     }
 
     // Returns `true` if the node has not output all transactions yet.
-    // If it has, and has advanced another epoch, it clears all messages for later epochs.
-    let node_busy = |node: &mut TestNode<UsizeDhb>| {
+    let node_busy = |node: &TestNode<UsizeDhb>| {
         if !has_remove(node) || !has_add(node) {
             return true;
         }
-        let mut min_missing = 0;
-        for tx in node.outputs().iter().flat_map(Batch::iter) {
-            if *tx >= min_missing {
-                min_missing = tx + 1;
-            }
-        }
-        if min_missing < num_txs {
-            return true;
-        }
-        if node.outputs().last().unwrap().is_empty() {
-            let last = node.outputs().last().unwrap().epoch;
-            node.queue.retain(|(_, ref msg)| msg.epoch() < last);
-        }
-        false
+        node.outputs().iter().flat_map(Batch::iter).unique().count() < num_txs
     };
 
     let mut rng = rand::thread_rng();
+    let mut input_add = false; // Whether the vote to add node 0 has already been input.
 
-    let mut input_add = false;
     // Handle messages in random order until all nodes have output all transactions.
-    while network.nodes.values_mut().any(node_busy) {
+    while network.nodes.values().any(node_busy) {
+        // Remove all messages belonging to epochs after all expected outputs.
+        for node in network.nodes.values_mut().filter(|node| !node_busy(node)) {
+            if let Some(last) = node.outputs().last().map(|out| out.epoch) {
+                node.queue.retain(|(_, ref msg)| msg.epoch() < last);
+            }
+        }
         // If a node is expecting input, take it from the queue. Otherwise handle a message.
         let input_ids: Vec<_> = network
             .nodes
             .iter()
             .filter(|(_, node)| {
-                !node.instance().has_input() && node.instance().netinfo().is_validator()
+                node_busy(*node)
+                    && !node.instance().has_input()
+                    && node.instance().netinfo().is_validator()
+                    // If there's only one node, it will immediately output on input. Make sure we
+                    // first process all incoming messages before providing input again.
+                    && (network.nodes.len() > 2 || node.queue.is_empty())
             })
             .map(|(id, _)| *id)
             .collect();
@@ -93,14 +92,12 @@ where
             let queue = queues.get_mut(id).unwrap();
             queue.remove_all(network.nodes[id].outputs().iter().flat_map(Batch::iter));
             network.input(*id, Input::User(queue.choose(3, 10)));
-        } else {
-            network.step();
         }
+        network.step();
         // Once all nodes have processed the removal of node 0, add it again.
         if !input_add && network.nodes.values().all(has_remove) {
             let pk = network.pk_set.public_key_share(0);
             network.input_all(Input::Change(Change::Add(NodeUid(0), pk)));
-            info!("Input!");
             input_add = true;
         }
     }
@@ -137,8 +134,7 @@ where
     let _ = env_logger::try_init();
 
     let mut rng = rand::thread_rng();
-    // TODO: This should also work with two nodes.
-    let sizes = vec![3, 5, rng.gen_range(6, 10)];
+    let sizes = vec![2, 3, 5, rng.gen_range(6, 10)];
     for size in sizes {
         // The test is removing one correct node, so we allow fewer faulty ones.
         let num_adv_nodes = (size - 2) / 3;

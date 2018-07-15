@@ -258,10 +258,16 @@ where
             let mut batch = Batch::new(hb_batch.epoch + self.start_epoch);
             // Add the user transactions to `batch` and handle votes and DKG messages.
             for (id, int_contrib) in hb_batch.contributions {
-                let votes = int_contrib.votes;
+                let InternalContrib {
+                    votes,
+                    key_gen_messages,
+                    contrib,
+                } = int_contrib;
                 fault_log.extend(self.vote_counter.add_committed_votes(&id, votes)?);
-                batch.contributions.insert(id, int_contrib.contrib);
-                for SignedKeyGenMsg(epoch, s_id, kg_msg, sig) in int_contrib.key_gen_messages {
+                batch.contributions.insert(id, contrib);
+                self.key_gen_msg_buffer
+                    .retain(|skgm| !key_gen_messages.contains(skgm));
+                for SignedKeyGenMsg(epoch, s_id, kg_msg, sig) in key_gen_messages {
                     if epoch < self.start_epoch {
                         info!("Obsolete key generation message: {:?}.", kg_msg);
                         continue;
