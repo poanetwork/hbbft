@@ -157,9 +157,11 @@ where
         sender_id: &NodeUid,
         message: Self::Message,
     ) -> Result<QueueingHoneyBadgerStep<Tx, NodeUid>> {
-        let step = self.dyn_hb.handle_message(sender_id, message)?;
-        let mut fault_log = step.fault_log.clone();
-        for batch in step.output {
+        let Step {
+            output,
+            mut fault_log,
+        } = self.dyn_hb.handle_message(sender_id, message)?;
+        for batch in output {
             self.queue.remove_all(batch.iter());
             self.output.push_back(batch);
         }

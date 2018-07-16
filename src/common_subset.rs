@@ -255,7 +255,6 @@ impl<NodeUid: Clone + Debug + Ord + Rand> CommonSubset<NodeUid> {
         self.broadcast_results.insert(proposer_id.clone(), value);
         let set_agreement_input = |agreement: &mut Agreement<NodeUid>| {
             if agreement.accepts_input() {
-                // FIXME: Use the result.
                 agreement.input(true)
             } else {
                 Ok(Step::default())

@@ -554,8 +554,11 @@ where
         &mut self,
         step: CommonSubsetStep<NodeUid>,
     ) -> HoneyBadgerResult<FaultLog<NodeUid>> {
-        let mut fault_log = step.fault_log.clone();
-        for cs_output in step.output {
+        let Step {
+            output,
+            mut fault_log,
+        } = step;
+        for cs_output in output {
             fault_log.extend(self.send_decryption_shares(cs_output)?);
             // TODO: May also check that there is no further output from Common Subset.
         }

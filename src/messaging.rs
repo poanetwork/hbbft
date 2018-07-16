@@ -53,6 +53,7 @@ impl<M, N> TargetedMessage<M, N> {
 
 /// Result of one step of the local state machine of a distributed algorithm. Such a result should
 /// be used and never discarded by the client of the algorithm.
+#[must_use = "The algorithm step result must be used."]
 pub struct Step<N, O>
 where
     N: Clone,
@@ -97,14 +98,12 @@ pub trait DistAlgorithm {
     type Error: Debug;
 
     /// Handles an input provided by the user, and returns
-    #[must_use]
     fn input(
         &mut self,
         input: Self::Input,
     ) -> Result<Step<Self::NodeUid, Self::Output>, Self::Error>;
 
     /// Handles a message received from node `sender_id`.
-    #[must_use]
     fn handle_message(
         &mut self,
         sender_id: &Self::NodeUid,

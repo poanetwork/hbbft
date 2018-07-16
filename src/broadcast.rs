@@ -43,6 +43,7 @@
 //!
 //! ## Example usage
 //!
+//! FIXME: Fix the test for the new API (Issue #135).
 //! ```ignore
 //!# extern crate clear_on_drop;
 //!# extern crate hbbft;

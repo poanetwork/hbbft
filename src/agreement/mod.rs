@@ -502,8 +502,11 @@ impl<NodeUid: Clone + Debug + Ord> Agreement<NodeUid> {
         &mut self,
         coin_step: CommonCoinStep<NodeUid>,
     ) -> AgreementResult<FaultLog<NodeUid>> {
-        let mut fault_log = coin_step.fault_log.clone();
-        if let Some(coin) = coin_step.output.into_iter().next() {
+        let Step {
+            output,
+            mut fault_log,
+        } = coin_step;
+        if let Some(coin) = output.into_iter().next() {
             let def_bin_value = self.count_conf().1.definite();
             fault_log.extend(self.on_coin(coin, def_bin_value)?);
         }

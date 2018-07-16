@@ -138,7 +138,8 @@ impl<T: Clone + Debug + AsRef<[u8]> + PartialEq + Send + Sync + From<Vec<u8>> + 
                     Broadcast::new(Arc::new(netinfo), 0).expect("failed to instantiate broadcast");
 
                 if let Some(v) = value {
-                    broadcast.input(v.clone().into()).expect("propose value");
+                    // FIXME: Use the output.
+                    let _ = broadcast.input(v.clone().into()).expect("propose value");
                     for msg in broadcast.message_iter() {
                         tx_from_algo.send(msg).expect("send from algo");
                     }
