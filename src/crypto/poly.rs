@@ -18,6 +18,7 @@
 
 use std::borrow::Borrow;
 use std::hash::{Hash, Hasher};
+use std::ptr::write_volatile;
 use std::{cmp, iter, ops};
 
 use pairing::bls12_381::{Fr, FrRepr, G1, G1Affine};
@@ -120,6 +121,18 @@ impl<B: Borrow<Poly>> ops::Mul<B> for Poly {
 impl<B: Borrow<Self>> ops::MulAssign<B> for Poly {
     fn mul_assign(&mut self, rhs: B) {
         *self = &*self * rhs;
+    }
+}
+
+impl Drop for Poly {
+    fn drop(&mut self) {
+        let start = self.coeff.as_mut_ptr();
+        unsafe {
+            for i in 0..self.coeff.len() {
+                let ptr = start.offset(i as isize);
+                write_volatile(ptr, Fr::zero());
+            }
+        }
     }
 }
 
@@ -325,6 +338,18 @@ pub struct BivarPoly {
     /// The coefficients of the polynomial. Coefficient `(i, j)` for `i <= j` is in position
     /// `j * (j + 1) / 2 + i`.
     coeff: Vec<Fr>,
+}
+
+impl Drop for BivarPoly {
+    fn drop(&mut self) {
+        let start = self.coeff.as_mut_ptr();
+        unsafe {
+            for i in 0..self.coeff.len() {
+                let ptr = start.offset(i as isize);
+                write_volatile(ptr, Fr::zero());
+            }
+        }
+    }
 }
 
 impl BivarPoly {
