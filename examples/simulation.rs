@@ -358,7 +358,7 @@ impl EpochInfo {
         let txs = batch.len();
         println!(
             "{:>5} {:6} {:6} {:5} {:9} {:>9}B",
-            batch.epoch.to_string().cyan(),
+            batch.epoch().to_string().cyan(),
             min_t.as_secs() * 1000 + max_t.subsec_nanos() as u64 / 1_000_000,
             max_t.as_secs() * 1000 + max_t.subsec_nanos() as u64 / 1_000_000,
             txs,
@@ -392,10 +392,11 @@ fn simulate_honey_badger(
     while network.nodes.values_mut().any(node_busy) {
         let id = network.step();
         for &(time, ref batch) in &network.nodes[&id].outputs {
-            if epochs.len() <= batch.epoch as usize {
-                epochs.resize(batch.epoch as usize + 1, EpochInfo::default());
+            let epoch = batch.epoch() as usize;
+            if epochs.len() <= epoch {
+                epochs.resize(epoch + 1, EpochInfo::default());
             }
-            epochs[batch.epoch as usize].add(id, time, batch, &network);
+            epochs[epoch].add(id, time, batch, &network);
         }
     }
 }

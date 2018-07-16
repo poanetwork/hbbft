@@ -1,27 +1,40 @@
-use super::ChangeState;
+use std::collections::{BTreeMap, BTreeSet};
+use std::fmt::Debug;
+
 use rand::Rand;
-use std::collections::BTreeMap;
+use serde::{Deserialize, Serialize};
+
+use super::{ChangeState, JoinPlan};
+use crypto::PublicKeySet;
+use messaging::NetworkInfo;
 
 /// A batch of transactions the algorithm has output.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Batch<C, NodeUid> {
     /// The sequence number: there is exactly one batch in each epoch.
-    pub epoch: u64,
+    pub(super) epoch: u64,
     /// The user contributions committed in this epoch.
-    pub contributions: BTreeMap<NodeUid, C>,
+    pub(super) contributions: BTreeMap<NodeUid, C>,
     /// The current state of adding or removing a node: whether any is in progress, or completed
     /// this epoch.
-    pub change: ChangeState<NodeUid>,
+    change: ChangeState<NodeUid>,
+    /// The public network info, if `change` is not `None`.
+    pub_netinfo: Option<(BTreeSet<NodeUid>, PublicKeySet)>,
 }
 
-impl<C, NodeUid: Ord + Rand> Batch<C, NodeUid> {
+impl<C, NodeUid: Ord + Rand + Clone + Debug> Batch<C, NodeUid> {
     /// Returns a new, empty batch with the given epoch.
     pub fn new(epoch: u64) -> Self {
         Batch {
             epoch,
             contributions: BTreeMap::new(),
             change: ChangeState::None,
+            pub_netinfo: None,
         }
+    }
+
+    pub fn epoch(&self) -> u64 {
+        self.epoch
     }
 
     /// Returns whether any change to the set of participating nodes is in progress or was
@@ -67,5 +80,34 @@ impl<C, NodeUid: Ord + Rand> Batch<C, NodeUid> {
             .values()
             .map(C::as_ref)
             .all(<[Tx]>::is_empty)
+    }
+
+    /// Returns the `JoinPlan` to be sent to new observer nodes, if it is possible to join in the
+    /// next epoch.
+    pub fn join_plan(&self) -> Option<JoinPlan<NodeUid>>
+    where
+        NodeUid: Serialize + for<'r> Deserialize<'r>,
+    {
+        self.pub_netinfo
+            .as_ref()
+            .map(|&(ref all_uids, ref pub_key_set)| JoinPlan {
+                epoch: self.epoch + 1,
+                change: self.change.clone(),
+                all_uids: all_uids.clone(),
+                pub_key_set: pub_key_set.clone(),
+            })
+    }
+
+    /// Sets the current change state, and if it is not `None`, inserts the network information so
+    /// that a `JoinPlan` can be generated for the next epoch.
+    pub(super) fn set_change(
+        &mut self,
+        change: ChangeState<NodeUid>,
+        netinfo: &NetworkInfo<NodeUid>,
+    ) {
+        self.change = change;
+        if self.change != ChangeState::None {
+            self.pub_netinfo = Some((netinfo.all_uids().clone(), netinfo.public_key_set().clone()));
+        }
     }
 }
