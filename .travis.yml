@@ -14,7 +14,7 @@ before_install:
   - rustup toolchain install ${RUST_NEXT}
   - rustup component add --toolchain=${RUST_NEXT} rustfmt-preview clippy-preview
   # Some symlinking is still necessary for clippy to function properly.
-  - ln -s ${HOME}/.rustup/toolchains/${RUST_NEXT}-x86_64-unknown-linux-gnu/bin/clippy-driver ${HOME}/.rustup/toolchains/${RUST_NEXT}-x86_64-unknown-linux-gnu/bin/cargo-clippy $HOME/.cargo/bin/
+  - ln -sf ${HOME}/.rustup/toolchains/${RUST_NEXT}-x86_64-unknown-linux-gnu/bin/clippy-driver ${HOME}/.rustup/toolchains/${RUST_NEXT}-x86_64-unknown-linux-gnu/bin/cargo-clippy $HOME/.cargo/bin/
 env:
   global:
     - RUST_BACKTRACE=1
