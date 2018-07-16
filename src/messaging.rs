@@ -1,8 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fmt::Debug;
 
-use clear_on_drop::ClearOnDrop;
-
 use crypto::{PublicKey, PublicKeySet, SecretKey};
 use fault_log::FaultLog;
 
@@ -142,12 +140,6 @@ impl<'a, D: DistAlgorithm + 'a> Iterator for MessageIter<'a, D> {
 }
 
 /// Common data shared between algorithms.
-///
-/// *NOTE* `NetworkInfo` requires its `secret_key` to be heap allocated and
-/// wrapped by the `ClearOnDrop` type from the `clear_on_drop` crate. We
-/// use this construction to zero out the section of heap memory that is
-/// allocated for `secret_key` when the corresponding instance of
-/// `NetworkInfo` goes out of scope.
 #[derive(Debug, Clone)]
 pub struct NetworkInfo<NodeUid> {
     our_uid: NodeUid,
@@ -155,7 +147,7 @@ pub struct NetworkInfo<NodeUid> {
     num_nodes: usize,
     num_faulty: usize,
     is_validator: bool,
-    secret_key: ClearOnDrop<Box<SecretKey>>,
+    secret_key: SecretKey,
     public_key_set: PublicKeySet,
     public_keys: BTreeMap<NodeUid, PublicKey>,
     node_indices: BTreeMap<NodeUid, usize>,
@@ -165,7 +157,7 @@ impl<NodeUid: Clone + Ord> NetworkInfo<NodeUid> {
     pub fn new(
         our_uid: NodeUid,
         all_uids: BTreeSet<NodeUid>,
-        secret_key: ClearOnDrop<Box<SecretKey>>,
+        secret_key: SecretKey,
         public_key_set: PublicKeySet,
     ) -> Self {
         let num_nodes = all_uids.len();

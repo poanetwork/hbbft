@@ -2,6 +2,7 @@
 
 extern crate env_logger;
 extern crate hbbft;
+extern crate itertools;
 #[macro_use]
 extern crate log;
 extern crate pairing;
@@ -15,11 +16,11 @@ mod network;
 
 use std::cmp;
 use std::collections::BTreeMap;
-use std::iter::once;
 use std::sync::Arc;
 
 use hbbft::messaging::NetworkInfo;
-use hbbft::queueing_honey_badger::{Change, ChangeState, Input, QueueingHoneyBadger};
+use hbbft::queueing_honey_badger::{Batch, Change, ChangeState, Input, QueueingHoneyBadger};
+use itertools::Itertools;
 use rand::Rng;
 
 use network::{Adversary, MessageScheduler, NodeUid, SilentAdversary, TestNetwork, TestNode};
@@ -56,15 +57,7 @@ fn test_queueing_honey_badger<A>(
         if !has_remove(node) || !has_add(node) {
             return true;
         }
-        let mut min_missing = 0;
-        for batch in node.outputs() {
-            for tx in batch.iter() {
-                if *tx >= min_missing {
-                    min_missing = tx + 1;
-                }
-            }
-        }
-        if min_missing < num_txs {
+        if node.outputs().iter().flat_map(Batch::iter).unique().count() < num_txs {
             return true;
         }
         if node.outputs().last().unwrap().is_empty() {
@@ -84,7 +77,6 @@ fn test_queueing_honey_badger<A>(
             }
             let pk = network.pk_set.public_key_share(0);
             network.input_all(Input::Change(Change::Add(NodeUid(0), pk)));
-            info!("Input!");
             input_add = true;
         }
     }
@@ -110,7 +102,7 @@ where
 #[cfg_attr(feature = "cargo-clippy", allow(needless_pass_by_value))]
 fn new_queueing_hb(netinfo: Arc<NetworkInfo<NodeUid>>) -> QueueingHoneyBadger<usize, NodeUid> {
     QueueingHoneyBadger::builder((*netinfo).clone())
-        .batch_size(12)
+        .batch_size(3)
         .build()
 }
 
@@ -123,7 +115,7 @@ where
     let _ = env_logger::try_init();
 
     let mut rng = rand::thread_rng();
-    let sizes = (3..5).chain(once(rng.gen_range(6, 10)));
+    let sizes = vec![3, 5, rng.gen_range(6, 10)];
     for size in sizes {
         // The test is removing one correct node, so we allow fewer faulty ones.
         let num_adv_nodes = (size - 2) / 3;
@@ -141,11 +133,11 @@ where
 #[test]
 fn test_queueing_honey_badger_random_delivery_silent() {
     let new_adversary = |_: usize, _: usize, _| SilentAdversary::new(MessageScheduler::Random);
-    test_queueing_honey_badger_different_sizes(new_adversary, 10);
+    test_queueing_honey_badger_different_sizes(new_adversary, 30);
 }
 
 #[test]
 fn test_queueing_honey_badger_first_delivery_silent() {
     let new_adversary = |_: usize, _: usize, _| SilentAdversary::new(MessageScheduler::First);
-    test_queueing_honey_badger_different_sizes(new_adversary, 10);
+    test_queueing_honey_badger_different_sizes(new_adversary, 30);
 }

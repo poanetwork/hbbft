@@ -10,9 +10,9 @@ pub mod serde_impl;
 
 use std::fmt;
 use std::hash::{Hash, Hasher};
+use std::ptr::write_volatile;
 
 use byteorder::{BigEndian, ByteOrder};
-use clear_on_drop::ClearOnDrop;
 use init_with::InitWith;
 use pairing::bls12_381::{Bls12, Fr, FrRepr, G1, G1Affine, G2, G2Affine};
 use pairing::{CurveAffine, CurveProjective, Engine, Field, PrimeField};
@@ -127,6 +127,15 @@ impl fmt::Debug for SecretKey {
 impl Default for SecretKey {
     fn default() -> Self {
         SecretKey(Fr::zero())
+    }
+}
+
+impl Drop for SecretKey {
+    fn drop(&mut self) {
+        let ptr = self as *mut Self;
+        unsafe {
+            write_volatile(ptr, SecretKey::default());
+        }
     }
 }
 
@@ -295,10 +304,8 @@ impl SecretKeySet {
     }
 
     /// Returns the `i`-th secret key share.
-    pub fn secret_key_share<T: Into<FrRepr>>(&self, i: T) -> ClearOnDrop<Box<SecretKey>> {
-        ClearOnDrop::new(Box::new(SecretKey(
-            self.poly.evaluate(from_repr_plus_1::<Fr>(i.into())),
-        )))
+    pub fn secret_key_share<T: Into<FrRepr>>(&self, i: T) -> SecretKey {
+        SecretKey(self.poly.evaluate(from_repr_plus_1::<Fr>(i.into())))
     }
 
     /// Returns the corresponding public key set. That information can be shared publicly.
@@ -428,9 +435,9 @@ mod tests {
         assert_ne!(pk_set.public_key(), pk_set.public_key_share(2));
 
         // Make sure we don't hand out the main secret key to anyone.
-        assert_ne!(sk_set.secret_key(), *sk_set.secret_key_share(0));
-        assert_ne!(sk_set.secret_key(), *sk_set.secret_key_share(1));
-        assert_ne!(sk_set.secret_key(), *sk_set.secret_key_share(2));
+        assert_ne!(sk_set.secret_key(), sk_set.secret_key_share(0));
+        assert_ne!(sk_set.secret_key(), sk_set.secret_key_share(1));
+        assert_ne!(sk_set.secret_key(), sk_set.secret_key_share(2));
 
         let msg = "Totally real news";
 

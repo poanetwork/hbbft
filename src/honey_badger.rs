@@ -4,7 +4,6 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fmt::Debug;
 use std::hash::Hash;
 use std::marker::PhantomData;
-use std::ops::Not;
 use std::sync::Arc;
 
 use bincode;
@@ -187,24 +186,26 @@ where
         if !self.netinfo.is_validator() {
             return Ok(FaultLog::new());
         }
-        let cs = match self.common_subsets.entry(self.epoch) {
-            Entry::Occupied(entry) => entry.into_mut(),
-            Entry::Vacant(entry) => {
-                entry.insert(CommonSubset::new(self.netinfo.clone(), self.epoch)?)
-            }
+        let step = {
+            let cs = match self.common_subsets.entry(self.epoch) {
+                Entry::Occupied(entry) => entry.into_mut(),
+                Entry::Vacant(entry) => {
+                    entry.insert(CommonSubset::new(self.netinfo.clone(), self.epoch)?)
+                }
+            };
+            let ser_prop = bincode::serialize(&proposal)?;
+            let ciphertext = self.netinfo.public_key_set().public_key().encrypt(ser_prop);
+            self.has_input = true;
+            let step = cs.input(bincode::serialize(&ciphertext).unwrap())?;
+            self.messages.extend_with_epoch(self.epoch, cs);
+            step
         };
-        let ser_prop = bincode::serialize(&proposal)?;
-        let ciphertext = self.netinfo.public_key_set().public_key().encrypt(ser_prop);
-        let step = cs.input(bincode::serialize(&ciphertext).unwrap())?;
-        // FIXME: Use `step.output`.
-        self.has_input = true;
-        self.messages.extend_with_epoch(self.epoch, cs);
-        Ok(step.fault_log)
+        Ok(self.process_output(step)?)
     }
 
     /// Returns `true` if input for the current epoch has already been provided.
     pub fn has_input(&self) -> bool {
-        self.has_input
+        !self.netinfo.is_validator() || self.has_input
     }
 
     /// Handles a message for the given epoch.
@@ -270,7 +271,7 @@ where
 
         if let Some(ciphertext) = self
             .ciphertexts
-            .get(&self.epoch)
+            .get(&epoch)
             .and_then(|cts| cts.get(&proposer_id))
         {
             if !self.verify_decryption_share(sender_id, &share, ciphertext) {
@@ -280,19 +281,17 @@ where
             }
         }
 
-        {
-            // Insert the share.
-            let proposer_shares = self
-                .received_shares
-                .entry(epoch)
-                .or_insert_with(BTreeMap::new)
-                .entry(proposer_id.clone())
-                .or_insert_with(BTreeMap::new);
-            proposer_shares.insert(sender_id.clone(), share);
-        }
+        // Insert the share.
+        self.received_shares
+            .entry(epoch)
+            .or_insert_with(BTreeMap::new)
+            .entry(proposer_id.clone())
+            .or_insert_with(BTreeMap::new)
+            .insert(sender_id.clone(), share);
 
-        if epoch == self.epoch && self.try_decrypt_proposer_contribution(proposer_id) {
-            self.try_output_batch()?.merge_into(&mut fault_log);
+        if epoch == self.epoch {
+            self.try_decrypt_proposer_contribution(proposer_id);
+            fault_log.extend(self.try_decrypt_and_output_batch()?);
         }
 
         Ok(fault_log)
@@ -314,8 +313,8 @@ where
         }
     }
 
-    /// When contributions of transactions have been decrypted for all valid proposers in this epoch,
-    /// moves those transactions into a batch, outputs the batch and updates the epoch.
+    /// When contributions of transactions have been decrypted for all valid proposers in this
+    /// epoch, moves those contributions into a batch, outputs the batch and updates the epoch.
     fn try_output_batch(&mut self) -> HoneyBadgerResult<FaultLog<NodeUid>> {
         // Wait until contributions have been successfully decoded for all proposer nodes with correct
         // ciphertext outputs.
@@ -347,7 +346,7 @@ where
             "{:?} Epoch {} output {:?}",
             self.netinfo.our_uid(),
             self.epoch,
-            batch.contributions
+            batch.contributions.keys().collect::<Vec<_>>()
         );
         // Queue the output and advance the epoch.
         self.output.push(batch);
@@ -378,46 +377,48 @@ where
         Ok(fault_log)
     }
 
-    /// Tries to decrypt transaction contributions from all proposers and output those transactions in
-    /// a batch.
+    /// Tries to decrypt contributions from all proposers and output those in a batch.
     fn try_decrypt_and_output_batch(&mut self) -> HoneyBadgerResult<FaultLog<NodeUid>> {
-        if let Some(proposer_ids) = self
-            .received_shares
-            .get(&self.epoch)
-            .map(|shares| shares.keys().cloned().collect::<BTreeSet<NodeUid>>())
-        {
-            // Try to output a batch if there is a non-empty set of proposers for which we have
-            // already received decryption shares.
-            if !proposer_ids.is_empty()
-                && proposer_ids
-                    .iter()
-                    .all(|proposer_id| self.try_decrypt_proposer_contribution(proposer_id.clone()))
-            {
-                return self.try_output_batch();
+        // Return if we don't have ciphertexts yet.
+        let proposer_ids: Vec<_> = match self.ciphertexts.get(&self.epoch) {
+            Some(cts) => cts.keys().cloned().collect(),
+            None => {
+                return Ok(FaultLog::new());
             }
+        };
+
+        // Try to output a batch if all contributions have been decrypted.
+        for proposer_id in proposer_ids {
+            self.try_decrypt_proposer_contribution(proposer_id);
         }
-        Ok(FaultLog::new())
+        self.try_output_batch()
     }
 
     /// Returns true if and only if contributions have been decrypted for all selected proposers in
     /// this epoch.
     fn all_contributions_decrypted(&mut self) -> bool {
-        let ciphertexts = self
-            .ciphertexts
-            .entry(self.epoch)
-            .or_insert_with(BTreeMap::new);
-        let all_ciphertext_proposers: BTreeSet<_> = ciphertexts.keys().collect();
-        let all_decrypted_contribution_proposers: BTreeSet<_> =
-            self.decrypted_contributions.keys().collect();
-        all_ciphertext_proposers == all_decrypted_contribution_proposers
+        match self.ciphertexts.get(&self.epoch) {
+            None => false, // No ciphertexts yet.
+            Some(ciphertexts) => ciphertexts.keys().eq(self.decrypted_contributions.keys()),
+        }
     }
 
-    /// Tries to decrypt the contribution from a given proposer. Outputs `true` if and only if
-    /// decryption finished without errors.
-    fn try_decrypt_proposer_contribution(&mut self, proposer_id: NodeUid) -> bool {
-        let shares = &self.received_shares[&self.epoch][&proposer_id];
+    /// Tries to decrypt the contribution from a given proposer.
+    fn try_decrypt_proposer_contribution(&mut self, proposer_id: NodeUid) {
+        if self.decrypted_contributions.contains_key(&proposer_id) {
+            return; // Already decrypted.
+        }
+        let shares = if let Some(shares) = self
+            .received_shares
+            .get(&self.epoch)
+            .and_then(|sh| sh.get(&proposer_id))
+        {
+            shares
+        } else {
+            return;
+        };
         if shares.len() <= self.netinfo.num_faulty() {
-            return false;
+            return;
         }
 
         if let Some(ciphertext) = self
@@ -433,17 +434,17 @@ where
                 .into_iter()
                 .map(|(id, share)| (&ids_u64[id], share))
                 .collect();
-            if let Ok(decrypted_contribution) = self
+            match self
                 .netinfo
                 .public_key_set()
                 .decrypt(indexed_shares, ciphertext)
             {
-                self.decrypted_contributions
-                    .insert(proposer_id, decrypted_contribution);
-                return true;
+                Ok(contrib) => {
+                    self.decrypted_contributions.insert(proposer_id, contrib);
+                }
+                Err(err) => error!("{:?} Decryption failed: {:?}.", self.our_id(), err),
             }
         }
-        false
     }
 
     fn send_decryption_shares(
@@ -451,6 +452,7 @@ where
         cs_output: BTreeMap<NodeUid, Vec<u8>>,
     ) -> HoneyBadgerResult<FaultLog<NodeUid>> {
         let mut fault_log = FaultLog::new();
+        let mut ciphertexts = BTreeMap::new();
         for (proposer_id, v) in cs_output {
             let mut ciphertext: Ciphertext;
             if let Ok(ct) = bincode::deserialize(&v) {
@@ -465,19 +467,19 @@ where
                 self.verify_pending_decryption_shares(&proposer_id, &ciphertext);
             self.remove_incorrect_decryption_shares(&proposer_id, incorrect_senders);
             fault_log.extend(faults);
-
-            if !self.send_decryption_share(&proposer_id, &ciphertext)? {
+            let (valid, dec_fl) = self.send_decryption_share(&proposer_id, &ciphertext)?;
+            fault_log.extend(dec_fl);
+            if valid {
+                ciphertexts.insert(proposer_id.clone(), ciphertext);
+                self.try_decrypt_proposer_contribution(proposer_id);
+            } else {
                 warn!("Share decryption failed for proposer {:?}", proposer_id);
                 let fault_kind = FaultKind::ShareDecryptionFailed;
                 fault_log.append(proposer_id.clone(), fault_kind);
-                continue;
             }
-            let ciphertexts = self
-                .ciphertexts
-                .entry(self.epoch)
-                .or_insert_with(BTreeMap::new);
-            ciphertexts.insert(proposer_id, ciphertext);
         }
+        self.ciphertexts.insert(self.epoch, ciphertexts);
+        fault_log.extend(self.try_decrypt_and_output_batch()?);
         Ok(fault_log)
     }
 
@@ -486,12 +488,12 @@ where
         &mut self,
         proposer_id: &NodeUid,
         ciphertext: &Ciphertext,
-    ) -> HoneyBadgerResult<BoolWithFaultLog<NodeUid>> {
+    ) -> HoneyBadgerResult<(bool, FaultLog<NodeUid>)> {
         if !self.netinfo.is_validator() {
-            return Ok(ciphertext.verify().into());
+            return Ok((ciphertext.verify(), FaultLog::new()));
         }
         let share = match self.netinfo.secret_key().decrypt_share(&ciphertext) {
-            None => return Ok(BoolWithFaultLog::False),
+            None => return Ok((false, FaultLog::new())),
             Some(share) => share,
         };
         // Send the share to remote nodes.
@@ -501,11 +503,12 @@ where
         };
         let message = Target::All.message(content.with_epoch(self.epoch));
         self.messages.0.push_back(message);
-        let our_id = self.netinfo.our_uid().clone();
         let epoch = self.epoch;
+        let our_id = self.netinfo.our_uid().clone();
         // Receive the share locally.
-        self.handle_decryption_share_message(&our_id, epoch, proposer_id.clone(), share)
-            .map(|fault_log| fault_log.into())
+        let fault_log =
+            self.handle_decryption_share_message(&our_id, epoch, proposer_id.clone(), share)?;
+        Ok((true, fault_log))
     }
 
     /// Verifies the shares of the current epoch that are pending verification. Returned are the
@@ -585,7 +588,7 @@ where
 }
 
 /// A batch of contributions the algorithm has output.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Batch<C, NodeUid> {
     pub epoch: u64,
     pub contributions: BTreeMap<NodeUid, C>,
@@ -677,39 +680,5 @@ impl<NodeUid: Clone + Debug + Ord + Rand> MessageQueue<NodeUid> {
             msg.map(|cs_msg| MessageContent::CommonSubset(cs_msg).with_epoch(epoch))
         };
         self.extend(cs.message_iter().map(convert));
-    }
-}
-
-// The return type for `HoneyBadger` methods that return a boolean and a
-// fault log.
-enum BoolWithFaultLog<NodeUid: Clone> {
-    True(FaultLog<NodeUid>),
-    False,
-}
-
-impl<NodeUid: Clone> Into<BoolWithFaultLog<NodeUid>> for bool {
-    fn into(self) -> BoolWithFaultLog<NodeUid> {
-        if self {
-            BoolWithFaultLog::True(FaultLog::new())
-        } else {
-            BoolWithFaultLog::False
-        }
-    }
-}
-
-impl<NodeUid: Clone> Into<BoolWithFaultLog<NodeUid>> for FaultLog<NodeUid> {
-    fn into(self) -> BoolWithFaultLog<NodeUid> {
-        BoolWithFaultLog::True(self)
-    }
-}
-
-impl<NodeUid: Clone> Not for BoolWithFaultLog<NodeUid> {
-    type Output = bool;
-
-    fn not(self) -> Self::Output {
-        match self {
-            BoolWithFaultLog::False => true,
-            _ => false,
-        }
     }
 }

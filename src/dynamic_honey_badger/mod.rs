@@ -52,7 +52,6 @@ use std::mem;
 use std::sync::Arc;
 
 use bincode;
-use clear_on_drop::ClearOnDrop;
 use serde::{Deserialize, Serialize};
 
 use self::votes::{SignedVote, VoteCounter};
@@ -73,7 +72,7 @@ mod change;
 mod error;
 mod votes;
 
-type KeyGenOutput = (PublicKeySet, Option<ClearOnDrop<Box<SecretKey>>>);
+type KeyGenOutput = (PublicKeySet, Option<SecretKey>);
 
 /// The user input for `DynamicHoneyBadger`.
 #[derive(Clone, Debug)]
@@ -140,7 +139,7 @@ where
         sender_id: &NodeUid,
         message: Self::Message,
     ) -> Result<DynamicHoneyBadgerStep<C, NodeUid>> {
-        let epoch = message.epoch();
+        let epoch = message.start_epoch();
         let fault_log = if epoch < self.start_epoch {
             // Obsolete message.
             FaultLog::new()
@@ -269,10 +268,16 @@ where
             let mut batch = Batch::new(hb_batch.epoch + self.start_epoch);
             // Add the user transactions to `batch` and handle votes and DKG messages.
             for (id, int_contrib) in hb_batch.contributions {
-                let votes = int_contrib.votes;
+                let InternalContrib {
+                    votes,
+                    key_gen_messages,
+                    contrib,
+                } = int_contrib;
                 fault_log.extend(self.vote_counter.add_committed_votes(&id, votes)?);
-                batch.contributions.insert(id, int_contrib.contrib);
-                for SignedKeyGenMsg(epoch, s_id, kg_msg, sig) in int_contrib.key_gen_messages {
+                batch.contributions.insert(id, contrib);
+                self.key_gen_msg_buffer
+                    .retain(|skgm| !key_gen_messages.contains(skgm));
+                for SignedKeyGenMsg(epoch, s_id, kg_msg, sig) in key_gen_messages {
                     if epoch < self.start_epoch {
                         info!("Obsolete key generation message: {:?}.", kg_msg);
                         continue;
@@ -293,9 +298,7 @@ where
                 // If DKG completed, apply the change.
                 debug!("{:?} DKG for {:?} complete!", self.our_id(), change);
                 // If we are a validator, we received a new secret key. Otherwise keep the old one.
-                let sk = sk.unwrap_or_else(|| {
-                    ClearOnDrop::new(Box::new(self.netinfo.secret_key().clone()))
-                });
+                let sk = sk.unwrap_or_else(|| self.netinfo.secret_key().clone());
                 // Restart Honey Badger in the next epoch, and inform the user about the change.
                 self.apply_change(&change, pub_key_set, sk, batch.epoch + 1)?;
                 batch.change = ChangeState::Complete(change);
@@ -327,7 +330,7 @@ where
         &mut self,
         change: &Change<NodeUid>,
         pub_key_set: PublicKeySet,
-        sk: ClearOnDrop<Box<SecretKey>>,
+        sk: SecretKey,
         epoch: u64,
     ) -> Result<()> {
         self.key_gen = None;
@@ -378,6 +381,7 @@ where
         self.messages
             .extend_with_epoch(self.start_epoch, &mut self.honey_badger);
         self.start_epoch = epoch;
+        self.key_gen_msg_buffer.retain(|kg_msg| kg_msg.0 >= epoch);
         let netinfo = Arc::new(self.netinfo.clone());
         let counter = VoteCounter::new(netinfo.clone(), epoch);
         mem::replace(&mut self.vote_counter, counter);
@@ -509,9 +513,17 @@ pub enum Message<NodeUid: Rand> {
 }
 
 impl<NodeUid: Rand> Message<NodeUid> {
-    pub fn epoch(&self) -> u64 {
+    fn start_epoch(&self) -> u64 {
         match *self {
             Message::HoneyBadger(epoch, _) => epoch,
+            Message::KeyGen(epoch, _, _) => epoch,
+            Message::SignedVote(ref signed_vote) => signed_vote.era(),
+        }
+    }
+
+    pub fn epoch(&self) -> u64 {
+        match *self {
+            Message::HoneyBadger(start_epoch, ref msg) => start_epoch + msg.epoch(),
             Message::KeyGen(epoch, _, _) => epoch,
             Message::SignedVote(ref signed_vote) => signed_vote.era(),
         }

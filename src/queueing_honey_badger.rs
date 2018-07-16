@@ -2,12 +2,13 @@
 //!
 //! This works exactly like Dynamic Honey Badger, but it has a transaction queue built in.
 
-use rand::Rand;
+use std::cmp;
 use std::collections::VecDeque;
 use std::fmt::Debug;
 use std::hash::Hash;
 use std::marker::PhantomData;
 
+use rand::Rand;
 use serde::{Deserialize, Serialize};
 
 use dynamic_honey_badger::{self, Batch as DhbBatch, DynamicHoneyBadger, Message};
@@ -165,9 +166,7 @@ where
             self.queue.remove_all(batch.iter());
             self.output.push_back(batch);
         }
-        if !self.dyn_hb.has_input() {
-            fault_log.extend(self.propose()?);
-        }
+        fault_log.extend(self.propose()?);
         self.step(fault_log)
     }
 
@@ -209,11 +208,19 @@ where
 
     /// Initiates the next epoch by proposing a batch from the queue.
     fn propose(&mut self) -> Result<FaultLog<NodeUid>> {
-        let amount = self.batch_size / self.dyn_hb.netinfo().num_nodes();
-        let proposal = self.queue.choose(amount, self.batch_size);
-        let step = self.dyn_hb.input(Input::User(proposal))?;
-        // FIXME: Use `step.output`.
-        Ok(step.fault_log)
+        let amount = cmp::max(1, self.batch_size / self.dyn_hb.netinfo().num_nodes());
+        // TODO: This will loop forever if we are the only validator.
+        let mut fault_log = FaultLog::new();
+        while !self.dyn_hb.has_input() {
+            let proposal = self.queue.choose(amount, self.batch_size);
+            let step = self.dyn_hb.input(Input::User(proposal))?;
+            fault_log.extend(step.fault_log);
+            for batch in step.output {
+                self.queue.remove_all(batch.iter());
+                self.output.push_back(batch);
+            }
+        }
+        Ok(fault_log)
     }
 }
 

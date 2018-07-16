@@ -50,7 +50,6 @@
 //!# extern crate rand;
 //!# fn main() {
 //!#
-//! use clear_on_drop::ClearOnDrop;
 //! use hbbft::broadcast::Broadcast;
 //! use hbbft::crypto::SecretKeySet;
 //! use hbbft::messaging::{DistAlgorithm, NetworkInfo, Target, TargetedMessage};
