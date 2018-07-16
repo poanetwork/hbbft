@@ -93,7 +93,7 @@ where
     {
         let dyn_hb = DynamicHoneyBadger::builder(self.netinfo.clone())
             .max_future_epochs(self.max_future_epochs)
-            .build();
+            .build()?;
         let queue = TransactionQueue(txs.into_iter().collect());
         let mut qhb = QueueingHoneyBadger {
             dyn_hb,

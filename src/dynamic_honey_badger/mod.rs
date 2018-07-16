@@ -45,7 +45,7 @@
 //! pending change.
 
 use rand::Rand;
-use std::collections::VecDeque;
+use std::collections::{BTreeSet, VecDeque};
 use std::fmt::Debug;
 use std::hash::Hash;
 use std::mem;
@@ -192,6 +192,22 @@ where
         DynamicHoneyBadgerBuilder::new(netinfo)
     }
 
+    /// Returns a new `DynamicHoneyBadgerBuilder` configured to start a new network as the first
+    /// node.
+    pub fn first_node_builder(our_uid: NodeUid) -> DynamicHoneyBadgerBuilder<C, NodeUid> {
+        DynamicHoneyBadgerBuilder::new_first_node(our_uid)
+    }
+
+    /// Returns a new `DynamicHoneyBadgerBuilder` configured to join the network at the epoch
+    /// specified in the `JoinPlan`.
+    pub fn joining_builder(
+        our_uid: NodeUid,
+        secret_key: SecretKey,
+        join_plan: JoinPlan<NodeUid>,
+    ) -> DynamicHoneyBadgerBuilder<C, NodeUid> {
+        DynamicHoneyBadgerBuilder::new_joining(our_uid, secret_key, join_plan)
+    }
+
     /// Returns `true` if input for the current epoch has already been provided.
     pub fn has_input(&self) -> bool {
         self.honey_badger.has_input()
@@ -301,12 +317,12 @@ where
                 let sk = sk.unwrap_or_else(|| self.netinfo.secret_key().clone());
                 // Restart Honey Badger in the next epoch, and inform the user about the change.
                 self.apply_change(&change, pub_key_set, sk, batch.epoch + 1)?;
-                batch.change = ChangeState::Complete(change);
+                batch.set_change(ChangeState::Complete(change), &self.netinfo);
             } else if let Some(change) = self.vote_counter.compute_majority().cloned() {
                 // If there is a majority, restart DKG. Inform the user about the current change.
                 self.update_key_gen(batch.epoch + 1, change)?;
                 if let Some((_, ref change)) = self.key_gen {
-                    batch.change = ChangeState::InProgress(change.clone());
+                    batch.set_change(ChangeState::InProgress(change.clone()), &self.netinfo);
                 }
             }
             self.output.push_back(batch);
@@ -548,4 +564,19 @@ where
         };
         self.extend(hb.message_iter().map(convert));
     }
+}
+
+/// The information a new node requires to join the network as an observer. It contains the state
+/// of voting and key generation after a specific epoch, so that the new node will be in sync if it
+/// joins in the next one.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct JoinPlan<NodeUid: Ord> {
+    /// The first epoch the new node will observe.
+    epoch: u64,
+    /// The current change. If `InProgress`, key generation for it is beginning at `epoch`.
+    change: ChangeState<NodeUid>,
+    /// The set of all validators' node IDs.
+    all_uids: BTreeSet<NodeUid>,
+    /// The current public key set for threshold cryptography.
+    pub_key_set: PublicKeySet,
 }
