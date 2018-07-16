@@ -1,24 +1,36 @@
 language: rust
 rust:
-    - nightly-2018-05-19
-cache: cargo
+    - stable
+cache:
+  cargo: true
+  timeout: 1200
 addons:
   apt:
     packages:
       - unzip
 before_install:
-  - rustup component add rustfmt-preview
-  - rustfmt --version
-  - cargo install clippy -f --vers=0.0.202
+  # The Rust stable toolchain is already installed, ${RUST_NEXT} is added to
+  # provide `cargo clippy` and `cargo fmt`.
+  - rustup toolchain install ${RUST_NEXT}
+  - rustup component add --toolchain=${RUST_NEXT} rustfmt-preview clippy-preview
+  # Some symlinking is still necessary for clippy to function properly.
+  - ln -s ${HOME}/.rustup/toolchains/${RUST_NEXT}-x86_64-unknown-linux-gnu/bin/clippy-driver ${HOME}/.rustup/toolchains/${RUST_NEXT}-x86_64-unknown-linux-gnu/bin/cargo-clippy $HOME/.cargo/bin/
 env:
   global:
     - RUST_BACKTRACE=1
     - RUSTFLAGS="-D warnings"
+    # Note: Currently (as of 2018-07-13), `clippy-preview` is only in the nightly
+    #       release. A version of `rustfmt` that supports the `--check` option
+    #       is also not in stable yet.
+    #
+    #       A Clear migration path is swapping out `nightly-2018-07-13` with
+    #       `beta` after the stable release of Rust 1.28; and finally migrating
+    #       everything to `stable` at Rust 1.29.
+    - RUST_NEXT=nightly-2018-07-13
 script:
-  - cargo clippy -- -D clippy
-  - cargo clippy --tests -- -D clippy
-  - cargo clippy --all-features -- -D clippy
-  - cargo clippy --all-features --tests -- -D clippy
-  - cargo fmt -- --check
-  - cargo check --tests --all-features
+  - cargo +${RUST_NEXT} clippy -- --deny clippy
+  - cargo +${RUST_NEXT} clippy --tests -- --deny clippy
+  - cargo +${RUST_NEXT} clippy --all-features -- --deny clippy
+  - cargo +${RUST_NEXT} clippy --all-features --tests -- --deny clippy
+  - cargo +${RUST_NEXT} fmt -- --check
   - cargo test --all-features --release
