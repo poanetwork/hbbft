@@ -1,3 +1,4 @@
+#![deny(unused_must_use)]
 //! Tests of the Binary Byzantine Agreement protocol. Only one proposer instance
 //! is tested. Each of the nodes in the simulated network run only one instance
 //! of Agreement. This way we only test correctness of the protocol and not

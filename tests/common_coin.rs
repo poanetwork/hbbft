@@ -1,3 +1,4 @@
+#![deny(unused_must_use)]
 //! Common Coin tests
 
 extern crate env_logger;

@@ -1,3 +1,4 @@
+#![deny(unused_must_use)]
 //! Integration tests of the Asynchronous Common Subset protocol.
 
 extern crate env_logger;

@@ -42,13 +42,13 @@ pub enum FaultKind {
 /// A structure representing the context of a faulty node. This structure
 /// describes which node is faulty (`node_id`) and which faulty behavior
 /// that the node exhibited ('kind').
-#[derive(Clone, Debug, PartialEq)]
-pub struct Fault<NodeUid: Clone> {
+#[derive(Debug, PartialEq)]
+pub struct Fault<NodeUid> {
     pub node_id: NodeUid,
     pub kind: FaultKind,
 }
 
-impl<NodeUid: Clone> Fault<NodeUid> {
+impl<NodeUid> Fault<NodeUid> {
     pub fn new(node_id: NodeUid, kind: FaultKind) -> Self {
         Fault { node_id, kind }
     }
@@ -56,17 +56,17 @@ impl<NodeUid: Clone> Fault<NodeUid> {
 
 /// Creates a new `FaultLog` where `self` is the first element in the log
 /// vector.
-impl<NodeUid: Clone> Into<FaultLog<NodeUid>> for Fault<NodeUid> {
+impl<NodeUid> Into<FaultLog<NodeUid>> for Fault<NodeUid> {
     fn into(self) -> FaultLog<NodeUid> {
         FaultLog(vec![self])
     }
 }
 
 /// A structure used to contain reports of faulty node behavior.
-#[derive(Clone, Debug, PartialEq)]
-pub struct FaultLog<NodeUid: Clone>(pub Vec<Fault<NodeUid>>);
+#[derive(Debug, PartialEq)]
+pub struct FaultLog<NodeUid>(pub Vec<Fault<NodeUid>>);
 
-impl<NodeUid: Clone> FaultLog<NodeUid> {
+impl<NodeUid> FaultLog<NodeUid> {
     /// Creates an empty `FaultLog`.
     pub fn new() -> Self {
         FaultLog::default()
@@ -98,7 +98,7 @@ impl<NodeUid: Clone> FaultLog<NodeUid> {
     }
 }
 
-impl<NodeUid: Clone> Default for FaultLog<NodeUid> {
+impl<NodeUid> Default for FaultLog<NodeUid> {
     fn default() -> Self {
         FaultLog(vec![])
     }

@@ -1,3 +1,4 @@
+#![deny(unused_must_use)]
 //! Tests for synchronous distributed key generation.
 
 extern crate env_logger;

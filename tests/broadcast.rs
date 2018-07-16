@@ -1,3 +1,4 @@
+#![deny(unused_must_use)]
 //! Integration test of the reliable broadcast protocol.
 
 extern crate hbbft;
