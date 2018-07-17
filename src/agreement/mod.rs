@@ -600,7 +600,7 @@ impl<NodeUid: Clone + Debug + Ord> Agreement<NodeUid> {
         if self.conf_round
             && self.count_conf().0 >= self.netinfo.num_nodes() - self.netinfo.num_faulty()
         {
-            // Invoke the comon coin.
+            // Invoke the common coin.
             let coin_step = self.common_coin.input(())?;
             self.extend_common_coin();
             self.on_coin_step(coin_step)

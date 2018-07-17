@@ -97,7 +97,7 @@ pub struct HoneyBadger<C, NodeUid: Rand> {
     /// The messages that need to be sent to other nodes.
     messages: MessageQueue<NodeUid>,
     /// The outputs from completed epochs.
-    pub(crate) output: Vec<Batch<C, NodeUid>>,
+    output: Vec<Batch<C, NodeUid>>,
     /// Messages for future epochs that couldn't be handled yet.
     incoming_queue: BTreeMap<u64, Vec<(NodeUid, MessageContent<NodeUid>)>>,
     /// Received decryption shares for an epoch. Each decryption share has a sender and a

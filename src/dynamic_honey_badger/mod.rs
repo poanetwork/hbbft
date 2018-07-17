@@ -265,9 +265,7 @@ where
         self.verify_signature(sender_id, &sig, &kg_msg)?;
         let tx = SignedKeyGenMsg(self.start_epoch, sender_id.clone(), kg_msg, sig);
         self.key_gen_msg_buffer.push(tx);
-        // FIXME: Remove the call to `process_output`. There wasn't any output from HB in this
-        // function.
-        self.process_output(Step::default())
+        Ok(FaultLog::default())
     }
 
     /// Processes all pending batches output by Honey Badger.
