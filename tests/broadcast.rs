@@ -19,7 +19,7 @@ use std::sync::Arc;
 
 use rand::Rng;
 
-use hbbft::broadcast::{Broadcast, BroadcastMessage};
+use hbbft::broadcast::Broadcast;
 use hbbft::crypto::SecretKeySet;
 use hbbft::messaging::{DistAlgorithm, NetworkInfo, Target, TargetedMessage};
 use network::{
@@ -56,8 +56,12 @@ impl Adversary<Broadcast<NodeUid>> for ProposeAdversary {
         self.scheduler.pick_node(nodes)
     }
 
-    fn push_message(&mut self, _: NodeUid, _: TargetedMessage<BroadcastMessage, NodeUid>) {
-        // All messages are ignored.
+    fn push_message(
+        &mut self,
+        msg: MessageWithSender<Broadcast<NodeUid>>,
+    ) -> Vec<MessageWithSender<Broadcast<NodeUid>>> {
+        // Output the message without changes.
+        vec![msg]
     }
 
     fn step(&mut self) -> Vec<MessageWithSender<Broadcast<NodeUid>>> {

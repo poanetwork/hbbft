@@ -21,7 +21,7 @@ use std::sync::Arc;
 use itertools::Itertools;
 use rand::Rng;
 
-use hbbft::honey_badger::{self, Batch, HoneyBadger, MessageContent};
+use hbbft::honey_badger::{Batch, HoneyBadger, MessageContent};
 use hbbft::messaging::{NetworkInfo, Target, TargetedMessage};
 use hbbft::transaction_queue::TransactionQueue;
 
@@ -66,21 +66,22 @@ impl Adversary<UsizeHoneyBadger> for FaultyShareAdversary {
 
     fn push_message(
         &mut self,
-        sender_id: NodeUid,
-        msg: TargetedMessage<honey_badger::Message<NodeUid>, NodeUid>,
-    ) {
-        let NodeUid(sender_id) = sender_id;
+        msg: MessageWithSender<UsizeHoneyBadger>,
+    ) -> Vec<MessageWithSender<UsizeHoneyBadger>> {
+        let NodeUid(sender_id) = msg.sender;
         if sender_id < self.num_good {
             if let TargetedMessage {
                 target: Target::All,
                 message,
-            } = msg
+            } = msg.tm.clone()
             {
                 let epoch = message.epoch();
                 // Set the trigger to simulate decryption share messages.
                 self.share_triggers.entry(epoch).or_insert(true);
             }
         }
+        // Output the message without changes.
+        vec![MessageWithSender::new(NodeUid(sender_id), msg.tm)]
     }
 
     fn step(&mut self) -> Vec<MessageWithSender<UsizeHoneyBadger>> {
@@ -137,7 +138,7 @@ where
         }
         if node.outputs().last().unwrap().is_empty() {
             let last = node.outputs().last().unwrap().epoch;
-            node.queue.retain(|(_, ref msg)| msg.epoch() < last);
+            node.queue.retain(|(_, msg)| msg.epoch() < last);
         }
         false
     };

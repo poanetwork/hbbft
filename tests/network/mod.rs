@@ -143,15 +143,20 @@ impl<D: DistAlgorithm> MessageWithSender<D> {
 /// An adversary that can control a set of nodes and pick the next good node to receive a message.
 ///
 /// See `TestNetwork::step()` for a more detailed description of its capabilities.
-pub trait Adversary<D: DistAlgorithm> {
+pub trait Adversary<D: DistAlgorithm>
+where
+    <D as DistAlgorithm>::Message: Clone,
+{
     /// Chooses a node to be the next one to handle a message.
     ///
     /// Starvation is illegal, i.e. in every iteration a node that has pending incoming messages
     /// must be chosen.
     fn pick_node(&self, nodes: &BTreeMap<D::NodeUid, TestNode<D>>) -> D::NodeUid;
 
-    /// Called when a node controlled by the adversary receives a message.
-    fn push_message(&mut self, sender_id: D::NodeUid, msg: TargetedMessage<D::Message, D::NodeUid>);
+    /// Called when a correct node emits a message. The adversary is allowed to perform an arbitrary
+    /// transformation of the message. It returns the result of the transformation in a map from
+    /// node IDs to targeted messages.
+    fn push_message(&mut self, msg: MessageWithSender<D>) -> Vec<MessageWithSender<D>>;
 
     /// Produces a list of messages to be sent from the adversary's nodes.
     fn step(&mut self) -> Vec<MessageWithSender<D>>;
@@ -179,13 +184,17 @@ impl SilentAdversary {
     }
 }
 
-impl<D: DistAlgorithm> Adversary<D> for SilentAdversary {
+impl<D: DistAlgorithm> Adversary<D> for SilentAdversary
+where
+    <D as DistAlgorithm>::Message: Clone,
+{
     fn pick_node(&self, nodes: &BTreeMap<D::NodeUid, TestNode<D>>) -> D::NodeUid {
         self.scheduler.pick_node(nodes)
     }
 
-    fn push_message(&mut self, _: D::NodeUid, _: TargetedMessage<D::Message, D::NodeUid>) {
-        // All messages are ignored.
+    fn push_message(&mut self, msg: MessageWithSender<D>) -> Vec<MessageWithSender<D>> {
+        // Output the message without changes.
+        vec![msg]
     }
 
     fn step(&mut self) -> Vec<MessageWithSender<D>> {
@@ -257,6 +266,8 @@ impl<D: DistAlgorithm, F> RandomAdversary<D, F> {
 
 impl<D: DistAlgorithm, F: Fn() -> TargetedMessage<D::Message, D::NodeUid>> Adversary<D>
     for RandomAdversary<D, F>
+where
+    <D as DistAlgorithm>::Message: Clone,
 {
     fn init(
         &mut self,
@@ -272,18 +283,18 @@ impl<D: DistAlgorithm, F: Fn() -> TargetedMessage<D::Message, D::NodeUid>> Adver
         self.scheduler.pick_node(nodes)
     }
 
-    fn push_message(&mut self, _: D::NodeUid, msg: TargetedMessage<D::Message, D::NodeUid>) {
+    fn push_message(&mut self, msg: MessageWithSender<D>) -> Vec<MessageWithSender<D>> {
         // If we have not discovered the network topology yet, abort.
         if self.known_node_ids.is_empty() {
-            return;
+            return vec![msg];
         }
 
         // only replay a message in some cases
         if !randomly(self.p_replay) {
-            return;
+            return vec![msg];
         }
 
-        let TargetedMessage { message, target } = msg;
+        let TargetedMessage { message, target } = msg.tm;
 
         match target {
             Target::All => {
@@ -292,23 +303,34 @@ impl<D: DistAlgorithm, F: Fn() -> TargetedMessage<D::Message, D::NodeUid>> Adver
                 // network topology. To re-send a broadcast message from one of the attacker
                 // controlled nodes, we would have to get a list of attacker controlled nodes
                 // here and use a random one as the origin/sender, this is not done here.
-                return;
+                vec![MessageWithSender {
+                    sender: msg.sender,
+                    tm: Target::All.message(message),
+                }]
             }
-            Target::Node(our_node_id) => {
+            Target::Node(target_id) => {
                 // Choose a new target to send the message to. The unwrap never fails, because we
                 // ensured that `known_node_ids` is non-empty earlier.
                 let mut rng = rand::thread_rng();
-                let new_target_node = rng.choose(&self.known_node_ids).unwrap().clone();
+                let new_target_id = rng.choose(&self.known_node_ids).unwrap().clone();
 
                 // TODO: We could randomly broadcast it instead, if we had access to topology
                 //       information.
                 self.outgoing.push(MessageWithSender::new(
-                    our_node_id,
+                    target_id.clone(),
                     TargetedMessage {
-                        target: Target::Node(new_target_node),
-                        message,
+                        target: Target::Node(new_target_id),
+                        message: message.clone(),
                     },
                 ));
+                // Return the original message unchanged.
+                vec![MessageWithSender::new(
+                    msg.sender,
+                    TargetedMessage {
+                        target: Target::Node(target_id),
+                        message,
+                    },
+                )]
             }
         }
     }
@@ -351,7 +373,10 @@ impl<D: DistAlgorithm, F: Fn() -> TargetedMessage<D::Message, D::NodeUid>> Adver
 /// 2. Send arbitrary messages to any node originating from one of the nodes they control.
 ///
 /// See the `step` function for details on actual operation of the network.
-pub struct TestNetwork<A: Adversary<D>, D: DistAlgorithm> {
+pub struct TestNetwork<A: Adversary<D>, D: DistAlgorithm>
+where
+    <D as DistAlgorithm>::Message: Clone,
+{
     pub nodes: BTreeMap<D::NodeUid, TestNode<D>>,
     pub observer: TestNode<D>,
     pub adv_nodes: BTreeMap<D::NodeUid, Arc<NetworkInfo<D::NodeUid>>>,
@@ -439,28 +464,39 @@ where
         Q: IntoIterator<Item = TargetedMessage<D::Message, NodeUid>> + Debug,
     {
         for msg in msgs {
-            match msg.target {
-                Target::All => {
-                    for node in self.nodes.values_mut() {
-                        if node.id != sender_id {
-                            node.queue.push_back((sender_id, msg.message.clone()))
+            // Transform the queued message by means of the adversary.
+            let adv_msgs = self.adversary.push_message(MessageWithSender {
+                sender: sender_id,
+                tm: msg.clone(),
+            });
+            // Dispatch the result of the transformation.
+            for adv_msg in adv_msgs {
+                match adv_msg.tm.target {
+                    Target::All => {
+                        for node in self.nodes.values_mut() {
+                            if node.id != adv_msg.sender {
+                                node.queue
+                                    .push_back((adv_msg.sender, adv_msg.tm.message.clone()));
+                            }
                         }
+                        self.observer
+                            .queue
+                            .push_back((adv_msg.sender, adv_msg.tm.message));
                     }
-                    self.observer
-                        .queue
-                        .push_back((sender_id, msg.message.clone()));
-                    self.adversary.push_message(sender_id, msg);
-                }
-                Target::Node(to_id) => {
-                    if self.adv_nodes.contains_key(&to_id) {
-                        self.adversary.push_message(sender_id, msg);
-                    } else if let Some(node) = self.nodes.get_mut(&to_id) {
-                        node.queue.push_back((sender_id, msg.message));
-                    } else {
-                        warn!(
-                            "Unknown recipient {:?} for message: {:?}",
-                            to_id, msg.message
-                        );
+                    Target::Node(to_id) => {
+                        if self.adv_nodes.contains_key(&to_id) {
+                            self.adversary.push_message(MessageWithSender {
+                                sender: sender_id,
+                                tm: msg.clone(),
+                            });
+                        } else if let Some(node) = self.nodes.get_mut(&to_id) {
+                            node.queue.push_back((sender_id, msg.message.clone()));
+                        } else {
+                            warn!(
+                                "Unknown recipient {:?} for message: {:?}",
+                                to_id, msg.message
+                            );
+                        }
                     }
                 }
             }
