@@ -72,8 +72,8 @@ impl Adversary<UsizeHoneyBadger> for FaultyShareAdversary {
         if sender_id < self.num_good {
             if let TargetedMessage {
                 target: Target::All,
-                message,
-            } = msg.tm.clone()
+                ref message,
+            } = msg.tm
             {
                 let epoch = message.epoch();
                 // Set the trigger to simulate decryption share messages.
