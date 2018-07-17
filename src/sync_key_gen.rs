@@ -43,7 +43,7 @@ use rand::OsRng;
 
 use crypto::poly::{BivarCommitment, BivarPoly, Poly};
 use crypto::serde_impl::field_vec::FieldWrap;
-use crypto::{Ciphertext, PublicKey, PublicKeySet, SecretKey};
+use crypto::{Ciphertext, PublicKey, PublicKeySet, SecretKey, SecretKeyShare};
 use fault_log::{FaultKind, FaultLog};
 
 // TODO: No need to send our own row and value to ourselves.
@@ -237,7 +237,7 @@ impl<NodeUid: Ord + Clone + Debug> SyncKeyGen<NodeUid> {
     ///
     /// These are only secure if `is_ready` returned `true`. Otherwise it is not guaranteed that
     /// none of the nodes knows the secret master key.
-    pub fn generate(&self) -> (PublicKeySet, Option<SecretKey>) {
+    pub fn generate(&self) -> (PublicKeySet, Option<SecretKeyShare>) {
         let mut pk_commit = Poly::zero().commitment();
         let mut opt_sk_val = self.our_idx.map(|_| Fr::zero());
         let is_complete = |proposal: &&ProposalState| proposal.is_complete(self.threshold);
@@ -248,7 +248,7 @@ impl<NodeUid: Ord + Clone + Debug> SyncKeyGen<NodeUid> {
                 sk_val.add_assign(&row.evaluate(0));
             }
         }
-        let opt_sk = opt_sk_val.map(SecretKey::from_value);
+        let opt_sk = opt_sk_val.map(SecretKeyShare::from_value);
         (pk_commit.into(), opt_sk)
     }
 

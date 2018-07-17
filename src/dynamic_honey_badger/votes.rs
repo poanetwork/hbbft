@@ -149,7 +149,7 @@ where
     /// Returns `true` if the signature is valid.
     fn validate(&self, signed_vote: &SignedVote<NodeUid>) -> Result<bool> {
         let ser_vote = bincode::serialize(&signed_vote.vote)?;
-        let pk_opt = self.netinfo.public_key_share(&signed_vote.voter);
+        let pk_opt = self.netinfo.public_key(&signed_vote.voter);
         Ok(pk_opt.map_or(false, |pk| pk.verify(&signed_vote.sig, ser_vote)))
     }
 }
@@ -181,13 +181,9 @@ impl<NodeUid> SignedVote<NodeUid> {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeSet;
     use std::sync::Arc;
 
-    use rand;
-
     use super::{Change, SignedVote, VoteCounter};
-    use crypto::SecretKeySet;
     use fault_log::{FaultKind, FaultLog};
     use messaging::NetworkInfo;
 
@@ -197,16 +193,15 @@ mod tests {
     /// the vote for `Remove(j)` by node `i`. Each node signed `Remove(0)`, `Remove(1)`, ... in
     /// order.
     fn setup(node_num: usize, era: u64) -> (Vec<VoteCounter<usize>>, Vec<Vec<SignedVote<usize>>>) {
-        let mut rng = rand::thread_rng();
-        let sk_set = SecretKeySet::random(3, &mut rng);
-        let ids: BTreeSet<usize> = (0..node_num).collect();
-        let pk_set = sk_set.public_keys();
-        let create_counter = |id: usize| {
-            let sk = sk_set.secret_key_share(id as u64);
-            let netinfo = NetworkInfo::new(id, ids.clone(), sk, pk_set.clone());
-            VoteCounter::new(Arc::new(netinfo), era)
-        };
-        let mut counters: Vec<_> = (0..node_num).map(create_counter).collect();
+        // Create keys for threshold cryptography.
+        let netinfos = NetworkInfo::generate_map(0..node_num);
+
+        // Create a `VoteCounter` instance for each node.
+        let create_counter =
+            |(_, netinfo): (_, NetworkInfo<_>)| VoteCounter::new(Arc::new(netinfo), era);
+        let mut counters: Vec<_> = netinfos.into_iter().map(create_counter).collect();
+
+        // Sign a few votes.
         let sign_votes = |counter: &mut VoteCounter<usize>| {
             (0..node_num)
                 .map(Change::Remove)

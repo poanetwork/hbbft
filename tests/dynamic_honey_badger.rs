@@ -97,7 +97,11 @@ where
         network.step();
         // Once all nodes have processed the removal of node 0, add it again.
         if !input_add && network.nodes.values().all(has_remove) {
-            let pk = network.pk_set.public_key_share(0);
+            let pk = network.nodes[&NodeUid(0)]
+                .instance()
+                .netinfo()
+                .secret_key()
+                .public_key();
             network.input_all(Input::Change(Change::Add(NodeUid(0), pk)));
             input_add = true;
         }

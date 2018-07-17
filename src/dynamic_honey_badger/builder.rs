@@ -5,11 +5,11 @@ use std::iter::once;
 use std::marker::PhantomData;
 use std::sync::Arc;
 
-use rand::{self, Rand};
+use rand::{self, Rand, Rng};
 use serde::{Deserialize, Serialize};
 
 use super::{ChangeState, DynamicHoneyBadger, JoinPlan, MessageQueue, Result, VoteCounter};
-use crypto::{SecretKey, SecretKeySet};
+use crypto::{SecretKey, SecretKeySet, SecretKeyShare};
 use honey_badger::HoneyBadger;
 use messaging::NetworkInfo;
 
@@ -51,8 +51,10 @@ where
         let mut rng = rand::thread_rng();
         let sk_set = SecretKeySet::random(0, &mut rng);
         let pk_set = sk_set.public_keys();
-        let sk = sk_set.secret_key_share(0);
-        let netinfo = NetworkInfo::new(our_uid.clone(), once(our_uid).collect(), sk, pk_set);
+        let sks = sk_set.secret_key_share(0);
+        let sk: SecretKey = rng.gen();
+        let pub_keys = once((our_uid.clone(), sk.public_key())).collect();
+        let netinfo = NetworkInfo::new(our_uid, sks, pk_set, sk, pub_keys);
         DynamicHoneyBadgerBuilder::new(netinfo)
     }
 
@@ -65,9 +67,10 @@ where
     ) -> Self {
         let netinfo = NetworkInfo::new(
             our_uid,
-            join_plan.all_uids,
-            secret_key,
+            SecretKeyShare::default(), // TODO: Should be an option?
             join_plan.pub_key_set,
+            secret_key,
+            join_plan.pub_keys,
         );
         DynamicHoneyBadgerBuilder {
             netinfo,

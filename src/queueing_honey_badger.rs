@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 
 use dynamic_honey_badger::{self, Batch as DhbBatch, DynamicHoneyBadger, Message};
 use fault_log::FaultLog;
-use messaging::{DistAlgorithm, NetworkInfo, Step, TargetedMessage};
+use messaging::{DistAlgorithm, Step, TargetedMessage};
 use transaction_queue::TransactionQueue;
 
 pub use dynamic_honey_badger::{Change, ChangeState, Input};
@@ -26,15 +26,11 @@ error_chain!{
 
 /// A Queueing Honey Badger builder, to configure the parameters and create new instances of
 /// `QueueingHoneyBadger`.
-pub struct QueueingHoneyBadgerBuilder<Tx, NodeUid> {
+pub struct QueueingHoneyBadgerBuilder<Tx, NodeUid: Rand> {
     /// Shared network data.
-    netinfo: NetworkInfo<NodeUid>,
+    dyn_hb: DynamicHoneyBadger<Vec<Tx>, NodeUid>,
     /// The target number of transactions to be included in each batch.
     batch_size: usize,
-    /// The epoch at which to join the network.
-    start_epoch: u64,
-    /// The maximum number of future epochs for which we handle messages simultaneously.
-    max_future_epochs: usize,
     _phantom: PhantomData<Tx>,
 }
 
@@ -45,38 +41,23 @@ where
 {
     /// Returns a new `QueueingHoneyBadgerBuilder` configured to use the node IDs and cryptographic
     /// keys specified by `netinfo`.
-    pub fn new(netinfo: NetworkInfo<NodeUid>) -> Self {
+    pub fn new(dyn_hb: DynamicHoneyBadger<Vec<Tx>, NodeUid>) -> Self {
         // TODO: Use the defaults from `HoneyBadgerBuilder`.
         QueueingHoneyBadgerBuilder {
-            netinfo,
+            dyn_hb,
             batch_size: 100,
-            start_epoch: 0,
-            max_future_epochs: 3,
             _phantom: PhantomData,
         }
     }
 
     /// Sets the target number of transactions per batch.
-    pub fn batch_size(&mut self, batch_size: usize) -> &mut Self {
+    pub fn batch_size(mut self, batch_size: usize) -> Self {
         self.batch_size = batch_size;
         self
     }
 
-    /// Sets the maximum number of future epochs for which we handle messages simultaneously.
-    pub fn max_future_epochs(&mut self, max_future_epochs: usize) -> &mut Self {
-        self.max_future_epochs = max_future_epochs;
-        self
-    }
-
-    /// Sets the epoch at which to join the network as an observer. This requires the node to
-    /// receive all broadcast messages for `start_epoch` and later.
-    pub fn start_epoch(&mut self, start_epoch: u64) -> &mut Self {
-        self.start_epoch = start_epoch;
-        self
-    }
-
     /// Creates a new Queueing Honey Badger instance with an empty buffer.
-    pub fn build(&self) -> QueueingHoneyBadger<Tx, NodeUid>
+    pub fn build(self) -> QueueingHoneyBadger<Tx, NodeUid>
     where
         Tx: Serialize + for<'r> Deserialize<'r> + Debug + Hash + Eq,
     {
@@ -86,17 +67,14 @@ where
 
     /// Returns a new Queueing Honey Badger instance that starts with the given transactions in its
     /// buffer.
-    pub fn build_with_transactions<TI>(&self, txs: TI) -> Result<QueueingHoneyBadger<Tx, NodeUid>>
+    pub fn build_with_transactions<TI>(self, txs: TI) -> Result<QueueingHoneyBadger<Tx, NodeUid>>
     where
         TI: IntoIterator<Item = Tx>,
         Tx: Serialize + for<'r> Deserialize<'r> + Debug + Hash + Eq,
     {
-        let dyn_hb = DynamicHoneyBadger::builder(self.netinfo.clone())
-            .max_future_epochs(self.max_future_epochs)
-            .build()?;
         let queue = TransactionQueue(txs.into_iter().collect());
         let mut qhb = QueueingHoneyBadger {
-            dyn_hb,
+            dyn_hb: self.dyn_hb,
             queue,
             batch_size: self.batch_size,
             output: VecDeque::new(),
@@ -190,8 +168,10 @@ where
 {
     /// Returns a new `QueueingHoneyBadgerBuilder` configured to use the node IDs and cryptographic
     /// keys specified by `netinfo`.
-    pub fn builder(netinfo: NetworkInfo<NodeUid>) -> QueueingHoneyBadgerBuilder<Tx, NodeUid> {
-        QueueingHoneyBadgerBuilder::new(netinfo)
+    pub fn builder(
+        dyn_hb: DynamicHoneyBadger<Vec<Tx>, NodeUid>,
+    ) -> QueueingHoneyBadgerBuilder<Tx, NodeUid> {
+        QueueingHoneyBadgerBuilder::new(dyn_hb)
     }
 
     fn step(

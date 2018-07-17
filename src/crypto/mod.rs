@@ -28,7 +28,7 @@ const CHACHA_RNG_SEED_SIZE: usize = 8;
 
 const ERR_OS_RNG: &str = "could not initialize the OS random number generator";
 
-/// A public key, or a public key share.
+/// A public key.
 #[derive(Deserialize, Serialize, Copy, Clone, PartialEq, Eq)]
 pub struct PublicKey(#[serde(with = "serde_impl::projective")] G1);
 
@@ -57,13 +57,6 @@ impl PublicKey {
         self.verify_g2(sig, hash_g2(msg))
     }
 
-    /// Returns `true` if the decryption share matches the ciphertext.
-    pub fn verify_decryption_share(&self, share: &DecryptionShare, ct: &Ciphertext) -> bool {
-        let Ciphertext(ref u, ref v, ref w) = *ct;
-        let hash = hash_g1_g2(*u, v);
-        Bls12::pairing(share.0, hash) == Bls12::pairing(self.0, *w)
-    }
-
     /// Encrypts the message.
     pub fn encrypt<M: AsRef<[u8]>>(&self, msg: M) -> Ciphertext {
         let r: Fr = OsRng::new().expect(ERR_OS_RNG).gen();
@@ -82,8 +75,44 @@ impl PublicKey {
     }
 }
 
-/// A signature, or a signature share.
-// note: random signatures can be generated for testing
+/// A public key share.
+#[derive(Deserialize, Serialize, Clone, PartialEq, Eq, Hash)]
+pub struct PublicKeyShare(PublicKey);
+
+impl fmt::Debug for PublicKeyShare {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let uncomp = (self.0).0.into_affine().into_uncompressed();
+        let bytes = uncomp.as_ref();
+        write!(f, "PublicKeyShare({:?})", HexBytes(bytes))
+    }
+}
+
+impl PublicKeyShare {
+    /// Returns `true` if the signature matches the element of `G2`.
+    pub fn verify_g2<H: Into<G2Affine>>(&self, sig: &SignatureShare, hash: H) -> bool {
+        self.0.verify_g2(&sig.0, hash)
+    }
+
+    /// Returns `true` if the signature matches the message.
+    pub fn verify<M: AsRef<[u8]>>(&self, sig: &SignatureShare, msg: M) -> bool {
+        self.verify_g2(sig, hash_g2(msg))
+    }
+
+    /// Returns `true` if the decryption share matches the ciphertext.
+    pub fn verify_decryption_share(&self, share: &DecryptionShare, ct: &Ciphertext) -> bool {
+        let Ciphertext(ref u, ref v, ref w) = *ct;
+        let hash = hash_g1_g2(*u, v);
+        Bls12::pairing(share.0, hash) == Bls12::pairing((self.0).0, *w)
+    }
+
+    /// Returns a byte string representation of the public key share.
+    pub fn to_bytes(&self) -> Vec<u8> {
+        self.0.to_bytes()
+    }
+}
+
+/// A signature.
+// Note: Random signatures can be generated for testing.
 #[derive(Deserialize, Serialize, Clone, PartialEq, Eq, Rand)]
 pub struct Signature(#[serde(with = "serde_impl::projective")] G2);
 
@@ -112,7 +141,20 @@ impl Signature {
     }
 }
 
-/// A secret key, or a secret key share.
+/// A signature share.
+// Note: Random signature shares can be generated for testing.
+#[derive(Deserialize, Serialize, Clone, PartialEq, Eq, Rand, Hash)]
+pub struct SignatureShare(pub(crate) Signature);
+
+impl fmt::Debug for SignatureShare {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let uncomp = (self.0).0.into_affine().into_uncompressed();
+        let bytes = uncomp.as_ref();
+        write!(f, "SignatureShare({:?})", HexBytes(bytes))
+    }
+}
+
+/// A secret key.
 #[derive(Clone, PartialEq, Eq, Rand)]
 pub struct SecretKey(Fr);
 
@@ -169,13 +211,47 @@ impl SecretKey {
         let g = u.into_affine().mul(self.0);
         Some(xor_vec(&hash_bytes(g, v.len()), v))
     }
+}
+
+/// A secret key share.
+#[derive(Clone, PartialEq, Eq, Rand, Default)]
+pub struct SecretKeyShare(SecretKey);
+
+impl fmt::Debug for SecretKeyShare {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let uncomp = self.0.public_key().0.into_affine().into_uncompressed();
+        let bytes = uncomp.as_ref();
+        write!(f, "SecretKeyShare({:?})", HexBytes(bytes))
+    }
+}
+
+impl SecretKeyShare {
+    /// Creates a secret key share from an existing value
+    pub fn from_value(f: Fr) -> Self {
+        SecretKeyShare(SecretKey::from_value(f))
+    }
+
+    /// Returns the matching public key share.
+    pub fn public_key_share(&self) -> PublicKeyShare {
+        PublicKeyShare(self.0.public_key())
+    }
+
+    /// Signs the given element of `G2`.
+    pub fn sign_g2<H: Into<G2Affine>>(&self, hash: H) -> SignatureShare {
+        SignatureShare(self.0.sign_g2(hash))
+    }
+
+    /// Signs the given message.
+    pub fn sign<M: AsRef<[u8]>>(&self, msg: M) -> SignatureShare {
+        SignatureShare(self.0.sign(msg))
+    }
 
     /// Returns a decryption share, or `None`, if the ciphertext isn't valid.
     pub fn decrypt_share(&self, ct: &Ciphertext) -> Option<DecryptionShare> {
         if !ct.verify() {
             return None;
         }
-        Some(DecryptionShare(ct.0.into_affine().mul(self.0)))
+        Some(DecryptionShare(ct.0.into_affine().mul((self.0).0)))
     }
 }
 
@@ -249,17 +325,18 @@ impl PublicKeySet {
     }
 
     /// Returns the `i`-th public key share.
-    pub fn public_key_share<T: Into<FrRepr>>(&self, i: T) -> PublicKey {
-        PublicKey(self.commit.evaluate(from_repr_plus_1::<Fr>(i.into())))
+    pub fn public_key_share<T: Into<FrRepr>>(&self, i: T) -> PublicKeyShare {
+        let value = self.commit.evaluate(from_repr_plus_1::<Fr>(i.into()));
+        PublicKeyShare(PublicKey(value))
     }
 
     /// Combines the shares into a signature that can be verified with the main public key.
     pub fn combine_signatures<'a, ITR, IND>(&self, shares: ITR) -> Result<Signature>
     where
-        ITR: IntoIterator<Item = (&'a IND, &'a Signature)>,
+        ITR: IntoIterator<Item = (&'a IND, &'a SignatureShare)>,
         IND: Into<FrRepr> + Clone + 'a,
     {
-        let samples = shares.into_iter().map(|(i, share)| (i, &share.0));
+        let samples = shares.into_iter().map(|(i, share)| (i, &(share.0).0));
         Ok(Signature(interpolate(self.commit.degree() + 1, samples)?))
     }
 
@@ -304,8 +381,9 @@ impl SecretKeySet {
     }
 
     /// Returns the `i`-th secret key share.
-    pub fn secret_key_share<T: Into<FrRepr>>(&self, i: T) -> SecretKey {
-        SecretKey(self.poly.evaluate(from_repr_plus_1::<Fr>(i.into())))
+    pub fn secret_key_share<T: Into<FrRepr>>(&self, i: T) -> SecretKeyShare {
+        let value = self.poly.evaluate(from_repr_plus_1::<Fr>(i.into()));
+        SecretKeyShare(SecretKey(value))
     }
 
     /// Returns the corresponding public key set. That information can be shared publicly.
@@ -430,14 +508,14 @@ mod tests {
         let pk_set = sk_set.public_keys();
 
         // Make sure the keys are different, and the first coefficient is the main key.
-        assert_ne!(pk_set.public_key(), pk_set.public_key_share(0));
-        assert_ne!(pk_set.public_key(), pk_set.public_key_share(1));
-        assert_ne!(pk_set.public_key(), pk_set.public_key_share(2));
+        assert_ne!(pk_set.public_key(), pk_set.public_key_share(0).0);
+        assert_ne!(pk_set.public_key(), pk_set.public_key_share(1).0);
+        assert_ne!(pk_set.public_key(), pk_set.public_key_share(2).0);
 
         // Make sure we don't hand out the main secret key to anyone.
-        assert_ne!(sk_set.secret_key(), sk_set.secret_key_share(0));
-        assert_ne!(sk_set.secret_key(), sk_set.secret_key_share(1));
-        assert_ne!(sk_set.secret_key(), sk_set.secret_key_share(2));
+        assert_ne!(sk_set.secret_key(), sk_set.secret_key_share(0).0);
+        assert_ne!(sk_set.secret_key(), sk_set.secret_key_share(1).0);
+        assert_ne!(sk_set.secret_key(), sk_set.secret_key_share(2).0);
 
         let msg = "Totally real news";
 

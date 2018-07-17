@@ -133,7 +133,7 @@ where
         sender_id: &NodeUid,
         message: Self::Message,
     ) -> HoneyBadgerResult<HoneyBadgerStep<C, NodeUid>> {
-        if !self.netinfo.all_uids().contains(sender_id) {
+        if !self.netinfo.is_node_validator(sender_id) {
             return Err(ErrorKind::UnknownSender.into());
         }
         let Message { epoch, content } = message;
@@ -428,7 +428,7 @@ where
         {
             let ids_u64: BTreeMap<&NodeUid, u64> = shares
                 .keys()
-                .map(|id| (id, *self.netinfo.node_index(id).unwrap() as u64))
+                .map(|id| (id, self.netinfo.node_index(id).unwrap() as u64))
                 .collect();
             let indexed_shares: BTreeMap<&u64, _> = shares
                 .into_iter()
@@ -492,7 +492,7 @@ where
         if !self.netinfo.is_validator() {
             return Ok((ciphertext.verify(), FaultLog::new()));
         }
-        let share = match self.netinfo.secret_key().decrypt_share(&ciphertext) {
+        let share = match self.netinfo.secret_key_share().decrypt_share(&ciphertext) {
             None => return Ok((false, FaultLog::new())),
             Some(share) => share,
         };

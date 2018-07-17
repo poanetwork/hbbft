@@ -26,7 +26,7 @@ use std::fmt::Debug;
 use std::sync::Arc;
 
 use crypto::error as cerror;
-use crypto::Signature;
+use crypto::{Signature, SignatureShare};
 use fault_log::{FaultKind, FaultLog};
 use messaging::{DistAlgorithm, NetworkInfo, Step, Target, TargetedMessage};
 
@@ -46,14 +46,14 @@ error_chain! {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Rand)]
-pub struct CommonCoinMessage(Signature);
+pub struct CommonCoinMessage(SignatureShare);
 
 impl CommonCoinMessage {
-    pub fn new(sig: Signature) -> Self {
+    pub fn new(sig: SignatureShare) -> Self {
         CommonCoinMessage(sig)
     }
 
-    pub fn to_sig(&self) -> &Signature {
+    pub fn to_sig(&self) -> &SignatureShare {
         &self.0
     }
 }
@@ -71,7 +71,7 @@ pub struct CommonCoin<NodeUid, T> {
     /// Outgoing message queue.
     messages: VecDeque<CommonCoinMessage>,
     /// All received threshold signature shares.
-    received_shares: BTreeMap<NodeUid, Signature>,
+    received_shares: BTreeMap<NodeUid, SignatureShare>,
     /// Whether we provided input to the common coin.
     had_input: bool,
     /// Termination flag.
@@ -163,13 +163,17 @@ where
             self.try_output()?;
             return Ok(FaultLog::new());
         }
-        let share = self.netinfo.secret_key().sign(&self.nonce);
+        let share = self.netinfo.secret_key_share().sign(&self.nonce);
         self.messages.push_back(CommonCoinMessage(share.clone()));
         let id = self.netinfo.our_uid().clone();
         self.handle_share(&id, share)
     }
 
-    fn handle_share(&mut self, sender_id: &NodeUid, share: Signature) -> Result<FaultLog<NodeUid>> {
+    fn handle_share(
+        &mut self,
+        sender_id: &NodeUid,
+        share: SignatureShare,
+    ) -> Result<FaultLog<NodeUid>> {
         if let Some(pk_i) = self.netinfo.public_key_share(sender_id) {
             if !pk_i.verify(&share, &self.nonce) {
                 // Log the faulty node and ignore the invalid share.
@@ -206,13 +210,13 @@ where
 
     fn combine_and_verify_sig(&self) -> Result<Signature> {
         // Pass the indices of sender nodes to `combine_signatures`.
-        let ids_shares: BTreeMap<&NodeUid, &Signature> = self.received_shares.iter().collect();
+        let ids_shares: BTreeMap<&NodeUid, &SignatureShare> = self.received_shares.iter().collect();
         let ids_u64: BTreeMap<&NodeUid, u64> = ids_shares
             .keys()
-            .map(|&id| (id, *self.netinfo.node_index(id).unwrap() as u64))
+            .map(|&id| (id, self.netinfo.node_index(id).unwrap() as u64))
             .collect();
         // Convert indices to `u64` which is an interface type for `pairing`.
-        let shares: BTreeMap<&u64, &Signature> = ids_shares
+        let shares: BTreeMap<&u64, &SignatureShare> = ids_shares
             .iter()
             .map(|(id, &share)| (&ids_u64[id], share))
             .collect();

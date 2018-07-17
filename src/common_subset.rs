@@ -159,10 +159,10 @@ impl<NodeUid: Clone + Debug + Ord + Rand> CommonSubset<NodeUid> {
 
         // Create all agreement instances.
         let mut agreement_instances: BTreeMap<NodeUid, Agreement<NodeUid>> = BTreeMap::new();
-        for proposer_id in netinfo.all_uids().iter().cloned() {
+        for proposer_id in netinfo.all_uids() {
             agreement_instances.insert(
                 proposer_id.clone(),
-                Agreement::new(netinfo.clone(), session_id, proposer_id)?,
+                Agreement::new(netinfo.clone(), session_id, proposer_id.clone())?,
             );
         }
 
