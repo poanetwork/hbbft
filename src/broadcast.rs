@@ -228,7 +228,7 @@ pub struct Broadcast<NodeUid> {
     output: Option<Vec<u8>>,
 }
 
-pub type BroadcastStep<N> = Step<N, Vec<u8>, BroadcastMessage>;
+pub type BroadcastStep<NodeUid> = Step<NodeUid, Vec<u8>, BroadcastMessage>;
 
 impl<NodeUid: Debug + Clone + Ord> DistAlgorithm for Broadcast<NodeUid> {
     type NodeUid = NodeUid;

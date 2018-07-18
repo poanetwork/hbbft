@@ -208,7 +208,7 @@ pub struct Agreement<NodeUid> {
     coin_schedule: CoinSchedule,
 }
 
-pub type AgreementStep<N> = Step<N, bool, AgreementMessage>;
+pub type AgreementStep<NodeUid> = Step<NodeUid, bool, AgreementMessage>;
 
 impl<NodeUid: Clone + Debug + Ord> DistAlgorithm for Agreement<NodeUid> {
     type NodeUid = NodeUid;

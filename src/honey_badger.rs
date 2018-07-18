@@ -119,7 +119,7 @@ pub struct HoneyBadger<C, NodeUid: Rand> {
     /// The maximum number of `CommonSubset` instances that we run simultaneously.
     max_future_epochs: u64,
     /// The messages that need to be sent to other nodes.
-    pub(crate) messages: MessageQueue<NodeUid>,
+    messages: MessageQueue<NodeUid>,
     /// The outputs from completed epochs.
     output: Vec<Batch<C, NodeUid>>,
     /// Messages for future epochs that couldn't be handled yet.
@@ -696,9 +696,7 @@ impl<NodeUid: Rand> Message<NodeUid> {
 
 /// The queue of outgoing messages in a `HoneyBadger` instance.
 #[derive(Deref, DerefMut)]
-pub(crate) struct MessageQueue<NodeUid: Rand>(
-    pub(crate) VecDeque<TargetedMessage<Message<NodeUid>, NodeUid>>,
-);
+struct MessageQueue<NodeUid: Rand>(VecDeque<TargetedMessage<Message<NodeUid>, NodeUid>>);
 
 impl<NodeUid: Clone + Debug + Ord + Rand> MessageQueue<NodeUid> {
     /// Appends to the queue the messages from `cs`, wrapped with `epoch`.

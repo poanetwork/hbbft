@@ -137,6 +137,12 @@ pub struct TestNode<D: DistAlgorithm> {
     hw_quality: HwQuality,
 }
 
+type TestNodeStep<D> = Step<
+    <D as DistAlgorithm>::NodeUid,
+    <D as DistAlgorithm>::Output,
+    <D as DistAlgorithm>::Message,
+>;
+
 impl<D: DistAlgorithm> TestNode<D>
 where
     D::Message: Serialize + DeserializeOwned,
@@ -176,14 +182,7 @@ where
     }
 
     /// Handles the algorithm's output and messages.
-    fn send_output_and_msgs(
-        &mut self,
-        step: Step<
-            <D as DistAlgorithm>::NodeUid,
-            <D as DistAlgorithm>::Output,
-            <D as DistAlgorithm>::Message,
-        >,
-    ) {
+    fn send_output_and_msgs(&mut self, step: TestNodeStep<D>) {
         let start = Instant::now();
         let out_msgs: Vec<_> = step
             .messages

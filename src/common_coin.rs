@@ -78,7 +78,7 @@ pub struct CommonCoin<NodeUid, T> {
     terminated: bool,
 }
 
-pub type CommonCoinStep<N> = Step<N, bool, CommonCoinMessage>;
+pub type CommonCoinStep<NodeUid> = Step<NodeUid, bool, CommonCoinMessage>;
 
 impl<NodeUid, T> DistAlgorithm for CommonCoin<NodeUid, T>
 where

@@ -276,7 +276,7 @@ where
     /// Processes all pending batches output by Honey Badger.
     fn process_output(
         &mut self,
-        mut step: HoneyBadgerStep<InternalContrib<C, NodeUid>, NodeUid>,
+        step: HoneyBadgerStep<InternalContrib<C, NodeUid>, NodeUid>,
     ) -> Result<FaultLog<NodeUid>> {
         let mut fault_log = FaultLog::new();
         fault_log.extend(step.fault_log);
@@ -329,7 +329,7 @@ where
             self.output.push_back(batch);
         }
         self.messages
-            .extend_with_epoch(self.start_epoch, &mut step.messages);
+            .extend_with_epoch(self.start_epoch, step.messages);
         // If `start_epoch` changed, we can now handle some queued messages.
         if start_epoch < self.start_epoch {
             let queue = mem::replace(&mut self.incoming_queue, Vec::new());
@@ -373,9 +373,6 @@ where
 
     /// Starts a new `HoneyBadger` instance and resets the vote counter.
     fn restart_honey_badger(&mut self, epoch: u64) {
-        // TODO: Filter out the messages for `epoch` and later.
-        self.messages
-            .extend_with_epoch(self.start_epoch, &mut self.honey_badger.messages.0);
         self.start_epoch = epoch;
         self.key_gen_msg_buffer.retain(|kg_msg| kg_msg.0 >= epoch);
         let netinfo = Arc::new(self.netinfo.clone());
@@ -532,7 +529,7 @@ where
     fn extend_with_epoch(
         &mut self,
         epoch: u64,
-        msgs: &mut VecDeque<TargetedMessage<HbMessage<NodeUid>, NodeUid>>,
+        mut msgs: VecDeque<TargetedMessage<HbMessage<NodeUid>, NodeUid>>,
     ) {
         let convert = |msg: TargetedMessage<HbMessage<NodeUid>, NodeUid>| {
             msg.map(|hb_msg| Message::HoneyBadger(epoch, hb_msg))
