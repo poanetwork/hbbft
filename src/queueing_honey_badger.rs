@@ -178,6 +178,11 @@ where
     }
 }
 
+type ProposeResult<NodeUid> = Result<(
+    FaultLog<NodeUid>,
+    VecDeque<TargetedMessage<Message<NodeUid>, NodeUid>>,
+)>;
+
 impl<Tx, NodeUid> QueueingHoneyBadger<Tx, NodeUid>
 where
     Tx: Eq + Serialize + for<'r> Deserialize<'r> + Debug + Hash + Clone,
@@ -210,12 +215,7 @@ where
     }
 
     /// Initiates the next epoch by proposing a batch from the queue.
-    fn propose(
-        &mut self,
-    ) -> Result<(
-        FaultLog<NodeUid>,
-        VecDeque<TargetedMessage<Message<NodeUid>, NodeUid>>,
-    )> {
+    fn propose(&mut self) -> ProposeResult<NodeUid> {
         let amount = cmp::max(1, self.batch_size / self.dyn_hb.netinfo().num_nodes());
         // TODO: This will loop forever if we are the only validator.
         let mut fault_log = FaultLog::new();
