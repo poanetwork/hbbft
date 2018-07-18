@@ -17,7 +17,7 @@
 //!
 //! The random choice of transactions is made to reduce redundancy even if all validators have
 //! roughly the same entries in their queues. By selecting a random fraction of the first _B_
-//! entries, any two of them will likely make almost disjoint contributions instead of proposing
+//! entries, any two nodes will likely make almost disjoint contributions instead of proposing
 //! the same transaction multiple times.
 
 use std::cmp;

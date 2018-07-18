@@ -8,26 +8,36 @@
 //! batch for each epoch. Each validator proposes one contribution per epoch, and every batch will
 //! contain the contributions of at least _N - f_ validators.
 //!
-//! Unlike Honey Badger, this algorithm allows dynamically adding new validators from the pool of
-//! observer nodes, and turning validators back into observers. As a signal to initiate that
-//! process, it defines a special `Change` input variant, which contains either a vote
-//! `Add(node_id, public_key)`, to add a new validator, or `Remove(node_id)` to remove it. Each
+//! Unlike Honey Badger, this algorithm allows dynamically adding and removing validators.
+//! As a signal to initiate converting observers to validators or vice versa, it defines a special
+//! `Change` input variant, which contains either a vote `Add(node_id, public_key)`, to add an
+//! existing observer to the set of validators, or `Remove(node_id)` to remove it. Each
 //! validator can have at most one active vote, and casting another vote revokes the previous one.
 //! Once a simple majority of validators has the same active vote, a reconfiguration process
 //! begins: They create new cryptographic key shares for the new group of validators.
 //!
-//! The state of that process after each epoch is communicated via the `Batch::change` field. When
-//! this contains an `InProgress(Add(..))` value, all nodes need to send every future `Target::All`
-//! message to the new node, too. Once the value is `Complete`, the next epoch will run using the
-//! new set of validators.
+//! The state of that process after each epoch is communicated via the `change` field in `Batch`.
+//! When this contains an `InProgress(..)` value, key generation begins. The joining validator (in
+//! the case of an `Add` change) must be an observer starting in the following epoch or earlier.
+//! When `change` is `Complete(..)`, the following epochs will be produced by the new set of
+//! validators.
 //!
-//! New observers can also be added to the network. However, the can only join after an epoch where
-//! `change` was not `None`. These epochs' batches contain a `JoinPlan`, which can be sent as an
-//! invitation to the new node: The `DynamicHoneyBadger` created from a `JoinPlan` will start as an
-//! observer in the following epoch. All `Target::All` messages from that and later epochs must be
-//! be sent to the new node. Together with the above mechanism, this allows the network to change
-//! dynamically. You can introduce a new node to the network and make it a validator, you can
-//! demote validators to observers, and you can remove observers at any time.
+//! New observers can only join the network after an epoch where `change` was not `None`. These
+//! epochs' batches contain a `JoinPlan`, which can be sent as an invitation to the new node: The
+//! `DynamicHoneyBadger` instance created from a `JoinPlan` will start as an observer in the
+//! following epoch. All `Target::All` messages from that and later epochs must be sent to the new
+//! node.
+//!
+//! Observer nodes can leave the network at any time.
+//!
+//! These mechanisms create a dynamic network where you can:
+//!
+//! * introduce new nodes as observers,
+//! * promote observer nodes to validators,
+//! * demote validator nodes to observers, and
+//! * remove observer nodes,
+//!
+//! without interrupting the consensus process.
 //!
 //! ## How it works
 //!
@@ -40,7 +50,7 @@
 //! contributions in its own batch. The other transactions are processed: votes are counted and key
 //! generation messages are passed into a `SyncKeyGen` instance.
 //!
-//! Whenever a change has a majority of votes, the votes are reset and key generation for that
+//! Whenever a change receives a majority of votes, the votes are reset and key generation for that
 //! change begins. If key generation completes successfully, the Honey Badger instance is dropped,
 //! and replaced by a new one with the new set of participants. If a different change gains a
 //! majority before that happens, key generation resets again, and is attempted for the new change.
