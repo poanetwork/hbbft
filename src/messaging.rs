@@ -52,34 +52,46 @@ impl<M, N> TargetedMessage<M, N> {
 /// Result of one step of the local state machine of a distributed algorithm. Such a result should
 /// be used and never discarded by the client of the algorithm.
 #[must_use = "The algorithm step result must be used."]
-pub struct Step<N, O>
+pub struct Step<N, O, M>
 where
     N: Clone,
 {
     pub output: VecDeque<O>,
     pub fault_log: FaultLog<N>,
+    pub messages: VecDeque<TargetedMessage<M, N>>,
 }
 
-impl<N, O> Default for Step<N, O>
+impl<N, O, M> Default for Step<N, O, M>
 where
     N: Clone,
 {
-    fn default() -> Step<N, O> {
+    fn default() -> Step<N, O, M> {
         Step {
-            output: Default::default(),
+            output: VecDeque::default(),
             fault_log: FaultLog::default(),
+            messages: VecDeque::default(),
         }
     }
 }
 
-impl<N, O> Step<N, O>
+impl<N, O, M> Step<N, O, M>
 where
     N: Clone,
 {
-    pub fn new(output: VecDeque<O>, fault_log: FaultLog<N>) -> Self {
-        Step { output, fault_log }
+    pub fn new(
+        output: VecDeque<O>,
+        fault_log: FaultLog<N>,
+        messages: VecDeque<TargetedMessage<M, N>>,
+    ) -> Self {
+        Step {
+            output,
+            fault_log,
+            messages,
+        }
     }
 }
+
+type StepResult<N, O, M, E> = Result<Step<N, O, M>, E>;
 
 /// A distributed algorithm that defines a message flow.
 pub trait DistAlgorithm {
@@ -99,44 +111,20 @@ pub trait DistAlgorithm {
     fn input(
         &mut self,
         input: Self::Input,
-    ) -> Result<Step<Self::NodeUid, Self::Output>, Self::Error>;
+    ) -> StepResult<Self::NodeUid, Self::Output, Self::Message, Self::Error>;
 
     /// Handles a message received from node `sender_id`.
     fn handle_message(
         &mut self,
         sender_id: &Self::NodeUid,
         message: Self::Message,
-    ) -> Result<Step<Self::NodeUid, Self::Output>, Self::Error>;
-
-    /// Returns a message that needs to be sent to another node.
-    fn next_message(&mut self) -> Option<TargetedMessage<Self::Message, Self::NodeUid>>;
+    ) -> StepResult<Self::NodeUid, Self::Output, Self::Message, Self::Error>;
 
     /// Returns `true` if execution has completed and this instance can be dropped.
     fn terminated(&self) -> bool;
 
     /// Returns this node's own ID.
     fn our_id(&self) -> &Self::NodeUid;
-
-    /// Returns an iterator over the outgoing messages.
-    fn message_iter(&mut self) -> MessageIter<Self>
-    where
-        Self: Sized,
-    {
-        MessageIter { algorithm: self }
-    }
-}
-
-/// An iterator over a distributed algorithm's outgoing messages.
-pub struct MessageIter<'a, D: DistAlgorithm + 'a> {
-    algorithm: &'a mut D,
-}
-
-impl<'a, D: DistAlgorithm + 'a> Iterator for MessageIter<'a, D> {
-    type Item = TargetedMessage<D::Message, D::NodeUid>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        self.algorithm.next_message()
-    }
 }
 
 /// Common data shared between algorithms: the nodes' IDs and key shares.

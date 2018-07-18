@@ -178,12 +178,16 @@ where
     /// Handles the algorithm's output and messages.
     fn send_output_and_msgs(
         &mut self,
-        step: Step<<D as DistAlgorithm>::NodeUid, <D as DistAlgorithm>::Output>,
+        step: Step<
+            <D as DistAlgorithm>::NodeUid,
+            <D as DistAlgorithm>::Output,
+            <D as DistAlgorithm>::Message,
+        >,
     ) {
         let start = Instant::now();
-        let out_msgs: Vec<_> = self
-            .algo
-            .message_iter()
+        let out_msgs: Vec<_> = step
+            .messages
+            .into_iter()
             .map(|msg| {
                 (
                     msg.target,

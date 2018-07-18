@@ -119,7 +119,7 @@ pub struct HoneyBadger<C, NodeUid: Rand> {
     /// The maximum number of `CommonSubset` instances that we run simultaneously.
     max_future_epochs: u64,
     /// The messages that need to be sent to other nodes.
-    messages: MessageQueue<NodeUid>,
+    pub(crate) messages: MessageQueue<NodeUid>,
     /// The outputs from completed epochs.
     output: Vec<Batch<C, NodeUid>>,
     /// Messages for future epochs that couldn't be handled yet.
@@ -134,7 +134,7 @@ pub struct HoneyBadger<C, NodeUid: Rand> {
     ciphertexts: BTreeMap<u64, BTreeMap<NodeUid, Ciphertext>>,
 }
 
-pub type HoneyBadgerStep<C, NodeUid> = Step<NodeUid, Batch<C, NodeUid>>;
+pub type HoneyBadgerStep<C, NodeUid> = Step<NodeUid, Batch<C, NodeUid>, Message<NodeUid>>;
 
 impl<C, NodeUid> DistAlgorithm for HoneyBadger<C, NodeUid>
 where
@@ -174,10 +174,6 @@ where
         self.step(fault_log)
     }
 
-    fn next_message(&mut self) -> Option<TargetedMessage<Self::Message, NodeUid>> {
-        self.messages.pop_front()
-    }
-
     fn terminated(&self) -> bool {
         false
     }
@@ -202,7 +198,11 @@ where
         &mut self,
         fault_log: FaultLog<NodeUid>,
     ) -> HoneyBadgerResult<HoneyBadgerStep<C, NodeUid>> {
-        Ok(Step::new(self.output.drain(..).collect(), fault_log))
+        Ok(Step::new(
+            self.output.drain(..).collect(),
+            fault_log,
+            self.messages.drain(..).collect(),
+        ))
     }
 
     /// Proposes a new item in the current epoch.
@@ -220,11 +220,9 @@ where
             let ser_prop = bincode::serialize(&proposal)?;
             let ciphertext = self.netinfo.public_key_set().public_key().encrypt(ser_prop);
             self.has_input = true;
-            let step = cs.input(bincode::serialize(&ciphertext).unwrap())?;
-            self.messages.extend_with_epoch(self.epoch, cs);
-            step
+            cs.input(bincode::serialize(&ciphertext).unwrap())?
         };
-        Ok(self.process_output(step)?)
+        Ok(self.process_output(step, None)?)
     }
 
     /// Returns `true` if input for the current epoch has already been provided.
@@ -270,15 +268,9 @@ where
                     }
                 }
             };
-            // Handle the message and put the outgoing messages into the queue.
-            let cs_step = cs.handle_message(sender_id, message)?;
-            self.messages.extend_with_epoch(epoch, cs);
-            cs_step
+            cs.handle_message(sender_id, message)?
         };
-        // If this is the current epoch, the message could cause a new output.
-        if epoch == self.epoch {
-            fault_log.extend(self.process_output(step)?);
-        }
+        fault_log.extend(self.process_output(step, Some(epoch))?);
         self.remove_terminated(epoch);
         Ok(fault_log)
     }
@@ -576,18 +568,27 @@ where
         }
     }
 
-    /// Checks whether the current epoch has output, and if it does, sends out our decryption shares.
+    /// Checks whether the current epoch has output, and if it does, sends out our decryption
+    /// shares.  The `epoch` argument allows to differentiate between calls which produce output in
+    /// all conditions, `epoch == None`, and calls which only produce output in a given epoch,
+    /// `epoch == Some(given_epoch)`.
     fn process_output(
         &mut self,
         step: CommonSubsetStep<NodeUid>,
+        epoch: Option<u64>,
     ) -> HoneyBadgerResult<FaultLog<NodeUid>> {
         let Step {
             output,
             mut fault_log,
+            mut messages,
         } = step;
-        for cs_output in output {
-            fault_log.extend(self.send_decryption_shares(cs_output)?);
-            // TODO: May also check that there is no further output from Common Subset.
+        self.messages.extend_with_epoch(self.epoch, &mut messages);
+        // If this is the current epoch, the message could cause a new output.
+        if epoch.is_none() || epoch == Some(self.epoch) {
+            for cs_output in output {
+                fault_log.extend(self.send_decryption_shares(cs_output)?);
+                // TODO: May also check that there is no further output from Common Subset.
+            }
         }
         Ok(fault_log)
     }
@@ -695,14 +696,20 @@ impl<NodeUid: Rand> Message<NodeUid> {
 
 /// The queue of outgoing messages in a `HoneyBadger` instance.
 #[derive(Deref, DerefMut)]
-struct MessageQueue<NodeUid: Rand>(VecDeque<TargetedMessage<Message<NodeUid>, NodeUid>>);
+pub(crate) struct MessageQueue<NodeUid: Rand>(
+    pub(crate) VecDeque<TargetedMessage<Message<NodeUid>, NodeUid>>,
+);
 
 impl<NodeUid: Clone + Debug + Ord + Rand> MessageQueue<NodeUid> {
     /// Appends to the queue the messages from `cs`, wrapped with `epoch`.
-    fn extend_with_epoch(&mut self, epoch: u64, cs: &mut CommonSubset<NodeUid>) {
+    fn extend_with_epoch(
+        &mut self,
+        epoch: u64,
+        msgs: &mut VecDeque<TargetedMessage<common_subset::Message<NodeUid>, NodeUid>>,
+    ) {
         let convert = |msg: TargetedMessage<common_subset::Message<NodeUid>, NodeUid>| {
             msg.map(|cs_msg| MessageContent::CommonSubset(cs_msg).with_epoch(epoch))
         };
-        self.extend(cs.message_iter().map(convert));
+        self.extend(msgs.drain(..).map(convert));
     }
 }

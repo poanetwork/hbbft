@@ -116,7 +116,7 @@ pub struct DynamicHoneyBadger<C, NodeUid: Rand> {
     output: VecDeque<Batch<C, NodeUid>>,
 }
 
-pub type DynamicHoneyBadgerStep<C, NodeUid> = Step<NodeUid, Batch<C, NodeUid>>;
+pub type DynamicHoneyBadgerStep<C, NodeUid> = Step<NodeUid, Batch<C, NodeUid>, Message<NodeUid>>;
 
 impl<C, NodeUid> DistAlgorithm for DynamicHoneyBadger<C, NodeUid>
 where
@@ -169,10 +169,6 @@ where
         self.step(fault_log)
     }
 
-    fn next_message(&mut self) -> Option<TargetedMessage<Self::Message, NodeUid>> {
-        self.messages.pop_front()
-    }
-
     fn terminated(&self) -> bool {
         false
     }
@@ -188,7 +184,11 @@ where
     NodeUid: Eq + Ord + Clone + Debug + Serialize + for<'r> Deserialize<'r> + Hash + Rand,
 {
     fn step(&mut self, fault_log: FaultLog<NodeUid>) -> Result<DynamicHoneyBadgerStep<C, NodeUid>> {
-        Ok(Step::new(self.output.drain(..).collect(), fault_log))
+        Ok(Step::new(
+            self.output.drain(..).collect(),
+            fault_log,
+            self.messages.drain(..).collect(),
+        ))
     }
 
     /// Returns a new `DynamicHoneyBadgerBuilder` configured to use the node IDs and cryptographic
@@ -276,7 +276,7 @@ where
     /// Processes all pending batches output by Honey Badger.
     fn process_output(
         &mut self,
-        step: HoneyBadgerStep<InternalContrib<C, NodeUid>, NodeUid>,
+        mut step: HoneyBadgerStep<InternalContrib<C, NodeUid>, NodeUid>,
     ) -> Result<FaultLog<NodeUid>> {
         let mut fault_log = FaultLog::new();
         fault_log.extend(step.fault_log);
@@ -329,7 +329,7 @@ where
             self.output.push_back(batch);
         }
         self.messages
-            .extend_with_epoch(self.start_epoch, &mut self.honey_badger);
+            .extend_with_epoch(self.start_epoch, &mut step.messages);
         // If `start_epoch` changed, we can now handle some queued messages.
         if start_epoch < self.start_epoch {
             let queue = mem::replace(&mut self.incoming_queue, Vec::new());
@@ -375,7 +375,7 @@ where
     fn restart_honey_badger(&mut self, epoch: u64) {
         // TODO: Filter out the messages for `epoch` and later.
         self.messages
-            .extend_with_epoch(self.start_epoch, &mut self.honey_badger);
+            .extend_with_epoch(self.start_epoch, &mut self.honey_badger.messages.0);
         self.start_epoch = epoch;
         self.key_gen_msg_buffer.retain(|kg_msg| kg_msg.0 >= epoch);
         let netinfo = Arc::new(self.netinfo.clone());
@@ -529,14 +529,15 @@ where
     NodeUid: Eq + Hash + Ord + Clone + Debug + Serialize + for<'r> Deserialize<'r> + Rand,
 {
     /// Appends to the queue the messages from `hb`, wrapped with `epoch`.
-    fn extend_with_epoch<Tx>(&mut self, epoch: u64, hb: &mut HoneyBadger<Tx, NodeUid>)
-    where
-        Tx: Eq + Serialize + for<'r> Deserialize<'r> + Debug + Hash,
-    {
+    fn extend_with_epoch(
+        &mut self,
+        epoch: u64,
+        msgs: &mut VecDeque<TargetedMessage<HbMessage<NodeUid>, NodeUid>>,
+    ) {
         let convert = |msg: TargetedMessage<HbMessage<NodeUid>, NodeUid>| {
             msg.map(|hb_msg| Message::HoneyBadger(epoch, hb_msg))
         };
-        self.extend(hb.message_iter().map(convert));
+        self.extend(msgs.drain(..).map(convert));
     }
 }
 

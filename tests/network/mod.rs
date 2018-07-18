@@ -22,6 +22,8 @@ pub struct TestNode<D: DistAlgorithm> {
     pub queue: VecDeque<(D::NodeUid, D::Message)>,
     /// The values this node has output so far.
     outputs: Vec<D::Output>,
+    /// Outgoing messages to be sent to other nodes.
+    messages: VecDeque<TargetedMessage<D::Message, D::NodeUid>>,
 }
 
 impl<D: DistAlgorithm> TestNode<D> {
@@ -40,6 +42,7 @@ impl<D: DistAlgorithm> TestNode<D> {
     pub fn input(&mut self, input: D::Input) {
         let step = self.algo.input(input).expect("input");
         self.outputs.extend(step.output);
+        self.messages.extend(step.messages);
     }
 
     /// Returns the internal algorithm's instance.
@@ -55,6 +58,7 @@ impl<D: DistAlgorithm> TestNode<D> {
             algo,
             queue: VecDeque::new(),
             outputs: Vec::new(),
+            messages: VecDeque::new(),
         }
     }
 
@@ -67,6 +71,7 @@ impl<D: DistAlgorithm> TestNode<D> {
             .handle_message(&from_id, msg)
             .expect("handling message");
         self.outputs.extend(step.output);
+        self.messages.extend(step.messages);
     }
 
     /// Checks whether the node has messages to process
@@ -412,7 +417,7 @@ where
         }
         let mut initial_msgs: Vec<(D::NodeUid, Vec<_>)> = Vec::new();
         for (id, node) in &mut network.nodes {
-            initial_msgs.push((*id, node.algo.message_iter().collect()));
+            initial_msgs.push((*id, node.messages.drain(..).collect()));
         }
         for (id, msgs) in initial_msgs {
             network.dispatch_messages(id, msgs);
@@ -476,7 +481,7 @@ where
 
         // The node handles the incoming message and creates new outgoing ones to be dispatched.
         let msgs: Vec<_> = {
-            let node = self.nodes.get_mut(&id).unwrap();
+            let mut node = self.nodes.get_mut(&id).unwrap();
 
             // Ensure the adversary is playing fair by selecting a node that will result in actual
             // progress being made, otherwise `TestNode::handle_message()` will panic on `expect()`
@@ -487,7 +492,7 @@ where
             );
 
             node.handle_message();
-            node.algo.message_iter().collect()
+            node.messages.drain(..).collect()
         };
         self.dispatch_messages(id, msgs);
 
@@ -497,9 +502,9 @@ where
     /// Inputs a value in node `id`.
     pub fn input(&mut self, id: NodeUid, value: D::Input) {
         let msgs: Vec<_> = {
-            let node = self.nodes.get_mut(&id).expect("input instance");
+            let mut node = self.nodes.get_mut(&id).expect("input instance");
             node.input(value);
-            node.algo.message_iter().collect()
+            node.messages.drain(..).collect()
         };
         self.dispatch_messages(id, msgs);
     }

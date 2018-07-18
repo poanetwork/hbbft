@@ -119,7 +119,7 @@ where
     output: VecDeque<Batch<Tx, NodeUid>>,
 }
 
-pub type QueueingHoneyBadgerStep<Tx, NodeUid> = Step<NodeUid, Batch<Tx, NodeUid>>;
+pub type QueueingHoneyBadgerStep<Tx, NodeUid> = Step<NodeUid, Batch<Tx, NodeUid>, Message<NodeUid>>;
 
 impl<Tx, NodeUid> DistAlgorithm for QueueingHoneyBadger<Tx, NodeUid>
 where
@@ -135,18 +135,18 @@ where
     fn input(&mut self, input: Self::Input) -> Result<QueueingHoneyBadgerStep<Tx, NodeUid>> {
         // User transactions are forwarded to `HoneyBadger` right away. Internal messages are
         // in addition signed and broadcast.
-        let fault_log = match input {
+        let (fault_log, messages) = match input {
             Input::User(tx) => {
                 self.queue.0.push_back(tx);
-                FaultLog::new()
+                (FaultLog::new(), VecDeque::new())
             }
             Input::Change(change) => {
                 let step = self.dyn_hb.input(Input::Change(change))?;
                 // FIXME: Use the output since `dyn_hb` can output immediately on input.
-                step.fault_log
+                (step.fault_log, step.messages)
             }
         };
-        self.step(fault_log)
+        self.step(fault_log, messages)
     }
 
     fn handle_message(
@@ -157,17 +157,16 @@ where
         let Step {
             output,
             mut fault_log,
+            mut messages,
         } = self.dyn_hb.handle_message(sender_id, message)?;
         for batch in output {
             self.queue.remove_all(batch.iter());
             self.output.push_back(batch);
         }
-        fault_log.extend(self.propose()?);
-        self.step(fault_log)
-    }
-
-    fn next_message(&mut self) -> Option<TargetedMessage<Self::Message, NodeUid>> {
-        self.dyn_hb.next_message()
+        let (propose_fault_log, propose_messages) = self.propose()?;
+        fault_log.extend(propose_fault_log);
+        messages.extend(propose_messages);
+        self.step(fault_log, messages)
     }
 
     fn terminated(&self) -> bool {
@@ -195,8 +194,14 @@ where
     fn step(
         &mut self,
         fault_log: FaultLog<NodeUid>,
+        messages: VecDeque<TargetedMessage<Message<NodeUid>, NodeUid>>,
     ) -> Result<QueueingHoneyBadgerStep<Tx, NodeUid>> {
-        Ok(Step::new(self.output.drain(..).collect(), fault_log))
+        Ok(Step::new(
+            self.output.drain(..).collect(),
+            fault_log,
+            messages,
+            //self.dyn_hb.messages.drain(..).collect(),
+        ))
     }
 
     /// Returns a reference to the internal `DynamicHoneyBadger` instance.
@@ -205,20 +210,27 @@ where
     }
 
     /// Initiates the next epoch by proposing a batch from the queue.
-    fn propose(&mut self) -> Result<FaultLog<NodeUid>> {
+    fn propose(
+        &mut self,
+    ) -> Result<(
+        FaultLog<NodeUid>,
+        VecDeque<TargetedMessage<Message<NodeUid>, NodeUid>>,
+    )> {
         let amount = cmp::max(1, self.batch_size / self.dyn_hb.netinfo().num_nodes());
         // TODO: This will loop forever if we are the only validator.
         let mut fault_log = FaultLog::new();
+        let mut messages = VecDeque::new();
         while !self.dyn_hb.has_input() {
             let proposal = self.queue.choose(amount, self.batch_size);
             let step = self.dyn_hb.input(Input::User(proposal))?;
             fault_log.extend(step.fault_log);
+            messages.extend(step.messages);
             for batch in step.output {
                 self.queue.remove_all(batch.iter());
                 self.output.push_back(batch);
             }
         }
-        Ok(fault_log)
+        Ok((fault_log, messages))
     }
 }
 

@@ -28,7 +28,7 @@ use std::sync::Arc;
 use crypto::error as cerror;
 use crypto::{Signature, SignatureShare};
 use fault_log::{FaultKind, FaultLog};
-use messaging::{DistAlgorithm, NetworkInfo, Step, Target, TargetedMessage};
+use messaging::{DistAlgorithm, NetworkInfo, Step, Target};
 
 error_chain! {
     links {
@@ -78,7 +78,7 @@ pub struct CommonCoin<NodeUid, T> {
     terminated: bool,
 }
 
-pub type CommonCoinStep<NodeUid> = Step<NodeUid, bool>;
+pub type CommonCoinStep<N> = Step<N, bool, CommonCoinMessage>;
 
 impl<NodeUid, T> DistAlgorithm for CommonCoin<NodeUid, T>
 where
@@ -117,13 +117,6 @@ where
         self.step(fault_log)
     }
 
-    /// Takes the next share of a threshold signature message for multicasting to all other nodes.
-    fn next_message(&mut self) -> Option<TargetedMessage<Self::Message, Self::NodeUid>> {
-        self.messages
-            .pop_front()
-            .map(|msg| Target::All.message(msg))
-    }
-
     /// Whether the algorithm has terminated.
     fn terminated(&self) -> bool {
         self.terminated
@@ -155,6 +148,10 @@ where
         Ok(Step::new(
             self.output.take().into_iter().collect(),
             fault_log,
+            self.messages
+                .drain(..)
+                .map(|msg| Target::All.message(msg))
+                .collect(),
         ))
     }
 

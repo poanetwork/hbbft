@@ -228,7 +228,7 @@ pub struct Broadcast<NodeUid> {
     output: Option<Vec<u8>>,
 }
 
-pub type BroadcastStep<N> = Step<N, Vec<u8>>;
+pub type BroadcastStep<N> = Step<N, Vec<u8>, BroadcastMessage>;
 
 impl<NodeUid: Debug + Clone + Ord> DistAlgorithm for Broadcast<NodeUid> {
     type NodeUid = NodeUid;
@@ -270,10 +270,6 @@ impl<NodeUid: Debug + Clone + Ord> DistAlgorithm for Broadcast<NodeUid> {
         self.step(fault_log)
     }
 
-    fn next_message(&mut self) -> Option<TargetedMessage<Self::Message, NodeUid>> {
-        self.messages.pop_front()
-    }
-
     fn terminated(&self) -> bool {
         self.decided
     }
@@ -310,6 +306,7 @@ impl<NodeUid: Debug + Clone + Ord> Broadcast<NodeUid> {
         Ok(Step::new(
             self.output.take().into_iter().collect(),
             fault_log,
+            self.messages.drain(..).collect(),
         ))
     }
 

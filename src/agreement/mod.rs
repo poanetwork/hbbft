@@ -208,7 +208,7 @@ pub struct Agreement<NodeUid> {
     coin_schedule: CoinSchedule,
 }
 
-pub type AgreementStep<NodeUid> = Step<NodeUid, bool>;
+pub type AgreementStep<N> = Step<N, bool, AgreementMessage>;
 
 impl<NodeUid: Clone + Debug + Ord> DistAlgorithm for Agreement<NodeUid> {
     type NodeUid = NodeUid;
@@ -245,13 +245,6 @@ impl<NodeUid: Clone + Debug + Ord> DistAlgorithm for Agreement<NodeUid> {
             }
         };
         self.step(fault_log)
-    }
-
-    /// Take the next Agreement message for multicast to all other nodes.
-    fn next_message(&mut self) -> Option<TargetedMessage<Self::Message, Self::NodeUid>> {
-        self.messages
-            .pop_front()
-            .map(|msg| Target::All.message(msg))
     }
 
     /// Whether the algorithm has terminated.
@@ -305,6 +298,10 @@ impl<NodeUid: Clone + Debug + Ord> Agreement<NodeUid> {
         Ok(Step::new(
             self.output.take().into_iter().collect(),
             fault_log,
+            self.messages
+                .drain(..)
+                .map(|msg| Target::All.message(msg))
+                .collect(),
         ))
     }
 
@@ -494,7 +491,6 @@ impl<NodeUid: Clone + Debug + Ord> Agreement<NodeUid> {
         msg: CommonCoinMessage,
     ) -> AgreementResult<FaultLog<NodeUid>> {
         let coin_step = self.common_coin.handle_message(sender_id, msg)?;
-        self.extend_common_coin();
         self.on_coin_step(coin_step)
     }
 
@@ -505,7 +501,14 @@ impl<NodeUid: Clone + Debug + Ord> Agreement<NodeUid> {
         let Step {
             output,
             mut fault_log,
+            messages,
         } = coin_step;
+        let epoch = self.epoch;
+        self.messages.extend(messages.into_iter().map(
+            |msg: TargetedMessage<CommonCoinMessage, NodeUid>| {
+                AgreementContent::Coin(Box::new(msg.message)).with_epoch(epoch)
+            },
+        ));
         if let Some(coin) = output.into_iter().next() {
             let def_bin_value = self.count_conf().1.definite();
             fault_log.extend(self.on_coin(coin, def_bin_value)?);
@@ -562,16 +565,6 @@ impl<NodeUid: Clone + Debug + Ord> Agreement<NodeUid> {
         }
     }
 
-    /// Propagates Common Coin messages to the top level.
-    fn extend_common_coin(&mut self) {
-        let epoch = self.epoch;
-        self.messages.extend(self.common_coin.message_iter().map(
-            |msg: TargetedMessage<CommonCoinMessage, NodeUid>| {
-                AgreementContent::Coin(Box::new(msg.message)).with_epoch(epoch)
-            },
-        ));
-    }
-
     /// Decides on a value and broadcasts a `Term` message with that value.
     fn decide(&mut self, b: bool) {
         if self.terminated {
@@ -602,7 +595,6 @@ impl<NodeUid: Clone + Debug + Ord> Agreement<NodeUid> {
         {
             // Invoke the common coin.
             let coin_step = self.common_coin.input(())?;
-            self.extend_common_coin();
             self.on_coin_step(coin_step)
         } else {
             // Continue waiting for (N - f) `Conf` messages
