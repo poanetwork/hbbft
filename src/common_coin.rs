@@ -28,7 +28,7 @@ use std::sync::Arc;
 use crypto::error as cerror;
 use crypto::Signature;
 use fault_log::{FaultKind, FaultLog};
-use messaging::{DistAlgorithm, NetworkInfo, Target, TargetedMessage};
+use messaging::{DistAlgorithm, NetworkInfo, Step, Target, TargetedMessage};
 
 error_chain! {
     links {
@@ -78,6 +78,8 @@ pub struct CommonCoin<NodeUid, T> {
     terminated: bool,
 }
 
+pub type CommonCoinStep<NodeUid> = Step<NodeUid, bool>;
+
 impl<NodeUid, T> DistAlgorithm for CommonCoin<NodeUid, T>
 where
     NodeUid: Clone + Debug + Ord,
@@ -90,13 +92,14 @@ where
     type Error = Error;
 
     /// Sends our threshold signature share if not yet sent.
-    fn input(&mut self, _input: Self::Input) -> Result<FaultLog<NodeUid>> {
-        if !self.had_input {
+    fn input(&mut self, _input: Self::Input) -> Result<CommonCoinStep<NodeUid>> {
+        let fault_log = if !self.had_input {
             self.had_input = true;
-            self.get_coin()
+            self.get_coin()?
         } else {
-            Ok(FaultLog::new())
-        }
+            FaultLog::new()
+        };
+        self.step(fault_log)
     }
 
     /// Receives input from a remote node.
@@ -104,12 +107,14 @@ where
         &mut self,
         sender_id: &Self::NodeUid,
         message: Self::Message,
-    ) -> Result<FaultLog<NodeUid>> {
-        if self.terminated {
-            return Ok(FaultLog::new());
-        }
-        let CommonCoinMessage(share) = message;
-        self.handle_share(sender_id, share)
+    ) -> Result<CommonCoinStep<NodeUid>> {
+        let fault_log = if !self.terminated {
+            let CommonCoinMessage(share) = message;
+            self.handle_share(sender_id, share)?
+        } else {
+            FaultLog::new()
+        };
+        self.step(fault_log)
     }
 
     /// Takes the next share of a threshold signature message for multicasting to all other nodes.
@@ -117,11 +122,6 @@ where
         self.messages
             .pop_front()
             .map(|msg| Target::All.message(msg))
-    }
-
-    /// Consumes the output. Once consumed, the output stays `None` forever.
-    fn next_output(&mut self) -> Option<Self::Output> {
-        self.output.take()
     }
 
     /// Whether the algorithm has terminated.
@@ -149,6 +149,13 @@ where
             had_input: false,
             terminated: false,
         }
+    }
+
+    fn step(&mut self, fault_log: FaultLog<NodeUid>) -> Result<CommonCoinStep<NodeUid>> {
+        Ok(Step::new(
+            self.output.take().into_iter().collect(),
+            fault_log,
+        ))
     }
 
     fn get_coin(&mut self) -> Result<FaultLog<NodeUid>> {
@@ -180,10 +187,17 @@ where
 
     fn try_output(&mut self) -> Result<()> {
         let received_shares = &self.received_shares;
+        debug!(
+            "{:?} received {} shares, had_input = {}",
+            self.netinfo.our_uid(),
+            received_shares.len(),
+            self.had_input
+        );
         if self.had_input && received_shares.len() > self.netinfo.num_faulty() {
             let sig = self.combine_and_verify_sig()?;
             // Output the parity of the verified signature.
             let parity = sig.parity();
+            debug!("{:?} output {}", self.netinfo.our_uid(), parity);
             self.output = Some(parity);
             self.terminated = true;
         }

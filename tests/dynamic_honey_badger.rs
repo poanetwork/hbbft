@@ -1,3 +1,4 @@
+#![deny(unused_must_use)]
 //! Network tests for Dynamic Honey Badger.
 
 extern crate hbbft;

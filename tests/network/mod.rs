@@ -15,7 +15,7 @@ pub struct NodeUid(pub usize);
 /// A "node" running an instance of the algorithm `D`.
 pub struct TestNode<D: DistAlgorithm> {
     /// This node's own ID.
-    id: D::NodeUid,
+    pub id: D::NodeUid,
     /// The instance of the broadcast algorithm.
     algo: D,
     /// Incoming messages from other nodes that this node has not yet handled.
@@ -38,8 +38,8 @@ impl<D: DistAlgorithm> TestNode<D> {
 
     /// Inputs a value into the instance.
     pub fn input(&mut self, input: D::Input) {
-        self.algo.input(input).expect("input");
-        self.outputs.extend(self.algo.output_iter());
+        let step = self.algo.input(input).expect("input");
+        self.outputs.extend(step.output);
     }
 
     /// Returns the internal algorithm's instance.
@@ -49,13 +49,12 @@ impl<D: DistAlgorithm> TestNode<D> {
     }
 
     /// Creates a new test node with the given broadcast instance.
-    fn new(mut algo: D) -> TestNode<D> {
-        let outputs = algo.output_iter().collect();
+    fn new(algo: D) -> TestNode<D> {
         TestNode {
             id: algo.our_id().clone(),
             algo,
             queue: VecDeque::new(),
-            outputs,
+            outputs: Vec::new(),
         }
     }
 
@@ -63,10 +62,11 @@ impl<D: DistAlgorithm> TestNode<D> {
     fn handle_message(&mut self) {
         let (from_id, msg) = self.queue.pop_front().expect("message not found");
         debug!("Handling {:?} -> {:?}: {:?}", from_id, self.id, msg);
-        self.algo
+        let step = self
+            .algo
             .handle_message(&from_id, msg)
             .expect("handling message");
-        self.outputs.extend(self.algo.output_iter());
+        self.outputs.extend(step.output);
     }
 
     /// Checks whether the node has messages to process

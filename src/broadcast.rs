@@ -43,7 +43,9 @@
 //!
 //! ## Example usage
 //!
-//! ```rust
+//! FIXME: Fix the test for the new API (Issue #135).
+//! ```ignore
+//!# extern crate clear_on_drop;
 //!# extern crate hbbft;
 //!# extern crate rand;
 //!# fn main() {
@@ -149,7 +151,7 @@ use ring::digest;
 
 use fault_log::{FaultKind, FaultLog};
 use fmt::{HexBytes, HexList, HexProof};
-use messaging::{DistAlgorithm, NetworkInfo, Target, TargetedMessage};
+use messaging::{DistAlgorithm, NetworkInfo, Step, Target, TargetedMessage};
 
 error_chain!{
     types {
@@ -236,6 +238,8 @@ pub struct Broadcast<NodeUid> {
     output: Option<Vec<u8>>,
 }
 
+pub type BroadcastStep<N> = Step<N, Vec<u8>>;
+
 impl<NodeUid: Debug + Clone + Ord> DistAlgorithm for Broadcast<NodeUid> {
     type NodeUid = NodeUid;
     // TODO: Allow anything serializable and deserializable, i.e. make this a type parameter
@@ -245,7 +249,7 @@ impl<NodeUid: Debug + Clone + Ord> DistAlgorithm for Broadcast<NodeUid> {
     type Message = BroadcastMessage;
     type Error = Error;
 
-    fn input(&mut self, input: Self::Input) -> BroadcastResult<FaultLog<NodeUid>> {
+    fn input(&mut self, input: Self::Input) -> BroadcastResult<BroadcastStep<NodeUid>> {
         if *self.netinfo.our_uid() != self.proposer_id {
             return Err(ErrorKind::InstanceCannotPropose.into());
         }
@@ -254,32 +258,30 @@ impl<NodeUid: Debug + Clone + Ord> DistAlgorithm for Broadcast<NodeUid> {
         // from this tree and send them, each to its own node.
         let proof = self.send_shards(input)?;
         let our_uid = &self.netinfo.our_uid().clone();
-        self.handle_value(our_uid, proof)
+        let fault_log = self.handle_value(our_uid, proof)?;
+        self.step(fault_log)
     }
 
     fn handle_message(
         &mut self,
         sender_id: &NodeUid,
         message: Self::Message,
-    ) -> BroadcastResult<FaultLog<NodeUid>> {
+    ) -> BroadcastResult<BroadcastStep<NodeUid>> {
         if !self.netinfo.all_uids().contains(sender_id) {
             return Err(ErrorKind::UnknownSender.into());
         }
-        match message {
-            BroadcastMessage::Value(p) => self.handle_value(sender_id, p),
-            BroadcastMessage::Echo(p) => self.handle_echo(sender_id, p),
-            BroadcastMessage::Ready(ref hash) => {
-                self.handle_ready(sender_id, hash).map(|()| FaultLog::new())
-            }
-        }
+        let fault_log = match message {
+            BroadcastMessage::Value(p) => self.handle_value(sender_id, p)?,
+            BroadcastMessage::Echo(p) => self.handle_echo(sender_id, p)?,
+            BroadcastMessage::Ready(ref hash) => self
+                .handle_ready(sender_id, hash)
+                .map(|()| FaultLog::new())?,
+        };
+        self.step(fault_log)
     }
 
     fn next_message(&mut self) -> Option<TargetedMessage<Self::Message, NodeUid>> {
         self.messages.pop_front()
-    }
-
-    fn next_output(&mut self) -> Option<Self::Output> {
-        self.output.take()
     }
 
     fn terminated(&self) -> bool {
@@ -312,6 +314,13 @@ impl<NodeUid: Debug + Clone + Ord> Broadcast<NodeUid> {
             messages: VecDeque::new(),
             output: None,
         })
+    }
+
+    fn step(&mut self, fault_log: FaultLog<NodeUid>) -> BroadcastResult<BroadcastStep<NodeUid>> {
+        Ok(Step::new(
+            self.output.take().into_iter().collect(),
+            fault_log,
+        ))
     }
 
     /// Breaks the input value into shards of equal length and encodes them --

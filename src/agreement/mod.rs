@@ -75,9 +75,9 @@ use itertools::Itertools;
 
 use agreement::bin_values::BinValues;
 use common_coin;
-use common_coin::{CommonCoin, CommonCoinMessage};
+use common_coin::{CommonCoin, CommonCoinMessage, CommonCoinStep};
 use fault_log::FaultLog;
-use messaging::{DistAlgorithm, NetworkInfo, Target, TargetedMessage};
+use messaging::{DistAlgorithm, NetworkInfo, Step, Target, TargetedMessage};
 
 error_chain!{
     links {
@@ -194,11 +194,9 @@ pub struct Agreement<NodeUid> {
     /// A cache for messages for future epochs that cannot be handled yet.
     // TODO: Find a better solution for this; defend against spam.
     incoming_queue: Vec<(NodeUid, AgreementMessage)>,
-    /// Termination flag. The Agreement instance doesn't terminate immediately
-    /// upon deciding on the agreed value. This is done in order to help other
-    /// nodes decide despite asynchrony of communication. Once the instance
-    /// determines that all the remote nodes have reached agreement, it sets the
-    /// `terminated` flag and accepts no more incoming messages.
+    /// Termination flag. Once the instance determines that all the remote nodes have reached
+    /// agreement or have the necessary information to reach agreement, it sets the `terminated`
+    /// flag and accepts no more incoming messages.
     terminated: bool,
     /// The outgoing message queue.
     messages: VecDeque<AgreementMessage>,
@@ -210,6 +208,8 @@ pub struct Agreement<NodeUid> {
     coin_schedule: CoinSchedule,
 }
 
+pub type AgreementStep<NodeUid> = Step<NodeUid, bool>;
+
 impl<NodeUid: Clone + Debug + Ord> DistAlgorithm for Agreement<NodeUid> {
     type NodeUid = NodeUid;
     type Input = bool;
@@ -217,8 +217,9 @@ impl<NodeUid: Clone + Debug + Ord> DistAlgorithm for Agreement<NodeUid> {
     type Message = AgreementMessage;
     type Error = Error;
 
-    fn input(&mut self, input: Self::Input) -> AgreementResult<FaultLog<NodeUid>> {
-        self.set_input(input)
+    fn input(&mut self, input: Self::Input) -> AgreementResult<AgreementStep<NodeUid>> {
+        let fault_log = self.set_input(input)?;
+        self.step(fault_log)
     }
 
     /// Receive input from a remote node.
@@ -226,23 +227,24 @@ impl<NodeUid: Clone + Debug + Ord> DistAlgorithm for Agreement<NodeUid> {
         &mut self,
         sender_id: &Self::NodeUid,
         message: Self::Message,
-    ) -> AgreementResult<FaultLog<NodeUid>> {
-        if self.terminated || message.epoch < self.epoch {
-            // Message is obsolete; we're already in a later epoch or terminated.
-            return Ok(FaultLog::new());
-        }
-        if message.epoch > self.epoch {
+    ) -> AgreementResult<AgreementStep<NodeUid>> {
+        let fault_log = if self.terminated || message.epoch < self.epoch {
+            // Message is obsolete: We are already in a later epoch or terminated.
+            FaultLog::new()
+        } else if message.epoch > self.epoch {
             // Message is for a later epoch. We can't handle that yet.
             self.incoming_queue.push((sender_id.clone(), message));
-            return Ok(FaultLog::new());
-        }
-        match message.content {
-            AgreementContent::BVal(b) => self.handle_bval(sender_id, b),
-            AgreementContent::Aux(b) => self.handle_aux(sender_id, b),
-            AgreementContent::Conf(v) => self.handle_conf(sender_id, v),
-            AgreementContent::Term(v) => self.handle_term(sender_id, v).map(|()| FaultLog::new()),
-            AgreementContent::Coin(msg) => self.handle_coin(sender_id, *msg),
-        }
+            FaultLog::new()
+        } else {
+            match message.content {
+                AgreementContent::BVal(b) => self.handle_bval(sender_id, b)?,
+                AgreementContent::Aux(b) => self.handle_aux(sender_id, b)?,
+                AgreementContent::Conf(v) => self.handle_conf(sender_id, v)?,
+                AgreementContent::Term(v) => self.handle_term(sender_id, v)?,
+                AgreementContent::Coin(msg) => self.handle_coin(sender_id, *msg)?,
+            }
+        };
+        self.step(fault_log)
     }
 
     /// Take the next Agreement message for multicast to all other nodes.
@@ -250,11 +252,6 @@ impl<NodeUid: Clone + Debug + Ord> DistAlgorithm for Agreement<NodeUid> {
         self.messages
             .pop_front()
             .map(|msg| Target::All.message(msg))
-    }
-
-    /// Consume the output. Once consumed, the output stays `None` forever.
-    fn next_output(&mut self) -> Option<Self::Output> {
-        self.output.take()
     }
 
     /// Whether the algorithm has terminated.
@@ -304,8 +301,15 @@ impl<NodeUid: Clone + Debug + Ord> Agreement<NodeUid> {
         }
     }
 
+    fn step(&mut self, fault_log: FaultLog<NodeUid>) -> AgreementResult<AgreementStep<NodeUid>> {
+        Ok(Step::new(
+            self.output.take().into_iter().collect(),
+            fault_log,
+        ))
+    }
+
     /// Sets the input value for agreement.
-    pub fn set_input(&mut self, input: bool) -> AgreementResult<FaultLog<NodeUid>> {
+    fn set_input(&mut self, input: bool) -> AgreementResult<FaultLog<NodeUid>> {
         if self.epoch != 0 || self.estimated.is_some() {
             return Err(ErrorKind::InputNotAccepted.into());
         }
@@ -470,7 +474,7 @@ impl<NodeUid: Clone + Debug + Ord> Agreement<NodeUid> {
     /// Receives a `Term(v)` message. If we haven't yet decided on a value and there are more than
     /// `num_faulty` such messages with the same value from different nodes, performs expedite
     /// termination: decides on `v`, broadcasts `Term(v)` and terminates the instance.
-    fn handle_term(&mut self, sender_id: &NodeUid, b: bool) -> AgreementResult<()> {
+    fn handle_term(&mut self, sender_id: &NodeUid, b: bool) -> AgreementResult<FaultLog<NodeUid>> {
         self.received_term.insert(sender_id.clone(), b);
         // Check for the expedite termination condition.
         if self.decision.is_none()
@@ -479,7 +483,7 @@ impl<NodeUid: Clone + Debug + Ord> Agreement<NodeUid> {
         {
             self.decide(b);
         }
-        Ok(())
+        Ok(FaultLog::new())
     }
 
     /// Handles a Common Coin message. If there is output from Common Coin, starts the next
@@ -489,15 +493,23 @@ impl<NodeUid: Clone + Debug + Ord> Agreement<NodeUid> {
         sender_id: &NodeUid,
         msg: CommonCoinMessage,
     ) -> AgreementResult<FaultLog<NodeUid>> {
-        let mut fault_log = self.common_coin.handle_message(sender_id, msg)?;
+        let coin_step = self.common_coin.handle_message(sender_id, msg)?;
         self.extend_common_coin();
+        self.on_coin_step(coin_step)
+    }
 
-        if let Some(coin) = self.common_coin.next_output() {
+    fn on_coin_step(
+        &mut self,
+        coin_step: CommonCoinStep<NodeUid>,
+    ) -> AgreementResult<FaultLog<NodeUid>> {
+        let Step {
+            output,
+            mut fault_log,
+        } = coin_step;
+        if let Some(coin) = output.into_iter().next() {
             let def_bin_value = self.count_conf().1.definite();
-            self.on_coin(coin, def_bin_value)?
-                .merge_into(&mut fault_log);
+            fault_log.extend(self.on_coin(coin, def_bin_value)?);
         }
-
         Ok(fault_log)
     }
 
@@ -508,6 +520,12 @@ impl<NodeUid: Clone + Debug + Ord> Agreement<NodeUid> {
         coin: bool,
         def_bin_value: Option<bool>,
     ) -> AgreementResult<FaultLog<NodeUid>> {
+        let mut fault_log = FaultLog::new();
+        if self.terminated {
+            // Avoid an infinite regression without making an Agreement step.
+            return Ok(fault_log);
+        }
+
         let b = if let Some(b) = def_bin_value {
             // Outputting a value is allowed only once.
             if self.decision.is_none() && b == coin {
@@ -521,11 +539,16 @@ impl<NodeUid: Clone + Debug + Ord> Agreement<NodeUid> {
         self.update_epoch();
 
         self.estimated = Some(b);
-        let mut fault_log = self.send_bval(b)?;
+        fault_log.extend(self.send_bval(b)?);
         let queued_msgs = replace(&mut self.incoming_queue, Vec::new());
         for (sender_id, msg) in queued_msgs {
-            self.handle_message(&sender_id, msg)?
-                .merge_into(&mut fault_log);
+            let step = self.handle_message(&sender_id, msg)?;
+            fault_log.extend(step.fault_log);
+            // Save the output of the internal call.
+            self.output = step.output.into_iter().next();
+            if self.terminated {
+                break;
+            }
         }
         Ok(fault_log)
     }
@@ -558,31 +581,33 @@ impl<NodeUid: Clone + Debug + Ord> Agreement<NodeUid> {
         self.output = Some(b);
         // Latch the decided state.
         self.decision = Some(b);
+        debug!(
+            "{:?}/{:?} (is_validator: {}) decision: {}",
+            self.netinfo.our_uid(),
+            self.proposer_id,
+            self.netinfo.is_validator(),
+            b
+        );
         if self.netinfo.is_validator() {
             self.messages
                 .push_back(AgreementContent::Term(b).with_epoch(self.epoch));
             self.received_term.insert(self.netinfo.our_uid().clone(), b);
         }
         self.terminated = true;
-        debug!(
-            "Agreement instance {:?} decided: {}",
-            self.netinfo.our_uid(),
-            b
-        );
     }
 
     fn try_finish_conf_round(&mut self) -> AgreementResult<FaultLog<NodeUid>> {
-        let mut fault_log = FaultLog::new();
-        if self.conf_round {
-            let (count_vals, _) = self.count_conf();
-            if count_vals < self.netinfo.num_nodes() - self.netinfo.num_faulty() {
-                // Continue waiting for (N - f) `Conf` messages
-                return Ok(fault_log);
-            }
-            self.common_coin.input(())?.merge_into(&mut fault_log);
+        if self.conf_round
+            && self.count_conf().0 >= self.netinfo.num_nodes() - self.netinfo.num_faulty()
+        {
+            // Invoke the common coin.
+            let coin_step = self.common_coin.input(())?;
             self.extend_common_coin();
+            self.on_coin_step(coin_step)
+        } else {
+            // Continue waiting for (N - f) `Conf` messages
+            Ok(FaultLog::new())
         }
-        Ok(fault_log)
     }
 
     fn send_aux(&mut self, b: bool) -> AgreementResult<FaultLog<NodeUid>> {

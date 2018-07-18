@@ -1,3 +1,4 @@
+#![deny(unused_must_use)]
 //! Integration test of the reliable broadcast protocol.
 
 extern crate hbbft;
@@ -88,7 +89,8 @@ impl Adversary<Broadcast<NodeUid>> for ProposeAdversary {
             pk_set,
         ));
         let mut bc = Broadcast::new(netinfo, id).expect("broadcast instance");
-        bc.input(b"Fake news".to_vec()).expect("propose");
+        // FIXME: Use the output.
+        let _ = bc.input(b"Fake news".to_vec()).expect("propose");
         bc.message_iter()
             .map(|msg| MessageWithSender::new(id, msg))
             .collect()

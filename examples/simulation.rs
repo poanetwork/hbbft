@@ -26,7 +26,7 @@ use serde::Serialize;
 use signifix::{metric, TryFrom};
 
 use hbbft::crypto::SecretKeySet;
-use hbbft::messaging::{DistAlgorithm, NetworkInfo, Target};
+use hbbft::messaging::{DistAlgorithm, NetworkInfo, Step, Target};
 use hbbft::queueing_honey_badger::{Batch, QueueingHoneyBadger};
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -155,7 +155,7 @@ where
             message_size: 0,
             hw_quality,
         };
-        node.send_output_and_msgs();
+        node.send_output_and_msgs(Step::default());
         node
     }
 
@@ -167,15 +167,19 @@ where
         self.message_size += ts_msg.message.len() as u64;
         let start = Instant::now();
         let msg = bincode::deserialize::<D::Message>(&ts_msg.message).expect("deserialize");
-        self.algo
+        let step = self
+            .algo
             .handle_message(&ts_msg.sender_id, msg)
             .expect("handling message");
         self.time += start.elapsed() * self.hw_quality.cpu_factor / 100;
-        self.send_output_and_msgs()
+        self.send_output_and_msgs(step)
     }
 
     /// Handles the algorithm's output and messages.
-    fn send_output_and_msgs(&mut self) {
+    fn send_output_and_msgs(
+        &mut self,
+        step: Step<<D as DistAlgorithm>::NodeUid, <D as DistAlgorithm>::Output>,
+    ) {
         let start = Instant::now();
         let out_msgs: Vec<_> = self
             .algo
@@ -190,7 +194,7 @@ where
         self.time += start.elapsed() * self.hw_quality.cpu_factor / 100;
         let time = self.time;
         self.outputs
-            .extend(self.algo.output_iter().map(|out| (time, out)));
+            .extend(step.output.into_iter().map(|out| (time, out)));
         self.sent_time = cmp::max(self.time, self.sent_time);
         for (target, message) in out_msgs {
             self.sent_time += self.hw_quality.inv_bw * message.len() as u32;

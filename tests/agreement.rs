@@ -1,3 +1,4 @@
+#![deny(unused_must_use)]
 //! Tests of the Binary Byzantine Agreement protocol. Only one proposer instance
 //! is tested. Each of the nodes in the simulated network run only one instance
 //! of Agreement. This way we only test correctness of the protocol and not
@@ -77,11 +78,11 @@ where
     for size in sizes {
         let num_faulty_nodes = (size - 1) / 3;
         let num_good_nodes = size - num_faulty_nodes;
-        info!(
-            "Network size: {} good nodes, {} faulty nodes",
-            num_good_nodes, num_faulty_nodes
-        );
         for &input in &[None, Some(false), Some(true)] {
+            info!(
+                "Test start: {} good nodes and {} faulty nodes, input: {:?}",
+                num_good_nodes, num_faulty_nodes, input
+            );
             let adversary = |_| new_adversary(num_good_nodes, num_faulty_nodes);
             let new_agreement = |netinfo: Arc<NetworkInfo<NodeUid>>| {
                 Agreement::new(netinfo, 0, NodeUid(0)).expect("agreement instance")
@@ -89,6 +90,10 @@ where
             let network =
                 TestNetwork::new(num_good_nodes, num_faulty_nodes, adversary, new_agreement);
             test_agreement(network, input);
+            info!(
+                "Test success: {} good nodes and {} faulty nodes, input: {:?}",
+                num_good_nodes, num_faulty_nodes, input
+            );
         }
     }
 }

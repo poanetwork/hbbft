@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 
 use dynamic_honey_badger::{self, Batch as DhbBatch, DynamicHoneyBadger, Message};
 use fault_log::FaultLog;
-use messaging::{DistAlgorithm, NetworkInfo, TargetedMessage};
+use messaging::{DistAlgorithm, NetworkInfo, Step, TargetedMessage};
 use transaction_queue::TransactionQueue;
 
 pub use dynamic_honey_badger::{Change, ChangeState, Input};
@@ -123,6 +123,8 @@ where
     output: VecDeque<Batch<Tx, NodeUid>>,
 }
 
+pub type QueueingHoneyBadgerStep<Tx, NodeUid> = Step<NodeUid, Batch<Tx, NodeUid>>;
+
 impl<Tx, NodeUid> DistAlgorithm for QueueingHoneyBadger<Tx, NodeUid>
 where
     Tx: Eq + Serialize + for<'r> Deserialize<'r> + Debug + Hash + Clone,
@@ -134,38 +136,42 @@ where
     type Message = Message<NodeUid>;
     type Error = Error;
 
-    fn input(&mut self, input: Self::Input) -> Result<FaultLog<NodeUid>> {
+    fn input(&mut self, input: Self::Input) -> Result<QueueingHoneyBadgerStep<Tx, NodeUid>> {
         // User transactions are forwarded to `HoneyBadger` right away. Internal messages are
         // in addition signed and broadcast.
-        match input {
+        let fault_log = match input {
             Input::User(tx) => {
                 self.queue.0.push_back(tx);
-                Ok(FaultLog::new())
+                FaultLog::new()
             }
-            Input::Change(change) => Ok(self.dyn_hb.input(Input::Change(change))?),
-        }
+            Input::Change(change) => {
+                let step = self.dyn_hb.input(Input::Change(change))?;
+                // FIXME: Use the output since `dyn_hb` can output immediately on input.
+                step.fault_log
+            }
+        };
+        self.step(fault_log)
     }
 
     fn handle_message(
         &mut self,
         sender_id: &NodeUid,
         message: Self::Message,
-    ) -> Result<FaultLog<NodeUid>> {
-        let mut fault_log = self.dyn_hb.handle_message(sender_id, message)?;
-        while let Some(batch) = self.dyn_hb.next_output() {
+    ) -> Result<QueueingHoneyBadgerStep<Tx, NodeUid>> {
+        let Step {
+            output,
+            mut fault_log,
+        } = self.dyn_hb.handle_message(sender_id, message)?;
+        for batch in output {
             self.queue.remove_all(batch.iter());
             self.output.push_back(batch);
         }
-        self.propose()?.merge_into(&mut fault_log);
-        Ok(fault_log)
+        fault_log.extend(self.propose()?);
+        self.step(fault_log)
     }
 
     fn next_message(&mut self) -> Option<TargetedMessage<Self::Message, NodeUid>> {
         self.dyn_hb.next_message()
-    }
-
-    fn next_output(&mut self) -> Option<Self::Output> {
-        self.output.pop_front()
     }
 
     fn terminated(&self) -> bool {
@@ -188,6 +194,13 @@ where
         QueueingHoneyBadgerBuilder::new(netinfo)
     }
 
+    fn step(
+        &mut self,
+        fault_log: FaultLog<NodeUid>,
+    ) -> Result<QueueingHoneyBadgerStep<Tx, NodeUid>> {
+        Ok(Step::new(self.output.drain(..).collect(), fault_log))
+    }
+
     /// Returns a reference to the internal `DynamicHoneyBadger` instance.
     pub fn dyn_hb(&self) -> &DynamicHoneyBadger<Vec<Tx>, NodeUid> {
         &self.dyn_hb
@@ -200,8 +213,9 @@ where
         let mut fault_log = FaultLog::new();
         while !self.dyn_hb.has_input() {
             let proposal = self.queue.choose(amount, self.batch_size);
-            fault_log.extend(self.dyn_hb.input(Input::User(proposal))?);
-            while let Some(batch) = self.dyn_hb.next_output() {
+            let step = self.dyn_hb.input(Input::User(proposal))?;
+            fault_log.extend(step.fault_log);
+            for batch in step.output {
                 self.queue.remove_all(batch.iter());
                 self.output.push_back(batch);
             }

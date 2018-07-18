@@ -10,10 +10,10 @@ use bincode;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 
-use common_subset::{self, CommonSubset};
+use common_subset::{self, CommonSubset, CommonSubsetStep};
 use crypto::{Ciphertext, DecryptionShare};
 use fault_log::{FaultKind, FaultLog};
-use messaging::{DistAlgorithm, NetworkInfo, Target, TargetedMessage};
+use messaging::{DistAlgorithm, NetworkInfo, Step, Target, TargetedMessage};
 
 error_chain!{
     types {
@@ -72,7 +72,7 @@ where
             common_subsets: BTreeMap::new(),
             max_future_epochs: self.max_future_epochs as u64,
             messages: MessageQueue(VecDeque::new()),
-            output: VecDeque::new(),
+            output: Vec::new(),
             incoming_queue: BTreeMap::new(),
             received_shares: BTreeMap::new(),
             decrypted_contributions: BTreeMap::new(),
@@ -97,7 +97,7 @@ pub struct HoneyBadger<C, NodeUid: Rand> {
     /// The messages that need to be sent to other nodes.
     messages: MessageQueue<NodeUid>,
     /// The outputs from completed epochs.
-    output: VecDeque<Batch<C, NodeUid>>,
+    output: Vec<Batch<C, NodeUid>>,
     /// Messages for future epochs that couldn't be handled yet.
     incoming_queue: BTreeMap<u64, Vec<(NodeUid, MessageContent<NodeUid>)>>,
     /// Received decryption shares for an epoch. Each decryption share has a sender and a
@@ -110,6 +110,8 @@ pub struct HoneyBadger<C, NodeUid: Rand> {
     ciphertexts: BTreeMap<u64, BTreeMap<NodeUid, Ciphertext>>,
 }
 
+pub type HoneyBadgerStep<C, NodeUid> = Step<NodeUid, Batch<C, NodeUid>>;
+
 impl<C, NodeUid> DistAlgorithm for HoneyBadger<C, NodeUid>
 where
     C: Serialize + for<'r> Deserialize<'r> + Debug + Hash + Eq,
@@ -121,40 +123,35 @@ where
     type Message = Message<NodeUid>;
     type Error = Error;
 
-    fn input(&mut self, input: Self::Input) -> HoneyBadgerResult<FaultLog<NodeUid>> {
-        Ok(self.propose(&input)?)
+    fn input(&mut self, input: Self::Input) -> HoneyBadgerResult<HoneyBadgerStep<C, NodeUid>> {
+        let fault_log = self.propose(&input)?;
+        self.step(fault_log)
     }
 
     fn handle_message(
         &mut self,
         sender_id: &NodeUid,
         message: Self::Message,
-    ) -> HoneyBadgerResult<FaultLog<NodeUid>> {
+    ) -> HoneyBadgerResult<HoneyBadgerStep<C, NodeUid>> {
         if !self.netinfo.all_uids().contains(sender_id) {
             return Err(ErrorKind::UnknownSender.into());
         }
         let Message { epoch, content } = message;
-        if epoch < self.epoch {
-            // Ignore all messages from past epochs.
-            return Ok(FaultLog::new());
-        }
+        let mut fault_log = FaultLog::new();
         if epoch > self.epoch + self.max_future_epochs {
             // Postpone handling this message.
             self.incoming_queue
                 .entry(epoch)
                 .or_insert_with(Vec::new)
                 .push((sender_id.clone(), content));
-            return Ok(FaultLog::new());
-        }
-        self.handle_message_content(sender_id, epoch, content)
+        } else if epoch == self.epoch {
+            fault_log.extend(self.handle_message_content(sender_id, epoch, content)?);
+        } // And ignore all messages from past epochs.
+        self.step(fault_log)
     }
 
     fn next_message(&mut self) -> Option<TargetedMessage<Self::Message, NodeUid>> {
         self.messages.pop_front()
-    }
-
-    fn next_output(&mut self) -> Option<Self::Output> {
-        self.output.pop_front()
     }
 
     fn terminated(&self) -> bool {
@@ -177,13 +174,19 @@ where
         HoneyBadgerBuilder::new(netinfo)
     }
 
+    fn step(
+        &mut self,
+        fault_log: FaultLog<NodeUid>,
+    ) -> HoneyBadgerResult<HoneyBadgerStep<C, NodeUid>> {
+        Ok(Step::new(self.output.drain(..).collect(), fault_log))
+    }
+
     /// Proposes a new item in the current epoch.
     pub fn propose(&mut self, proposal: &C) -> HoneyBadgerResult<FaultLog<NodeUid>> {
         if !self.netinfo.is_validator() {
             return Ok(FaultLog::new());
         }
-        let mut fault_log = FaultLog::new();
-        {
+        let step = {
             let cs = match self.common_subsets.entry(self.epoch) {
                 Entry::Occupied(entry) => entry.into_mut(),
                 Entry::Vacant(entry) => {
@@ -193,11 +196,11 @@ where
             let ser_prop = bincode::serialize(&proposal)?;
             let ciphertext = self.netinfo.public_key_set().public_key().encrypt(ser_prop);
             self.has_input = true;
-            fault_log.extend(cs.input(bincode::serialize(&ciphertext).unwrap())?);
+            let step = cs.input(bincode::serialize(&ciphertext).unwrap())?;
             self.messages.extend_with_epoch(self.epoch, cs);
-        }
-        fault_log.extend(self.process_output()?);
-        Ok(fault_log)
+            step
+        };
+        Ok(self.process_output(step)?)
     }
 
     /// Returns `true` if input for the current epoch has already been provided.
@@ -230,7 +233,7 @@ where
         message: common_subset::Message<NodeUid>,
     ) -> HoneyBadgerResult<FaultLog<NodeUid>> {
         let mut fault_log = FaultLog::new();
-        {
+        let step = {
             // Borrow the instance for `epoch`, or create it.
             let cs = match self.common_subsets.entry(epoch) {
                 Entry::Occupied(entry) => entry.into_mut(),
@@ -244,13 +247,13 @@ where
                 }
             };
             // Handle the message and put the outgoing messages into the queue.
-            cs.handle_message(sender_id, message)?
-                .merge_into(&mut fault_log);
+            let cs_step = cs.handle_message(sender_id, message)?;
             self.messages.extend_with_epoch(epoch, cs);
-        }
+            cs_step
+        };
         // If this is the current epoch, the message could cause a new output.
         if epoch == self.epoch {
-            self.process_output()?.merge_into(&mut fault_log);
+            fault_log.extend(self.process_output(step)?);
         }
         self.remove_terminated(epoch);
         Ok(fault_log)
@@ -346,8 +349,8 @@ where
             batch.contributions.keys().collect::<Vec<_>>()
         );
         // Queue the output and advance the epoch.
-        self.output.push_back(batch);
-        self.update_epoch()?.merge_into(&mut fault_log);
+        self.output.push(batch);
+        fault_log.extend(self.update_epoch()?);
         Ok(fault_log)
     }
 
@@ -550,21 +553,19 @@ where
     }
 
     /// Checks whether the current epoch has output, and if it does, sends out our decryption shares.
-    fn process_output(&mut self) -> HoneyBadgerResult<FaultLog<NodeUid>> {
-        let mut fault_log = FaultLog::new();
-        if let Some(cs_output) = self.take_current_output() {
-            self.send_decryption_shares(cs_output)?
-                .merge_into(&mut fault_log);
+    fn process_output(
+        &mut self,
+        step: CommonSubsetStep<NodeUid>,
+    ) -> HoneyBadgerResult<FaultLog<NodeUid>> {
+        let Step {
+            output,
+            mut fault_log,
+        } = step;
+        for cs_output in output {
+            fault_log.extend(self.send_decryption_shares(cs_output)?);
             // TODO: May also check that there is no further output from Common Subset.
         }
         Ok(fault_log)
-    }
-
-    /// Returns the output of the current epoch's `CommonSubset` instance, if any.
-    fn take_current_output(&mut self) -> Option<BTreeMap<NodeUid, Vec<u8>>> {
-        self.common_subsets
-            .get_mut(&self.epoch)
-            .and_then(CommonSubset::next_output)
     }
 
     /// Removes all `CommonSubset` instances from _past_ epochs that have terminated.

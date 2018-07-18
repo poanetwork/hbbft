@@ -1,3 +1,4 @@
+#![deny(unused_must_use)]
 //! Network tests for Queueing Honey Badger.
 
 extern crate env_logger;
