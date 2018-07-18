@@ -49,7 +49,7 @@
 //!         match node.handle_propose(&sender_id, proposal.clone()) {
 //!             Some(ProposeOutcome::Valid(accept)) => accepts.push((id, accept)),
 //!             Some(ProposeOutcome::Invalid(faults)) => panic!("Invalid proposal: {:?}", faults),
-//!             None => panic!("We are not an observer, so we should send Accept."),
+//!             None => panic!("We are not a validator, so we should send Accept."),
 //!         }
 //!     }
 //! }
