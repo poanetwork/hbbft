@@ -10,7 +10,89 @@
 //! signatures and encryption. The secret master key is not known by anyone. The protocol succeeds
 //! if up to `threshold` nodes are faulty.
 //!
-//! # How it works
+//! ## Usage example
+//!
+//! ```
+//! extern crate rand;
+//! extern crate hbbft;
+//!
+//! use std::collections::BTreeMap;
+//!
+//! use hbbft::crypto::{PublicKey, SecretKey, SignatureShare};
+//! use hbbft::sync_key_gen::{ProposeOutcome, SyncKeyGen};
+//!
+//! // Two out of four shares will suffice to sign or encrypt something.
+//! let (threshold, node_num) = (1, 4);
+//!
+//! // Generate individual key pairs for encryption. These are not suitable for threshold schemes.
+//! let sec_keys: Vec<SecretKey> = (0..node_num).map(|_| rand::random()).collect();
+//! let pub_keys: BTreeMap<usize, PublicKey> = sec_keys
+//!     .iter()
+//!     .map(SecretKey::public_key)
+//!     .enumerate()
+//!     .collect();
+//!
+//! // Create the `SyncKeyGen` instances. The constructor also outputs the proposal that needs to
+//! // be sent to all other participants, so we save the proposals together with their sender ID.
+//! let mut nodes = BTreeMap::new();
+//! let mut proposals = Vec::new();
+//! for (id, sk) in sec_keys.into_iter().enumerate() {
+//!     let (sync_key_gen, opt_proposal) = SyncKeyGen::new(&id, sk, pub_keys.clone(), threshold);
+//!     nodes.insert(id, sync_key_gen);
+//!     proposals.push((id, opt_proposal.unwrap())); // Would be `None` for observer nodes.
+//! }
+//!
+//! // All nodes now handle the proposals and send the resulting `Accept` messages.
+//! let mut accepts = Vec::new();
+//! for (sender_id, proposal) in proposals {
+//!     for (&id, node) in &mut nodes {
+//!         match node.handle_propose(&sender_id, proposal.clone()) {
+//!             Some(ProposeOutcome::Valid(accept)) => accepts.push((id, accept)),
+//!             Some(ProposeOutcome::Invalid(faults)) => panic!("Invalid proposal: {:?}", faults),
+//!             None => panic!("We are not an observer, so we should send Accept."),
+//!         }
+//!     }
+//! }
+//!
+//! // Finally, we handle all the `Accept`s.
+//! for (sender_id, accept) in accepts {
+//!     for node in nodes.values_mut() {
+//!         node.handle_accept(&sender_id, accept.clone());
+//!     }
+//! }
+//!
+//! // We have all the information and can generate the key sets.
+//! let pub_key_set = nodes[&0].generate().0; // The public key set: identical for all nodes.
+//! let mut secret_key_shares = BTreeMap::new();
+//! for (&id, node) in &mut nodes {
+//!     assert!(node.is_ready());
+//!     let (pks, opt_sks) = node.generate();
+//!     assert_eq!(pks, pub_key_set); // All nodes now know the public keys and public key shares.
+//!     let sks = opt_sks.expect("Not an observer node: We receive a secret key share.");
+//!     secret_key_shares.insert(id as u64, sks);
+//! }
+//!
+//! // Three out of four nodes can now sign a message. Each share can be verified individually.
+//! let msg = "Nodes 0 and 1 does not agree with this.";
+//! let mut sig_shares: BTreeMap<u64, SignatureShare> = BTreeMap::new();
+//! for (&id, sks) in &secret_key_shares {
+//!     if id != 0 && id != 1 {
+//!         let sig_share = sks.sign(msg);
+//!         let pks = pub_key_set.public_key_share(id as u64);
+//!         assert!(pks.verify(&sig_share, msg));
+//!         sig_shares.insert(id as u64, sig_share);
+//!     }
+//! }
+//!
+//! // Two signatures are over the threshold. They are enough to produce a signature that matches
+//! // the public master key.
+//! let sig = pub_key_set
+//!     .combine_signatures(&sig_shares)
+//!     .expect("The shares can be combined.");
+//! assert!(pub_key_set.public_key().verify(&sig, msg));
+//! ```
+//!
+//! ## How it works
 //!
 //! The algorithm is based on ideas from
 //! [Distributed Key Generation in the Wild](https://eprint.iacr.org/2012/377.pdf) and

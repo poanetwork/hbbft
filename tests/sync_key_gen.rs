@@ -16,7 +16,7 @@ fn test_sync_key_gen_with(threshold: usize, node_num: usize) {
     let sec_keys: Vec<SecretKey> = (0..node_num).map(|_| rand::random()).collect();
     let pub_keys: BTreeMap<usize, PublicKey> = sec_keys
         .iter()
-        .map(|sk| sk.public_key())
+        .map(SecretKey::public_key)
         .enumerate()
         .collect();
 
