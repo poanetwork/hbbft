@@ -1,6 +1,24 @@
 //! # Queueing Honey Badger
 //!
-//! This works exactly like Dynamic Honey Badger, but it has a transaction queue built in.
+//! This works exactly like Dynamic Honey Badger, but it has a transaction queue built in. Whenever
+//! an epoch is output, it will automatically select a list of pending transactions and propose it
+//! for the next one. The user can continuously add more pending transactions to the queue.
+//!
+//! **Note**: `QueueingHoneyBadger` currently requires at least two validators.
+//!
+//! ## How it works
+//!
+//! Queueing Honey Badger runs a Dynamic Honey Badger internally, and automatically inputs a list
+//! of pending transactions as its contribution at the beginning of each epoch. These are selected
+//! by making a random choice of _B / N_ out of the first _B_ entries in the queue, where _B_ is the
+//! configurable `batch_size` parameter, and _N_ is the current number of validators.
+//!
+//! After each output, the transactions that made it into the new batch are removed from the queue.
+//!
+//! The random choice of transactions is made to reduce redundancy even if all validators have
+//! roughly the same entries in their queues. By selecting a random fraction of the first _B_
+//! entries, any two of them will likely make almost disjoint contributions instead of proposing
+//! the same transaction multiple times.
 
 use std::cmp;
 use std::collections::VecDeque;

@@ -5,26 +5,29 @@
 //! _batches_ of contributions. The protocol proceeds in _epochs_, starting at number 0, and outputs
 //! one batch in each epoch. It never terminates: It handles a continuous stream of incoming
 //! contributions and keeps producing new batches from them. All correct nodes will output the same
-//! batch for each epoch.
+//! batch for each epoch. Each validator proposes one contribution per epoch, and every batch will
+//! contain the contributions of at least _N - f_ validators.
 //!
 //! Unlike Honey Badger, this algorithm allows dynamically adding new validators from the pool of
 //! observer nodes, and turning validators back into observers. As a signal to initiate that
 //! process, it defines a special `Change` input variant, which contains either a vote
 //! `Add(node_id, public_key)`, to add a new validator, or `Remove(node_id)` to remove it. Each
 //! validator can have at most one active vote, and casting another vote revokes the previous one.
-//! Once a simple majority of validators has the same active vote, a reconfiguration process begins
-//! (they need to create new cryptographic key shares for the new composition).
+//! Once a simple majority of validators has the same active vote, a reconfiguration process
+//! begins: They create new cryptographic key shares for the new group of validators.
 //!
 //! The state of that process after each epoch is communicated via the `Batch::change` field. When
 //! this contains an `InProgress(Add(..))` value, all nodes need to send every future `Target::All`
-//! message to the new node, too. Once the value is `Complete`, the votes will be reset, and the
-//! next epoch will run using the new set of validators.
+//! message to the new node, too. Once the value is `Complete`, the next epoch will run using the
+//! new set of validators.
 //!
-//! New observers can also be added by starting them with an appropriate `start_epoch` parameter
-//! and ensuring that they receive all `Target::All` messages from that epoch on. Together with the
-//! above mechanism, this allows the network to change dynamically. You can introduce a new node to
-//! the network and make it a validator, you can demote validators to observers, and you can remove
-//! observers at any time.
+//! New observers can also be added to the network. However, the can only join after an epoch where
+//! `change` was not `None`. These epochs' batches contain a `JoinPlan`, which can be sent as an
+//! invitation to the new node: The `DynamicHoneyBadger` created from a `JoinPlan` will start as an
+//! observer in the following epoch. All `Target::All` messages from that and later epochs must be
+//! be sent to the new node. Together with the above mechanism, this allows the network to change
+//! dynamically. You can introduce a new node to the network and make it a validator, you can
+//! demote validators to observers, and you can remove observers at any time.
 //!
 //! ## How it works
 //!
@@ -37,12 +40,10 @@
 //! contributions in its own batch. The other transactions are processed: votes are counted and key
 //! generation messages are passed into a `SyncKeyGen` instance.
 //!
-//! If after an epoch key generation has completed, the Honey Badger instance (including all
-//! pending batches) is dropped, and replaced by a new one with the new set of participants.
-//!
-//! Otherwise we check if the majority of votes has changed. If a new change has a majority, the
-//! `SyncKeyGen` instance is dropped, and a new one is started to create keys according to the new
-//! pending change.
+//! Whenever a change has a majority of votes, the votes are reset and key generation for that
+//! change begins. If key generation completes successfully, the Honey Badger instance is dropped,
+//! and replaced by a new one with the new set of participants. If a different change gains a
+//! majority before that happens, key generation resets again, and is attempted for the new change.
 
 use rand::Rand;
 use std::collections::{BTreeSet, VecDeque};

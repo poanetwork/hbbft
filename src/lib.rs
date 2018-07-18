@@ -42,9 +42,9 @@
 //!
 //! [**Honey Badger**](honey_badger/index.html)
 //!
-//! The nodes input any number of _transactions_ (any user-defined type) and output a sequence of
-//! _batches_. The batches have sequential numbers (_epochs_) and contain a set of transactions
-//! that were input by the nodes. The sequence and contents of the batches will be the same in all
+//! The nodes repeatedly input _contributions_ (any user-defined type) and output a sequence of
+//! _batches_. The batches have sequential numbers (_epochs_) and contain one contribution
+//! from at least _N - f_ nodes. The sequence and contents of the batches will be the same in all
 //! nodes.
 //!
 //! [**Dynamic Honey Badger**](dynamic_honey_badger/index.html)
@@ -52,6 +52,12 @@
 //! A modified Honey Badger where validators can dynamically add and remove others to/from the
 //! network. In addition to the transactions, they can input `Add` and `Remove` requests. The
 //! output batches contain information about validator changes.
+//!
+//! [**Queueing Honey Badger**](queueing_honey_badger/index.html)
+//!
+//! A modified Dynamic Honey Badger that has a built-in transaction queue. The nodes input any
+//! number of _transactions_, and output a sequence of batches. Each batch contains a set of
+//! transactions that were input by the nodes, and usually multiple transactions from each node.
 //!
 //! [**Common Subset**](common_subset/index.html)
 //!
