@@ -13,7 +13,7 @@ extern crate serde;
 extern crate serde_derive;
 extern crate signifix;
 
-use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::collections::{BTreeMap, VecDeque};
 use std::time::{Duration, Instant};
 use std::{cmp, u64};
 
@@ -25,7 +25,7 @@ use serde::de::DeserializeOwned;
 use serde::Serialize;
 use signifix::{metric, TryFrom};
 
-use hbbft::crypto::SecretKeySet;
+use hbbft::dynamic_honey_badger::DynamicHoneyBadger;
 use hbbft::messaging::{DistAlgorithm, NetworkInfo, Step, Target};
 use hbbft::queueing_honey_badger::{Batch, QueueingHoneyBadger};
 
@@ -246,22 +246,19 @@ where
     /// Creates a new network with `good_num` good nodes, and `dead_num` dead nodes.
     pub fn new<F>(
         good_num: usize,
-        dead_num: usize,
+        adv_num: usize,
         new_algo: F,
         hw_quality: HwQuality,
     ) -> TestNetwork<D>
     where
-        F: Fn(NodeUid, BTreeSet<NodeUid>) -> D,
+        F: Fn(NetworkInfo<NodeUid>) -> D,
     {
-        let node_ids: BTreeSet<NodeUid> = (0..(good_num + dead_num)).map(NodeUid).collect();
-        let new_node_by_id = |id: NodeUid| {
-            (
-                id,
-                TestNode::new(new_algo(id, node_ids.clone()), hw_quality),
-            )
+        let netinfos = NetworkInfo::generate_map((0..(good_num + adv_num)).map(NodeUid));
+        let new_node = |(uid, netinfo): (NodeUid, NetworkInfo<_>)| {
+            (uid, TestNode::new(new_algo(netinfo), hw_quality))
         };
         let mut network = TestNetwork {
-            nodes: (0..good_num).map(NodeUid).map(new_node_by_id).collect(),
+            nodes: netinfos.into_iter().map(new_node).collect(),
         };
         let initial_msgs: Vec<_> = network
             .nodes
@@ -363,8 +360,8 @@ impl EpochInfo {
         println!(
             "{:>5} {:6} {:6} {:5} {:9} {:>9}B",
             batch.epoch().to_string().cyan(),
-            min_t.as_secs() * 1000 + max_t.subsec_nanos() as u64 / 1_000_000,
-            max_t.as_secs() * 1000 + max_t.subsec_nanos() as u64 / 1_000_000,
+            min_t.as_secs() * 1000 + u64::from(max_t.subsec_nanos()) / 1_000_000,
+            max_t.as_secs() * 1000 + u64::from(max_t.subsec_nanos()) / 1_000_000,
             txs,
             network.message_count() / network.nodes.len(),
             metric::Signifix::try_from(network.message_size() / network.nodes.len() as u64)
@@ -433,19 +430,14 @@ fn main() {
     println!();
     let num_good_nodes = args.flag_n - args.flag_f;
     let txs = (0..args.flag_txs).map(|_| Transaction::new(args.flag_tx_size));
-    let sk_set = SecretKeySet::random(args.flag_f, &mut rand::thread_rng());
-    let pk_set = sk_set.public_keys();
-    let new_honey_badger = |id: NodeUid, all_ids: BTreeSet<NodeUid>| {
-        let netinfo = NetworkInfo::new(
-            id,
-            all_ids,
-            sk_set.secret_key_share(id.0 as u64),
-            pk_set.clone(),
-        );
-        QueueingHoneyBadger::builder(netinfo)
+    let new_honey_badger = |netinfo: NetworkInfo<NodeUid>| {
+        let dyn_hb = DynamicHoneyBadger::builder(netinfo)
+            .build()
+            .expect("instantiate DynamicHoneyBadger");
+        QueueingHoneyBadger::builder(dyn_hb)
             .batch_size(args.flag_b)
             .build_with_transactions(txs.clone())
-            .expect("Instantiate honey_badger")
+            .expect("instantiate QueueingHoneyBadger")
     };
     let hw_quality = HwQuality {
         latency: Duration::from_millis(args.flag_lag),

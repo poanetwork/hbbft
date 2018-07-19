@@ -100,7 +100,7 @@ impl Adversary<UsizeHoneyBadger> for FaultyShareAdversary {
                         .public_key()
                         .encrypt(fake_proposal);
                     let share = adv_node
-                        .secret_key()
+                        .secret_key_share()
                         .decrypt_share(&fake_ciphertext)
                         .expect("decryption share");
                     // Send the share to remote nodes.

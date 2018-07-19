@@ -21,7 +21,6 @@ use std::sync::Arc;
 use rand::Rng;
 
 use hbbft::broadcast::{Broadcast, BroadcastMessage};
-use hbbft::crypto::SecretKeySet;
 use hbbft::messaging::{DistAlgorithm, NetworkInfo, Target, TargetedMessage};
 use network::{
     Adversary, MessageScheduler, MessageWithSender, NodeUid, RandomAdversary, SilentAdversary,
@@ -78,16 +77,7 @@ impl Adversary<Broadcast<NodeUid>> for ProposeAdversary {
         };
 
         // FIXME: Take the correct, known keys from the network.
-        let mut rng = rand::thread_rng();
-        let sk_set = SecretKeySet::random(self.adv_nodes.len(), &mut rng);
-        let pk_set = sk_set.public_keys();
-
-        let netinfo = Arc::new(NetworkInfo::new(
-            id,
-            node_ids,
-            sk_set.secret_key_share(0),
-            pk_set,
-        ));
+        let netinfo = Arc::new(NetworkInfo::generate_map(node_ids).remove(&id).unwrap());
         let mut bc = Broadcast::new(netinfo, id).expect("broadcast instance");
         // FIXME: Use the output.
         let _ = bc.input(b"Fake news".to_vec()).expect("propose");

@@ -1,11 +1,11 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::fmt::Debug;
 
 use rand::Rand;
 use serde::{Deserialize, Serialize};
 
 use super::{ChangeState, JoinPlan};
-use crypto::PublicKeySet;
+use crypto::{PublicKey, PublicKeySet};
 use messaging::NetworkInfo;
 
 /// A batch of transactions the algorithm has output.
@@ -19,7 +19,7 @@ pub struct Batch<C, NodeUid> {
     /// this epoch.
     change: ChangeState<NodeUid>,
     /// The public network info, if `change` is not `None`.
-    pub_netinfo: Option<(BTreeSet<NodeUid>, PublicKeySet)>,
+    pub_netinfo: Option<(PublicKeySet, BTreeMap<NodeUid, PublicKey>)>,
 }
 
 impl<C, NodeUid: Ord + Rand + Clone + Debug> Batch<C, NodeUid> {
@@ -90,11 +90,11 @@ impl<C, NodeUid: Ord + Rand + Clone + Debug> Batch<C, NodeUid> {
     {
         self.pub_netinfo
             .as_ref()
-            .map(|&(ref all_uids, ref pub_key_set)| JoinPlan {
+            .map(|&(ref pub_key_set, ref pub_keys)| JoinPlan {
                 epoch: self.epoch + 1,
                 change: self.change.clone(),
-                all_uids: all_uids.clone(),
                 pub_key_set: pub_key_set.clone(),
+                pub_keys: pub_keys.clone(),
             })
     }
 
@@ -107,7 +107,10 @@ impl<C, NodeUid: Ord + Rand + Clone + Debug> Batch<C, NodeUid> {
     ) {
         self.change = change;
         if self.change != ChangeState::None {
-            self.pub_netinfo = Some((netinfo.all_uids().clone(), netinfo.public_key_set().clone()));
+            self.pub_netinfo = Some((
+                netinfo.public_key_set().clone(),
+                netinfo.public_key_map().clone(),
+            ));
         }
     }
 }

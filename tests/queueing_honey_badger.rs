@@ -19,6 +19,7 @@ use std::cmp;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
+use hbbft::dynamic_honey_badger::DynamicHoneyBadger;
 use hbbft::messaging::NetworkInfo;
 use hbbft::queueing_honey_badger::{Batch, Change, ChangeState, Input, QueueingHoneyBadger};
 use itertools::Itertools;
@@ -76,7 +77,12 @@ fn test_queueing_honey_badger<A>(
             for tx in (num_txs / 2)..num_txs {
                 network.input_all(Input::User(tx));
             }
-            let pk = network.pk_set.public_key_share(0);
+            let pk = network.nodes[&NodeUid(0)]
+                .instance()
+                .dyn_hb()
+                .netinfo()
+                .secret_key()
+                .public_key();
             network.input_all(Input::Change(Change::Add(NodeUid(0), pk)));
             input_add = true;
         }
@@ -102,9 +108,10 @@ where
 // Allow passing `netinfo` by value. `TestNetwork` expects this function signature.
 #[cfg_attr(feature = "cargo-clippy", allow(needless_pass_by_value))]
 fn new_queueing_hb(netinfo: Arc<NetworkInfo<NodeUid>>) -> QueueingHoneyBadger<usize, NodeUid> {
-    QueueingHoneyBadger::builder((*netinfo).clone())
-        .batch_size(3)
+    let dyn_hb = DynamicHoneyBadger::builder((*netinfo).clone())
         .build()
+        .expect("instantiate DHB");
+    QueueingHoneyBadger::builder(dyn_hb).batch_size(3).build()
 }
 
 fn test_queueing_honey_badger_different_sizes<A, F>(new_adversary: F, num_txs: usize)

@@ -1,11 +1,11 @@
-use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::collections::{BTreeMap, VecDeque};
 use std::fmt::{self, Debug};
 use std::mem;
 use std::sync::Arc;
 
 use rand::{self, Rng};
 
-use hbbft::crypto::{PublicKeySet, SecretKeySet};
+use hbbft::crypto::SecretKeyShare;
 use hbbft::messaging::{DistAlgorithm, NetworkInfo, Target, TargetedMessage};
 
 /// A node identifier. In the tests, nodes are simply numbered.
@@ -355,7 +355,6 @@ pub struct TestNetwork<A: Adversary<D>, D: DistAlgorithm> {
     pub nodes: BTreeMap<D::NodeUid, TestNode<D>>,
     pub observer: TestNode<D>,
     pub adv_nodes: BTreeMap<D::NodeUid, Arc<NetworkInfo<D::NodeUid>>>,
-    pub pk_set: PublicKeySet,
     adversary: A,
 }
 
@@ -376,43 +375,31 @@ where
         G: Fn(BTreeMap<D::NodeUid, Arc<NetworkInfo<D::NodeUid>>>) -> A,
     {
         let mut rng = rand::thread_rng();
-        let sk_set = SecretKeySet::random(adv_num, &mut rng);
-        let pk_set = sk_set.public_keys();
+        let mut netinfos = NetworkInfo::generate_map((0..(good_num + adv_num)).map(NodeUid));
+        let obs_netinfo = {
+            let node_ni = netinfos.values().next().unwrap();
+            NetworkInfo::new(
+                NodeUid(good_num + adv_num),
+                SecretKeyShare::default(),
+                node_ni.public_key_set().clone(),
+                rng.gen(),
+                node_ni.public_key_map().clone(),
+            )
+        };
+        let adv_netinfos = netinfos.split_off(&NodeUid(good_num));
 
-        let node_ids: BTreeSet<NodeUid> = (0..(good_num + adv_num)).map(NodeUid).collect();
-        let new_node_by_id = |NodeUid(i): NodeUid| {
-            (
-                NodeUid(i),
-                TestNode::new(new_algo(Arc::new(NetworkInfo::new(
-                    NodeUid(i),
-                    node_ids.clone(),
-                    sk_set.secret_key_share(i as u64),
-                    pk_set.clone(),
-                )))),
-            )
+        let new_node = |(uid, netinfo): (NodeUid, NetworkInfo<_>)| {
+            (uid, TestNode::new(new_algo(Arc::new(netinfo))))
         };
-        let new_adv_node_by_id = |NodeUid(i): NodeUid| {
-            (
-                NodeUid(i),
-                Arc::new(NetworkInfo::new(
-                    NodeUid(i),
-                    node_ids.clone(),
-                    sk_set.secret_key_share(i as u64),
-                    pk_set.clone(),
-                )),
-            )
-        };
-        let adv_nodes: BTreeMap<D::NodeUid, Arc<NetworkInfo<D::NodeUid>>> = (good_num
-            ..(good_num + adv_num))
-            .map(NodeUid)
-            .map(new_adv_node_by_id)
-            .collect();
+        let new_adv_node = |(uid, netinfo): (NodeUid, NetworkInfo<_>)| (uid, Arc::new(netinfo));
+        let adv_nodes: BTreeMap<_, _> = adv_netinfos.into_iter().map(new_adv_node).collect();
+
+        let observer = TestNode::new(new_algo(Arc::new(obs_netinfo)));
 
         let mut network = TestNetwork {
-            nodes: (0..good_num).map(NodeUid).map(new_node_by_id).collect(),
-            observer: new_node_by_id(NodeUid(good_num + adv_num)).1,
+            nodes: netinfos.into_iter().map(new_node).collect(),
+            observer,
             adversary: adversary(adv_nodes.clone()),
-            pk_set: pk_set.clone(),
             adv_nodes,
         };
 

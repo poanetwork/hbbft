@@ -44,7 +44,7 @@ use std::{io, iter, process, thread, time};
 
 use hbbft::broadcast::{Broadcast, BroadcastMessage};
 use hbbft::crypto::poly::Poly;
-use hbbft::crypto::SecretKeySet;
+use hbbft::crypto::{SecretKey, SecretKeySet};
 use hbbft::messaging::{DistAlgorithm, NetworkInfo, SourcedMessage};
 use hbbft::proto::message::BroadcastProto;
 use network::commst;
@@ -107,10 +107,15 @@ impl<T: Clone + Debug + AsRef<[u8]> + PartialEq + Send + Sync + From<Vec<u8>> + 
         // keys here. A fully-featured application would need to take appropriately initialized keys
         // from elsewhere.
         let secret_key_set = SecretKeySet::from(Poly::zero());
-        let secret_key = secret_key_set.secret_key_share(our_id as u64);
-        let public_key_set = secret_key_set.public_keys();
+        let sk_share = secret_key_set.secret_key_share(our_id as u64);
+        let pub_key_set = secret_key_set.public_keys();
+        let sk = SecretKey::default();
+        let pub_keys = all_ids
+            .iter()
+            .map(|id| (*id, SecretKey::default().public_key()))
+            .collect();
 
-        let netinfo = NetworkInfo::new(our_id, all_ids.clone(), secret_key, public_key_set);
+        let netinfo = NetworkInfo::new(our_id, sk_share, pub_key_set, sk, pub_keys);
 
         if value.is_some() != (our_id == 0) {
             panic!("Exactly the first node must propose a value.");

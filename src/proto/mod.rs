@@ -8,7 +8,7 @@ use agreement::bin_values::BinValues;
 use agreement::{AgreementContent, AgreementMessage};
 use broadcast::BroadcastMessage;
 use common_coin::CommonCoinMessage;
-use crypto::Signature;
+use crypto::{Signature, SignatureShare};
 use proto::message::*;
 
 impl From<message::BroadcastProto> for BroadcastMessage {
@@ -91,7 +91,7 @@ impl AgreementMessage {
                 p.set_term(b);
             }
             AgreementContent::Coin(ccm) => {
-                let v = ccm.to_sig().to_vec();
+                let v = ccm.to_sig().0.to_vec();
                 p.set_coin(v);
             }
         }
@@ -117,9 +117,11 @@ impl AgreementMessage {
         } else if mp.has_term() {
             Some(AgreementContent::Term(mp.get_term()).with_epoch(epoch))
         } else if mp.has_coin() {
-            Signature::from_bytes(mp.get_coin()).map(|sig| {
-                AgreementContent::Coin(Box::new(CommonCoinMessage::new(sig))).with_epoch(epoch)
-            })
+            Signature::from_bytes(mp.get_coin())
+                .map(SignatureShare)
+                .map(|sig| {
+                    AgreementContent::Coin(Box::new(CommonCoinMessage::new(sig))).with_epoch(epoch)
+                })
         } else {
             None
         }

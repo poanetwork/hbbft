@@ -271,7 +271,7 @@ impl<NodeUid: Clone + Debug + Ord> Agreement<NodeUid> {
         proposer_id: NodeUid,
     ) -> AgreementResult<Self> {
         let invocation_id = netinfo.invocation_id();
-        if let Some(&proposer_i) = netinfo.node_index(&proposer_id) {
+        if let Some(proposer_i) = netinfo.node_index(&proposer_id) {
             Ok(Agreement {
                 netinfo: netinfo.clone(),
                 session_id,
@@ -670,7 +670,7 @@ impl<NodeUid: Clone + Debug + Ord> Agreement<NodeUid> {
         let nonce = Nonce::new(
             self.netinfo.invocation_id().as_ref(),
             self.session_id,
-            *self.netinfo.node_index(&self.proposer_id).unwrap(),
+            self.netinfo.node_index(&self.proposer_id).unwrap(),
             self.epoch,
         );
         // TODO: Don't spend time creating a `CommonCoin` instance in epochs where the common coin

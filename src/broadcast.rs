@@ -65,23 +65,13 @@
 //! const NUM_NODES: u64 = 7;
 //! const PROPOSER_ID: u64 = 3;
 //!
-//! // Create set of node ids.
-//! let all_uids: BTreeSet<_> = (0..NUM_NODES).collect();
-//!
-//! // Secret keys are required to complete the NetworkInfo structure, but not used in the
-//! // broadcast algorithm.
 //! let mut rng = thread_rng();
-//! let secret_keys = SecretKeySet::random(4, &mut rng);
 //!
-//! // Create initial nodes by instantiating a `NetworkInfo` for each:
-//! let mut nodes: BTreeMap<_, _> = all_uids.iter().cloned().map(|i| {
-//!     let netinfo = NetworkInfo::new(
-//!         i,
-//!         all_uids.clone(),
-//!         secret_keys.secret_key_share(i),
-//!         secret_keys.public_keys(),
-//!     );
+//! // Create a random set of keys for testing.
+//! let netinfos = NetworkInfo::generate_map(0..NUM_NODES);
 //!
+//! // Create initial nodes by instantiating a `Broadcast` for each:
+//! let mut nodes: BTreeMap<_, _> = netinfos.into_iter().map(|(i, netinfo)| {
 //!     let bc = Broadcast::new(Arc::new(netinfo), PROPOSER_ID)
 //!                  .expect("could not instantiate Broadcast");
 //!
@@ -267,7 +257,7 @@ impl<NodeUid: Debug + Clone + Ord> DistAlgorithm for Broadcast<NodeUid> {
         sender_id: &NodeUid,
         message: Self::Message,
     ) -> BroadcastResult<BroadcastStep<NodeUid>> {
-        if !self.netinfo.all_uids().contains(sender_id) {
+        if !self.netinfo.is_node_validator(sender_id) {
             return Err(ErrorKind::UnknownSender.into());
         }
         let fault_log = match message {
@@ -538,7 +528,6 @@ impl<NodeUid: Debug + Clone + Ord> Broadcast<NodeUid> {
         let mut leaf_values: Vec<Option<Box<[u8]>>> = self
             .netinfo
             .all_uids()
-            .iter()
             .map(|id| {
                 self.echos.get(id).and_then(|p| {
                     if p.root_hash.as_slice() == hash {
@@ -555,11 +544,6 @@ impl<NodeUid: Debug + Clone + Ord> Broadcast<NodeUid> {
         Ok(())
     }
 
-    /// Returns `i` if `node_id` is the `i`-th ID among all participating nodes.
-    fn index_of_node(&self, node_id: &NodeUid) -> Option<usize> {
-        self.netinfo.all_uids().iter().position(|id| id == node_id)
-    }
-
     /// Returns `true` if the proof is valid and has the same index as the node ID. Otherwise
     /// logs an info message.
     fn validate_proof(&self, p: &Proof<Vec<u8>>, id: &NodeUid) -> bool {
@@ -570,7 +554,7 @@ impl<NodeUid: Debug + Clone + Ord> Broadcast<NodeUid> {
                 HexProof(&p)
             );
             false
-        } else if self.index_of_node(id) != Some(p.value[0] as usize)
+        } else if self.netinfo.node_index(id) != Some(p.value[0] as usize)
             || p.index(self.netinfo.num_nodes()) != p.value[0] as usize
         {
             info!(

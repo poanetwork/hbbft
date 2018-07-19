@@ -56,7 +56,7 @@
 //! majority before that happens, key generation resets again, and is attempted for the new change.
 
 use rand::Rand;
-use std::collections::{BTreeSet, VecDeque};
+use std::collections::{BTreeMap, VecDeque};
 use std::fmt::Debug;
 use std::hash::Hash;
 use std::mem;
@@ -66,7 +66,7 @@ use bincode;
 use serde::{Deserialize, Serialize};
 
 use self::votes::{SignedVote, VoteCounter};
-use crypto::{PublicKeySet, SecretKey, Signature};
+use crypto::{PublicKey, PublicKeySet, SecretKey, SecretKeyShare, Signature};
 use fault_log::{FaultKind, FaultLog};
 use honey_badger::{HoneyBadger, HoneyBadgerStep, Message as HbMessage};
 use messaging::{DistAlgorithm, NetworkInfo, Step, Target, TargetedMessage};
@@ -83,7 +83,7 @@ mod change;
 mod error;
 mod votes;
 
-type KeyGenOutput = (PublicKeySet, Option<SecretKey>);
+type KeyGenOutput = (PublicKeySet, Option<SecretKeyShare>);
 
 /// The user input for `DynamicHoneyBadger`.
 #[derive(Clone, Debug)]
@@ -95,11 +95,7 @@ pub enum Input<C, NodeUid> {
 }
 
 /// A Honey Badger instance that can handle adding and removing nodes.
-pub struct DynamicHoneyBadger<C, NodeUid: Rand>
-where
-    C: Eq + Serialize + for<'r> Deserialize<'r> + Debug + Hash,
-    NodeUid: Ord + Clone + Serialize + for<'r> Deserialize<'r> + Debug,
-{
+pub struct DynamicHoneyBadger<C, NodeUid: Rand> {
     /// Shared network data.
     netinfo: NetworkInfo<NodeUid>,
     /// The maximum number of future epochs for which we handle messages simultaneously.
@@ -256,7 +252,7 @@ where
         sender_id: &NodeUid,
         message: HbMessage<NodeUid>,
     ) -> Result<FaultLog<NodeUid>> {
-        if !self.netinfo.all_uids().contains(sender_id) {
+        if !self.netinfo.is_node_validator(sender_id) {
             info!("Unknown sender {:?} of message {:?}", sender_id, message);
             return Err(ErrorKind::UnknownSender.into());
         }
@@ -323,7 +319,7 @@ where
                 // If DKG completed, apply the change.
                 debug!("{:?} DKG for {:?} complete!", self.our_id(), change);
                 // If we are a validator, we received a new secret key. Otherwise keep the old one.
-                let sk = sk.unwrap_or_else(|| self.netinfo.secret_key().clone());
+                let sk = sk.unwrap_or_else(|| self.netinfo.secret_key_share().clone());
                 // Restart Honey Badger in the next epoch, and inform the user about the change.
                 self.apply_change(&change, pub_key_set, sk, batch.epoch + 1)?;
                 batch.set_change(ChangeState::Complete(change), &self.netinfo);
@@ -355,19 +351,22 @@ where
         &mut self,
         change: &Change<NodeUid>,
         pub_key_set: PublicKeySet,
-        sk: SecretKey,
+        sk_share: SecretKeyShare,
         epoch: u64,
     ) -> Result<()> {
         self.key_gen = None;
-        let mut all_uids = self.netinfo.all_uids().clone();
-        if !match *change {
-            Change::Remove(ref id) => all_uids.remove(id),
-            Change::Add(ref id, _) => all_uids.insert(id.clone()),
+        let mut pub_keys = self.netinfo.public_key_map().clone();
+        if match *change {
+            Change::Remove(ref id) => pub_keys.remove(id).is_none(),
+            Change::Add(ref id, ref pub_key) => {
+                pub_keys.insert(id.clone(), pub_key.clone()).is_some()
+            }
         } {
             info!("No-op change: {:?}", change);
         }
-        let netinfo = NetworkInfo::new(self.our_id().clone(), all_uids, sk, pub_key_set);
-        self.netinfo = netinfo;
+        let sk = self.netinfo.secret_key().clone();
+        let our_id = self.our_id().clone();
+        self.netinfo = NetworkInfo::new(our_id, sk_share, pub_key_set, sk, pub_keys);
         self.restart_honey_badger(epoch)
     }
 
@@ -486,7 +485,7 @@ where
         kg_msg: &KeyGenMessage,
     ) -> Result<bool> {
         let ser = bincode::serialize(kg_msg)?;
-        let pk_opt = (self.netinfo.public_key_share(node_id)).or_else(|| {
+        let pk_opt = (self.netinfo.public_key(node_id)).or_else(|| {
             self.key_gen
                 .iter()
                 .filter_map(|&(_, ref change): &(_, Change<_>)| match *change {
@@ -584,8 +583,8 @@ pub struct JoinPlan<NodeUid: Ord> {
     epoch: u64,
     /// The current change. If `InProgress`, key generation for it is beginning at `epoch`.
     change: ChangeState<NodeUid>,
-    /// The set of all validators' node IDs.
-    all_uids: BTreeSet<NodeUid>,
     /// The current public key set for threshold cryptography.
     pub_key_set: PublicKeySet,
+    /// The public keys of the nodes taking part in key generation.
+    pub_keys: BTreeMap<NodeUid, PublicKey>,
 }
