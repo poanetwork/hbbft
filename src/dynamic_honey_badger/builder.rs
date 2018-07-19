@@ -106,7 +106,7 @@ where
             output: VecDeque::new(),
         };
         if let ChangeState::InProgress(ref change) = self.change {
-            dhb.update_key_gen(self.start_epoch, change.clone())?;
+            dhb.update_key_gen(self.start_epoch, change)?;
         }
         Ok(dhb)
     }

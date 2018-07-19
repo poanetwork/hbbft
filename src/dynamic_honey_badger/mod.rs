@@ -66,11 +66,11 @@ use bincode;
 use serde::{Deserialize, Serialize};
 
 use self::votes::{SignedVote, VoteCounter};
-use crypto::{PublicKey, PublicKeySet, SecretKey, SecretKeyShare, Signature};
+use crypto::{PublicKey, PublicKeySet, SecretKey, Signature};
 use fault_log::{FaultKind, FaultLog};
 use honey_badger::{HoneyBadger, HoneyBadgerStep, Message as HbMessage};
 use messaging::{DistAlgorithm, NetworkInfo, Step, Target, TargetedMessage};
-use sync_key_gen::{Accept, Propose, ProposeOutcome, SyncKeyGen};
+use sync_key_gen::{Ack, Part, PartOutcome, SyncKeyGen};
 
 pub use self::batch::Batch;
 pub use self::builder::DynamicHoneyBadgerBuilder;
@@ -82,8 +82,6 @@ mod builder;
 mod change;
 mod error;
 mod votes;
-
-type KeyGenOutput = (PublicKeySet, Option<SecretKeyShare>);
 
 /// The user input for `DynamicHoneyBadger`.
 #[derive(Clone, Debug)]
@@ -287,6 +285,7 @@ where
             // Create the batch we output ourselves. It will contain the _user_ transactions of
             // `hb_batch`, and the current change state.
             let mut batch = Batch::new(hb_batch.epoch + self.start_epoch);
+
             // Add the user transactions to `batch` and handle votes and DKG messages.
             for (id, int_contrib) in hb_batch.contributions {
                 let InternalContrib {
@@ -310,25 +309,22 @@ where
                         continue;
                     }
                     match kg_msg {
-                        KeyGenMessage::Propose(propose) => self.handle_propose(&s_id, propose)?,
-                        KeyGenMessage::Accept(accept) => self.handle_accept(&s_id, accept)?,
+                        KeyGenMessage::Part(part) => self.handle_part(&s_id, part)?,
+                        KeyGenMessage::Ack(ack) => self.handle_ack(&s_id, ack)?,
                     }.merge_into(&mut fault_log);
                 }
             }
-            if let Some(((pub_key_set, sk), change)) = self.take_key_gen_output() {
-                // If DKG completed, apply the change.
+
+            if let Some((key_gen, change)) = self.take_ready_key_gen() {
+                // If DKG completed, apply the change, restart Honey Badger, and inform the user.
                 debug!("{:?} DKG for {:?} complete!", self.our_id(), change);
-                // If we are a validator, we received a new secret key. Otherwise keep the old one.
-                let sk = sk.unwrap_or_else(|| self.netinfo.secret_key_share().clone());
-                // Restart Honey Badger in the next epoch, and inform the user about the change.
-                self.apply_change(&change, pub_key_set, sk, batch.epoch + 1)?;
+                self.netinfo = key_gen.into_network_info();
+                self.restart_honey_badger(batch.epoch + 1);
                 batch.set_change(ChangeState::Complete(change), &self.netinfo);
             } else if let Some(change) = self.vote_counter.compute_majority().cloned() {
                 // If there is a majority, restart DKG. Inform the user about the current change.
-                self.update_key_gen(batch.epoch + 1, change)?;
-                if let Some((_, ref change)) = self.key_gen {
-                    batch.set_change(ChangeState::InProgress(change.clone()), &self.netinfo);
-                }
+                self.update_key_gen(batch.epoch + 1, &change)?;
+                batch.set_change(ChangeState::InProgress(change), &self.netinfo);
             }
             self.output.push_back(batch);
         }
@@ -346,61 +342,37 @@ where
         Ok(fault_log)
     }
 
-    /// Restarts Honey Badger with a new set of nodes, and resets the Key Generation.
-    fn apply_change(
-        &mut self,
-        change: &Change<NodeUid>,
-        pub_key_set: PublicKeySet,
-        sk_share: SecretKeyShare,
-        epoch: u64,
-    ) -> Result<()> {
-        self.key_gen = None;
-        let mut pub_keys = self.netinfo.public_key_map().clone();
-        if match *change {
-            Change::Remove(ref id) => pub_keys.remove(id).is_none(),
-            Change::Add(ref id, ref pub_key) => {
-                pub_keys.insert(id.clone(), pub_key.clone()).is_some()
-            }
-        } {
-            info!("No-op change: {:?}", change);
-        }
-        let sk = self.netinfo.secret_key().clone();
-        let our_id = self.our_id().clone();
-        self.netinfo = NetworkInfo::new(our_id, sk_share, pub_key_set, sk, pub_keys);
-        self.restart_honey_badger(epoch)
-    }
-
     /// If the majority of votes has changed, restarts Key Generation for the set of nodes implied
     /// by the current change.
-    fn update_key_gen(&mut self, epoch: u64, change: Change<NodeUid>) -> Result<()> {
-        if self.key_gen.as_ref().map(|&(_, ref ch)| ch) == Some(&change) {
+    fn update_key_gen(&mut self, epoch: u64, change: &Change<NodeUid>) -> Result<()> {
+        if self.key_gen.as_ref().map(|&(_, ref ch)| ch) == Some(change) {
             return Ok(()); // The change is the same as before. Continue DKG as is.
         }
         debug!("{:?} Restarting DKG for {:?}.", self.our_id(), change);
         // Use the existing key shares - with the change applied - as keys for DKG.
         let mut pub_keys = self.netinfo.public_key_map().clone();
-        if match change {
+        if match *change {
             Change::Remove(ref id) => pub_keys.remove(id).is_none(),
             Change::Add(ref id, ref pk) => pub_keys.insert(id.clone(), pk.clone()).is_some(),
         } {
             info!("{:?} No-op change: {:?}", self.our_id(), change);
         }
-        self.restart_honey_badger(epoch)?;
+        self.restart_honey_badger(epoch);
         // TODO: This needs to be the same as `num_faulty` will be in the _new_
         // `NetworkInfo` if the change goes through. It would be safer to deduplicate.
         let threshold = (pub_keys.len() - 1) / 3;
         let sk = self.netinfo.secret_key().clone();
         let our_uid = self.our_id().clone();
-        let (key_gen, propose) = SyncKeyGen::new(&our_uid, sk, pub_keys, threshold);
-        self.key_gen = Some((key_gen, change));
-        if let Some(propose) = propose {
-            self.send_transaction(KeyGenMessage::Propose(propose))?;
+        let (key_gen, part) = SyncKeyGen::new(our_uid, sk, pub_keys, threshold);
+        self.key_gen = Some((key_gen, change.clone()));
+        if let Some(part) = part {
+            self.send_transaction(KeyGenMessage::Part(part))?;
         }
         Ok(())
     }
 
     /// Starts a new `HoneyBadger` instance and resets the vote counter.
-    fn restart_honey_badger(&mut self, epoch: u64) -> Result<()> {
+    fn restart_honey_badger(&mut self, epoch: u64) {
         // TODO: Filter out the messages for `epoch` and later.
         self.messages
             .extend_with_epoch(self.start_epoch, &mut self.honey_badger);
@@ -412,32 +384,27 @@ where
         self.honey_badger = HoneyBadger::builder(netinfo)
             .max_future_epochs(self.max_future_epochs)
             .build();
-        Ok(())
     }
 
-    /// Handles a `Propose` message that was output by Honey Badger.
-    fn handle_propose(
-        &mut self,
-        sender_id: &NodeUid,
-        propose: Propose,
-    ) -> Result<FaultLog<NodeUid>> {
+    /// Handles a `Part` message that was output by Honey Badger.
+    fn handle_part(&mut self, sender_id: &NodeUid, part: Part) -> Result<FaultLog<NodeUid>> {
         let handle = |&mut (ref mut key_gen, _): &mut (SyncKeyGen<NodeUid>, _)| {
-            key_gen.handle_propose(&sender_id, propose)
+            key_gen.handle_part(&sender_id, part)
         };
         match self.key_gen.as_mut().and_then(handle) {
-            Some(ProposeOutcome::Valid(accept)) => {
-                self.send_transaction(KeyGenMessage::Accept(accept))?;
+            Some(PartOutcome::Valid(ack)) => {
+                self.send_transaction(KeyGenMessage::Ack(ack))?;
                 Ok(FaultLog::new())
             }
-            Some(ProposeOutcome::Invalid(fault_log)) => Ok(fault_log),
+            Some(PartOutcome::Invalid(fault_log)) => Ok(fault_log),
             None => Ok(FaultLog::new()),
         }
     }
 
-    /// Handles an `Accept` message that was output by Honey Badger.
-    fn handle_accept(&mut self, sender_id: &NodeUid, accept: Accept) -> Result<FaultLog<NodeUid>> {
+    /// Handles an `Ack` message that was output by Honey Badger.
+    fn handle_ack(&mut self, sender_id: &NodeUid, ack: Ack) -> Result<FaultLog<NodeUid>> {
         if let Some(&mut (ref mut key_gen, _)) = self.key_gen.as_mut() {
-            Ok(key_gen.handle_accept(&sender_id, accept))
+            Ok(key_gen.handle_ack(&sender_id, ack))
         } else {
             Ok(FaultLog::new())
         }
@@ -458,19 +425,18 @@ where
         Ok(())
     }
 
-    /// If the current Key Generation process is ready, returns the generated key set.
+    /// If the current Key Generation process is ready, returns the `SyncKeyGen`.
     ///
     /// We require the minimum number of completed proposals (`SyncKeyGen::is_ready`) and if a new
     /// node is joining, we require in addition that the new node's proposal is complete. That way
     /// the new node knows that it's key is secret, without having to trust any number of nodes.
-    fn take_key_gen_output(&mut self) -> Option<(KeyGenOutput, Change<NodeUid>)> {
+    fn take_ready_key_gen(&mut self) -> Option<(SyncKeyGen<NodeUid>, Change<NodeUid>)> {
         let is_ready = |&(ref key_gen, ref change): &(SyncKeyGen<_>, Change<_>)| {
             let candidate_ready = |id: &NodeUid| key_gen.is_node_ready(id);
             key_gen.is_ready() && change.candidate().map_or(true, candidate_ready)
         };
         if self.key_gen.as_ref().map_or(false, is_ready) {
-            let generate = |(key_gen, change): (SyncKeyGen<_>, _)| (key_gen.generate(), change);
-            self.key_gen.take().map(generate)
+            self.key_gen.take()
         } else {
             None
         }
@@ -519,10 +485,10 @@ struct SignedKeyGenMsg<NodeUid>(u64, NodeUid, KeyGenMessage, Signature);
 /// a batch, so that all nodes see these messages in the same order.
 #[derive(Eq, PartialEq, Debug, Serialize, Deserialize, Hash, Clone)]
 pub enum KeyGenMessage {
-    /// A `SyncKeyGen::Propose` message for key generation.
-    Propose(Propose),
-    /// A `SyncKeyGen::Accept` message for key generation.
-    Accept(Accept),
+    /// A `SyncKeyGen::Part` message for key generation.
+    Part(Part),
+    /// A `SyncKeyGen::Ack` message for key generation.
+    Ack(Ack),
 }
 
 /// A message sent to or received from another node's Honey Badger instance.

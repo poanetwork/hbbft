@@ -8,9 +8,46 @@
 //!
 //! When the protocol completes, every node receives a secret key share suitable for threshold
 //! signatures and encryption. The secret master key is not known by anyone. The protocol succeeds
-//! if up to `threshold` nodes are faulty.
+//! if up to _t_ nodes are faulty, where _t_ is the `threshold` parameter. The number of nodes must
+//! be at least _2 t + 1_.
 //!
-//! ## Usage example
+//! ## Usage
+//!
+//! Before beginning the threshold key generation process, each validator needs to generate a
+//! regular (non-threshold) key pair and multicast its public key. `SyncKeyGen::new` returns the
+//! instance itself and a `Part` message, containing a contribution to the new threshold keys.
+//! It needs to be sent to all nodes. `SyncKeyGen::handle_part` in turn produces an `Ack`
+//! message, which is also multicast.
+//!
+//! All nodes must handle the exact same set of `Part` and `Ack` messages. In this sense the
+//! algorithm is synchronous: If Alice's `Ack` was handled by Bob but not by Carol, Bob and
+//! Carol could receive different public key sets, and secret key shares that don't match. One way
+//! to ensure this is to commit the messages to a public ledger before handling them, e.g. by
+//! feeding them to a preexisting instance of Honey Badger. The messages will then appear in the
+//! same order for everyone.
+//!
+//! To complete the process, call `SyncKeyGen::generate`. It produces your secret key share and the
+//! public key set.
+//!
+//! While not asynchronous, the algorithm is fault tolerant: It is not necessary to handle a
+//! `Part` and all `Ack` messages from every validator. A `Part` is _complete_ if it
+//! received at least _2 t + 1_ valid `Ack`s. Only complete `Part`s are used for key
+//! generation in the end, and as long as at least one complete `Part` is from a correct node,
+//! the new key set is secure. You can use `SyncKeyGen::is_ready` to check whether at least
+//! _t + 1_ `Part`s are complete. So all nodes can call `generate` as soon as `is_ready` returns
+//! `true`.
+//!
+//! Alternatively, you can use any stronger criterion, too, as long as all validators call
+//! `generate` at the same point, i.e. after handling the same set of messages.
+//! `SyncKeyGen::count_complete` returns the number of complete `Part` messages. And
+//! `SyncKeyGen::is_node_ready` can be used to check whether a particluar node's `Part` is
+//! complete.
+//!
+//! Finally, observer nodes can also use `SyncKeyGen`. For observers, no `Part` and `Ack`
+//! messages will be created and they do not need to send anything. On completion, they will only
+//! receive the public key set, but no secret key share.
+//!
+//! ## Example
 //!
 //! ```
 //! extern crate rand;
@@ -19,7 +56,7 @@
 //! use std::collections::BTreeMap;
 //!
 //! use hbbft::crypto::{PublicKey, SecretKey, SignatureShare};
-//! use hbbft::sync_key_gen::{ProposeOutcome, SyncKeyGen};
+//! use hbbft::sync_key_gen::{PartOutcome, SyncKeyGen};
 //!
 //! // Two out of four shares will suffice to sign or encrypt something.
 //! let (threshold, node_num) = (1, 4);
@@ -32,32 +69,32 @@
 //!     .enumerate()
 //!     .collect();
 //!
-//! // Create the `SyncKeyGen` instances. The constructor also outputs the proposal that needs to
-//! // be sent to all other participants, so we save the proposals together with their sender ID.
+//! // Create the `SyncKeyGen` instances. The constructor also outputs the part that needs to
+//! // be sent to all other participants, so we save the parts together with their sender ID.
 //! let mut nodes = BTreeMap::new();
-//! let mut proposals = Vec::new();
+//! let mut parts = Vec::new();
 //! for (id, sk) in sec_keys.into_iter().enumerate() {
-//!     let (sync_key_gen, opt_proposal) = SyncKeyGen::new(&id, sk, pub_keys.clone(), threshold);
+//!     let (sync_key_gen, opt_part) = SyncKeyGen::new(id, sk, pub_keys.clone(), threshold);
 //!     nodes.insert(id, sync_key_gen);
-//!     proposals.push((id, opt_proposal.unwrap())); // Would be `None` for observer nodes.
+//!     parts.push((id, opt_part.unwrap())); // Would be `None` for observer nodes.
 //! }
 //!
-//! // All nodes now handle the proposals and send the resulting `Accept` messages.
-//! let mut accepts = Vec::new();
-//! for (sender_id, proposal) in proposals {
+//! // All nodes now handle the parts and send the resulting `Ack` messages.
+//! let mut acks = Vec::new();
+//! for (sender_id, part) in parts {
 //!     for (&id, node) in &mut nodes {
-//!         match node.handle_propose(&sender_id, proposal.clone()) {
-//!             Some(ProposeOutcome::Valid(accept)) => accepts.push((id, accept)),
-//!             Some(ProposeOutcome::Invalid(faults)) => panic!("Invalid proposal: {:?}", faults),
-//!             None => panic!("We are not an observer, so we should send Accept."),
+//!         match node.handle_part(&sender_id, part.clone()) {
+//!             Some(PartOutcome::Valid(ack)) => acks.push((id, ack)),
+//!             Some(PartOutcome::Invalid(faults)) => panic!("Invalid part: {:?}", faults),
+//!             None => panic!("We are not an observer, so we should send Ack."),
 //!         }
 //!     }
 //! }
 //!
-//! // Finally, we handle all the `Accept`s.
-//! for (sender_id, accept) in accepts {
+//! // Finally, we handle all the `Ack`s.
+//! for (sender_id, ack) in acks {
 //!     for node in nodes.values_mut() {
-//!         node.handle_accept(&sender_id, accept.clone());
+//!         node.handle_ack(&sender_id, ack.clone());
 //!     }
 //! }
 //!
@@ -100,17 +137,17 @@
 //!
 //! In a trusted dealer scenario, the following steps occur:
 //!
-//! 1. Dealer generates a `BivarPoly` of degree `t` and publishes the `BivarCommitment` which is
+//! 1. Dealer generates a `BivarPoly` of degree _t_ and publishes the `BivarCommitment` which is
 //!    used to publicly verify the polynomial's values.
-//! 2. Dealer sends _row_ `m > 0` to node number `m`.
-//! 3. Node `m`, in turn, sends _value_ `s` to node number `s`.
-//! 4. This process continues until `2 * t + 1` nodes confirm they have received a valid row. If
-//!    there are at most `t` faulty nodes, we know that at least `t + 1` correct nodes sent on an
-//!    entry of every other node’s column to that node.
-//! 5. This means every node can reconstruct its column, and the value at `0` of its column.
-//! 6. These values all lie on a univariate polynomial of degree `t` and can be used as secret keys.
+//! 2. Dealer sends _row_ _m > 0_ to node number _m_.
+//! 3. Node _m_, in turn, sends _value_ number _s_ to node number _s_.
+//! 4. This process continues until _2 t + 1_ nodes confirm they have received a valid row. If
+//!    there are at most _t_ faulty nodes, we know that at least _t + 1_ correct nodes sent on an
+//!    entry of every other node's column to that node.
+//! 5. This means every node can reconstruct its column, and the value at _0_ of its column.
+//! 6. These values all lie on a univariate polynomial of degree _t_ and can be used as secret keys.
 //!
-//! In our _dealerless_ environment, at least `t + 1` nodes each generate a polynomial using the
+//! In our _dealerless_ environment, at least _t + 1_ nodes each generate a polynomial using the
 //! method above. The sum of the secret keys we received from each node is then used as our secret
 //! key. No single node knows the secret master key.
 
@@ -127,29 +164,38 @@ use crypto::poly::{BivarCommitment, BivarPoly, Poly};
 use crypto::serde_impl::field_vec::FieldWrap;
 use crypto::{Ciphertext, PublicKey, PublicKeySet, SecretKey, SecretKeyShare};
 use fault_log::{FaultKind, FaultLog};
+use messaging::NetworkInfo;
 
 // TODO: No need to send our own row and value to ourselves.
 
-/// A commitment to a bivariate polynomial, and for each node, an encrypted row of values.
+/// A submission by a validator for the key generation. It must to be sent to all participating
+/// nodes and handled by all of them, including the one that produced it.
+///
+/// The message contains a commitment to a bivariate polynomial, and for each node, an encrypted
+/// row of values. If this message receives enough `Ack`s, it will be used as summand to produce
+/// the the key set in the end.
 #[derive(Deserialize, Serialize, Clone, Hash, Eq, PartialEq)]
-pub struct Propose(BivarCommitment, Vec<Ciphertext>);
+pub struct Part(BivarCommitment, Vec<Ciphertext>);
 
-impl Debug for Propose {
+impl Debug for Part {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         let deg = self.0.degree();
         let len = self.1.len();
-        write!(f, "Propose(<degree {}>, <{} rows>)", deg, len)
+        write!(f, "Part(<degree {}>, <{} rows>)", deg, len)
     }
 }
 
-/// A confirmation that we have received a node's proposal and verified our row against the
-/// commitment. For each node, it contains one encrypted value of our row.
+/// A confirmation that we have received and verified a validator's part. It must be sent to
+/// all participating nodes and handled by all of them, including ourselves.
+///
+/// The message is only produced after we verified our row against the commitment in the `Part`.
+/// For each node, it contains one encrypted value of that row.
 #[derive(Deserialize, Serialize, Clone, Hash, Eq, PartialEq)]
-pub struct Accept(u64, Vec<Ciphertext>);
+pub struct Ack(u64, Vec<Ciphertext>);
 
-impl Debug for Accept {
+impl Debug for Ack {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        write!(f, "Accept({}, <{} values>", self.0, self.1.len())
+        write!(f, "Ack({}, <{} values>", self.0, self.1.len())
     }
 }
 
@@ -157,35 +203,37 @@ impl Debug for Accept {
 struct ProposalState {
     /// The proposer's commitment.
     commit: BivarCommitment,
-    /// The verified values we received from `Accept` messages.
+    /// The verified values we received from `Ack` messages.
     values: BTreeMap<u64, Fr>,
-    /// The nodes which have accepted this proposal, valid or not.
-    accepts: BTreeSet<u64>,
+    /// The nodes which have acked this part, valid or not.
+    acks: BTreeSet<u64>,
 }
 
 impl ProposalState {
-    /// Creates a new proposal state with a commitment.
+    /// Creates a new part state with a commitment.
     fn new(commit: BivarCommitment) -> ProposalState {
         ProposalState {
             commit,
             values: BTreeMap::new(),
-            accepts: BTreeSet::new(),
+            acks: BTreeSet::new(),
         }
     }
 
-    /// Returns `true` if at least `2 * threshold + 1` nodes have accepted.
+    /// Returns `true` if at least `2 * threshold + 1` nodes have acked.
     fn is_complete(&self, threshold: usize) -> bool {
-        self.accepts.len() > 2 * threshold
+        self.acks.len() > 2 * threshold
     }
 }
 
-/// Returned from `SyncKeyGen.handle_propose()`.
-pub enum ProposeOutcome<NodeUid: Clone> {
-    // If the Propose message passed to `handle_propose()` is valid, an
-    // Accept message is returned.
-    Valid(Accept),
-    // If the Propose message passed to `handle_propose()` is invalid, the
+/// The outcome of handling and verifying a `Part` message.
+pub enum PartOutcome<NodeUid: Clone> {
+    /// The message was valid: the part of it that was encrypted to us matched the public
+    /// commitment, so we can multicast an `Ack` message for it.
+    Valid(Ack),
+    // If the Part message passed to `handle_part()` is invalid, the
     // fault is logged and passed onto the caller.
+    /// The message was invalid: the part encrypted to us was malformed or didn't match the
+    /// commitment. We now know that the proposer is faulty, and dont' send an `Ack`.
     Invalid(FaultLog<NodeUid>),
 }
 
@@ -193,68 +241,76 @@ pub enum ProposeOutcome<NodeUid: Clone> {
 ///
 /// It requires that all nodes handle all messages in the exact same order.
 pub struct SyncKeyGen<NodeUid> {
+    /// Our node ID.
+    our_uid: NodeUid,
     /// Our node index.
     our_idx: Option<u64>,
     /// Our secret key.
     sec_key: SecretKey,
     /// The public keys of all nodes, by node index.
     pub_keys: BTreeMap<NodeUid, PublicKey>,
-    /// Proposed bivariate polynomial.
-    proposals: BTreeMap<u64, ProposalState>,
+    /// Proposed bivariate polynomials.
+    parts: BTreeMap<u64, ProposalState>,
     /// The degree of the generated polynomial.
     threshold: usize,
 }
 
 impl<NodeUid: Ord + Clone + Debug> SyncKeyGen<NodeUid> {
-    /// Creates a new `SyncKeyGen` instance, together with the `Propose` message that should be
-    /// broadcast, if we are a peer.
+    /// Creates a new `SyncKeyGen` instance, together with the `Part` message that should be
+    /// multicast to all nodes.
+    ///
+    /// If we are not a validator but only an observer, no `Part` message is produced and no
+    /// messages need to be sent.
     pub fn new(
-        our_uid: &NodeUid,
+        our_uid: NodeUid,
         sec_key: SecretKey,
         pub_keys: BTreeMap<NodeUid, PublicKey>,
         threshold: usize,
-    ) -> (SyncKeyGen<NodeUid>, Option<Propose>) {
+    ) -> (SyncKeyGen<NodeUid>, Option<Part>) {
         let our_idx = pub_keys
             .keys()
-            .position(|uid| uid == our_uid)
+            .position(|uid| *uid == our_uid)
             .map(|idx| idx as u64);
         let key_gen = SyncKeyGen {
+            our_uid,
             our_idx,
             sec_key,
             pub_keys,
-            proposals: BTreeMap::new(),
+            parts: BTreeMap::new(),
             threshold,
         };
         if our_idx.is_none() {
-            return (key_gen, None); // No proposal: we are an observer.
+            return (key_gen, None); // No part: we are an observer.
         }
         let mut rng = OsRng::new().expect("OS random number generator");
-        let our_proposal = BivarPoly::random(threshold, &mut rng);
-        let commit = our_proposal.commitment();
+        let our_part = BivarPoly::random(threshold, &mut rng);
+        let commit = our_part.commitment();
         let encrypt = |(i, pk): (usize, &PublicKey)| {
-            let row = our_proposal.row(i as u64 + 1);
+            let row = our_part.row(i as u64 + 1);
             let bytes = bincode::serialize(&row).expect("failed to serialize row");
             pk.encrypt(&bytes)
         };
         let rows: Vec<_> = key_gen.pub_keys.values().enumerate().map(encrypt).collect();
-        (key_gen, Some(Propose(commit, rows)))
+        (key_gen, Some(Part(commit, rows)))
     }
 
-    /// Handles a `Propose` message. If it is valid, returns an `Accept` message to be broadcast.
-    pub fn handle_propose(
+    /// Handles a `Part` message. If it is valid, returns an `Ack` message to be broadcast.
+    ///
+    /// If we are only an observer, `None` is returned instead and no messages need to be sent.
+    pub fn handle_part(
         &mut self,
         sender_id: &NodeUid,
-        Propose(commit, rows): Propose,
-    ) -> Option<ProposeOutcome<NodeUid>> {
+        Part(commit, rows): Part,
+    ) -> Option<PartOutcome<NodeUid>> {
         let sender_idx = self.node_index(sender_id)?;
         let opt_commit_row = self.our_idx.map(|idx| commit.row(idx + 1));
-        match self.proposals.entry(sender_idx) {
-            Entry::Occupied(_) => return None, // Ignore multiple proposals.
+        match self.parts.entry(sender_idx) {
+            Entry::Occupied(_) => return None, // Ignore multiple parts.
             Entry::Vacant(entry) => {
                 entry.insert(ProposalState::new(commit));
             }
         }
-        // If we are only an observer, return `None`. We don't need to send `Accept`.
+        // If we are only an observer, return `None`. We don't need to send `Ack`.
         let our_idx = self.our_idx?;
         let commit_row = opt_commit_row?;
         let ser_row = self.sec_key.decrypt(rows.get(our_idx as usize)?)?;
@@ -262,13 +318,13 @@ impl<NodeUid: Ord + Clone + Debug> SyncKeyGen<NodeUid> {
             row
         } else {
             // Log the faulty node and ignore invalid messages.
-            let fault_log = FaultLog::init(sender_id.clone(), FaultKind::InvalidProposeMessage);
-            return Some(ProposeOutcome::Invalid(fault_log));
+            let fault_log = FaultLog::init(sender_id.clone(), FaultKind::InvalidPartMessage);
+            return Some(PartOutcome::Invalid(fault_log));
         };
         if row.commitment() != commit_row {
-            debug!("Invalid proposal from node {}.", sender_idx);
-            let fault_log = FaultLog::init(sender_id.clone(), FaultKind::InvalidProposeMessage);
-            return Some(ProposeOutcome::Invalid(fault_log));
+            debug!("Invalid part from node {}.", sender_idx);
+            let fault_log = FaultLog::init(sender_id.clone(), FaultKind::InvalidPartMessage);
+            return Some(PartOutcome::Invalid(fault_log));
         }
         // The row is valid: now encrypt one value for each node.
         let encrypt = |(idx, pk): (usize, &PublicKey)| {
@@ -279,54 +335,56 @@ impl<NodeUid: Ord + Clone + Debug> SyncKeyGen<NodeUid> {
             pk.encrypt(ser_val)
         };
         let values = self.pub_keys.values().enumerate().map(encrypt).collect();
-        Some(ProposeOutcome::Valid(Accept(sender_idx, values)))
+        Some(PartOutcome::Valid(Ack(sender_idx, values)))
     }
 
-    /// Handles an `Accept` message.
-    pub fn handle_accept(&mut self, sender_id: &NodeUid, accept: Accept) -> FaultLog<NodeUid> {
+    /// Handles an `Ack` message.
+    pub fn handle_ack(&mut self, sender_id: &NodeUid, ack: Ack) -> FaultLog<NodeUid> {
         let mut fault_log = FaultLog::new();
         if let Some(sender_idx) = self.node_index(sender_id) {
-            if let Err(err) = self.handle_accept_or_err(sender_idx, accept) {
-                debug!("Invalid accept from node {}: {}", sender_idx, err);
-                fault_log.append(sender_id.clone(), FaultKind::InvalidAcceptMessage);
+            if let Err(err) = self.handle_ack_or_err(sender_idx, ack) {
+                debug!("Invalid ack from node {}: {}", sender_idx, err);
+                fault_log.append(sender_id.clone(), FaultKind::InvalidAckMessage);
             }
         }
         fault_log
     }
 
-    /// Returns the number of complete proposals. If this is at least `threshold + 1`, the keys can
+    /// Returns the number of complete parts. If this is at least `threshold + 1`, the keys can
     /// be generated, but it is possible to wait for more to increase security.
     pub fn count_complete(&self) -> usize {
-        self.proposals
+        self.parts
             .values()
-            .filter(|proposal| proposal.is_complete(self.threshold))
+            .filter(|part| part.is_complete(self.threshold))
             .count()
     }
 
-    /// Returns `true` if the proposal of the given node is complete.
+    /// Returns `true` if the part of the given node is complete.
     pub fn is_node_ready(&self, proposer_id: &NodeUid) -> bool {
         self.node_index(proposer_id)
-            .and_then(|proposer_idx| self.proposals.get(&proposer_idx))
-            .map_or(false, |proposal| proposal.is_complete(self.threshold))
+            .and_then(|proposer_idx| self.parts.get(&proposer_idx))
+            .map_or(false, |part| part.is_complete(self.threshold))
     }
 
-    /// Returns `true` if enough proposals are complete to safely generate the new key.
+    /// Returns `true` if enough parts are complete to safely generate the new key.
     pub fn is_ready(&self) -> bool {
         self.count_complete() > self.threshold
     }
 
-    /// Returns the new secret key and the public key set.
+    /// Returns the new secret key share and the public key set.
     ///
     /// These are only secure if `is_ready` returned `true`. Otherwise it is not guaranteed that
     /// none of the nodes knows the secret master key.
+    ///
+    /// If we are only an observer node, no secret key share is returned.
     pub fn generate(&self) -> (PublicKeySet, Option<SecretKeyShare>) {
         let mut pk_commit = Poly::zero().commitment();
         let mut opt_sk_val = self.our_idx.map(|_| Fr::zero());
-        let is_complete = |proposal: &&ProposalState| proposal.is_complete(self.threshold);
-        for proposal in self.proposals.values().filter(is_complete) {
-            pk_commit += proposal.commit.row(0);
+        let is_complete = |part: &&ProposalState| part.is_complete(self.threshold);
+        for part in self.parts.values().filter(is_complete) {
+            pk_commit += part.commit.row(0);
             if let Some(sk_val) = opt_sk_val.as_mut() {
-                let row: Poly = Poly::interpolate(proposal.values.iter().take(self.threshold + 1));
+                let row: Poly = Poly::interpolate(part.values.iter().take(self.threshold + 1));
                 sk_val.add_assign(&row.evaluate(0));
             }
         }
@@ -334,21 +392,29 @@ impl<NodeUid: Ord + Clone + Debug> SyncKeyGen<NodeUid> {
         (pk_commit.into(), opt_sk)
     }
 
-    /// Handles an `Accept` message or returns an error string.
-    fn handle_accept_or_err(
+    /// Consumes the instance, generates the key set and returns a new `NetworkInfo` with the new
+    /// keys.
+    pub fn into_network_info(self) -> NetworkInfo<NodeUid> {
+        let (pk_set, opt_sk_share) = self.generate();
+        let sk_share = opt_sk_share.unwrap_or_default(); // TODO: Make this an option.
+        NetworkInfo::new(self.our_uid, sk_share, pk_set, self.sec_key, self.pub_keys)
+    }
+
+    /// Handles an `Ack` message or returns an error string.
+    fn handle_ack_or_err(
         &mut self,
         sender_idx: u64,
-        Accept(proposer_idx, values): Accept,
+        Ack(proposer_idx, values): Ack,
     ) -> Result<(), String> {
         if values.len() != self.pub_keys.len() {
             return Err("wrong node count".to_string());
         }
-        let proposal = self
-            .proposals
+        let part = self
+            .parts
             .get_mut(&proposer_idx)
             .ok_or_else(|| "sender does not exist".to_string())?;
-        if !proposal.accepts.insert(sender_idx) {
-            return Err("duplicate accept".to_string());
+        if !part.acks.insert(sender_idx) {
+            return Err("duplicate ack".to_string());
         }
         let our_idx = match self.our_idx {
             Some(our_idx) => our_idx,
@@ -361,10 +427,10 @@ impl<NodeUid: Ord + Clone + Debug> SyncKeyGen<NodeUid> {
         let val = bincode::deserialize::<FieldWrap<Fr, Fr>>(&ser_val)
             .map_err(|err| format!("deserialization failed: {:?}", err))?
             .into_inner();
-        if proposal.commit.evaluate(our_idx + 1, sender_idx + 1) != G1Affine::one().mul(val) {
+        if part.commit.evaluate(our_idx + 1, sender_idx + 1) != G1Affine::one().mul(val) {
             return Err("wrong value".to_string());
         }
-        proposal.values.insert(sender_idx + 1, val);
+        part.values.insert(sender_idx + 1, val);
         Ok(())
     }
 

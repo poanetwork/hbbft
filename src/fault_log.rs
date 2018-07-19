@@ -29,10 +29,10 @@ pub enum FaultKind {
     /// `DynamicHoneyBadger` received a message (Accept, Propose, or Change)
     /// with an invalid signature.
     IncorrectPayloadSignature,
-    /// `DynamicHoneyBadger`/`SyncKeyGen` received an invalid Accept message.
-    InvalidAcceptMessage,
-    /// `DynamicHoneyBadger`/`SyncKeyGen` received an invalid Propose message.
-    InvalidProposeMessage,
+    /// `DynamicHoneyBadger`/`SyncKeyGen` received an invalid Ack message.
+    InvalidAckMessage,
+    /// `DynamicHoneyBadger`/`SyncKeyGen` received an invalid Part message.
+    InvalidPartMessage,
     /// `DynamicHoneyBadger` received a change vote with an invalid signature.
     InvalidVoteSignature,
     /// A validator committed an invalid vote in `DynamicHoneyBadger`.

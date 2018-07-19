@@ -9,7 +9,7 @@ extern crate rand;
 use std::collections::BTreeMap;
 
 use hbbft::crypto::{PublicKey, SecretKey};
-use hbbft::sync_key_gen::{ProposeOutcome, SyncKeyGen};
+use hbbft::sync_key_gen::{PartOutcome, SyncKeyGen};
 
 fn test_sync_key_gen_with(threshold: usize, node_num: usize) {
     // Generate individual key pairs for encryption. These are not suitable for threshold schemes.
@@ -26,33 +26,33 @@ fn test_sync_key_gen_with(threshold: usize, node_num: usize) {
         .into_iter()
         .enumerate()
         .map(|(id, sk)| {
-            let (sync_key_gen, proposal) = SyncKeyGen::new(&id, sk, pub_keys.clone(), threshold);
+            let (sync_key_gen, proposal) = SyncKeyGen::new(id, sk, pub_keys.clone(), threshold);
             nodes.push(sync_key_gen);
             proposal
         })
         .collect();
 
     // Handle the first `threshold + 1` proposals. Those should suffice for key generation.
-    let mut accepts = Vec::new();
+    let mut acks = Vec::new();
     for (sender_id, proposal) in proposals[..=threshold].iter().enumerate() {
         for (node_id, node) in nodes.iter_mut().enumerate() {
             let proposal = proposal.clone().expect("proposal");
-            let accept = match node.handle_propose(&sender_id, proposal) {
-                Some(ProposeOutcome::Valid(accept)) => accept,
+            let ack = match node.handle_part(&sender_id, proposal) {
+                Some(PartOutcome::Valid(ack)) => ack,
                 _ => panic!("invalid proposal"),
             };
-            // Only the first `threshold + 1` manage to commit their `Accept`s.
+            // Only the first `threshold + 1` manage to commit their `Ack`s.
             if node_id <= 2 * threshold {
-                accepts.push((node_id, accept));
+                acks.push((node_id, ack));
             }
         }
     }
 
-    // Handle the `Accept`s from `2 * threshold + 1` nodes.
-    for (sender_id, accept) in accepts {
+    // Handle the `Ack`s from `2 * threshold + 1` nodes.
+    for (sender_id, ack) in acks {
         for node in &mut nodes {
-            assert!(!node.is_ready()); // Not enough `Accept`s yet.
-            node.handle_accept(&sender_id, accept.clone());
+            assert!(!node.is_ready()); // Not enough `Ack`s yet.
+            node.handle_ack(&sender_id, ack.clone());
         }
     }
 
