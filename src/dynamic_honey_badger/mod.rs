@@ -70,7 +70,7 @@ use crypto::{PublicKey, PublicKeySet, SecretKey, Signature};
 use fault_log::{FaultKind, FaultLog};
 use honey_badger::{HoneyBadger, HoneyBadgerStep, Message as HbMessage};
 use messaging::{DistAlgorithm, NetworkInfo, Step, Target, TargetedMessage};
-use sync_key_gen::{Accept, Propose, ProposeOutcome, SyncKeyGen};
+use sync_key_gen::{Ack, Part, PartOutcome, SyncKeyGen};
 
 pub use self::batch::Batch;
 pub use self::builder::DynamicHoneyBadgerBuilder;
@@ -309,8 +309,8 @@ where
                         continue;
                     }
                     match kg_msg {
-                        KeyGenMessage::Propose(propose) => self.handle_propose(&s_id, propose)?,
-                        KeyGenMessage::Accept(accept) => self.handle_accept(&s_id, accept)?,
+                        KeyGenMessage::Part(part) => self.handle_part(&s_id, part)?,
+                        KeyGenMessage::Ack(ack) => self.handle_ack(&s_id, ack)?,
                     }.merge_into(&mut fault_log);
                 }
             }
@@ -363,10 +363,10 @@ where
         let threshold = (pub_keys.len() - 1) / 3;
         let sk = self.netinfo.secret_key().clone();
         let our_uid = self.our_id().clone();
-        let (key_gen, propose) = SyncKeyGen::new(our_uid, sk, pub_keys, threshold);
+        let (key_gen, part) = SyncKeyGen::new(our_uid, sk, pub_keys, threshold);
         self.key_gen = Some((key_gen, change.clone()));
-        if let Some(propose) = propose {
-            self.send_transaction(KeyGenMessage::Propose(propose))?;
+        if let Some(part) = part {
+            self.send_transaction(KeyGenMessage::Part(part))?;
         }
         Ok(())
     }
@@ -386,29 +386,25 @@ where
             .build();
     }
 
-    /// Handles a `Propose` message that was output by Honey Badger.
-    fn handle_propose(
-        &mut self,
-        sender_id: &NodeUid,
-        propose: Propose,
-    ) -> Result<FaultLog<NodeUid>> {
+    /// Handles a `Part` message that was output by Honey Badger.
+    fn handle_part(&mut self, sender_id: &NodeUid, part: Part) -> Result<FaultLog<NodeUid>> {
         let handle = |&mut (ref mut key_gen, _): &mut (SyncKeyGen<NodeUid>, _)| {
-            key_gen.handle_propose(&sender_id, propose)
+            key_gen.handle_part(&sender_id, part)
         };
         match self.key_gen.as_mut().and_then(handle) {
-            Some(ProposeOutcome::Valid(accept)) => {
-                self.send_transaction(KeyGenMessage::Accept(accept))?;
+            Some(PartOutcome::Valid(ack)) => {
+                self.send_transaction(KeyGenMessage::Ack(ack))?;
                 Ok(FaultLog::new())
             }
-            Some(ProposeOutcome::Invalid(fault_log)) => Ok(fault_log),
+            Some(PartOutcome::Invalid(fault_log)) => Ok(fault_log),
             None => Ok(FaultLog::new()),
         }
     }
 
-    /// Handles an `Accept` message that was output by Honey Badger.
-    fn handle_accept(&mut self, sender_id: &NodeUid, accept: Accept) -> Result<FaultLog<NodeUid>> {
+    /// Handles an `Ack` message that was output by Honey Badger.
+    fn handle_ack(&mut self, sender_id: &NodeUid, ack: Ack) -> Result<FaultLog<NodeUid>> {
         if let Some(&mut (ref mut key_gen, _)) = self.key_gen.as_mut() {
-            Ok(key_gen.handle_accept(&sender_id, accept))
+            Ok(key_gen.handle_ack(&sender_id, ack))
         } else {
             Ok(FaultLog::new())
         }
@@ -489,10 +485,10 @@ struct SignedKeyGenMsg<NodeUid>(u64, NodeUid, KeyGenMessage, Signature);
 /// a batch, so that all nodes see these messages in the same order.
 #[derive(Eq, PartialEq, Debug, Serialize, Deserialize, Hash, Clone)]
 pub enum KeyGenMessage {
-    /// A `SyncKeyGen::Propose` message for key generation.
-    Propose(Propose),
-    /// A `SyncKeyGen::Accept` message for key generation.
-    Accept(Accept),
+    /// A `SyncKeyGen::Part` message for key generation.
+    Part(Part),
+    /// A `SyncKeyGen::Ack` message for key generation.
+    Ack(Ack),
 }
 
 /// A message sent to or received from another node's Honey Badger instance.
