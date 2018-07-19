@@ -74,7 +74,7 @@
 //! let mut nodes = BTreeMap::new();
 //! let mut proposals = Vec::new();
 //! for (id, sk) in sec_keys.into_iter().enumerate() {
-//!     let (sync_key_gen, opt_proposal) = SyncKeyGen::new(&id, sk, pub_keys.clone(), threshold);
+//!     let (sync_key_gen, opt_proposal) = SyncKeyGen::new(id, sk, pub_keys.clone(), threshold);
 //!     nodes.insert(id, sync_key_gen);
 //!     proposals.push((id, opt_proposal.unwrap())); // Would be `None` for observer nodes.
 //! }
@@ -164,6 +164,7 @@ use crypto::poly::{BivarCommitment, BivarPoly, Poly};
 use crypto::serde_impl::field_vec::FieldWrap;
 use crypto::{Ciphertext, PublicKey, PublicKeySet, SecretKey, SecretKeyShare};
 use fault_log::{FaultKind, FaultLog};
+use messaging::NetworkInfo;
 
 // TODO: No need to send our own row and value to ourselves.
 
@@ -240,6 +241,8 @@ pub enum ProposeOutcome<NodeUid: Clone> {
 ///
 /// It requires that all nodes handle all messages in the exact same order.
 pub struct SyncKeyGen<NodeUid> {
+    /// Our node ID.
+    our_uid: NodeUid,
     /// Our node index.
     our_idx: Option<u64>,
     /// Our secret key.
@@ -259,16 +262,17 @@ impl<NodeUid: Ord + Clone + Debug> SyncKeyGen<NodeUid> {
     /// If we are not a validator but only an observer, no `Propose` message is produced and no
     /// messages need to be sent.
     pub fn new(
-        our_uid: &NodeUid,
+        our_uid: NodeUid,
         sec_key: SecretKey,
         pub_keys: BTreeMap<NodeUid, PublicKey>,
         threshold: usize,
     ) -> (SyncKeyGen<NodeUid>, Option<Propose>) {
         let our_idx = pub_keys
             .keys()
-            .position(|uid| uid == our_uid)
+            .position(|uid| *uid == our_uid)
             .map(|idx| idx as u64);
         let key_gen = SyncKeyGen {
+            our_uid,
             our_idx,
             sec_key,
             pub_keys,
@@ -386,6 +390,14 @@ impl<NodeUid: Ord + Clone + Debug> SyncKeyGen<NodeUid> {
         }
         let opt_sk = opt_sk_val.map(SecretKeyShare::from_value);
         (pk_commit.into(), opt_sk)
+    }
+
+    /// Consumes the instance, generates the key set and returns a new `NetworkInfo` with the new
+    /// keys.
+    pub fn into_network_info(self) -> NetworkInfo<NodeUid> {
+        let (pk_set, opt_sk_share) = self.generate();
+        let sk_share = opt_sk_share.unwrap_or_default(); // TODO: Make this an option.
+        NetworkInfo::new(self.our_uid, sk_share, pk_set, self.sec_key, self.pub_keys)
     }
 
     /// Handles an `Accept` message or returns an error string.

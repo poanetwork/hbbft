@@ -26,7 +26,7 @@ fn test_sync_key_gen_with(threshold: usize, node_num: usize) {
         .into_iter()
         .enumerate()
         .map(|(id, sk)| {
-            let (sync_key_gen, proposal) = SyncKeyGen::new(&id, sk, pub_keys.clone(), threshold);
+            let (sync_key_gen, proposal) = SyncKeyGen::new(id, sk, pub_keys.clone(), threshold);
             nodes.push(sync_key_gen);
             proposal
         })
