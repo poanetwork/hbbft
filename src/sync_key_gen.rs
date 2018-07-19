@@ -8,9 +8,46 @@
 //!
 //! When the protocol completes, every node receives a secret key share suitable for threshold
 //! signatures and encryption. The secret master key is not known by anyone. The protocol succeeds
-//! if up to `threshold` nodes are faulty.
+//! if up to _t_ nodes are faulty, where _t_ is the `threshold` parameter. The number of nodes must
+//! be at least _2 t + 1_.
 //!
-//! ## Usage example
+//! ## Usage
+//!
+//! Before beginning the threshold key generation process, each validator needs to generate a
+//! regular (non-threshold) key pair and multicast its public key. `SyncKeyGen::new` returns the
+//! instance itself and a `Propose` message, containing a contribution to the new threshold keys.
+//! It needs to be sent to all nodes. `SyncKeyGen::handle_propose` in turn produces an `Accept`
+//! message, which is also multicast.
+//!
+//! All nodes must handle the exact same set of `Propose` and `Accept` messages. In this sense the
+//! algorithm is synchronous: If Alice's `Accept` was handled by Bob but not by Carol, Bob and
+//! Carol could receive different public key sets, and secret key shares that don't match. One way
+//! to ensure this is to commit the messages to a public ledger before handling them, e.g. by
+//! feeding them to a preexisting instance of Honey Badger. The messages will then appear in the
+//! same order for everyone.
+//!
+//! To complete the process, call `SyncKeyGen::generate`. It produces your secret key share and the
+//! public key set.
+//!
+//! While not asynchronous, the algorithm is fault tolerant: It is not necessary to handle a
+//! `Propose` and all `Accept` messages from every validator. A `Propose` is _complete_ if it
+//! received at least _2 t + 1_ valid `Accept`s. Only complete `Propose`s are used for key
+//! generation in the end, and as long as at least one complete `Propose` is from a correct node,
+//! the new key set is secure. You can use `SyncKeyGen::is_ready` to check whether at least
+//! _t + 1_ `Propose`s are complete. So all nodes can call `generate` as soon as `is_ready` returns
+//! `true`.
+//!
+//! Alternatively, you can use any stronger criterion, too, as long as all validators call
+//! `generate` at the same point, i.e. after handling the same set of messages.
+//! `SyncKeyGen::count_complete` returns the number of complete `Propose` messages. And
+//! `SyncKeyGen::is_node_ready` can be used to check whether a particluar node's `Propose` is
+//! complete.
+//!
+//! Finally, observer nodes can also use `SyncKeyGen`. For observers, no `Propose` and `Accept`
+//! messages will be created and they do not need to send anything. On completion, they will only
+//! receive the public key set, but no secret key share.
+//!
+//! ## Example
 //!
 //! ```
 //! extern crate rand;
@@ -100,17 +137,17 @@
 //!
 //! In a trusted dealer scenario, the following steps occur:
 //!
-//! 1. Dealer generates a `BivarPoly` of degree `t` and publishes the `BivarCommitment` which is
+//! 1. Dealer generates a `BivarPoly` of degree _t_ and publishes the `BivarCommitment` which is
 //!    used to publicly verify the polynomial's values.
-//! 2. Dealer sends _row_ `m > 0` to node number `m`.
-//! 3. Node `m`, in turn, sends _value_ `s` to node number `s`.
-//! 4. This process continues until `2 * t + 1` nodes confirm they have received a valid row. If
-//!    there are at most `t` faulty nodes, we know that at least `t + 1` correct nodes sent on an
-//!    entry of every other node’s column to that node.
-//! 5. This means every node can reconstruct its column, and the value at `0` of its column.
-//! 6. These values all lie on a univariate polynomial of degree `t` and can be used as secret keys.
+//! 2. Dealer sends _row_ _m > 0_ to node number _m_.
+//! 3. Node _m_, in turn, sends _value_ number _s_ to node number _s_.
+//! 4. This process continues until _2 t + 1_ nodes confirm they have received a valid row. If
+//!    there are at most _t_ faulty nodes, we know that at least _t + 1_ correct nodes sent on an
+//!    entry of every other node's column to that node.
+//! 5. This means every node can reconstruct its column, and the value at _0_ of its column.
+//! 6. These values all lie on a univariate polynomial of degree _t_ and can be used as secret keys.
 //!
-//! In our _dealerless_ environment, at least `t + 1` nodes each generate a polynomial using the
+//! In our _dealerless_ environment, at least _t + 1_ nodes each generate a polynomial using the
 //! method above. The sum of the secret keys we received from each node is then used as our secret
 //! key. No single node knows the secret master key.
 
@@ -130,7 +167,12 @@ use fault_log::{FaultKind, FaultLog};
 
 // TODO: No need to send our own row and value to ourselves.
 
-/// A commitment to a bivariate polynomial, and for each node, an encrypted row of values.
+/// A submission by a validator for the key generation. It must to be sent to all participating
+/// nodes and handled by all of them, including the one that produced it.
+///
+/// The message contains a commitment to a bivariate polynomial, and for each node, an encrypted
+/// row of values. If this message receives enough `Accept`s, it will be used as summand to produce
+/// the the key set in the end.
 #[derive(Deserialize, Serialize, Clone, Hash, Eq, PartialEq)]
 pub struct Propose(BivarCommitment, Vec<Ciphertext>);
 
@@ -142,8 +184,11 @@ impl Debug for Propose {
     }
 }
 
-/// A confirmation that we have received a node's proposal and verified our row against the
-/// commitment. For each node, it contains one encrypted value of our row.
+/// A confirmation that we have received and verified a validator's proposal. It must be sent to
+/// all participating nodes and handled by all of them, including ourselves.
+///
+/// The message is only produced after we verified our row against the commitment in the `Propose`.
+/// For each node, it contains one encrypted value of that row.
 #[derive(Deserialize, Serialize, Clone, Hash, Eq, PartialEq)]
 pub struct Accept(u64, Vec<Ciphertext>);
 
@@ -179,13 +224,15 @@ impl ProposalState {
     }
 }
 
-/// Returned from `SyncKeyGen.handle_propose()`.
+/// The outcome of handling and verifying a `Propose` message.
 pub enum ProposeOutcome<NodeUid: Clone> {
-    // If the Propose message passed to `handle_propose()` is valid, an
-    // Accept message is returned.
+    /// The message was valid: the part of it that was encrypted to us matched the public
+    /// commitment, so we can multicast an `Accept` message for it.
     Valid(Accept),
     // If the Propose message passed to `handle_propose()` is invalid, the
     // fault is logged and passed onto the caller.
+    /// The message was invalid: the part encrypted to us was malformed or didn't match the
+    /// commitment. We now know that the proposer is faulty, and dont' send an `Accept`.
     Invalid(FaultLog<NodeUid>),
 }
 
@@ -207,7 +254,10 @@ pub struct SyncKeyGen<NodeUid> {
 
 impl<NodeUid: Ord + Clone + Debug> SyncKeyGen<NodeUid> {
     /// Creates a new `SyncKeyGen` instance, together with the `Propose` message that should be
-    /// broadcast, if we are a peer.
+    /// multicast to all nodes.
+    ///
+    /// If we are not a validator but only an observer, no `Propose` message is produced and no
+    /// messages need to be sent.
     pub fn new(
         our_uid: &NodeUid,
         sec_key: SecretKey,
@@ -241,6 +291,8 @@ impl<NodeUid: Ord + Clone + Debug> SyncKeyGen<NodeUid> {
     }
 
     /// Handles a `Propose` message. If it is valid, returns an `Accept` message to be broadcast.
+    ///
+    /// If we are only an observer, `None` is returned instead and no messages need to be sent.
     pub fn handle_propose(
         &mut self,
         sender_id: &NodeUid,
@@ -315,10 +367,12 @@ impl<NodeUid: Ord + Clone + Debug> SyncKeyGen<NodeUid> {
         self.count_complete() > self.threshold
     }
 
-    /// Returns the new secret key and the public key set.
+    /// Returns the new secret key share and the public key set.
     ///
     /// These are only secure if `is_ready` returned `true`. Otherwise it is not guaranteed that
     /// none of the nodes knows the secret master key.
+    ///
+    /// If we are only an observer node, no secret key share is returned.
     pub fn generate(&self) -> (PublicKeySet, Option<SecretKeyShare>) {
         let mut pk_commit = Poly::zero().commitment();
         let mut opt_sk_val = self.our_idx.map(|_| Fr::zero());
