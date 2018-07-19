@@ -34,16 +34,12 @@ use bincode;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 
-use common_subset::{self, CommonSubset, CommonSubsetStep};
+use common_subset::{self, CommonSubset};
 use crypto::{Ciphertext, DecryptionShare};
 use fault_log::{FaultKind, FaultLog};
 use messaging::{DistAlgorithm, NetworkInfo, Step, Target, TargetedMessage};
 
 error_chain!{
-    types {
-        Error, ErrorKind, ResultExt, HoneyBadgerResult;
-    }
-
     links {
         CommonSubset(common_subset::Error, common_subset::ErrorKind);
     }
@@ -134,7 +130,7 @@ pub struct HoneyBadger<C, NodeUid: Rand> {
     ciphertexts: BTreeMap<u64, BTreeMap<NodeUid, Ciphertext>>,
 }
 
-pub type HoneyBadgerStep<C, NodeUid> = Step<NodeUid, Batch<C, NodeUid>, Message<NodeUid>>;
+type HoneyBadgerStepResult<C, NodeUid> = Result<Step<HoneyBadger<C, NodeUid>>>;
 
 impl<C, NodeUid> DistAlgorithm for HoneyBadger<C, NodeUid>
 where
@@ -147,7 +143,7 @@ where
     type Message = Message<NodeUid>;
     type Error = Error;
 
-    fn input(&mut self, input: Self::Input) -> HoneyBadgerResult<HoneyBadgerStep<C, NodeUid>> {
+    fn input(&mut self, input: Self::Input) -> HoneyBadgerStepResult<C, NodeUid> {
         let fault_log = self.propose(&input)?;
         self.step(fault_log)
     }
@@ -156,7 +152,7 @@ where
         &mut self,
         sender_id: &NodeUid,
         message: Self::Message,
-    ) -> HoneyBadgerResult<HoneyBadgerStep<C, NodeUid>> {
+    ) -> HoneyBadgerStepResult<C, NodeUid> {
         if !self.netinfo.is_node_validator(sender_id) {
             return Err(ErrorKind::UnknownSender.into());
         }
@@ -194,10 +190,7 @@ where
         HoneyBadgerBuilder::new(netinfo)
     }
 
-    fn step(
-        &mut self,
-        fault_log: FaultLog<NodeUid>,
-    ) -> HoneyBadgerResult<HoneyBadgerStep<C, NodeUid>> {
+    fn step(&mut self, fault_log: FaultLog<NodeUid>) -> HoneyBadgerStepResult<C, NodeUid> {
         Ok(Step::new(
             self.output.drain(..).collect(),
             fault_log,
@@ -206,7 +199,7 @@ where
     }
 
     /// Proposes a new item in the current epoch.
-    pub fn propose(&mut self, proposal: &C) -> HoneyBadgerResult<FaultLog<NodeUid>> {
+    pub fn propose(&mut self, proposal: &C) -> Result<FaultLog<NodeUid>> {
         if !self.netinfo.is_validator() {
             return Ok(FaultLog::new());
         }
@@ -236,7 +229,7 @@ where
         sender_id: &NodeUid,
         epoch: u64,
         content: MessageContent<NodeUid>,
-    ) -> HoneyBadgerResult<FaultLog<NodeUid>> {
+    ) -> Result<FaultLog<NodeUid>> {
         match content {
             MessageContent::CommonSubset(cs_msg) => {
                 self.handle_common_subset_message(sender_id, epoch, cs_msg)
@@ -253,7 +246,7 @@ where
         sender_id: &NodeUid,
         epoch: u64,
         message: common_subset::Message<NodeUid>,
-    ) -> HoneyBadgerResult<FaultLog<NodeUid>> {
+    ) -> Result<FaultLog<NodeUid>> {
         let mut fault_log = FaultLog::new();
         let step = {
             // Borrow the instance for `epoch`, or create it.
@@ -282,7 +275,7 @@ where
         epoch: u64,
         proposer_id: NodeUid,
         share: DecryptionShare,
-    ) -> HoneyBadgerResult<FaultLog<NodeUid>> {
+    ) -> Result<FaultLog<NodeUid>> {
         let mut fault_log = FaultLog::new();
 
         if let Some(ciphertext) = self
@@ -331,7 +324,7 @@ where
 
     /// When contributions of transactions have been decrypted for all valid proposers in this
     /// epoch, moves those contributions into a batch, outputs the batch and updates the epoch.
-    fn try_output_batch(&mut self) -> HoneyBadgerResult<FaultLog<NodeUid>> {
+    fn try_output_batch(&mut self) -> Result<FaultLog<NodeUid>> {
         // Wait until contributions have been successfully decoded for all proposer nodes with correct
         // ciphertext outputs.
         if !self.all_contributions_decrypted() {
@@ -371,7 +364,7 @@ where
     }
 
     /// Increments the epoch number and clears any state that is local to the finished epoch.
-    fn update_epoch(&mut self) -> HoneyBadgerResult<FaultLog<NodeUid>> {
+    fn update_epoch(&mut self) -> Result<FaultLog<NodeUid>> {
         // Clear the state of the old epoch.
         self.ciphertexts.remove(&self.epoch);
         self.decrypted_contributions.clear();
@@ -394,7 +387,7 @@ where
     }
 
     /// Tries to decrypt contributions from all proposers and output those in a batch.
-    fn try_decrypt_and_output_batch(&mut self) -> HoneyBadgerResult<FaultLog<NodeUid>> {
+    fn try_decrypt_and_output_batch(&mut self) -> Result<FaultLog<NodeUid>> {
         // Return if we don't have ciphertexts yet.
         let proposer_ids: Vec<_> = match self.ciphertexts.get(&self.epoch) {
             Some(cts) => cts.keys().cloned().collect(),
@@ -466,7 +459,7 @@ where
     fn send_decryption_shares(
         &mut self,
         cs_output: BTreeMap<NodeUid, Vec<u8>>,
-    ) -> HoneyBadgerResult<FaultLog<NodeUid>> {
+    ) -> Result<FaultLog<NodeUid>> {
         let mut fault_log = FaultLog::new();
         let mut ciphertexts = BTreeMap::new();
         for (proposer_id, v) in cs_output {
@@ -504,7 +497,7 @@ where
         &mut self,
         proposer_id: &NodeUid,
         ciphertext: &Ciphertext,
-    ) -> HoneyBadgerResult<(bool, FaultLog<NodeUid>)> {
+    ) -> Result<(bool, FaultLog<NodeUid>)> {
         if !self.netinfo.is_validator() {
             return Ok((ciphertext.verify(), FaultLog::new()));
         }
@@ -574,9 +567,9 @@ where
     /// `epoch == Some(given_epoch)`.
     fn process_output(
         &mut self,
-        step: CommonSubsetStep<NodeUid>,
+        step: Step<CommonSubset<NodeUid>>,
         epoch: Option<u64>,
-    ) -> HoneyBadgerResult<FaultLog<NodeUid>> {
+    ) -> Result<FaultLog<NodeUid>> {
         let Step {
             output,
             mut fault_log,

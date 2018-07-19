@@ -78,7 +78,7 @@ pub struct CommonCoin<NodeUid, T> {
     terminated: bool,
 }
 
-pub type CommonCoinStep<NodeUid> = Step<NodeUid, bool, CommonCoinMessage>;
+type CommonCoinStepResult<NodeUid, T> = Result<Step<CommonCoin<NodeUid, T>>>;
 
 impl<NodeUid, T> DistAlgorithm for CommonCoin<NodeUid, T>
 where
@@ -92,7 +92,7 @@ where
     type Error = Error;
 
     /// Sends our threshold signature share if not yet sent.
-    fn input(&mut self, _input: Self::Input) -> Result<CommonCoinStep<NodeUid>> {
+    fn input(&mut self, _input: Self::Input) -> CommonCoinStepResult<NodeUid, T> {
         let fault_log = if !self.had_input {
             self.had_input = true;
             self.get_coin()?
@@ -107,7 +107,7 @@ where
         &mut self,
         sender_id: &Self::NodeUid,
         message: Self::Message,
-    ) -> Result<CommonCoinStep<NodeUid>> {
+    ) -> CommonCoinStepResult<NodeUid, T> {
         let fault_log = if !self.terminated {
             let CommonCoinMessage(share) = message;
             self.handle_share(sender_id, share)?
@@ -144,7 +144,7 @@ where
         }
     }
 
-    fn step(&mut self, fault_log: FaultLog<NodeUid>) -> Result<CommonCoinStep<NodeUid>> {
+    fn step(&mut self, fault_log: FaultLog<NodeUid>) -> CommonCoinStepResult<NodeUid, T> {
         Ok(Step::new(
             self.output.take().into_iter().collect(),
             fault_log,

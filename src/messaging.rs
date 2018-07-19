@@ -52,20 +52,22 @@ impl<M, N> TargetedMessage<M, N> {
 /// Result of one step of the local state machine of a distributed algorithm. Such a result should
 /// be used and never discarded by the client of the algorithm.
 #[must_use = "The algorithm step result must be used."]
-pub struct Step<N, O, M>
+pub struct Step<D>
 where
-    N: Clone,
+    D: DistAlgorithm,
+    <D as DistAlgorithm>::NodeUid: Clone,
 {
-    pub output: VecDeque<O>,
-    pub fault_log: FaultLog<N>,
-    pub messages: VecDeque<TargetedMessage<M, N>>,
+    pub output: VecDeque<D::Output>,
+    pub fault_log: FaultLog<D::NodeUid>,
+    pub messages: VecDeque<TargetedMessage<D::Message, D::NodeUid>>,
 }
 
-impl<N, O, M> Default for Step<N, O, M>
+impl<D> Default for Step<D>
 where
-    N: Clone,
+    D: DistAlgorithm,
+    <D as DistAlgorithm>::NodeUid: Clone,
 {
-    fn default() -> Step<N, O, M> {
+    fn default() -> Step<D> {
         Step {
             output: VecDeque::default(),
             fault_log: FaultLog::default(),
@@ -74,14 +76,14 @@ where
     }
 }
 
-impl<N, O, M> Step<N, O, M>
+impl<D: DistAlgorithm> Step<D>
 where
-    N: Clone,
+    <D as DistAlgorithm>::NodeUid: Clone,
 {
     pub fn new(
-        output: VecDeque<O>,
-        fault_log: FaultLog<N>,
-        messages: VecDeque<TargetedMessage<M, N>>,
+        output: VecDeque<D::Output>,
+        fault_log: FaultLog<D::NodeUid>,
+        messages: VecDeque<TargetedMessage<D::Message, D::NodeUid>>,
     ) -> Self {
         Step {
             output,
@@ -90,8 +92,6 @@ where
         }
     }
 }
-
-type StepResult<N, O, M, E> = Result<Step<N, O, M>, E>;
 
 /// A distributed algorithm that defines a message flow.
 pub trait DistAlgorithm {
@@ -108,17 +108,18 @@ pub trait DistAlgorithm {
     type Error: Debug;
 
     /// Handles an input provided by the user, and returns
-    fn input(
-        &mut self,
-        input: Self::Input,
-    ) -> StepResult<Self::NodeUid, Self::Output, Self::Message, Self::Error>;
+    fn input(&mut self, input: Self::Input) -> Result<Step<Self>, Self::Error>
+    where
+        Self: Sized;
 
     /// Handles a message received from node `sender_id`.
     fn handle_message(
         &mut self,
         sender_id: &Self::NodeUid,
         message: Self::Message,
-    ) -> StepResult<Self::NodeUid, Self::Output, Self::Message, Self::Error>;
+    ) -> Result<Step<Self>, Self::Error>
+    where
+        Self: Sized;
 
     /// Returns `true` if execution has completed and this instance can be dropped.
     fn terminated(&self) -> bool;

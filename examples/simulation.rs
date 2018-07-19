@@ -137,11 +137,7 @@ pub struct TestNode<D: DistAlgorithm> {
     hw_quality: HwQuality,
 }
 
-type TestNodeStep<D> = Step<
-    <D as DistAlgorithm>::NodeUid,
-    <D as DistAlgorithm>::Output,
-    <D as DistAlgorithm>::Message,
->;
+type TestNodeStepResult<D> = Step<D>;
 
 impl<D: DistAlgorithm> TestNode<D>
 where
@@ -182,7 +178,7 @@ where
     }
 
     /// Handles the algorithm's output and messages.
-    fn send_output_and_msgs(&mut self, step: TestNodeStep<D>) {
+    fn send_output_and_msgs(&mut self, step: TestNodeStepResult<D>) {
         let start = Instant::now();
         let out_msgs: Vec<_> = step
             .messages

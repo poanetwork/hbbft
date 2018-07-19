@@ -119,7 +119,7 @@ where
     output: VecDeque<Batch<Tx, NodeUid>>,
 }
 
-pub type QueueingHoneyBadgerStep<Tx, NodeUid> = Step<NodeUid, Batch<Tx, NodeUid>, Message<NodeUid>>;
+type QhbStepResult<Tx, NodeUid> = Result<Step<QueueingHoneyBadger<Tx, NodeUid>>>;
 
 impl<Tx, NodeUid> DistAlgorithm for QueueingHoneyBadger<Tx, NodeUid>
 where
@@ -132,7 +132,7 @@ where
     type Message = Message<NodeUid>;
     type Error = Error;
 
-    fn input(&mut self, input: Self::Input) -> Result<QueueingHoneyBadgerStep<Tx, NodeUid>> {
+    fn input(&mut self, input: Self::Input) -> QhbStepResult<Tx, NodeUid> {
         // User transactions are forwarded to `HoneyBadger` right away. Internal messages are
         // in addition signed and broadcast.
         let (fault_log, messages) = match input {
@@ -153,7 +153,7 @@ where
         &mut self,
         sender_id: &NodeUid,
         message: Self::Message,
-    ) -> Result<QueueingHoneyBadgerStep<Tx, NodeUid>> {
+    ) -> QhbStepResult<Tx, NodeUid> {
         let Step {
             output,
             mut fault_log,
@@ -200,7 +200,7 @@ where
         &mut self,
         fault_log: FaultLog<NodeUid>,
         messages: VecDeque<TargetedMessage<Message<NodeUid>, NodeUid>>,
-    ) -> Result<QueueingHoneyBadgerStep<Tx, NodeUid>> {
+    ) -> QhbStepResult<Tx, NodeUid> {
         Ok(Step::new(
             self.output.drain(..).collect(),
             fault_log,
