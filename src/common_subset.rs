@@ -32,7 +32,7 @@ use agreement::{self, Agreement, AgreementMessage};
 use broadcast::{self, Broadcast, BroadcastMessage};
 use fault_log::FaultLog;
 use fmt::HexBytes;
-use messaging::{DistAlgorithm, NetworkInfo, Step, TargetedMessage};
+use messaging::{self, DistAlgorithm, NetworkInfo, TargetedMessage};
 use rand::Rand;
 
 error_chain!{
@@ -107,7 +107,7 @@ pub struct CommonSubset<NodeUid: Rand> {
     decided: bool,
 }
 
-type CommonSubsetStepResult<NodeUid> = Result<Step<CommonSubset<NodeUid>>>;
+pub type Step<NodeUid> = messaging::Step<CommonSubset<NodeUid>>;
 
 impl<NodeUid: Clone + Debug + Ord + Rand> DistAlgorithm for CommonSubset<NodeUid> {
     type NodeUid = NodeUid;
@@ -116,7 +116,7 @@ impl<NodeUid: Clone + Debug + Ord + Rand> DistAlgorithm for CommonSubset<NodeUid
     type Message = Message<NodeUid>;
     type Error = Error;
 
-    fn input(&mut self, input: Self::Input) -> CommonSubsetStepResult<NodeUid> {
+    fn input(&mut self, input: Self::Input) -> Result<Step<NodeUid>> {
         debug!(
             "{:?} Proposing {:?}",
             self.netinfo.our_uid(),
@@ -130,7 +130,7 @@ impl<NodeUid: Clone + Debug + Ord + Rand> DistAlgorithm for CommonSubset<NodeUid
         &mut self,
         sender_id: &Self::NodeUid,
         message: Self::Message,
-    ) -> CommonSubsetStepResult<NodeUid> {
+    ) -> Result<Step<NodeUid>> {
         let fault_log = match message {
             Message::Broadcast(p_id, b_msg) => self.handle_broadcast(sender_id, &p_id, b_msg)?,
             Message::Agreement(p_id, a_msg) => self.handle_agreement(sender_id, &p_id, a_msg)?,
@@ -179,7 +179,7 @@ impl<NodeUid: Clone + Debug + Ord + Rand> CommonSubset<NodeUid> {
         })
     }
 
-    fn step(&mut self, fault_log: FaultLog<NodeUid>) -> CommonSubsetStepResult<NodeUid> {
+    fn step(&mut self, fault_log: FaultLog<NodeUid>) -> Result<Step<NodeUid>> {
         Ok(Step::new(
             self.output.take().into_iter().collect(),
             fault_log,
@@ -228,7 +228,7 @@ impl<NodeUid: Clone + Debug + Ord + Rand> CommonSubset<NodeUid> {
     fn process_broadcast<F>(&mut self, proposer_id: &NodeUid, f: F) -> Result<FaultLog<NodeUid>>
     where
         F: FnOnce(&mut Broadcast<NodeUid>)
-            -> result::Result<Step<Broadcast<NodeUid>>, broadcast::Error>,
+            -> result::Result<broadcast::Step<NodeUid>, broadcast::Error>,
     {
         let mut fault_log = FaultLog::new();
         let value = {
@@ -251,7 +251,7 @@ impl<NodeUid: Clone + Debug + Ord + Rand> CommonSubset<NodeUid> {
             if agreement.accepts_input() {
                 agreement.input(true)
             } else {
-                Ok(Step::default())
+                Ok(agreement::Step::default())
             }
         };
         self.process_agreement(proposer_id, set_agreement_input)?
@@ -264,7 +264,7 @@ impl<NodeUid: Clone + Debug + Ord + Rand> CommonSubset<NodeUid> {
     fn process_agreement<F>(&mut self, proposer_id: &NodeUid, f: F) -> Result<FaultLog<NodeUid>>
     where
         F: FnOnce(&mut Agreement<NodeUid>)
-            -> result::Result<Step<Agreement<NodeUid>>, agreement::Error>,
+            -> result::Result<agreement::Step<NodeUid>, agreement::Error>,
     {
         let mut fault_log = FaultLog::new();
         let value = {

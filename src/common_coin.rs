@@ -28,7 +28,7 @@ use std::sync::Arc;
 use crypto::error as cerror;
 use crypto::{Signature, SignatureShare};
 use fault_log::{FaultKind, FaultLog};
-use messaging::{DistAlgorithm, NetworkInfo, Step, Target};
+use messaging::{self, DistAlgorithm, NetworkInfo, Target};
 
 error_chain! {
     links {
@@ -78,7 +78,7 @@ pub struct CommonCoin<NodeUid, T> {
     terminated: bool,
 }
 
-type CommonCoinStepResult<NodeUid, T> = Result<Step<CommonCoin<NodeUid, T>>>;
+pub type Step<NodeUid, T> = messaging::Step<CommonCoin<NodeUid, T>>;
 
 impl<NodeUid, T> DistAlgorithm for CommonCoin<NodeUid, T>
 where
@@ -92,7 +92,7 @@ where
     type Error = Error;
 
     /// Sends our threshold signature share if not yet sent.
-    fn input(&mut self, _input: Self::Input) -> CommonCoinStepResult<NodeUid, T> {
+    fn input(&mut self, _input: Self::Input) -> Result<Step<NodeUid, T>> {
         let fault_log = if !self.had_input {
             self.had_input = true;
             self.get_coin()?
@@ -107,7 +107,7 @@ where
         &mut self,
         sender_id: &Self::NodeUid,
         message: Self::Message,
-    ) -> CommonCoinStepResult<NodeUid, T> {
+    ) -> Result<Step<NodeUid, T>> {
         let fault_log = if !self.terminated {
             let CommonCoinMessage(share) = message;
             self.handle_share(sender_id, share)?
@@ -144,7 +144,7 @@ where
         }
     }
 
-    fn step(&mut self, fault_log: FaultLog<NodeUid>) -> CommonCoinStepResult<NodeUid, T> {
+    fn step(&mut self, fault_log: FaultLog<NodeUid>) -> Result<Step<NodeUid, T>> {
         Ok(Step::new(
             self.output.take().into_iter().collect(),
             fault_log,

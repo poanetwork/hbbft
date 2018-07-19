@@ -68,8 +68,8 @@ use serde::{Deserialize, Serialize};
 use self::votes::{SignedVote, VoteCounter};
 use crypto::{PublicKey, PublicKeySet, SecretKey, Signature};
 use fault_log::{FaultKind, FaultLog};
-use honey_badger::{HoneyBadger, Message as HbMessage};
-use messaging::{DistAlgorithm, NetworkInfo, Step, Target, TargetedMessage};
+use honey_badger::{self, HoneyBadger, Message as HbMessage};
+use messaging::{self, DistAlgorithm, NetworkInfo, Target, TargetedMessage};
 use sync_key_gen::{Ack, Part, PartOutcome, SyncKeyGen};
 
 pub use self::batch::Batch;
@@ -116,7 +116,7 @@ pub struct DynamicHoneyBadger<C, NodeUid: Rand> {
     output: VecDeque<Batch<C, NodeUid>>,
 }
 
-type DhbStepResult<C, NodeUid> = Result<Step<DynamicHoneyBadger<C, NodeUid>>>;
+pub type Step<C, NodeUid> = messaging::Step<DynamicHoneyBadger<C, NodeUid>>;
 
 impl<C, NodeUid> DistAlgorithm for DynamicHoneyBadger<C, NodeUid>
 where
@@ -129,7 +129,7 @@ where
     type Message = Message<NodeUid>;
     type Error = Error;
 
-    fn input(&mut self, input: Self::Input) -> DhbStepResult<C, NodeUid> {
+    fn input(&mut self, input: Self::Input) -> Result<Step<C, NodeUid>> {
         // User contributions are forwarded to `HoneyBadger` right away. Votes are signed and
         // broadcast.
         let fault_log = match input {
@@ -143,7 +143,7 @@ where
         &mut self,
         sender_id: &NodeUid,
         message: Self::Message,
-    ) -> DhbStepResult<C, NodeUid> {
+    ) -> Result<Step<C, NodeUid>> {
         let epoch = message.start_epoch();
         let fault_log = if epoch < self.start_epoch {
             // Obsolete message.
@@ -183,7 +183,7 @@ where
     C: Eq + Serialize + for<'r> Deserialize<'r> + Debug + Hash,
     NodeUid: Eq + Ord + Clone + Debug + Serialize + for<'r> Deserialize<'r> + Hash + Rand,
 {
-    fn step(&mut self, fault_log: FaultLog<NodeUid>) -> DhbStepResult<C, NodeUid> {
+    fn step(&mut self, fault_log: FaultLog<NodeUid>) -> Result<Step<C, NodeUid>> {
         Ok(Step::new(
             self.output.drain(..).collect(),
             fault_log,
@@ -276,7 +276,7 @@ where
     /// Processes all pending batches output by Honey Badger.
     fn process_output(
         &mut self,
-        step: Step<HoneyBadger<InternalContrib<C, NodeUid>, NodeUid>>,
+        step: honey_badger::Step<InternalContrib<C, NodeUid>, NodeUid>,
     ) -> Result<FaultLog<NodeUid>> {
         let mut fault_log = FaultLog::new();
         fault_log.extend(step.fault_log);

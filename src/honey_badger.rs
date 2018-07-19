@@ -37,7 +37,7 @@ use serde::{Deserialize, Serialize};
 use common_subset::{self, CommonSubset};
 use crypto::{Ciphertext, DecryptionShare};
 use fault_log::{FaultKind, FaultLog};
-use messaging::{DistAlgorithm, NetworkInfo, Step, Target, TargetedMessage};
+use messaging::{self, DistAlgorithm, NetworkInfo, Target, TargetedMessage};
 
 error_chain!{
     links {
@@ -130,7 +130,7 @@ pub struct HoneyBadger<C, NodeUid: Rand> {
     ciphertexts: BTreeMap<u64, BTreeMap<NodeUid, Ciphertext>>,
 }
 
-type HoneyBadgerStepResult<C, NodeUid> = Result<Step<HoneyBadger<C, NodeUid>>>;
+pub type Step<C, NodeUid> = messaging::Step<HoneyBadger<C, NodeUid>>;
 
 impl<C, NodeUid> DistAlgorithm for HoneyBadger<C, NodeUid>
 where
@@ -143,7 +143,7 @@ where
     type Message = Message<NodeUid>;
     type Error = Error;
 
-    fn input(&mut self, input: Self::Input) -> HoneyBadgerStepResult<C, NodeUid> {
+    fn input(&mut self, input: Self::Input) -> Result<Step<C, NodeUid>> {
         let fault_log = self.propose(&input)?;
         self.step(fault_log)
     }
@@ -152,7 +152,7 @@ where
         &mut self,
         sender_id: &NodeUid,
         message: Self::Message,
-    ) -> HoneyBadgerStepResult<C, NodeUid> {
+    ) -> Result<Step<C, NodeUid>> {
         if !self.netinfo.is_node_validator(sender_id) {
             return Err(ErrorKind::UnknownSender.into());
         }
@@ -190,7 +190,7 @@ where
         HoneyBadgerBuilder::new(netinfo)
     }
 
-    fn step(&mut self, fault_log: FaultLog<NodeUid>) -> HoneyBadgerStepResult<C, NodeUid> {
+    fn step(&mut self, fault_log: FaultLog<NodeUid>) -> Result<Step<C, NodeUid>> {
         Ok(Step::new(
             self.output.drain(..).collect(),
             fault_log,
@@ -567,10 +567,10 @@ where
     /// `epoch == Some(given_epoch)`.
     fn process_output(
         &mut self,
-        step: Step<CommonSubset<NodeUid>>,
+        step: common_subset::Step<NodeUid>,
         epoch: Option<u64>,
     ) -> Result<FaultLog<NodeUid>> {
-        let Step {
+        let common_subset::Step {
             output,
             mut fault_log,
             mut messages,

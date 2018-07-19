@@ -31,7 +31,7 @@ use serde::{Deserialize, Serialize};
 
 use dynamic_honey_badger::{self, Batch as DhbBatch, DynamicHoneyBadger, Message};
 use fault_log::FaultLog;
-use messaging::{DistAlgorithm, Step, TargetedMessage};
+use messaging::{self, DistAlgorithm, NetworkInfo, TargetedMessage};
 use transaction_queue::TransactionQueue;
 
 pub use dynamic_honey_badger::{Change, ChangeState, Input};
@@ -119,7 +119,7 @@ where
     output: VecDeque<Batch<Tx, NodeUid>>,
 }
 
-type QhbStepResult<Tx, NodeUid> = Result<Step<QueueingHoneyBadger<Tx, NodeUid>>>;
+pub type Step<Tx, NodeUid> = messaging::Step<QueueingHoneyBadger<Tx, NodeUid>>;
 
 impl<Tx, NodeUid> DistAlgorithm for QueueingHoneyBadger<Tx, NodeUid>
 where
@@ -132,7 +132,7 @@ where
     type Message = Message<NodeUid>;
     type Error = Error;
 
-    fn input(&mut self, input: Self::Input) -> QhbStepResult<Tx, NodeUid> {
+    fn input(&mut self, input: Self::Input) -> Result<Step<Tx, NodeUid>> {
         // User transactions are forwarded to `HoneyBadger` right away. Internal messages are
         // in addition signed and broadcast.
         let (fault_log, messages) = match input {
@@ -153,8 +153,8 @@ where
         &mut self,
         sender_id: &NodeUid,
         message: Self::Message,
-    ) -> QhbStepResult<Tx, NodeUid> {
-        let Step {
+    ) -> Result<Step<Tx, NodeUid>> {
+        let dynamic_honey_badger::Step {
             output,
             mut fault_log,
             mut messages,
@@ -200,12 +200,11 @@ where
         &mut self,
         fault_log: FaultLog<NodeUid>,
         messages: VecDeque<TargetedMessage<Message<NodeUid>, NodeUid>>,
-    ) -> QhbStepResult<Tx, NodeUid> {
+    ) -> Result<Step<Tx, NodeUid>> {
         Ok(Step::new(
             self.output.drain(..).collect(),
             fault_log,
             messages,
-            //self.dyn_hb.messages.drain(..).collect(),
         ))
     }
 

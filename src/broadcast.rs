@@ -141,7 +141,7 @@ use ring::digest;
 
 use fault_log::{FaultKind, FaultLog};
 use fmt::{HexBytes, HexList, HexProof};
-use messaging::{DistAlgorithm, NetworkInfo, Step, Target, TargetedMessage};
+use messaging::{self, DistAlgorithm, NetworkInfo, Target, TargetedMessage};
 
 error_chain!{
     foreign_links {
@@ -224,7 +224,7 @@ pub struct Broadcast<NodeUid> {
     output: Option<Vec<u8>>,
 }
 
-type BroadcastStepResult<NodeUid> = Result<Step<Broadcast<NodeUid>>>;
+pub type Step<NodeUid> = messaging::Step<Broadcast<NodeUid>>;
 
 impl<NodeUid: Debug + Clone + Ord> DistAlgorithm for Broadcast<NodeUid> {
     type NodeUid = NodeUid;
@@ -235,7 +235,7 @@ impl<NodeUid: Debug + Clone + Ord> DistAlgorithm for Broadcast<NodeUid> {
     type Message = BroadcastMessage;
     type Error = Error;
 
-    fn input(&mut self, input: Self::Input) -> BroadcastStepResult<NodeUid> {
+    fn input(&mut self, input: Self::Input) -> Result<Step<NodeUid>> {
         if *self.netinfo.our_uid() != self.proposer_id {
             return Err(ErrorKind::InstanceCannotPropose.into());
         }
@@ -252,7 +252,7 @@ impl<NodeUid: Debug + Clone + Ord> DistAlgorithm for Broadcast<NodeUid> {
         &mut self,
         sender_id: &NodeUid,
         message: Self::Message,
-    ) -> BroadcastStepResult<NodeUid> {
+    ) -> Result<Step<NodeUid>> {
         if !self.netinfo.is_node_validator(sender_id) {
             return Err(ErrorKind::UnknownSender.into());
         }
@@ -298,7 +298,7 @@ impl<NodeUid: Debug + Clone + Ord> Broadcast<NodeUid> {
         })
     }
 
-    fn step(&mut self, fault_log: FaultLog<NodeUid>) -> BroadcastStepResult<NodeUid> {
+    fn step(&mut self, fault_log: FaultLog<NodeUid>) -> Result<Step<NodeUid>> {
         Ok(Step::new(
             self.output.take().into_iter().collect(),
             fault_log,

@@ -74,10 +74,9 @@ use std::sync::Arc;
 use itertools::Itertools;
 
 use agreement::bin_values::BinValues;
-use common_coin;
-use common_coin::{CommonCoin, CommonCoinMessage};
+use common_coin::{self, CommonCoin, CommonCoinMessage};
 use fault_log::FaultLog;
-use messaging::{DistAlgorithm, NetworkInfo, Step, Target, TargetedMessage};
+use messaging::{self, DistAlgorithm, NetworkInfo, Target, TargetedMessage};
 
 error_chain!{
     links {
@@ -204,7 +203,7 @@ pub struct Agreement<NodeUid> {
     coin_schedule: CoinSchedule,
 }
 
-type AgreementStepResult<NodeUid> = Result<Step<Agreement<NodeUid>>>;
+pub type Step<NodeUid> = messaging::Step<Agreement<NodeUid>>;
 
 impl<NodeUid: Clone + Debug + Ord> DistAlgorithm for Agreement<NodeUid> {
     type NodeUid = NodeUid;
@@ -213,7 +212,7 @@ impl<NodeUid: Clone + Debug + Ord> DistAlgorithm for Agreement<NodeUid> {
     type Message = AgreementMessage;
     type Error = Error;
 
-    fn input(&mut self, input: Self::Input) -> AgreementStepResult<NodeUid> {
+    fn input(&mut self, input: Self::Input) -> Result<Step<NodeUid>> {
         let fault_log = self.set_input(input)?;
         self.step(fault_log)
     }
@@ -223,7 +222,7 @@ impl<NodeUid: Clone + Debug + Ord> DistAlgorithm for Agreement<NodeUid> {
         &mut self,
         sender_id: &Self::NodeUid,
         message: Self::Message,
-    ) -> AgreementStepResult<NodeUid> {
+    ) -> Result<Step<NodeUid>> {
         let fault_log = if self.terminated || message.epoch < self.epoch {
             // Message is obsolete: We are already in a later epoch or terminated.
             FaultLog::new()
@@ -290,7 +289,7 @@ impl<NodeUid: Clone + Debug + Ord> Agreement<NodeUid> {
         }
     }
 
-    fn step(&mut self, fault_log: FaultLog<NodeUid>) -> AgreementStepResult<NodeUid> {
+    fn step(&mut self, fault_log: FaultLog<NodeUid>) -> Result<Step<NodeUid>> {
         Ok(Step::new(
             self.output.take().into_iter().collect(),
             fault_log,
@@ -488,9 +487,9 @@ impl<NodeUid: Clone + Debug + Ord> Agreement<NodeUid> {
 
     fn on_coin_step(
         &mut self,
-        coin_step: Step<CommonCoin<NodeUid, Nonce>>,
+        coin_step: common_coin::Step<NodeUid, Nonce>,
     ) -> Result<FaultLog<NodeUid>> {
-        let Step {
+        let common_coin::Step {
             output,
             mut fault_log,
             messages,
