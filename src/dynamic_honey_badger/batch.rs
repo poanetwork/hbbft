@@ -5,8 +5,7 @@ use rand::Rand;
 use serde::{Deserialize, Serialize};
 
 use super::{ChangeState, JoinPlan};
-use crypto::{PublicKey, PublicKeySet};
-use messaging::NetworkInfo;
+use messaging::{NetworkInfo, ValidatorMap};
 
 /// A batch of transactions the algorithm has output.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -19,7 +18,7 @@ pub struct Batch<C, NodeUid> {
     /// this epoch.
     change: ChangeState<NodeUid>,
     /// The public network info, if `change` is not `None`.
-    pub_netinfo: Option<(PublicKeySet, BTreeMap<NodeUid, PublicKey>)>,
+    validator_map: Option<ValidatorMap<NodeUid>>,
 }
 
 impl<C, NodeUid: Ord + Rand + Clone + Debug> Batch<C, NodeUid> {
@@ -29,7 +28,7 @@ impl<C, NodeUid: Ord + Rand + Clone + Debug> Batch<C, NodeUid> {
             epoch,
             contributions: BTreeMap::new(),
             change: ChangeState::None,
-            pub_netinfo: None,
+            validator_map: None,
         }
     }
 
@@ -88,14 +87,11 @@ impl<C, NodeUid: Ord + Rand + Clone + Debug> Batch<C, NodeUid> {
     where
         NodeUid: Serialize + for<'r> Deserialize<'r>,
     {
-        self.pub_netinfo
-            .as_ref()
-            .map(|&(ref pub_key_set, ref pub_keys)| JoinPlan {
-                epoch: self.epoch + 1,
-                change: self.change.clone(),
-                pub_key_set: pub_key_set.clone(),
-                pub_keys: pub_keys.clone(),
-            })
+        self.validator_map.as_ref().map(|validator_map| JoinPlan {
+            epoch: self.epoch + 1,
+            change: self.change.clone(),
+            validator_map: validator_map.clone(),
+        })
     }
 
     /// Sets the current change state, and if it is not `None`, inserts the network information so
@@ -107,10 +103,7 @@ impl<C, NodeUid: Ord + Rand + Clone + Debug> Batch<C, NodeUid> {
     ) {
         self.change = change;
         if self.change != ChangeState::None {
-            self.pub_netinfo = Some((
-                netinfo.public_key_set().clone(),
-                netinfo.public_key_map().clone(),
-            ));
+            self.validator_map = Some(netinfo.validator_map().clone());
         }
     }
 }

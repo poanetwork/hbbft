@@ -65,12 +65,10 @@ where
         secret_key: SecretKey,
         join_plan: JoinPlan<NodeUid>,
     ) -> Self {
-        let netinfo = NetworkInfo::new(
+        let netinfo = join_plan.validator_map.into_network_info(
             our_uid,
-            SecretKeyShare::default(), // TODO: Should be an option?
-            join_plan.pub_key_set,
+            SecretKeyShare::default(),
             secret_key,
-            join_plan.pub_keys,
         );
         DynamicHoneyBadgerBuilder {
             netinfo,

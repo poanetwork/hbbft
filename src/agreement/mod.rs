@@ -270,7 +270,7 @@ impl<NodeUid: Clone + Debug + Ord> Agreement<NodeUid> {
         session_id: u64,
         proposer_id: NodeUid,
     ) -> AgreementResult<Self> {
-        let invocation_id = netinfo.invocation_id();
+        let invocation_id = netinfo.validator_map().invocation_id();
         if let Some(proposer_i) = netinfo.node_index(&proposer_id) {
             Ok(Agreement {
                 netinfo: netinfo.clone(),
@@ -668,7 +668,7 @@ impl<NodeUid: Clone + Debug + Ord> Agreement<NodeUid> {
         self.conf_round = false;
         self.epoch += 1;
         let nonce = Nonce::new(
-            self.netinfo.invocation_id().as_ref(),
+            self.netinfo.validator_map().invocation_id().as_ref(),
             self.session_id,
             self.netinfo.node_index(&self.proposer_id).unwrap(),
             self.epoch,

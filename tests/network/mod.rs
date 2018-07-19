@@ -378,12 +378,10 @@ where
         let mut netinfos = NetworkInfo::generate_map((0..(good_num + adv_num)).map(NodeUid));
         let obs_netinfo = {
             let node_ni = netinfos.values().next().unwrap();
-            NetworkInfo::new(
+            node_ni.validator_map().clone().into_network_info(
                 NodeUid(good_num + adv_num),
                 SecretKeyShare::default(),
-                node_ni.public_key_set().clone(),
                 rng.gen(),
-                node_ni.public_key_map().clone(),
             )
         };
         let adv_netinfos = netinfos.split_off(&NodeUid(good_num));

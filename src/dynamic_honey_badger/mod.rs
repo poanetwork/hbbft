@@ -56,7 +56,7 @@
 //! majority before that happens, key generation resets again, and is attempted for the new change.
 
 use rand::Rand;
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::VecDeque;
 use std::fmt::Debug;
 use std::hash::Hash;
 use std::mem;
@@ -66,10 +66,10 @@ use bincode;
 use serde::{Deserialize, Serialize};
 
 use self::votes::{SignedVote, VoteCounter};
-use crypto::{PublicKey, PublicKeySet, SecretKey, Signature};
+use crypto::{SecretKey, Signature};
 use fault_log::{FaultKind, FaultLog};
 use honey_badger::{HoneyBadger, HoneyBadgerStep, Message as HbMessage};
-use messaging::{DistAlgorithm, NetworkInfo, Step, Target, TargetedMessage};
+use messaging::{DistAlgorithm, NetworkInfo, Step, Target, TargetedMessage, ValidatorMap};
 use sync_key_gen::{Ack, Part, PartOutcome, SyncKeyGen};
 
 pub use self::batch::Batch;
@@ -350,7 +350,7 @@ where
         }
         debug!("{:?} Restarting DKG for {:?}.", self.our_id(), change);
         // Use the existing key shares - with the change applied - as keys for DKG.
-        let mut pub_keys = self.netinfo.public_key_map().clone();
+        let mut pub_keys = self.netinfo.validator_map().public_key_map().clone();
         if match *change {
             Change::Remove(ref id) => pub_keys.remove(id).is_none(),
             Change::Add(ref id, ref pk) => pub_keys.insert(id.clone(), pk.clone()).is_some(),
@@ -544,13 +544,11 @@ where
 /// of voting and key generation after a specific epoch, so that the new node will be in sync if it
 /// joins in the next one.
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct JoinPlan<NodeUid: Ord> {
+pub struct JoinPlan<NodeUid: Ord + Clone> {
     /// The first epoch the new node will observe.
     epoch: u64,
     /// The current change. If `InProgress`, key generation for it is beginning at `epoch`.
     change: ChangeState<NodeUid>,
-    /// The current public key set for threshold cryptography.
-    pub_key_set: PublicKeySet,
-    /// The public keys of the nodes taking part in key generation.
-    pub_keys: BTreeMap<NodeUid, PublicKey>,
+    /// The network's current validators.
+    validator_map: ValidatorMap<NodeUid>,
 }
