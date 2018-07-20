@@ -297,6 +297,9 @@ impl<NodeUid: Ord + Clone + Debug> SyncKeyGen<NodeUid> {
     /// Handles a `Part` message. If it is valid, returns an `Ack` message to be broadcast.
     ///
     /// If we are only an observer, `None` is returned instead and no messages need to be sent.
+    ///
+    /// All participating nodes must handle the exact same sequence of messages.
+    /// Note that `handle_part` also needs to explicitly be called with this instance's own `Part`.
     pub fn handle_part(
         &mut self,
         sender_id: &NodeUid,
@@ -305,7 +308,10 @@ impl<NodeUid: Ord + Clone + Debug> SyncKeyGen<NodeUid> {
         let sender_idx = self.node_index(sender_id)?;
         let opt_commit_row = self.our_idx.map(|idx| commit.row(idx + 1));
         match self.parts.entry(sender_idx) {
-            Entry::Occupied(_) => return None, // Ignore multiple parts.
+            Entry::Occupied(_) => {
+                debug!("Received multiple parts from node {:?}.", sender_id);
+                return None;
+            }
             Entry::Vacant(entry) => {
                 entry.insert(ProposalState::new(commit));
             }
@@ -322,7 +328,7 @@ impl<NodeUid: Ord + Clone + Debug> SyncKeyGen<NodeUid> {
             return Some(PartOutcome::Invalid(fault_log));
         };
         if row.commitment() != commit_row {
-            debug!("Invalid part from node {}.", sender_idx);
+            debug!("Invalid part from node {:?}.", sender_id);
             let fault_log = FaultLog::init(sender_id.clone(), FaultKind::InvalidPartMessage);
             return Some(PartOutcome::Invalid(fault_log));
         }
@@ -339,11 +345,14 @@ impl<NodeUid: Ord + Clone + Debug> SyncKeyGen<NodeUid> {
     }
 
     /// Handles an `Ack` message.
+    ///
+    /// All participating nodes must handle the exact same sequence of messages.
+    /// Note that `handle_ack` also needs to explicitly be called with this instance's own `Ack`s.
     pub fn handle_ack(&mut self, sender_id: &NodeUid, ack: Ack) -> FaultLog<NodeUid> {
         let mut fault_log = FaultLog::new();
         if let Some(sender_idx) = self.node_index(sender_id) {
             if let Err(err) = self.handle_ack_or_err(sender_idx, ack) {
-                debug!("Invalid ack from node {}: {}", sender_idx, err);
+                debug!("Invalid ack from node {:?}: {}", sender_id, err);
                 fault_log.append(sender_id.clone(), FaultKind::InvalidAckMessage);
             }
         }
@@ -377,6 +386,9 @@ impl<NodeUid: Ord + Clone + Debug> SyncKeyGen<NodeUid> {
     /// none of the nodes knows the secret master key.
     ///
     /// If we are only an observer node, no secret key share is returned.
+    ///
+    /// All participating nodes must have handled the exact same sequence of `Part` and `Ack`
+    /// messages before calling this method. Otherwise their key shares will not match.
     pub fn generate(&self) -> (PublicKeySet, Option<SecretKeyShare>) {
         let mut pk_commit = Poly::zero().commitment();
         let mut opt_sk_val = self.our_idx.map(|_| Fr::zero());
@@ -394,6 +406,9 @@ impl<NodeUid: Ord + Clone + Debug> SyncKeyGen<NodeUid> {
 
     /// Consumes the instance, generates the key set and returns a new `NetworkInfo` with the new
     /// keys.
+    ///
+    /// All participating nodes must have handled the exact same sequence of `Part` and `Ack`
+    /// messages before calling this method. Otherwise their key shares will not match.
     pub fn into_network_info(self) -> NetworkInfo<NodeUid> {
         let (pk_set, opt_sk_share) = self.generate();
         let sk_share = opt_sk_share.unwrap_or_default(); // TODO: Make this an option.
