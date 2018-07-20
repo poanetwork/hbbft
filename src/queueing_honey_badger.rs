@@ -31,7 +31,7 @@ use serde::{Deserialize, Serialize};
 
 use dynamic_honey_badger::{self, Batch as DhbBatch, DynamicHoneyBadger, Message};
 use fault_log::FaultLog;
-use messaging::{self, DistAlgorithm, NetworkInfo, TargetedMessage};
+use messaging::{self, DistAlgorithm, TargetedMessage};
 use transaction_queue::TransactionQueue;
 
 pub use dynamic_honey_badger::{Change, ChangeState, Input};
