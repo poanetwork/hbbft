@@ -6,7 +6,7 @@ use std::sync::Arc;
 use rand::{self, Rng};
 
 use hbbft::crypto::SecretKeyShare;
-use hbbft::messaging::{DistAlgorithm, NetworkInfo, Target, TargetedMessage};
+use hbbft::messaging::{DistAlgorithm, NetworkInfo, Step, Target, TargetedMessage};
 
 /// A node identifier. In the tests, nodes are simply numbered.
 #[derive(Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Clone, Copy, Serialize, Deserialize, Rand)]
@@ -52,13 +52,13 @@ impl<D: DistAlgorithm> TestNode<D> {
     }
 
     /// Creates a new test node with the given broadcast instance.
-    fn new(algo: D) -> TestNode<D> {
+    fn new((algo, step): (D, Step<D>)) -> TestNode<D> {
         TestNode {
             id: algo.our_id().clone(),
             algo,
             queue: VecDeque::new(),
-            outputs: Vec::new(),
-            messages: VecDeque::new(),
+            outputs: step.output.into_iter().collect(),
+            messages: step.messages,
         }
     }
 
@@ -369,6 +369,7 @@ where
 {
     /// Creates a new network with `good_num` good nodes, and the given `adversary` controlling
     /// `adv_num` nodes.
+    #[allow(unused)] // Not used in all tests.
     pub fn new<F, G>(
         good_num: usize,
         adv_num: usize,
@@ -377,6 +378,23 @@ where
     ) -> TestNetwork<A, D>
     where
         F: Fn(Arc<NetworkInfo<NodeUid>>) -> D,
+        G: Fn(BTreeMap<D::NodeUid, Arc<NetworkInfo<D::NodeUid>>>) -> A,
+    {
+        Self::new_with_step(good_num, adv_num, adversary, |netinfo| {
+            (new_algo(netinfo), Step::default())
+        })
+    }
+
+    /// Creates a new network with `good_num` good nodes, and the given `adversary` controlling
+    /// `adv_num` nodes.
+    pub fn new_with_step<F, G>(
+        good_num: usize,
+        adv_num: usize,
+        adversary: G,
+        new_algo: F,
+    ) -> TestNetwork<A, D>
+    where
+        F: Fn(Arc<NetworkInfo<NodeUid>>) -> (D, Step<D>),
         G: Fn(BTreeMap<D::NodeUid, Arc<NetworkInfo<D::NodeUid>>>) -> A,
     {
         let mut rng = rand::thread_rng();
