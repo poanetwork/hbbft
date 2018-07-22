@@ -255,6 +255,12 @@ impl SecretKeyShare {
     }
 }
 
+impl From<SecretKey> for SecretKeyShare {
+    fn from(sk: SecretKey) -> SecretKeyShare {
+        SecretKeyShare(sk)
+    }
+}
+
 /// An encrypted message.
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq)]
 pub struct Ciphertext(
