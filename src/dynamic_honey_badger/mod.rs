@@ -56,7 +56,7 @@
 //! majority before that happens, key generation resets again, and is attempted for the new change.
 
 use rand::Rand;
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::BTreeMap;
 use std::fmt::Debug;
 use std::hash::Hash;
 use std::mem;
@@ -66,10 +66,10 @@ use bincode;
 use serde::{Deserialize, Serialize};
 
 use self::votes::{SignedVote, VoteCounter};
-use crypto::{PublicKey, PublicKeySet, SecretKey, Signature};
+use crypto::{PublicKey, PublicKeySet, Signature};
 use fault_log::{FaultKind, FaultLog};
-use honey_badger::{HoneyBadger, HoneyBadgerStep, Message as HbMessage};
-use messaging::{DistAlgorithm, NetworkInfo, Step, Target, TargetedMessage};
+use honey_badger::{self, HoneyBadger, Message as HbMessage};
+use messaging::{self, DistAlgorithm, NetworkInfo, Target};
 use sync_key_gen::{Ack, Part, PartOutcome, SyncKeyGen};
 
 pub use self::batch::Batch;
@@ -110,13 +110,9 @@ pub struct DynamicHoneyBadger<C, NodeUid: Rand> {
     key_gen: Option<(SyncKeyGen<NodeUid>, Change<NodeUid>)>,
     /// A queue for messages from future epochs that cannot be handled yet.
     incoming_queue: Vec<(NodeUid, Message<NodeUid>)>,
-    /// The messages that need to be sent to other nodes.
-    messages: MessageQueue<NodeUid>,
-    /// The outputs from completed epochs.
-    output: VecDeque<Batch<C, NodeUid>>,
 }
 
-pub type DynamicHoneyBadgerStep<C, NodeUid> = Step<NodeUid, Batch<C, NodeUid>>;
+pub type Step<C, NodeUid> = messaging::Step<DynamicHoneyBadger<C, NodeUid>>;
 
 impl<C, NodeUid> DistAlgorithm for DynamicHoneyBadger<C, NodeUid>
 where
@@ -129,48 +125,44 @@ where
     type Message = Message<NodeUid>;
     type Error = Error;
 
-    fn input(&mut self, input: Self::Input) -> Result<DynamicHoneyBadgerStep<C, NodeUid>> {
+    fn input(&mut self, input: Self::Input) -> Result<Step<C, NodeUid>> {
         // User contributions are forwarded to `HoneyBadger` right away. Votes are signed and
         // broadcast.
-        let fault_log = match input {
-            Input::User(contrib) => self.propose(contrib)?,
-            Input::Change(change) => self.vote_for(change).map(|()| FaultLog::new())?,
-        };
-        self.step(fault_log)
+        match input {
+            Input::User(contrib) => self.propose(contrib),
+            Input::Change(change) => self.vote_for(change),
+        }
     }
 
     fn handle_message(
         &mut self,
         sender_id: &NodeUid,
         message: Self::Message,
-    ) -> Result<DynamicHoneyBadgerStep<C, NodeUid>> {
+    ) -> Result<Step<C, NodeUid>> {
         let epoch = message.start_epoch();
-        let fault_log = if epoch < self.start_epoch {
+        if epoch < self.start_epoch {
             // Obsolete message.
-            FaultLog::new()
+            Ok(Step::default())
         } else if epoch > self.start_epoch {
             // Message cannot be handled yet. Save it for later.
             let entry = (sender_id.clone(), message);
             self.incoming_queue.push(entry);
-            FaultLog::new()
+            Ok(Step::default())
         } else {
             match message {
                 Message::HoneyBadger(_, hb_msg) => {
-                    self.handle_honey_badger_message(sender_id, hb_msg)?
+                    self.handle_honey_badger_message(sender_id, hb_msg)
                 }
                 Message::KeyGen(_, kg_msg, sig) => {
-                    self.handle_key_gen_message(sender_id, kg_msg, *sig)?
+                    self.handle_key_gen_message(sender_id, kg_msg, *sig)?;
+                    Ok(Step::default())
                 }
-                Message::SignedVote(signed_vote) => {
-                    self.vote_counter.add_pending_vote(sender_id, signed_vote)?
-                }
+                Message::SignedVote(signed_vote) => self
+                    .vote_counter
+                    .add_pending_vote(sender_id, signed_vote)
+                    .map(FaultLog::into),
             }
-        };
-        self.step(fault_log)
-    }
-
-    fn next_message(&mut self) -> Option<TargetedMessage<Self::Message, NodeUid>> {
-        self.messages.pop_front()
+        }
     }
 
     fn terminated(&self) -> bool {
@@ -187,30 +179,9 @@ where
     C: Eq + Serialize + for<'r> Deserialize<'r> + Debug + Hash,
     NodeUid: Eq + Ord + Clone + Debug + Serialize + for<'r> Deserialize<'r> + Hash + Rand,
 {
-    fn step(&mut self, fault_log: FaultLog<NodeUid>) -> Result<DynamicHoneyBadgerStep<C, NodeUid>> {
-        Ok(Step::new(self.output.drain(..).collect(), fault_log))
-    }
-
-    /// Returns a new `DynamicHoneyBadgerBuilder` configured to use the node IDs and cryptographic
-    /// keys specified by `netinfo`.
-    pub fn builder(netinfo: NetworkInfo<NodeUid>) -> DynamicHoneyBadgerBuilder<C, NodeUid> {
-        DynamicHoneyBadgerBuilder::new(netinfo)
-    }
-
-    /// Returns a new `DynamicHoneyBadgerBuilder` configured to start a new network as the first
-    /// node.
-    pub fn first_node_builder(our_uid: NodeUid) -> DynamicHoneyBadgerBuilder<C, NodeUid> {
-        DynamicHoneyBadgerBuilder::new_first_node(our_uid)
-    }
-
-    /// Returns a new `DynamicHoneyBadgerBuilder` configured to join the network at the epoch
-    /// specified in the `JoinPlan`.
-    pub fn joining_builder(
-        our_uid: NodeUid,
-        secret_key: SecretKey,
-        join_plan: JoinPlan<NodeUid>,
-    ) -> DynamicHoneyBadgerBuilder<C, NodeUid> {
-        DynamicHoneyBadgerBuilder::new_joining(our_uid, secret_key, join_plan)
+    /// Returns a new `DynamicHoneyBadgerBuilder`.
+    pub fn builder() -> DynamicHoneyBadgerBuilder<C, NodeUid> {
+        DynamicHoneyBadgerBuilder::new()
     }
 
     /// Returns `true` if input for the current epoch has already been provided.
@@ -219,7 +190,7 @@ where
     }
 
     /// Proposes a contribution in the current epoch.
-    pub fn propose(&mut self, contrib: C) -> Result<FaultLog<NodeUid>> {
+    pub fn propose(&mut self, contrib: C) -> Result<Step<C, NodeUid>> {
         let step = self.honey_badger.input(InternalContrib {
             contrib,
             key_gen_messages: self.key_gen_msg_buffer.clone(),
@@ -229,14 +200,13 @@ where
     }
 
     /// Cast a vote to change the set of validators.
-    pub fn vote_for(&mut self, change: Change<NodeUid>) -> Result<()> {
+    pub fn vote_for(&mut self, change: Change<NodeUid>) -> Result<Step<C, NodeUid>> {
         if !self.netinfo.is_validator() {
-            return Ok(()); // TODO: Return an error?
+            return Ok(Step::default()); // TODO: Return an error?
         }
         let signed_vote = self.vote_counter.sign_vote_for(change)?.clone();
         let msg = Message::SignedVote(signed_vote);
-        self.messages.push_back(Target::All.message(msg));
-        Ok(())
+        Ok(Target::All.message(msg).into())
     }
 
     /// Returns the information about the node IDs in the network, and the cryptographic keys.
@@ -249,12 +219,12 @@ where
         &mut self,
         sender_id: &NodeUid,
         message: HbMessage<NodeUid>,
-    ) -> Result<FaultLog<NodeUid>> {
+    ) -> Result<Step<C, NodeUid>> {
         if !self.netinfo.is_node_validator(sender_id) {
             info!("Unknown sender {:?} of message {:?}", sender_id, message);
             return Err(ErrorKind::UnknownSender.into());
         }
-        // Handle the message and put the outgoing messages into the queue.
+        // Handle the message.
         let step = self.honey_badger.handle_message(sender_id, message)?;
         self.process_output(step)
     }
@@ -266,22 +236,22 @@ where
         sender_id: &NodeUid,
         kg_msg: KeyGenMessage,
         sig: Signature,
-    ) -> Result<FaultLog<NodeUid>> {
+    ) -> Result<()> {
         self.verify_signature(sender_id, &sig, &kg_msg)?;
         let tx = SignedKeyGenMsg(self.start_epoch, sender_id.clone(), kg_msg, sig);
         self.key_gen_msg_buffer.push(tx);
-        Ok(FaultLog::default())
+        Ok(())
     }
 
     /// Processes all pending batches output by Honey Badger.
     fn process_output(
         &mut self,
-        step: HoneyBadgerStep<InternalContrib<C, NodeUid>, NodeUid>,
-    ) -> Result<FaultLog<NodeUid>> {
-        let mut fault_log = FaultLog::new();
-        fault_log.extend(step.fault_log);
+        hb_step: honey_badger::Step<InternalContrib<C, NodeUid>, NodeUid>,
+    ) -> Result<Step<C, NodeUid>> {
+        let mut step: Step<C, NodeUid> = Step::default();
         let start_epoch = self.start_epoch;
-        for hb_batch in step.output {
+        let output = step.extend_with(hb_step, |hb_msg| Message::HoneyBadger(start_epoch, hb_msg));
+        for hb_batch in output {
             // Create the batch we output ourselves. It will contain the _user_ transactions of
             // `hb_batch`, and the current change state.
             let mut batch = Batch::new(hb_batch.epoch + self.start_epoch);
@@ -293,7 +263,8 @@ where
                     key_gen_messages,
                     contrib,
                 } = int_contrib;
-                fault_log.extend(self.vote_counter.add_committed_votes(&id, votes)?);
+                step.fault_log
+                    .extend(self.vote_counter.add_committed_votes(&id, votes)?);
                 batch.contributions.insert(id, contrib);
                 self.key_gen_msg_buffer
                     .retain(|skgm| !key_gen_messages.contains(skgm));
@@ -305,13 +276,13 @@ where
                     if !self.verify_signature(&s_id, &sig, &kg_msg)? {
                         info!("Invalid signature from {:?} for: {:?}.", s_id, kg_msg);
                         let fault_kind = FaultKind::InvalidKeyGenMessageSignature;
-                        fault_log.append(s_id.clone(), fault_kind);
+                        step.fault_log.append(s_id.clone(), fault_kind);
                         continue;
                     }
-                    match kg_msg {
+                    step.extend(match kg_msg {
                         KeyGenMessage::Part(part) => self.handle_part(&s_id, part)?,
-                        KeyGenMessage::Ack(ack) => self.handle_ack(&s_id, ack)?,
-                    }.merge_into(&mut fault_log);
+                        KeyGenMessage::Ack(ack) => self.handle_ack(&s_id, ack)?.into(),
+                    });
                 }
             }
 
@@ -323,30 +294,26 @@ where
                 batch.set_change(ChangeState::Complete(change), &self.netinfo);
             } else if let Some(change) = self.vote_counter.compute_majority().cloned() {
                 // If there is a majority, restart DKG. Inform the user about the current change.
-                self.update_key_gen(batch.epoch + 1, &change)?;
+                step.extend(self.update_key_gen(batch.epoch + 1, &change)?);
                 batch.set_change(ChangeState::InProgress(change), &self.netinfo);
             }
-            self.output.push_back(batch);
+            step.output.push_back(batch);
         }
-        self.messages
-            .extend_with_epoch(self.start_epoch, &mut self.honey_badger);
         // If `start_epoch` changed, we can now handle some queued messages.
         if start_epoch < self.start_epoch {
             let queue = mem::replace(&mut self.incoming_queue, Vec::new());
             for (sender_id, msg) in queue {
-                let rec_step = self.handle_message(&sender_id, msg)?;
-                self.output.extend(rec_step.output);
-                fault_log.extend(rec_step.fault_log);
+                step.extend(self.handle_message(&sender_id, msg)?);
             }
         }
-        Ok(fault_log)
+        Ok(step)
     }
 
     /// If the majority of votes has changed, restarts Key Generation for the set of nodes implied
     /// by the current change.
-    fn update_key_gen(&mut self, epoch: u64, change: &Change<NodeUid>) -> Result<()> {
+    fn update_key_gen(&mut self, epoch: u64, change: &Change<NodeUid>) -> Result<Step<C, NodeUid>> {
         if self.key_gen.as_ref().map(|&(_, ref ch)| ch) == Some(change) {
-            return Ok(()); // The change is the same as before. Continue DKG as is.
+            return Ok(Step::default()); // The change is the same as before. Continue DKG as is.
         }
         debug!("{:?} Restarting DKG for {:?}.", self.our_id(), change);
         // Use the existing key shares - with the change applied - as keys for DKG.
@@ -366,16 +333,14 @@ where
         let (key_gen, part) = SyncKeyGen::new(our_uid, sk, pub_keys, threshold);
         self.key_gen = Some((key_gen, change.clone()));
         if let Some(part) = part {
-            self.send_transaction(KeyGenMessage::Part(part))?;
+            self.send_transaction(KeyGenMessage::Part(part))
+        } else {
+            Ok(Step::default())
         }
-        Ok(())
     }
 
     /// Starts a new `HoneyBadger` instance and resets the vote counter.
     fn restart_honey_badger(&mut self, epoch: u64) {
-        // TODO: Filter out the messages for `epoch` and later.
-        self.messages
-            .extend_with_epoch(self.start_epoch, &mut self.honey_badger);
         self.start_epoch = epoch;
         self.key_gen_msg_buffer.retain(|kg_msg| kg_msg.0 >= epoch);
         let netinfo = Arc::new(self.netinfo.clone());
@@ -387,17 +352,14 @@ where
     }
 
     /// Handles a `Part` message that was output by Honey Badger.
-    fn handle_part(&mut self, sender_id: &NodeUid, part: Part) -> Result<FaultLog<NodeUid>> {
+    fn handle_part(&mut self, sender_id: &NodeUid, part: Part) -> Result<Step<C, NodeUid>> {
         let handle = |&mut (ref mut key_gen, _): &mut (SyncKeyGen<NodeUid>, _)| {
             key_gen.handle_part(&sender_id, part)
         };
         match self.key_gen.as_mut().and_then(handle) {
-            Some(PartOutcome::Valid(ack)) => {
-                self.send_transaction(KeyGenMessage::Ack(ack))?;
-                Ok(FaultLog::new())
-            }
-            Some(PartOutcome::Invalid(fault_log)) => Ok(fault_log),
-            None => Ok(FaultLog::new()),
+            Some(PartOutcome::Valid(ack)) => self.send_transaction(KeyGenMessage::Ack(ack)),
+            Some(PartOutcome::Invalid(fault_log)) => Ok(fault_log.into()),
+            None => Ok(Step::default()),
         }
     }
 
@@ -411,18 +373,17 @@ where
     }
 
     /// Signs and sends a `KeyGenMessage` and also tries to commit it.
-    fn send_transaction(&mut self, kg_msg: KeyGenMessage) -> Result<()> {
+    fn send_transaction(&mut self, kg_msg: KeyGenMessage) -> Result<Step<C, NodeUid>> {
         let ser = bincode::serialize(&kg_msg)?;
         let sig = Box::new(self.netinfo.secret_key().sign(ser));
-        let msg = Message::KeyGen(self.start_epoch, kg_msg.clone(), sig.clone());
-        self.messages.push_back(Target::All.message(msg));
-        if !self.netinfo.is_validator() {
-            return Ok(());
+        if self.netinfo.is_validator() {
+            let our_uid = self.netinfo.our_uid().clone();
+            let signed_msg =
+                SignedKeyGenMsg(self.start_epoch, our_uid, kg_msg.clone(), *sig.clone());
+            self.key_gen_msg_buffer.push(signed_msg);
         }
-        let our_uid = self.netinfo.our_uid().clone();
-        let signed_msg = SignedKeyGenMsg(self.start_epoch, our_uid, kg_msg, *sig);
-        self.key_gen_msg_buffer.push(signed_msg);
-        Ok(())
+        let msg = Message::KeyGen(self.start_epoch, kg_msg, sig);
+        Ok(Target::All.message(msg).into())
     }
 
     /// If the current Key Generation process is ready, returns the `SyncKeyGen`.
@@ -517,26 +478,6 @@ impl<NodeUid: Rand> Message<NodeUid> {
             Message::KeyGen(epoch, _, _) => epoch,
             Message::SignedVote(ref signed_vote) => signed_vote.era(),
         }
-    }
-}
-
-/// The queue of outgoing messages in a `HoneyBadger` instance.
-#[derive(Deref, DerefMut)]
-struct MessageQueue<NodeUid: Rand>(VecDeque<TargetedMessage<Message<NodeUid>, NodeUid>>);
-
-impl<NodeUid> MessageQueue<NodeUid>
-where
-    NodeUid: Eq + Hash + Ord + Clone + Debug + Serialize + for<'r> Deserialize<'r> + Rand,
-{
-    /// Appends to the queue the messages from `hb`, wrapped with `epoch`.
-    fn extend_with_epoch<Tx>(&mut self, epoch: u64, hb: &mut HoneyBadger<Tx, NodeUid>)
-    where
-        Tx: Eq + Serialize + for<'r> Deserialize<'r> + Debug + Hash,
-    {
-        let convert = |msg: TargetedMessage<HbMessage<NodeUid>, NodeUid>| {
-            msg.map(|hb_msg| Message::HoneyBadger(epoch, hb_msg))
-        };
-        self.extend(hb.message_iter().map(convert));
     }
 }
 

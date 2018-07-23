@@ -6,7 +6,7 @@ use std::sync::Arc;
 use rand::{self, Rng};
 
 use hbbft::crypto::SecretKeyShare;
-use hbbft::messaging::{DistAlgorithm, NetworkInfo, Target, TargetedMessage};
+use hbbft::messaging::{DistAlgorithm, NetworkInfo, Step, Target, TargetedMessage};
 
 /// A node identifier. In the tests, nodes are simply numbered.
 #[derive(Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Clone, Copy, Serialize, Deserialize, Rand)]
@@ -22,6 +22,8 @@ pub struct TestNode<D: DistAlgorithm> {
     pub queue: VecDeque<(D::NodeUid, D::Message)>,
     /// The values this node has output so far.
     outputs: Vec<D::Output>,
+    /// Outgoing messages to be sent to other nodes.
+    messages: VecDeque<TargetedMessage<D::Message, D::NodeUid>>,
 }
 
 impl<D: DistAlgorithm> TestNode<D> {
@@ -40,6 +42,7 @@ impl<D: DistAlgorithm> TestNode<D> {
     pub fn input(&mut self, input: D::Input) {
         let step = self.algo.input(input).expect("input");
         self.outputs.extend(step.output);
+        self.messages.extend(step.messages);
     }
 
     /// Returns the internal algorithm's instance.
@@ -49,12 +52,13 @@ impl<D: DistAlgorithm> TestNode<D> {
     }
 
     /// Creates a new test node with the given broadcast instance.
-    fn new(algo: D) -> TestNode<D> {
+    fn new((algo, step): (D, Step<D>)) -> TestNode<D> {
         TestNode {
             id: algo.our_id().clone(),
             algo,
             queue: VecDeque::new(),
-            outputs: Vec::new(),
+            outputs: step.output.into_iter().collect(),
+            messages: step.messages,
         }
     }
 
@@ -67,6 +71,7 @@ impl<D: DistAlgorithm> TestNode<D> {
             .handle_message(&from_id, msg)
             .expect("handling message");
         self.outputs.extend(step.output);
+        self.messages.extend(step.messages);
     }
 
     /// Checks whether the node has messages to process
@@ -364,6 +369,7 @@ where
 {
     /// Creates a new network with `good_num` good nodes, and the given `adversary` controlling
     /// `adv_num` nodes.
+    #[allow(unused)] // Not used in all tests.
     pub fn new<F, G>(
         good_num: usize,
         adv_num: usize,
@@ -372,6 +378,23 @@ where
     ) -> TestNetwork<A, D>
     where
         F: Fn(Arc<NetworkInfo<NodeUid>>) -> D,
+        G: Fn(BTreeMap<D::NodeUid, Arc<NetworkInfo<D::NodeUid>>>) -> A,
+    {
+        Self::new_with_step(good_num, adv_num, adversary, |netinfo| {
+            (new_algo(netinfo), Step::default())
+        })
+    }
+
+    /// Creates a new network with `good_num` good nodes, and the given `adversary` controlling
+    /// `adv_num` nodes.
+    pub fn new_with_step<F, G>(
+        good_num: usize,
+        adv_num: usize,
+        adversary: G,
+        new_algo: F,
+    ) -> TestNetwork<A, D>
+    where
+        F: Fn(Arc<NetworkInfo<NodeUid>>) -> (D, Step<D>),
         G: Fn(BTreeMap<D::NodeUid, Arc<NetworkInfo<D::NodeUid>>>) -> A,
     {
         let mut rng = rand::thread_rng();
@@ -412,7 +435,7 @@ where
         }
         let mut initial_msgs: Vec<(D::NodeUid, Vec<_>)> = Vec::new();
         for (id, node) in &mut network.nodes {
-            initial_msgs.push((*id, node.algo.message_iter().collect()));
+            initial_msgs.push((*id, node.messages.drain(..).collect()));
         }
         for (id, msgs) in initial_msgs {
             network.dispatch_messages(id, msgs);
@@ -476,7 +499,7 @@ where
 
         // The node handles the incoming message and creates new outgoing ones to be dispatched.
         let msgs: Vec<_> = {
-            let node = self.nodes.get_mut(&id).unwrap();
+            let mut node = self.nodes.get_mut(&id).unwrap();
 
             // Ensure the adversary is playing fair by selecting a node that will result in actual
             // progress being made, otherwise `TestNode::handle_message()` will panic on `expect()`
@@ -487,7 +510,7 @@ where
             );
 
             node.handle_message();
-            node.algo.message_iter().collect()
+            node.messages.drain(..).collect()
         };
         self.dispatch_messages(id, msgs);
 
@@ -497,9 +520,9 @@ where
     /// Inputs a value in node `id`.
     pub fn input(&mut self, id: NodeUid, value: D::Input) {
         let msgs: Vec<_> = {
-            let node = self.nodes.get_mut(&id).expect("input instance");
+            let mut node = self.nodes.get_mut(&id).expect("input instance");
             node.input(value);
-            node.algo.message_iter().collect()
+            node.messages.drain(..).collect()
         };
         self.dispatch_messages(id, msgs);
     }

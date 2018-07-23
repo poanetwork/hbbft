@@ -80,8 +80,9 @@ impl Adversary<Broadcast<NodeUid>> for ProposeAdversary {
         let netinfo = Arc::new(NetworkInfo::generate_map(node_ids).remove(&id).unwrap());
         let mut bc = Broadcast::new(netinfo, id).expect("broadcast instance");
         // FIXME: Use the output.
-        let _ = bc.input(b"Fake news".to_vec()).expect("propose");
-        bc.message_iter()
+        let step = bc.input(b"Fake news".to_vec()).expect("propose");
+        step.messages
+            .into_iter()
             .map(|msg| MessageWithSender::new(id, msg))
             .collect()
     }

@@ -1,5 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fmt::Debug;
+use std::iter::once;
 
 use crypto::{PublicKey, PublicKeySet, PublicKeyShare, SecretKey, SecretKeyShare};
 use fault_log::FaultLog;
@@ -52,32 +53,115 @@ impl<M, N> TargetedMessage<M, N> {
 /// Result of one step of the local state machine of a distributed algorithm. Such a result should
 /// be used and never discarded by the client of the algorithm.
 #[must_use = "The algorithm step result must be used."]
-pub struct Step<N, O>
+pub struct Step<D>
 where
-    N: Clone,
+    D: DistAlgorithm,
+    <D as DistAlgorithm>::NodeUid: Clone,
 {
-    pub output: VecDeque<O>,
-    pub fault_log: FaultLog<N>,
+    pub output: VecDeque<D::Output>,
+    pub fault_log: FaultLog<D::NodeUid>,
+    pub messages: VecDeque<TargetedMessage<D::Message, D::NodeUid>>,
 }
 
-impl<N, O> Default for Step<N, O>
+impl<D> Default for Step<D>
 where
-    N: Clone,
+    D: DistAlgorithm,
+    <D as DistAlgorithm>::NodeUid: Clone,
 {
-    fn default() -> Step<N, O> {
+    fn default() -> Step<D> {
         Step {
-            output: Default::default(),
+            output: VecDeque::default(),
             fault_log: FaultLog::default(),
+            messages: VecDeque::default(),
         }
     }
 }
 
-impl<N, O> Step<N, O>
+impl<D: DistAlgorithm> Step<D>
 where
-    N: Clone,
+    <D as DistAlgorithm>::NodeUid: Clone,
 {
-    pub fn new(output: VecDeque<O>, fault_log: FaultLog<N>) -> Self {
-        Step { output, fault_log }
+    /// Creates a new `Step` from the given collections.
+    pub fn new(
+        output: VecDeque<D::Output>,
+        fault_log: FaultLog<D::NodeUid>,
+        messages: VecDeque<TargetedMessage<D::Message, D::NodeUid>>,
+    ) -> Self {
+        Step {
+            output,
+            fault_log,
+            messages,
+        }
+    }
+
+    /// Converts `self` into a step of another type, given conversion methods for output and
+    /// messages.
+    pub fn map<D2, FO, FM>(self, f_out: FO, f_msg: FM) -> Step<D2>
+    where
+        D2: DistAlgorithm<NodeUid = D::NodeUid>,
+        FO: Fn(D::Output) -> D2::Output,
+        FM: Fn(D::Message) -> D2::Message,
+    {
+        Step {
+            output: self.output.into_iter().map(f_out).collect(),
+            fault_log: self.fault_log,
+            messages: self.messages.into_iter().map(|tm| tm.map(&f_msg)).collect(),
+        }
+    }
+
+    /// Extends `self` with `other`s messages and fault logs, and returns `other.output`.
+    pub fn extend_with<D2, FM>(&mut self, other: Step<D2>, f_msg: FM) -> VecDeque<D2::Output>
+    where
+        D2: DistAlgorithm<NodeUid = D::NodeUid>,
+        FM: Fn(D2::Message) -> D::Message,
+    {
+        self.fault_log.extend(other.fault_log);
+        let msgs = other.messages.into_iter().map(|tm| tm.map(&f_msg));
+        self.messages.extend(msgs);
+        other.output
+    }
+
+    /// Adds the outputs, fault logs and messages of `other` to `self`.
+    pub fn extend(&mut self, other: Self) {
+        self.output.extend(other.output);
+        self.fault_log.extend(other.fault_log);
+        self.messages.extend(other.messages);
+    }
+
+    /// Converts this step into an equivalent step for a different `DistAlgorithm`.
+    // This cannot be a `From` impl, because it would conflict with `impl From<T> for T`.
+    pub fn convert<D2>(self) -> Step<D2>
+    where
+        D2: DistAlgorithm<NodeUid = D::NodeUid, Output = D::Output, Message = D::Message>,
+    {
+        Step {
+            output: self.output,
+            fault_log: self.fault_log,
+            messages: self.messages,
+        }
+    }
+
+    /// Returns `true` if there are now messages, faults or outputs.
+    pub fn is_empty(&self) -> bool {
+        self.output.is_empty() && self.fault_log.is_empty() && self.messages.is_empty()
+    }
+}
+
+impl<D: DistAlgorithm> From<FaultLog<D::NodeUid>> for Step<D> {
+    fn from(fault_log: FaultLog<D::NodeUid>) -> Self {
+        Step {
+            fault_log,
+            ..Step::default()
+        }
+    }
+}
+
+impl<D: DistAlgorithm> From<TargetedMessage<D::Message, D::NodeUid>> for Step<D> {
+    fn from(msg: TargetedMessage<D::Message, D::NodeUid>) -> Self {
+        Step {
+            messages: once(msg).collect(),
+            ..Step::default()
+        }
     }
 }
 
@@ -96,47 +180,24 @@ pub trait DistAlgorithm {
     type Error: Debug;
 
     /// Handles an input provided by the user, and returns
-    fn input(
-        &mut self,
-        input: Self::Input,
-    ) -> Result<Step<Self::NodeUid, Self::Output>, Self::Error>;
+    fn input(&mut self, input: Self::Input) -> Result<Step<Self>, Self::Error>
+    where
+        Self: Sized;
 
     /// Handles a message received from node `sender_id`.
     fn handle_message(
         &mut self,
         sender_id: &Self::NodeUid,
         message: Self::Message,
-    ) -> Result<Step<Self::NodeUid, Self::Output>, Self::Error>;
-
-    /// Returns a message that needs to be sent to another node.
-    fn next_message(&mut self) -> Option<TargetedMessage<Self::Message, Self::NodeUid>>;
+    ) -> Result<Step<Self>, Self::Error>
+    where
+        Self: Sized;
 
     /// Returns `true` if execution has completed and this instance can be dropped.
     fn terminated(&self) -> bool;
 
     /// Returns this node's own ID.
     fn our_id(&self) -> &Self::NodeUid;
-
-    /// Returns an iterator over the outgoing messages.
-    fn message_iter(&mut self) -> MessageIter<Self>
-    where
-        Self: Sized,
-    {
-        MessageIter { algorithm: self }
-    }
-}
-
-/// An iterator over a distributed algorithm's outgoing messages.
-pub struct MessageIter<'a, D: DistAlgorithm + 'a> {
-    algorithm: &'a mut D,
-}
-
-impl<'a, D: DistAlgorithm + 'a> Iterator for MessageIter<'a, D> {
-    type Item = TargetedMessage<D::Message, D::NodeUid>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        self.algorithm.next_message()
-    }
 }
 
 /// Common data shared between algorithms: the nodes' IDs and key shares.

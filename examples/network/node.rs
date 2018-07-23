@@ -144,8 +144,8 @@ impl<T: Clone + Debug + AsRef<[u8]> + PartialEq + Send + Sync + From<Vec<u8>> + 
 
                 if let Some(v) = value {
                     // FIXME: Use the output.
-                    let _ = broadcast.input(v.clone().into()).expect("propose value");
-                    for msg in broadcast.message_iter() {
+                    let step = broadcast.input(v.clone().into()).expect("propose value");
+                    for msg in step.messages {
                         tx_from_algo.send(msg).expect("send from algo");
                     }
                 }
@@ -158,7 +158,7 @@ impl<T: Clone + Debug + AsRef<[u8]> + PartialEq + Send + Sync + From<Vec<u8>> + 
                     let step = broadcast
                         .handle_message(&i, message)
                         .expect("handle broadcast message");
-                    for msg in broadcast.message_iter() {
+                    for msg in step.messages {
                         debug!("{} sending to {:?}: {:?}", our_id, msg.target, msg.message);
                         tx_from_algo.send(msg).expect("send from algo");
                     }

@@ -141,13 +141,9 @@ use ring::digest;
 
 use fault_log::{FaultKind, FaultLog};
 use fmt::{HexBytes, HexList, HexProof};
-use messaging::{DistAlgorithm, NetworkInfo, Step, Target, TargetedMessage};
+use messaging::{self, DistAlgorithm, NetworkInfo, Target, TargetedMessage};
 
 error_chain!{
-    types {
-        Error, ErrorKind, ResultExt, BroadcastResult;
-    }
-
     foreign_links {
         ReedSolomon(rse::Error);
     }
@@ -228,7 +224,7 @@ pub struct Broadcast<NodeUid> {
     output: Option<Vec<u8>>,
 }
 
-pub type BroadcastStep<N> = Step<N, Vec<u8>>;
+pub type Step<NodeUid> = messaging::Step<Broadcast<NodeUid>>;
 
 impl<NodeUid: Debug + Clone + Ord> DistAlgorithm for Broadcast<NodeUid> {
     type NodeUid = NodeUid;
@@ -239,7 +235,7 @@ impl<NodeUid: Debug + Clone + Ord> DistAlgorithm for Broadcast<NodeUid> {
     type Message = BroadcastMessage;
     type Error = Error;
 
-    fn input(&mut self, input: Self::Input) -> BroadcastResult<BroadcastStep<NodeUid>> {
+    fn input(&mut self, input: Self::Input) -> Result<Step<NodeUid>> {
         if *self.netinfo.our_uid() != self.proposer_id {
             return Err(ErrorKind::InstanceCannotPropose.into());
         }
@@ -256,7 +252,7 @@ impl<NodeUid: Debug + Clone + Ord> DistAlgorithm for Broadcast<NodeUid> {
         &mut self,
         sender_id: &NodeUid,
         message: Self::Message,
-    ) -> BroadcastResult<BroadcastStep<NodeUid>> {
+    ) -> Result<Step<NodeUid>> {
         if !self.netinfo.is_node_validator(sender_id) {
             return Err(ErrorKind::UnknownSender.into());
         }
@@ -268,10 +264,6 @@ impl<NodeUid: Debug + Clone + Ord> DistAlgorithm for Broadcast<NodeUid> {
                 .map(|()| FaultLog::new())?,
         };
         self.step(fault_log)
-    }
-
-    fn next_message(&mut self) -> Option<TargetedMessage<Self::Message, NodeUid>> {
-        self.messages.pop_front()
     }
 
     fn terminated(&self) -> bool {
@@ -286,7 +278,7 @@ impl<NodeUid: Debug + Clone + Ord> DistAlgorithm for Broadcast<NodeUid> {
 impl<NodeUid: Debug + Clone + Ord> Broadcast<NodeUid> {
     /// Creates a new broadcast instance to be used by node `our_id` which expects a value proposal
     /// from node `proposer_id`.
-    pub fn new(netinfo: Arc<NetworkInfo<NodeUid>>, proposer_id: NodeUid) -> BroadcastResult<Self> {
+    pub fn new(netinfo: Arc<NetworkInfo<NodeUid>>, proposer_id: NodeUid) -> Result<Self> {
         let parity_shard_num = 2 * netinfo.num_faulty();
         let data_shard_num = netinfo.num_nodes() - parity_shard_num;
         let coding = Coding::new(data_shard_num, parity_shard_num)?;
@@ -306,10 +298,11 @@ impl<NodeUid: Debug + Clone + Ord> Broadcast<NodeUid> {
         })
     }
 
-    fn step(&mut self, fault_log: FaultLog<NodeUid>) -> BroadcastResult<BroadcastStep<NodeUid>> {
+    fn step(&mut self, fault_log: FaultLog<NodeUid>) -> Result<Step<NodeUid>> {
         Ok(Step::new(
             self.output.take().into_iter().collect(),
             fault_log,
+            self.messages.drain(..).collect(),
         ))
     }
 
@@ -318,7 +311,7 @@ impl<NodeUid: Debug + Clone + Ord> Broadcast<NodeUid> {
     /// scheme. The returned value contains the shard assigned to this
     /// node. That shard doesn't need to be sent anywhere. It gets recorded in
     /// the broadcast instance.
-    fn send_shards(&mut self, mut value: Vec<u8>) -> BroadcastResult<Proof<Vec<u8>>> {
+    fn send_shards(&mut self, mut value: Vec<u8>) -> Result<Proof<Vec<u8>>> {
         let data_shard_num = self.coding.data_shard_count();
         let parity_shard_num = self.coding.parity_shard_count();
 
@@ -396,7 +389,7 @@ impl<NodeUid: Debug + Clone + Ord> Broadcast<NodeUid> {
         &mut self,
         sender_id: &NodeUid,
         p: Proof<Vec<u8>>,
-    ) -> BroadcastResult<FaultLog<NodeUid>> {
+    ) -> Result<FaultLog<NodeUid>> {
         // If the sender is not the proposer or if this is not the first `Value`, ignore.
         if *sender_id != self.proposer_id {
             info!(
@@ -428,11 +421,7 @@ impl<NodeUid: Debug + Clone + Ord> Broadcast<NodeUid> {
     }
 
     /// Handles a received `Echo` message.
-    fn handle_echo(
-        &mut self,
-        sender_id: &NodeUid,
-        p: Proof<Vec<u8>>,
-    ) -> BroadcastResult<FaultLog<NodeUid>> {
+    fn handle_echo(&mut self, sender_id: &NodeUid, p: Proof<Vec<u8>>) -> Result<FaultLog<NodeUid>> {
         let mut fault_log = FaultLog::new();
         // If the sender has already sent `Echo`, ignore.
         if self.echos.contains_key(sender_id) {
@@ -468,7 +457,7 @@ impl<NodeUid: Debug + Clone + Ord> Broadcast<NodeUid> {
     }
 
     /// Handles a received `Ready` message.
-    fn handle_ready(&mut self, sender_id: &NodeUid, hash: &[u8]) -> BroadcastResult<()> {
+    fn handle_ready(&mut self, sender_id: &NodeUid, hash: &[u8]) -> Result<()> {
         // If the sender has already sent a `Ready` before, ignore.
         if self.readys.contains_key(sender_id) {
             info!(
@@ -491,7 +480,7 @@ impl<NodeUid: Debug + Clone + Ord> Broadcast<NodeUid> {
     }
 
     /// Sends an `Echo` message and handles it. Does nothing if we are only an observer.
-    fn send_echo(&mut self, p: Proof<Vec<u8>>) -> BroadcastResult<FaultLog<NodeUid>> {
+    fn send_echo(&mut self, p: Proof<Vec<u8>>) -> Result<FaultLog<NodeUid>> {
         self.echo_sent = true;
         if !self.netinfo.is_validator() {
             return Ok(FaultLog::new());
@@ -503,7 +492,7 @@ impl<NodeUid: Debug + Clone + Ord> Broadcast<NodeUid> {
     }
 
     /// Sends a `Ready` message and handles it. Does nothing if we are only an observer.
-    fn send_ready(&mut self, hash: &[u8]) -> BroadcastResult<()> {
+    fn send_ready(&mut self, hash: &[u8]) -> Result<()> {
         self.ready_sent = true;
         if !self.netinfo.is_validator() {
             return Ok(());
@@ -516,7 +505,7 @@ impl<NodeUid: Debug + Clone + Ord> Broadcast<NodeUid> {
 
     /// Checks whether the condition for output are met for this hash, and if so, sets the output
     /// value.
-    fn compute_output(&mut self, hash: &[u8]) -> BroadcastResult<()> {
+    fn compute_output(&mut self, hash: &[u8]) -> Result<()> {
         if self.decided
             || self.count_readys(hash) <= 2 * self.netinfo.num_faulty()
             || self.count_echos(hash) <= self.netinfo.num_faulty()
@@ -595,7 +584,7 @@ enum Coding {
 
 impl Coding {
     /// Creates a new `Coding` instance with the given number of shards.
-    fn new(data_shard_num: usize, parity_shard_num: usize) -> BroadcastResult<Self> {
+    fn new(data_shard_num: usize, parity_shard_num: usize) -> Result<Self> {
         Ok(if parity_shard_num > 0 {
             let rs = ReedSolomon::new(data_shard_num, parity_shard_num)?;
             Coding::ReedSolomon(Box::new(rs))
@@ -621,7 +610,7 @@ impl Coding {
     }
 
     /// Constructs (and overwrites) the parity shards.
-    fn encode(&self, slices: &mut [&mut [u8]]) -> BroadcastResult<()> {
+    fn encode(&self, slices: &mut [&mut [u8]]) -> Result<()> {
         match *self {
             Coding::ReedSolomon(ref rs) => rs.encode(slices)?,
             Coding::Trivial(_) => (),
@@ -630,7 +619,7 @@ impl Coding {
     }
 
     /// If enough shards are present, reconstructs the missing ones.
-    fn reconstruct_shards(&self, shards: &mut [Option<Box<[u8]>>]) -> BroadcastResult<()> {
+    fn reconstruct_shards(&self, shards: &mut [Option<Box<[u8]>>]) -> Result<()> {
         match *self {
             Coding::ReedSolomon(ref rs) => rs.reconstruct_shards(shards)?,
             Coding::Trivial(_) => {

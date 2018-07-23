@@ -28,7 +28,7 @@ use std::sync::Arc;
 use crypto::error as cerror;
 use crypto::{Signature, SignatureShare};
 use fault_log::{FaultKind, FaultLog};
-use messaging::{DistAlgorithm, NetworkInfo, Step, Target, TargetedMessage};
+use messaging::{self, DistAlgorithm, NetworkInfo, Target};
 
 error_chain! {
     links {
@@ -78,7 +78,7 @@ pub struct CommonCoin<NodeUid, T> {
     terminated: bool,
 }
 
-pub type CommonCoinStep<NodeUid> = Step<NodeUid, bool>;
+pub type Step<NodeUid, T> = messaging::Step<CommonCoin<NodeUid, T>>;
 
 impl<NodeUid, T> DistAlgorithm for CommonCoin<NodeUid, T>
 where
@@ -92,7 +92,7 @@ where
     type Error = Error;
 
     /// Sends our threshold signature share if not yet sent.
-    fn input(&mut self, _input: Self::Input) -> Result<CommonCoinStep<NodeUid>> {
+    fn input(&mut self, _input: Self::Input) -> Result<Step<NodeUid, T>> {
         let fault_log = if !self.had_input {
             self.had_input = true;
             self.get_coin()?
@@ -107,7 +107,7 @@ where
         &mut self,
         sender_id: &Self::NodeUid,
         message: Self::Message,
-    ) -> Result<CommonCoinStep<NodeUid>> {
+    ) -> Result<Step<NodeUid, T>> {
         let fault_log = if !self.terminated {
             let CommonCoinMessage(share) = message;
             self.handle_share(sender_id, share)?
@@ -115,13 +115,6 @@ where
             FaultLog::new()
         };
         self.step(fault_log)
-    }
-
-    /// Takes the next share of a threshold signature message for multicasting to all other nodes.
-    fn next_message(&mut self) -> Option<TargetedMessage<Self::Message, Self::NodeUid>> {
-        self.messages
-            .pop_front()
-            .map(|msg| Target::All.message(msg))
     }
 
     /// Whether the algorithm has terminated.
@@ -151,10 +144,14 @@ where
         }
     }
 
-    fn step(&mut self, fault_log: FaultLog<NodeUid>) -> Result<CommonCoinStep<NodeUid>> {
+    fn step(&mut self, fault_log: FaultLog<NodeUid>) -> Result<Step<NodeUid, T>> {
         Ok(Step::new(
             self.output.take().into_iter().collect(),
             fault_log,
+            self.messages
+                .drain(..)
+                .map(|msg| Target::All.message(msg))
+                .collect(),
         ))
     }
 
