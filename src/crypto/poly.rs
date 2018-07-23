@@ -63,6 +63,30 @@ impl<B: Borrow<Poly>> ops::Add<B> for Poly {
     }
 }
 
+impl<'a> ops::Add<Fr> for Poly {
+    type Output = Poly;
+
+    fn add(mut self, rhs: Fr) -> Self::Output {
+        if self.coeff.is_empty() {
+            if !rhs.is_zero() {
+                self.coeff.push(rhs);
+            }
+        } else {
+            self.coeff[0].add_assign(&rhs);
+            self.remove_zeros();
+        }
+        self
+    }
+}
+
+impl<'a> ops::Add<u64> for Poly {
+    type Output = Poly;
+
+    fn add(self, rhs: u64) -> Self::Output {
+        self + rhs.into_fr()
+    }
+}
+
 impl<B: Borrow<Poly>> ops::SubAssign<B> for Poly {
     fn sub_assign(&mut self, rhs: B) {
         let len = cmp::max(self.coeff.len(), rhs.borrow().coeff.len());
@@ -88,6 +112,25 @@ impl<B: Borrow<Poly>> ops::Sub<B> for Poly {
     fn sub(mut self, rhs: B) -> Poly {
         self -= rhs;
         self
+    }
+}
+
+// Clippy thinks using `+` in a `Sub` implementation is suspicious.
+#[cfg_attr(feature = "cargo-clippy", allow(suspicious_arithmetic_impl))]
+impl<'a> ops::Sub<Fr> for Poly {
+    type Output = Poly;
+
+    fn sub(self, mut rhs: Fr) -> Self::Output {
+        rhs.negate();
+        self + rhs
+    }
+}
+
+impl<'a> ops::Sub<u64> for Poly {
+    type Output = Poly;
+
+    fn sub(self, rhs: u64) -> Self::Output {
+        self - rhs.into_fr()
     }
 }
 
@@ -123,6 +166,27 @@ impl<B: Borrow<Poly>> ops::Mul<B> for Poly {
 impl<B: Borrow<Self>> ops::MulAssign<B> for Poly {
     fn mul_assign(&mut self, rhs: B) {
         *self = &*self * rhs;
+    }
+}
+
+impl<'a> ops::Mul<Fr> for Poly {
+    type Output = Poly;
+
+    fn mul(mut self, rhs: Fr) -> Self::Output {
+        if rhs.is_zero() {
+            self.coeff.clear();
+        } else {
+            self.coeff.iter_mut().for_each(|c| c.mul_assign(&rhs));
+        }
+        self
+    }
+}
+
+impl<'a> ops::Mul<u64> for Poly {
+    type Output = Poly;
+
+    fn mul(self, rhs: u64) -> Self::Output {
+        self * rhs.into_fr()
     }
 }
 
@@ -513,10 +577,6 @@ mod tests {
     use pairing::{CurveAffine, Field};
     use rand;
 
-    fn fr(x: i64) -> Fr {
-        x.into_fr()
-    }
-
     #[test]
     fn test_coeff_pos() {
         let mut i = 0;
@@ -534,19 +594,13 @@ mod tests {
 
     #[test]
     fn poly() {
-        // The polynomial "`5 * x.pow(3) + x.pow(1) - 2`".
-        let poly =
-            Poly::monomial(3) * Poly::constant(fr(5)) + Poly::monomial(1) - Poly::constant(fr(2));
-        let coeff = vec![fr(-2), fr(1), fr(0), fr(5)];
+        // The polynomial 5 X³ + X - 2.
+        let poly = Poly::monomial(3) * 5 + Poly::monomial(1) - 2;
+        let coeff: Vec<_> = [-2, 1, 0, 5].into_iter().map(IntoFr::into_fr).collect();
         assert_eq!(Poly { coeff }, poly);
-        let samples = vec![
-            (fr(-1), fr(-8)),
-            (fr(2), fr(40)),
-            (fr(3), fr(136)),
-            (fr(5), fr(628)),
-        ];
+        let samples = vec![(-1, -8), (2, 40), (3, 136), (5, 628)];
         for &(x, y) in &samples {
-            assert_eq!(y, poly.evaluate(x));
+            assert_eq!(y.into_fr(), poly.evaluate(x));
         }
         assert_eq!(Poly::interpolate(samples), poly);
     }
@@ -566,7 +620,7 @@ mod tests {
             .collect();
         let pub_bi_commits: Vec<_> = bi_polys.iter().map(BivarPoly::commitment).collect();
 
-        let mut sec_keys = vec![fr(0); node_num];
+        let mut sec_keys = vec![Fr::zero(); node_num];
 
         // Each dealer sends row `m` to node `m`, where the index starts at `1`. Don't send row `0`
         // to anyone! The nodes verify their rows, and send _value_ `s` on to node `s`. They again
@@ -587,7 +641,7 @@ mod tests {
                 }
 
                 // A cheating dealer who modified the polynomial would be detected.
-                let wrong_poly = row_poly.clone() + Poly::monomial(2) * Poly::constant(fr(5));
+                let wrong_poly = row_poly.clone() + Poly::monomial(2) * Poly::constant(5.into_fr());
                 assert_ne!(wrong_poly.commitment(), row_commit);
 
                 // If `2 * faulty_num + 1` nodes confirm that they received a valid row, then at
@@ -607,7 +661,7 @@ mod tests {
 
                 // The node sums up all values number `0` it received from the different dealer. No
                 // dealer and no other node knows the sum in the end.
-                sec_keys[m - 1].add_assign(&my_row.evaluate(0));
+                sec_keys[m - 1].add_assign(&my_row.evaluate(Fr::zero()));
             }
         }
 
