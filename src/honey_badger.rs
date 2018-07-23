@@ -283,7 +283,7 @@ where
             .insert(sender_id.clone(), share);
 
         if epoch == self.epoch {
-            self.try_decrypt_and_output_batch()
+            self.try_output_batches()
         } else {
             Ok(Step::default())
         }
@@ -371,12 +371,12 @@ where
             step.extend(self.handle_message_content(&sender_id, max_epoch, content)?);
         }
         // Handle any decryption shares received for the new epoch.
-        step.extend(self.try_decrypt_and_output_batch()?);
+        step.extend(self.try_output_batches()?);
         Ok(step)
     }
 
     /// Tries to decrypt contributions from all proposers and output those in a batch.
-    fn try_decrypt_and_output_batch(&mut self) -> Result<Step<C, NodeUid>> {
+    fn try_output_batches(&mut self) -> Result<Step<C, NodeUid>> {
         let mut step = Step::default();
         while let Some(new_step) = self.try_output_batch()? {
             step.extend(new_step);
@@ -466,7 +466,7 @@ where
         }
         self.ciphertexts.insert(epoch, ciphertexts);
         if epoch == self.epoch {
-            step.extend(self.try_decrypt_and_output_batch()?);
+            step.extend(self.try_output_batches()?);
         }
         Ok(step)
     }
@@ -551,12 +551,15 @@ where
         epoch: u64,
     ) -> Result<Step<C, NodeUid>> {
         let mut step = Step::default();
-        let cs_outputs = step.extend_with(cs_step, |cs_msg| {
+        let mut cs_outputs = step.extend_with(cs_step, |cs_msg| {
             MessageContent::CommonSubset(cs_msg).with_epoch(epoch)
         });
-        for cs_output in cs_outputs {
+        if let Some(cs_output) = cs_outputs.pop_front() {
             // There is at most one output.
             step.extend(self.send_decryption_shares(cs_output, epoch)?);
+        }
+        if !cs_outputs.is_empty() {
+            error!("Multiple outputs from a single Common Subset instance.");
         }
         Ok(step)
     }
