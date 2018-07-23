@@ -3,7 +3,7 @@ use std::fmt::Debug;
 use std::iter::once;
 
 use crypto::{PublicKey, PublicKeySet, PublicKeyShare, SecretKey, SecretKeyShare};
-use fault_log::FaultLog;
+use fault_log::{Fault, FaultLog};
 
 /// Message sent by a given source.
 #[derive(Clone, Debug)]
@@ -151,6 +151,15 @@ impl<D: DistAlgorithm> From<FaultLog<D::NodeUid>> for Step<D> {
     fn from(fault_log: FaultLog<D::NodeUid>) -> Self {
         Step {
             fault_log,
+            ..Step::default()
+        }
+    }
+}
+
+impl<D: DistAlgorithm> From<Fault<D::NodeUid>> for Step<D> {
+    fn from(fault: Fault<D::NodeUid>) -> Self {
+        Step {
+            fault_log: fault.into(),
             ..Step::default()
         }
     }

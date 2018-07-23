@@ -251,7 +251,12 @@ impl SecretKeyShare {
         if !ct.verify() {
             return None;
         }
-        Some(DecryptionShare(ct.0.into_affine().mul((self.0).0)))
+        Some(self.decrypt_share_no_verify(ct))
+    }
+
+    /// Returns a decryption share, without validating the ciphertext.
+    pub fn decrypt_share_no_verify(&self, ct: &Ciphertext) -> DecryptionShare {
+        DecryptionShare(ct.0.into_affine().mul((self.0).0))
     }
 }
 
