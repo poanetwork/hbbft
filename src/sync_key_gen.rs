@@ -106,18 +106,18 @@
 //!     let (pks, opt_sks) = node.generate();
 //!     assert_eq!(pks, pub_key_set); // All nodes now know the public keys and public key shares.
 //!     let sks = opt_sks.expect("Not an observer node: We receive a secret key share.");
-//!     secret_key_shares.insert(id as u64, sks);
+//!     secret_key_shares.insert(id, sks);
 //! }
 //!
 //! // Three out of four nodes can now sign a message. Each share can be verified individually.
 //! let msg = "Nodes 0 and 1 does not agree with this.";
-//! let mut sig_shares: BTreeMap<u64, SignatureShare> = BTreeMap::new();
+//! let mut sig_shares: BTreeMap<usize, SignatureShare> = BTreeMap::new();
 //! for (&id, sks) in &secret_key_shares {
 //!     if id != 0 && id != 1 {
 //!         let sig_share = sks.sign(msg);
-//!         let pks = pub_key_set.public_key_share(id as u64);
+//!         let pks = pub_key_set.public_key_share(id);
 //!         assert!(pks.verify(&sig_share, msg));
-//!         sig_shares.insert(id as u64, sig_share);
+//!         sig_shares.insert(id, sig_share);
 //!     }
 //! }
 //!
@@ -286,7 +286,7 @@ impl<NodeUid: Ord + Clone + Debug> SyncKeyGen<NodeUid> {
         let our_part = BivarPoly::random(threshold, &mut rng);
         let commit = our_part.commitment();
         let encrypt = |(i, pk): (usize, &PublicKey)| {
-            let row = our_part.row(i as u64 + 1);
+            let row = our_part.row(i + 1);
             let bytes = bincode::serialize(&row).expect("failed to serialize row");
             pk.encrypt(&bytes)
         };
@@ -334,7 +334,7 @@ impl<NodeUid: Ord + Clone + Debug> SyncKeyGen<NodeUid> {
         }
         // The row is valid: now encrypt one value for each node.
         let encrypt = |(idx, pk): (usize, &PublicKey)| {
-            let val = row.evaluate(idx as u64 + 1);
+            let val = row.evaluate(idx + 1);
             let wrap = FieldWrap::new(val);
             // TODO: Handle errors.
             let ser_val = bincode::serialize(&wrap).expect("failed to serialize value");

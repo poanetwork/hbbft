@@ -435,19 +435,11 @@ where
             .get(&self.epoch)
             .and_then(|cts| cts.get(&proposer_id))
         {
-            let ids_u64: BTreeMap<&NodeUid, u64> = shares
-                .keys()
-                .map(|id| (id, self.netinfo.node_index(id).unwrap() as u64))
-                .collect();
-            let indexed_shares: BTreeMap<&u64, _> = shares
-                .into_iter()
-                .map(|(id, share)| (&ids_u64[id], share))
-                .collect();
-            match self
-                .netinfo
-                .public_key_set()
-                .decrypt(indexed_shares, ciphertext)
-            {
+            match {
+                let to_idx = |(id, share)| (self.netinfo.node_index(id).unwrap(), share);
+                let share_itr = shares.into_iter().map(to_idx);
+                self.netinfo.public_key_set().decrypt(share_itr, ciphertext)
+            } {
                 Ok(contrib) => {
                     self.decrypted_contributions.insert(proposer_id, contrib);
                 }

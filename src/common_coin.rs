@@ -207,16 +207,8 @@ where
 
     fn combine_and_verify_sig(&self) -> Result<Signature> {
         // Pass the indices of sender nodes to `combine_signatures`.
-        let ids_shares: BTreeMap<&NodeUid, &SignatureShare> = self.received_shares.iter().collect();
-        let ids_u64: BTreeMap<&NodeUid, u64> = ids_shares
-            .keys()
-            .map(|&id| (id, self.netinfo.node_index(id).unwrap() as u64))
-            .collect();
-        // Convert indices to `u64` which is an interface type for `pairing`.
-        let shares: BTreeMap<&u64, &SignatureShare> = ids_shares
-            .iter()
-            .map(|(id, &share)| (&ids_u64[id], share))
-            .collect();
+        let to_idx = |(id, share)| (self.netinfo.node_index(id).unwrap(), share);
+        let shares = self.received_shares.iter().map(to_idx);
         let sig = self.netinfo.public_key_set().combine_signatures(shares)?;
         if !self
             .netinfo

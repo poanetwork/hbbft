@@ -233,7 +233,7 @@ impl<NodeUid: Clone + Ord> NetworkInfo<NodeUid> {
             .collect();
         let public_key_shares = node_indices
             .iter()
-            .map(|(id, idx)| (id.clone(), public_key_set.public_key_share(*idx as u64)))
+            .map(|(id, idx)| (id.clone(), public_key_set.public_key_share(*idx)))
             .collect();
         NetworkInfo {
             our_uid,
@@ -362,7 +362,7 @@ impl<NodeUid: Clone + Ord> NetworkInfo<NodeUid> {
         let create_netinfo = |(i, uid): (usize, NodeUid)| {
             let netinfo = NetworkInfo::new(
                 uid.clone(),
-                sk_set.secret_key_share(i as u64),
+                sk_set.secret_key_share(i),
                 pk_set.clone(),
                 sec_keys[&uid].clone(),
                 pub_keys.clone(),

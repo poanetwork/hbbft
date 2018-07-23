@@ -3,6 +3,7 @@
 #![cfg_attr(feature = "cargo-clippy", allow(derive_hash_xor_eq))]
 
 pub mod error;
+mod into_fr;
 pub mod poly;
 #[cfg(feature = "serialization-protobuf")]
 pub mod protobuf_impl;
@@ -14,12 +15,13 @@ use std::ptr::write_volatile;
 
 use byteorder::{BigEndian, ByteOrder};
 use init_with::InitWith;
-use pairing::bls12_381::{Bls12, Fr, FrRepr, G1, G1Affine, G2, G2Affine};
-use pairing::{CurveAffine, CurveProjective, Engine, Field, PrimeField};
+use pairing::bls12_381::{Bls12, Fr, G1, G1Affine, G2, G2Affine};
+use pairing::{CurveAffine, CurveProjective, Engine, Field};
 use rand::{ChaChaRng, OsRng, Rng, SeedableRng};
 use ring::digest;
 
 use self::error::{ErrorKind, Result};
+use self::into_fr::IntoFr;
 use self::poly::{Commitment, Poly};
 use fmt::HexBytes;
 
@@ -325,26 +327,26 @@ impl PublicKeySet {
     }
 
     /// Returns the `i`-th public key share.
-    pub fn public_key_share<T: Into<FrRepr>>(&self, i: T) -> PublicKeyShare {
-        let value = self.commit.evaluate(from_repr_plus_1::<Fr>(i.into()));
+    pub fn public_key_share<T: IntoFr>(&self, i: T) -> PublicKeyShare {
+        let value = self.commit.evaluate(into_fr_plus_1(i));
         PublicKeyShare(PublicKey(value))
     }
 
     /// Combines the shares into a signature that can be verified with the main public key.
-    pub fn combine_signatures<'a, ITR, IND>(&self, shares: ITR) -> Result<Signature>
+    pub fn combine_signatures<'a, T, I>(&self, shares: I) -> Result<Signature>
     where
-        ITR: IntoIterator<Item = (&'a IND, &'a SignatureShare)>,
-        IND: Into<FrRepr> + Clone + 'a,
+        I: IntoIterator<Item = (T, &'a SignatureShare)>,
+        T: IntoFr,
     {
         let samples = shares.into_iter().map(|(i, share)| (i, &(share.0).0));
         Ok(Signature(interpolate(self.commit.degree() + 1, samples)?))
     }
 
     /// Combines the shares to decrypt the ciphertext.
-    pub fn decrypt<'a, ITR, IND>(&self, shares: ITR, ct: &Ciphertext) -> Result<Vec<u8>>
+    pub fn decrypt<'a, T, I>(&self, shares: I, ct: &Ciphertext) -> Result<Vec<u8>>
     where
-        ITR: IntoIterator<Item = (&'a IND, &'a DecryptionShare)>,
-        IND: Into<FrRepr> + Clone + 'a,
+        I: IntoIterator<Item = (T, &'a DecryptionShare)>,
+        T: IntoFr,
     {
         let samples = shares.into_iter().map(|(i, share)| (i, &share.0));
         let g = interpolate(self.commit.degree() + 1, samples)?;
@@ -381,8 +383,8 @@ impl SecretKeySet {
     }
 
     /// Returns the `i`-th secret key share.
-    pub fn secret_key_share<T: Into<FrRepr>>(&self, i: T) -> SecretKeyShare {
-        let value = self.poly.evaluate(from_repr_plus_1::<Fr>(i.into()));
+    pub fn secret_key_share<T: IntoFr>(&self, i: T) -> SecretKeyShare {
+        let value = self.poly.evaluate(into_fr_plus_1(i));
         SecretKeyShare(SecretKey(value))
     }
 
@@ -441,15 +443,15 @@ fn xor_vec(x: &[u8], y: &[u8]) -> Vec<u8> {
 
 /// Given a list of `t` samples `(i - 1, f(i) * g)` for a polynomial `f` of degree `t - 1`, and a
 /// group generator `g`, returns `f(0) * g`.
-fn interpolate<'a, C, ITR, IND>(t: usize, items: ITR) -> Result<C>
+fn interpolate<'a, C, T, I>(t: usize, items: I) -> Result<C>
 where
-    C: CurveProjective,
-    ITR: IntoIterator<Item = (&'a IND, &'a C)>,
-    IND: Into<<C::Scalar as PrimeField>::Repr> + Clone + 'a,
+    C: CurveProjective<Scalar = Fr>,
+    I: IntoIterator<Item = (T, &'a C)>,
+    T: IntoFr,
 {
     let samples: Vec<_> = items
         .into_iter()
-        .map(|(i, sample)| (from_repr_plus_1::<C::Scalar>(i.clone().into()), sample))
+        .map(|(i, sample)| (into_fr_plus_1(i), sample))
         .collect();
     if samples.len() < t {
         return Err(ErrorKind::NotEnoughShares.into());
@@ -475,10 +477,10 @@ where
     Ok(result)
 }
 
-fn from_repr_plus_1<F: PrimeField>(repr: F::Repr) -> F {
-    let mut x = F::one();
-    x.add_assign(&F::from_repr(repr).expect("invalid index"));
-    x
+fn into_fr_plus_1<I: IntoFr>(x: I) -> Fr {
+    let mut result = Fr::one();
+    result.add_assign(&x.into_fr());
+    result
 }
 
 #[cfg(test)]

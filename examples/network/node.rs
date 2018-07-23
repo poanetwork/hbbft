@@ -107,7 +107,7 @@ impl<T: Clone + Debug + AsRef<[u8]> + PartialEq + Send + Sync + From<Vec<u8>> + 
         // keys here. A fully-featured application would need to take appropriately initialized keys
         // from elsewhere.
         let secret_key_set = SecretKeySet::from(Poly::zero());
-        let sk_share = secret_key_set.secret_key_share(our_id as u64);
+        let sk_share = secret_key_set.secret_key_share(our_id);
         let pub_key_set = secret_key_set.public_keys();
         let sk = SecretKey::default();
         let pub_keys = all_ids
