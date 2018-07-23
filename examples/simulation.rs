@@ -144,15 +144,33 @@ where
     D::Message: Serialize + DeserializeOwned,
 {
     /// Creates a new test node with the given broadcast instance.
-    fn new(algo: D, hw_quality: HwQuality) -> TestNode<D> {
+    fn new((algo, step): (D, Step<D>), hw_quality: HwQuality) -> TestNode<D> {
+        let out_queue = step
+            .messages
+            .into_iter()
+            .map(|msg| {
+                let ser_msg = bincode::serialize(&msg.message).expect("serialize");
+                TimestampedMessage {
+                    time: Duration::default(),
+                    sender_id: algo.our_id().clone(),
+                    target: msg.target,
+                    message: ser_msg,
+                }
+            })
+            .collect();
+        let outputs = step
+            .output
+            .into_iter()
+            .map(|out| (Duration::default(), out))
+            .collect();
         let mut node = TestNode {
             id: algo.our_id().clone(),
             algo,
             time: Duration::default(),
             sent_time: Duration::default(),
             in_queue: VecDeque::new(),
-            out_queue: VecDeque::new(),
-            outputs: Vec::new(),
+            out_queue,
+            outputs,
             message_count: 0,
             message_size: 0,
             hw_quality,
@@ -184,10 +202,8 @@ where
             .messages
             .into_iter()
             .map(|msg| {
-                (
-                    msg.target,
-                    bincode::serialize(&msg.message).expect("serialize"),
-                )
+                let ser_msg = bincode::serialize(&msg.message).expect("serialize");
+                (msg.target, ser_msg)
             })
             .collect();
         self.time += start.elapsed() * self.hw_quality.cpu_factor / 100;
@@ -250,7 +266,7 @@ where
         hw_quality: HwQuality,
     ) -> TestNetwork<D>
     where
-        F: Fn(NetworkInfo<NodeUid>) -> D,
+        F: Fn(NetworkInfo<NodeUid>) -> (D, Step<D>),
     {
         let netinfos = NetworkInfo::generate_map((0..(good_num + adv_num)).map(NodeUid));
         let new_node = |(uid, netinfo): (NodeUid, NetworkInfo<_>)| {
@@ -430,9 +446,7 @@ fn main() {
     let num_good_nodes = args.flag_n - args.flag_f;
     let txs = (0..args.flag_txs).map(|_| Transaction::new(args.flag_tx_size));
     let new_honey_badger = |netinfo: NetworkInfo<NodeUid>| {
-        let dyn_hb = DynamicHoneyBadger::builder(netinfo)
-            .build()
-            .expect("instantiate DynamicHoneyBadger");
+        let dyn_hb = DynamicHoneyBadger::builder().build(netinfo);
         QueueingHoneyBadger::builder(dyn_hb)
             .batch_size(args.flag_b)
             .build_with_transactions(txs.clone())

@@ -1,5 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fmt::Debug;
+use std::iter::once;
 
 use crypto::{PublicKey, PublicKeySet, PublicKeyShare, SecretKey, SecretKeyShare};
 use fault_log::FaultLog;
@@ -80,6 +81,7 @@ impl<D: DistAlgorithm> Step<D>
 where
     <D as DistAlgorithm>::NodeUid: Clone,
 {
+    /// Creates a new `Step` from the given collections.
     pub fn new(
         output: VecDeque<D::Output>,
         fault_log: FaultLog<D::NodeUid>,
@@ -89,6 +91,76 @@ where
             output,
             fault_log,
             messages,
+        }
+    }
+
+    /// Converts `self` into a step of another type, given conversion methods for output and
+    /// messages.
+    pub fn map<D2, FO, FM>(self, f_out: FO, f_msg: FM) -> Step<D2>
+    where
+        D2: DistAlgorithm<NodeUid = D::NodeUid>,
+        FO: Fn(D::Output) -> D2::Output,
+        FM: Fn(D::Message) -> D2::Message,
+    {
+        Step {
+            output: self.output.into_iter().map(f_out).collect(),
+            fault_log: self.fault_log,
+            messages: self.messages.into_iter().map(|tm| tm.map(&f_msg)).collect(),
+        }
+    }
+
+    /// Extends `self` with `other`s messages and fault logs, and returns `other.output`.
+    pub fn extend_with<D2, FM>(&mut self, other: Step<D2>, f_msg: FM) -> VecDeque<D2::Output>
+    where
+        D2: DistAlgorithm<NodeUid = D::NodeUid>,
+        FM: Fn(D2::Message) -> D::Message,
+    {
+        self.fault_log.extend(other.fault_log);
+        let msgs = other.messages.into_iter().map(|tm| tm.map(&f_msg));
+        self.messages.extend(msgs);
+        other.output
+    }
+
+    /// Adds the outputs, fault logs and messages of `other` to `self`.
+    pub fn extend(&mut self, other: Self) {
+        self.output.extend(other.output);
+        self.fault_log.extend(other.fault_log);
+        self.messages.extend(other.messages);
+    }
+
+    /// Converts this step into an equivalent step for a different `DistAlgorithm`.
+    // This cannot be a `From` impl, because it would conflict with `impl From<T> for T`.
+    pub fn convert<D2>(self) -> Step<D2>
+    where
+        D2: DistAlgorithm<NodeUid = D::NodeUid, Output = D::Output, Message = D::Message>,
+    {
+        Step {
+            output: self.output,
+            fault_log: self.fault_log,
+            messages: self.messages,
+        }
+    }
+
+    /// Returns `true` if there are now messages, faults or outputs.
+    pub fn is_empty(&self) -> bool {
+        self.output.is_empty() && self.fault_log.is_empty() && self.messages.is_empty()
+    }
+}
+
+impl<D: DistAlgorithm> From<FaultLog<D::NodeUid>> for Step<D> {
+    fn from(fault_log: FaultLog<D::NodeUid>) -> Self {
+        Step {
+            fault_log,
+            ..Step::default()
+        }
+    }
+}
+
+impl<D: DistAlgorithm> From<TargetedMessage<D::Message, D::NodeUid>> for Step<D> {
+    fn from(msg: TargetedMessage<D::Message, D::NodeUid>) -> Self {
+        Step {
+            messages: once(msg).collect(),
+            ..Step::default()
         }
     }
 }
