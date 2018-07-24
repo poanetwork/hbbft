@@ -46,9 +46,9 @@
 //! In this example, we simulate a network by passing messages by hand between instantiated
 //! nodes. We use `u64` as network IDs, and start by creating a common network info. Then we input a
 //! randomly generated payload into the proposer and process all the resulting messages in a
-//! loop. For the reasons of simulation we annotate each message and each output with the node that
-//! produced those. Finally, we perform a correctness check to verify that every node has output the
-//! same payload as we provided to the proposer node.
+//! loop. For the purpose of simulation we annotate each message with the node that produced it. For
+//! each output, we perform correctness checks to verify that every node has output the same payload
+//! as we provided to the proposer node, and that it did so exactly once.
 //!
 //! ```
 //! extern crate hbbft;
@@ -57,7 +57,8 @@
 //! use hbbft::broadcast::Broadcast;
 //! use hbbft::messaging::{DistAlgorithm, NetworkInfo, Target, TargetedMessage};
 //! use rand::{thread_rng, Rng};
-//! use std::collections::{BTreeMap, VecDeque};
+//! use std::collections::{BTreeMap, BTreeSet, VecDeque};
+//! use std::iter::once;
 //! use std::sync::Arc;
 //!
 //! // Our simulated network will use seven nodes in total, node 3 will be the proposer.
@@ -97,59 +98,36 @@
 //!     .map(|tm| (PROPOSER_ID, tm))
 //!     .collect();
 //!
-//! // Initalize the outputs of all nodes with the annotated outputs of the proposer.
-//! let mut outputs: VecDeque<(_, _)> = initial_step
-//!     .output
-//!     .into_iter()
-//!     .map(|v| (PROPOSER_ID, v))
-//!     .collect();
-//!
 //! // We can check that a message is scheduled by the proposer. There should be one as long as the
 //! // number of nodes is greater than 1.
 //! assert!(!messages.is_empty());
+//! let mut finished_nodes = BTreeSet::new();
 //!
 //! // The message loop: The network is simulated by passing messages around from node to node.
 //! while let Some((sender, TargetedMessage { target, message })) = messages.pop_front() {
 //!     println!("Message [{:?} -> {:?}]: {:?}", sender, target, message);
 //!
-//!     match target {
-//!         Target::All => {
-//!             nodes.iter_mut().for_each(|(id, node)| {
-//!                 let step = node
-//!                     .handle_message(&sender, message.clone())
-//!                     .expect("message was handled");
-//!                 // Annotate messages and outputs.
-//!                 messages.extend(step.messages.into_iter().map(|x| (*id, x)));
-//!                 outputs.extend(step.output.into_iter().map(|x| (*id, x)));
-//!             });
-//!         }
-//!         Target::Node(ref id) => {
-//!             let dest_node = nodes.get_mut(id).expect("destination node");
-//!             let step = dest_node
-//!                 .handle_message(&sender, message)
-//!                 .expect("message was handled");
-//!             // Annotate messages and outputs.
-//!             messages.extend(step.messages.into_iter().map(|x| (*id, x)));
-//!             outputs.extend(step.output.into_iter().map(|x| (*id, x)));
+//!     let targets = match target {
+//!         Target::All => (0..NUM_NODES).collect(),
+//!         Target::Node(id) => vec![id],
+//!     };
+//!     for id in targets {
+//!         let node = nodes.get_mut(&id).expect("destination node");
+//!         let step = node
+//!             .handle_message(&sender, message.clone())
+//!             .expect("message was handled");
+//!         // Annotate messages and outputs.
+//!         messages.extend(step.messages.into_iter().map(|x| (id, x)));
+//!         if !step.output.is_empty() {
+//!             // The output should be the same as the input we gave to the proposer.
+//!             assert!(step.output.iter().eq(once(&payload)));
+//!             // The node should output exactly once.
+//!             assert!(finished_nodes.insert(id));
 //!         }
 //!     }
 //! }
-//!
-//! // Correctness test: The algorithm output of every node should be the original payload.
-//! let expected_values = Some(payload);
-//! let expected: VecDeque<_> = expected_values.iter().collect();
-//! let outputs = &outputs;
-//! let filter_output_of_node = |id: u64| {
-//!     let output: VecDeque<_> = outputs
-//!         .into_iter()
-//!         .filter(|(i, _)| i == &id)
-//!         .map(|(_, v)| v)
-//!         .collect();
-//!     output
-//! };
-//! for (id, _) in nodes {
-//!     assert_eq!(filter_output_of_node(id), expected);
-//! }
+//! // All nodes should have finished.
+//! assert_eq!(finished_nodes, nodes.keys().cloned().collect());
 //! ```
 
 use std::collections::{BTreeMap, VecDeque};
