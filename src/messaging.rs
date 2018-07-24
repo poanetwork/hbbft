@@ -53,6 +53,7 @@ impl<M, N> TargetedMessage<M, N> {
 /// Result of one step of the local state machine of a distributed algorithm. Such a result should
 /// be used and never discarded by the client of the algorithm.
 #[must_use = "The algorithm step result must be used."]
+#[derive(Debug)]
 pub struct Step<D>
 where
     D: DistAlgorithm,

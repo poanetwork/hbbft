@@ -201,6 +201,7 @@ impl Debug for BroadcastMessage {
 }
 
 /// Reliable Broadcast algorithm instance.
+#[derive(Debug)]
 pub struct Broadcast<NodeUid> {
     /// Shared network data.
     netinfo: Arc<NetworkInfo<NodeUid>>,
@@ -559,6 +560,7 @@ impl<NodeUid: Debug + Clone + Ord> Broadcast<NodeUid> {
 }
 
 /// A wrapper for `ReedSolomon` that doesn't panic if there are no parity shards.
+#[derive(Debug)]
 enum Coding {
     /// A `ReedSolomon` instance with at least one parity shard.
     ReedSolomon(Box<ReedSolomon>),

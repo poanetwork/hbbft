@@ -106,8 +106,6 @@
 
 extern crate bincode;
 extern crate byteorder;
-#[macro_use(Deref, DerefMut)]
-extern crate derive_deref;
 #[macro_use]
 extern crate error_chain;
 extern crate init_with;

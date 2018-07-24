@@ -145,6 +145,7 @@ impl rand::Rand for AgreementContent {
 
 /// Possible values of the common coin schedule defining the method to derive the common coin in a
 /// given epoch: as a constant value or a distributed computation.
+#[derive(Debug)]
 enum CoinSchedule {
     False,
     True,
@@ -152,6 +153,7 @@ enum CoinSchedule {
 }
 
 /// Binary Agreement instance
+#[derive(Debug)]
 pub struct Agreement<NodeUid> {
     /// Shared network information.
     netinfo: Arc<NetworkInfo<NodeUid>>,
@@ -639,7 +641,7 @@ impl<NodeUid: Clone + Debug + Ord> Agreement<NodeUid> {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 struct Nonce(Vec<u8>);
 
 impl Nonce {

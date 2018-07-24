@@ -93,6 +93,7 @@ pub enum Input<C, NodeUid> {
 }
 
 /// A Honey Badger instance that can handle adding and removing nodes.
+#[derive(Debug)]
 pub struct DynamicHoneyBadger<C, NodeUid: Rand> {
     /// Shared network data.
     netinfo: NetworkInfo<NodeUid>,
