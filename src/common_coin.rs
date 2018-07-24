@@ -21,13 +21,13 @@
 //! * When a node has received _2 f + 1_ shares, it computes the main signature and outputs the XOR
 //! of its bits.
 
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::BTreeMap;
 use std::fmt::Debug;
 use std::sync::Arc;
 
 use crypto::error as cerror;
 use crypto::{Signature, SignatureShare};
-use fault_log::{FaultKind, FaultLog};
+use fault_log::{Fault, FaultKind};
 use messaging::{self, DistAlgorithm, NetworkInfo, Target};
 
 error_chain! {
@@ -66,10 +66,6 @@ pub struct CommonCoin<NodeUid, T> {
     netinfo: Arc<NetworkInfo<NodeUid>>,
     /// The name of this common coin. It is required to be unique for each common coin round.
     nonce: T,
-    /// The result of combination of at least `num_faulty + 1` threshold signature shares.
-    output: Option<bool>,
-    /// Outgoing message queue.
-    messages: VecDeque<CommonCoinMessage>,
     /// All received threshold signature shares.
     received_shares: BTreeMap<NodeUid, SignatureShare>,
     /// Whether we provided input to the common coin.
@@ -93,13 +89,12 @@ where
 
     /// Sends our threshold signature share if not yet sent.
     fn input(&mut self, _input: Self::Input) -> Result<Step<NodeUid, T>> {
-        let fault_log = if !self.had_input {
+        if !self.had_input {
             self.had_input = true;
-            self.get_coin()?
+            self.get_coin()
         } else {
-            FaultLog::new()
-        };
-        self.step(fault_log)
+            Ok(Step::default())
+        }
     }
 
     /// Receives input from a remote node.
@@ -108,13 +103,12 @@ where
         sender_id: &Self::NodeUid,
         message: Self::Message,
     ) -> Result<Step<NodeUid, T>> {
-        let fault_log = if !self.terminated {
+        if !self.terminated {
             let CommonCoinMessage(share) = message;
-            self.handle_share(sender_id, share)?
+            self.handle_share(sender_id, share)
         } else {
-            FaultLog::new()
-        };
-        self.step(fault_log)
+            Ok(Step::default())
+        }
     }
 
     /// Whether the algorithm has terminated.
@@ -136,57 +130,42 @@ where
         CommonCoin {
             netinfo,
             nonce,
-            output: None,
-            messages: VecDeque::new(),
             received_shares: BTreeMap::new(),
             had_input: false,
             terminated: false,
         }
     }
 
-    fn step(&mut self, fault_log: FaultLog<NodeUid>) -> Result<Step<NodeUid, T>> {
-        Ok(Step::new(
-            self.output.take().into_iter().collect(),
-            fault_log,
-            self.messages
-                .drain(..)
-                .map(|msg| Target::All.message(msg))
-                .collect(),
-        ))
-    }
-
-    fn get_coin(&mut self) -> Result<FaultLog<NodeUid>> {
+    fn get_coin(&mut self) -> Result<Step<NodeUid, T>> {
         if !self.netinfo.is_validator() {
-            self.try_output()?;
-            return Ok(FaultLog::new());
+            return self.try_output();
         }
         let share = self.netinfo.secret_key_share().sign(&self.nonce);
-        self.messages.push_back(CommonCoinMessage(share.clone()));
+        let mut step: Step<_, _> = Target::All.message(CommonCoinMessage(share.clone())).into();
         let id = self.netinfo.our_uid().clone();
-        self.handle_share(&id, share)
+        step.extend(self.handle_share(&id, share)?);
+        Ok(step)
     }
 
     fn handle_share(
         &mut self,
         sender_id: &NodeUid,
         share: SignatureShare,
-    ) -> Result<FaultLog<NodeUid>> {
+    ) -> Result<Step<NodeUid, T>> {
         if let Some(pk_i) = self.netinfo.public_key_share(sender_id) {
             if !pk_i.verify(&share, &self.nonce) {
                 // Log the faulty node and ignore the invalid share.
                 let fault_kind = FaultKind::UnverifiedSignatureShareSender;
-                let fault_log = FaultLog::init(sender_id.clone(), fault_kind);
-                return Ok(fault_log);
+                return Ok(Fault::new(sender_id.clone(), fault_kind).into());
             }
             self.received_shares.insert(sender_id.clone(), share);
         } else {
             return Err(ErrorKind::UnknownSender.into());
         }
-        self.try_output()?;
-        Ok(FaultLog::new())
+        self.try_output()
     }
 
-    fn try_output(&mut self) -> Result<()> {
+    fn try_output(&mut self) -> Result<Step<NodeUid, T>> {
         let received_shares = &self.received_shares;
         debug!(
             "{:?} received {} shares, had_input = {}",
@@ -199,10 +178,11 @@ where
             // Output the parity of the verified signature.
             let parity = sig.parity();
             debug!("{:?} output {}", self.netinfo.our_uid(), parity);
-            self.output = Some(parity);
             self.terminated = true;
+            Ok(Step::default().with_output(parity))
+        } else {
+            Ok(Step::default())
         }
-        Ok(())
     }
 
     fn combine_and_verify_sig(&self) -> Result<Signature> {

@@ -94,6 +94,12 @@ where
         }
     }
 
+    /// Returns the same step, with the given additional output.
+    pub fn with_output(mut self, output: D::Output) -> Self {
+        self.output.push_back(output);
+        self
+    }
+
     /// Converts `self` into a step of another type, given conversion methods for output and
     /// messages.
     pub fn map<D2, FO, FM>(self, f_out: FO, f_msg: FM) -> Step<D2>
