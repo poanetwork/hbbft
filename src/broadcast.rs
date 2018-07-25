@@ -43,91 +43,109 @@
 //!
 //! ## Example
 //!
-//! In this example, we simulate a network by passing messages by hand between instantiated
-//! nodes. We use `u64` as network IDs, and start by creating a common network info. Then we input a
-//! randomly generated payload into the proposer and process all the resulting messages in a
-//! loop. For the purpose of simulation we annotate each message with the node that produced it. For
-//! each output, we perform correctness checks to verify that every node has output the same payload
-//! as we provided to the proposer node, and that it did so exactly once.
+//! In this example, we manually pass messages between instantiated nodes to simulate a network. The
+//! network is composed of 7 nodes, and node 3 is the proposer. We use `u64` as network IDs, and
+//! start by creating a common network info. Then we input a randomly generated payload into the
+//! proposer and process all the resulting messages in a loop. For the purpose of simulation we
+//! annotate each message with the node that produced it. For each output, we perform correctness
+//! checks to verify that every node has output the same payload as we provided to the proposer
+//! node, and that it did so exactly once.
 //!
 //! ```
 //! extern crate hbbft;
 //! extern crate rand;
 //!
-//! use hbbft::broadcast::Broadcast;
-//! use hbbft::messaging::{DistAlgorithm, NetworkInfo, Target, TargetedMessage};
+//! use hbbft::broadcast::{Broadcast, Error, Step};
+//! use hbbft::messaging::{DistAlgorithm, NetworkInfo, SourcedMessage, Target, TargetedMessage};
 //! use rand::{thread_rng, Rng};
 //! use std::collections::{BTreeMap, BTreeSet, VecDeque};
 //! use std::iter::once;
 //! use std::sync::Arc;
 //!
-//! // Our simulated network will use seven nodes in total, node 3 will be the proposer.
-//! const NUM_NODES: u64 = 7;
-//! const PROPOSER_ID: u64 = 3;
+//! fn main() -> Result<(), Error> {
+//!     // Our simulated network has seven nodes in total, node 3 is the proposer.
+//!     const NUM_NODES: u64 = 7;
+//!     const PROPOSER_ID: u64 = 3;
 //!
-//! let mut rng = thread_rng();
+//!     let mut rng = thread_rng();
 //!
-//! // Create a random set of keys for testing.
-//! let netinfos = NetworkInfo::generate_map(0..NUM_NODES);
+//!     // Create a random set of keys for testing.
+//!     let netinfos = NetworkInfo::generate_map(0..NUM_NODES);
 //!
-//! // Create initial nodes by instantiating a `Broadcast` for each.
-//! let mut nodes: BTreeMap<_, _> = netinfos
-//!     .into_iter()
-//!     .map(|(i, netinfo)| {
-//!         let bc =
-//!             Broadcast::new(Arc::new(netinfo), PROPOSER_ID).expect("Broadcast instantiation");
-//!         (i, bc)
-//!     })
-//!     .collect();
+//!     // Create initial nodes by instantiating a `Broadcast` for each.
+//!     let mut nodes = BTreeMap::new();
+//!     for (i, netinfo) in netinfos {
+//!         let bc = Broadcast::new(Arc::new(netinfo), PROPOSER_ID)?;
+//!         nodes.insert(i, bc);
+//!     }
 //!
-//! // We are ready to start. First we generate a payload to be broadcast.
-//! let mut payload: Vec<_> = vec![0; 128];
-//! rng.fill_bytes(&mut payload[..]);
+//!     // First we generate a random payload.
+//!     let mut payload: Vec<_> = vec![0; 128];
+//!     rng.fill_bytes(&mut payload[..]);
 //!
-//! // Now we can start the algorithm, its input is the payload.
-//! let initial_step = {
-//!     let proposer = nodes.get_mut(&PROPOSER_ID).unwrap();
-//!     proposer.input(payload.clone()).unwrap()
-//! };
-//!
-//! // Initialize the message queue for the simulated network. Annotate the resulting messages with
-//! // the sender ID.
-//! let mut messages: VecDeque<(_, TargetedMessage<_, _>)> = initial_step
-//!     .messages
-//!     .into_iter()
-//!     .map(|tm| (PROPOSER_ID, tm))
-//!     .collect();
-//!
-//! // We can check that a message is scheduled by the proposer. There should be one as long as the
-//! // number of nodes is greater than 1.
-//! assert!(!messages.is_empty());
-//! let mut finished_nodes = BTreeSet::new();
-//!
-//! // The message loop: The network is simulated by passing messages around from node to node.
-//! while let Some((sender, TargetedMessage { target, message })) = messages.pop_front() {
-//!     println!("Message [{:?} -> {:?}]: {:?}", sender, target, message);
-//!
-//!     let targets = match target {
-//!         Target::All => (0..NUM_NODES).collect(),
-//!         Target::Node(id) => vec![id],
-//!     };
-//!     for id in targets {
-//!         let node = nodes.get_mut(&id).expect("destination node");
-//!         let step = node
-//!             .handle_message(&sender, message.clone())
-//!             .expect("message was handled");
-//!         // Annotate messages and outputs.
-//!         messages.extend(step.messages.into_iter().map(|x| (id, x)));
+//!     // Define a function for handling one step of a `Broadcast` instance. This function appends new
+//!     // messages onto the message queue and checks whether each node outputs at most once and the
+//!     // output is correct.
+//!     let on_step = |id: u64,
+//!                    step: Step<u64>,
+//!                    messages: &mut VecDeque<SourcedMessage<TargetedMessage<_, _>, _>>,
+//!                    finished_nodes: &mut BTreeSet<u64>| {
+//!         // Annotate messages with the sender ID.
+//!         messages.extend(step.messages.into_iter().map(|msg| SourcedMessage {
+//!             source: id,
+//!             message: msg,
+//!         }));
 //!         if !step.output.is_empty() {
 //!             // The output should be the same as the input we gave to the proposer.
 //!             assert!(step.output.iter().eq(once(&payload)));
-//!             // The node should output exactly once.
+//!             // Every node should output exactly once. Here we check the first half of this
+//!             // statement, namely that every node outputs at most once.
 //!             assert!(finished_nodes.insert(id));
 //!         }
+//!     };
+//!
+//!     let mut messages = VecDeque::new();
+//!     let mut finished_nodes = BTreeSet::new();
+//!
+//!     // Now we can start the algorithm, its input is the payload.
+//!     let initial_step = {
+//!         let proposer = nodes.get_mut(&PROPOSER_ID).unwrap();
+//!         proposer.input(payload.clone()).unwrap()
+//!     };
+//!     on_step(
+//!         PROPOSER_ID,
+//!         initial_step,
+//!         &mut messages,
+//!         &mut finished_nodes,
+//!     );
+//!
+//!     // The message loop: The network is simulated by passing messages around from node to node.
+//!     while let Some(SourcedMessage {
+//!         source,
+//!         message: TargetedMessage { target, message },
+//!     }) = messages.pop_front()
+//!     {
+//!         match target {
+//!             Target::All => {
+//!                 for (id, node) in &mut nodes {
+//!                     let step = node.handle_message(&source, message.clone())?;
+//!                     on_step(*id, step, &mut messages, &mut finished_nodes);
+//!                 }
+//!             }
+//!             Target::Node(id) => {
+//!                 let step = {
+//!                     let node = nodes.get_mut(&id).unwrap();
+//!                     node.handle_message(&source, message)?
+//!                 };
+//!                 on_step(id, step, &mut messages, &mut finished_nodes);
+//!             }
+//!         };
 //!     }
+//!     // Every node should output exactly once. Here we check the second half of this statement,
+//!     // namely that every node outputs.
+//!     assert_eq!(finished_nodes, nodes.keys().cloned().collect());
+//!     Ok(())
 //! }
-//! // All nodes should have finished.
-//! assert_eq!(finished_nodes, nodes.keys().cloned().collect());
 //! ```
 
 use std::collections::{BTreeMap, VecDeque};
