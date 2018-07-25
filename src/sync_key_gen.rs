@@ -402,7 +402,7 @@ impl<NodeUid: Ord + Clone + Debug> SyncKeyGen<NodeUid> {
                 sk_val.add_assign(&row.evaluate(0));
             }
         }
-        let opt_sk = opt_sk_val.map(SecretKeyShare::from_value);
+        let opt_sk = opt_sk_val.map(|mut fr| SecretKeyShare::from_mut_ptr(&mut fr as *mut Fr));
         (pk_commit.into(), opt_sk)
     }
 

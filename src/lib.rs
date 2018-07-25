@@ -112,6 +112,7 @@ extern crate init_with;
 #[macro_use]
 extern crate log;
 extern crate itertools;
+extern crate memsec;
 extern crate merkle;
 extern crate pairing;
 #[cfg(feature = "serialization-protobuf")]

@@ -11,13 +11,15 @@ pub mod serde_impl;
 
 use std::fmt;
 use std::hash::{Hash, Hasher};
-use std::ptr::write_volatile;
+use std::mem::size_of_val;
+use std::ptr::{copy_nonoverlapping, write_volatile};
 
 use byteorder::{BigEndian, ByteOrder};
 use init_with::InitWith;
+use memsec::{memzero, mlock, munlock};
 use pairing::bls12_381::{Bls12, Fr, G1, G1Affine, G2, G2Affine};
 use pairing::{CurveAffine, CurveProjective, Engine, Field};
-use rand::{ChaChaRng, OsRng, Rng, SeedableRng};
+use rand::{ChaChaRng, OsRng, Rand, Rng, SeedableRng};
 use ring::digest;
 
 use self::error::{ErrorKind, Result};
@@ -29,6 +31,18 @@ use fmt::HexBytes;
 const CHACHA_RNG_SEED_SIZE: usize = 8;
 
 const ERR_OS_RNG: &str = "could not initialize the OS random number generator";
+
+/// Marks a type as containing one or more secret prime field elements.
+pub(crate) trait ContainsSecret {
+    /// Calls the `mlock` system call on the region of memory allocated for
+    /// the secret prime field element or elements. This results in that
+    /// region of memory not being swapped to disk.
+    fn mlock_secret_memory(&self);
+    /// Undoes the `mlock` on the secret region of memory.
+    fn munlock_secret_memory(&self);
+    /// Overwrites the secret prime field elements with zeros.
+    fn zero_secret_memory(&self);
+}
 
 /// A public key.
 #[derive(Deserialize, Serialize, Copy, Clone, PartialEq, Eq)]
@@ -156,47 +170,107 @@ impl fmt::Debug for SignatureShare {
     }
 }
 
-/// A secret key.
-#[derive(Clone, PartialEq, Eq, Rand)]
-pub struct SecretKey(Fr);
-
-impl fmt::Debug for SecretKey {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let uncomp = self.public_key().0.into_affine().into_uncompressed();
-        let bytes = uncomp.as_ref();
-        write!(f, "SecretKey({:?})", HexBytes(bytes))
-    }
-}
+/// A secret key; wraps a single prime field element. The field element is
+/// heap allocated to avoid any stack copying that results when passing
+/// `SecretKey`'s around as arguments or as return values.
+#[derive(PartialEq, Eq)]
+pub struct SecretKey(Box<Fr>);
 
 impl Default for SecretKey {
     fn default() -> Self {
-        SecretKey(Fr::zero())
+        let mut fr = Fr::zero();
+        SecretKey::from_mut_ptr(&mut fr as *mut Fr)
+    }
+}
+
+impl Rand for SecretKey {
+    fn rand<R: Rng>(rng: &mut R) -> Self {
+        let mut fr = Fr::rand(rng);
+        SecretKey::from_mut_ptr(&mut fr as *mut Fr)
+    }
+}
+
+impl Clone for SecretKey {
+    fn clone(&self) -> Self {
+        let mut fr = *self.0;
+        SecretKey::from_mut_ptr(&mut fr as *mut Fr)
     }
 }
 
 impl Drop for SecretKey {
     fn drop(&mut self) {
-        let ptr = self as *mut Self;
+        self.zero_secret_memory();
+        self.munlock_secret_memory();
+    }
+}
+
+/// A debug statement where the secret prime field element is redacted.
+impl fmt::Debug for SecretKey {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "SecretKey(...)")
+    }
+}
+
+impl ContainsSecret for SecretKey {
+    fn mlock_secret_memory(&self) {
+        let ptr = &*self.0 as *const Fr as *mut u8;
+        let n_bytes = size_of_val(&*self.0);
         unsafe {
-            write_volatile(ptr, SecretKey::default());
+            if !mlock(ptr, n_bytes) {
+                println!("SK MLOCK FAILED!");
+            }
+        }
+    }
+
+    fn munlock_secret_memory(&self) {
+        let ptr = &*self.0 as *const Fr as *mut u8;
+        let n_bytes = size_of_val(&*self.0);
+        unsafe {
+            if !munlock(ptr, n_bytes) {
+                println!("SK MUNLOCK FAILED!");
+            }
+        }
+    }
+
+    fn zero_secret_memory(&self) {
+        let ptr = &*self.0 as *const Fr as *mut u8;
+        let n_bytes = size_of_val(&*self.0);
+        unsafe {
+            memzero(ptr, n_bytes);
         }
     }
 }
 
 impl SecretKey {
-    /// Creates a secret key from an existing value
-    pub fn from_value(f: Fr) -> Self {
-        SecretKey(f)
+    /// Creates a new `SecretKey` given a mutable raw pointer to a prime
+    /// field element. This constructor takes a pointer to avoid any
+    /// unnecessary stack copying/moving of secrets. The field element will
+    /// be copied bytewise onto the heap, the resulting `Box` is then
+    /// stored in the `SecretKey`.
+    ///
+    /// *WARNING* this constructor will overwrite the pointed to `Fr` element
+    /// with zeros.
+    #[cfg_attr(feature = "cargo-clippy", allow(not_unsafe_ptr_arg_deref))]
+    pub fn from_mut_ptr(fr_ptr: *mut Fr) -> Self {
+        let boxed_fr = unsafe {
+            let mut boxed_fr = Box::new(Fr::zero());
+            copy_nonoverlapping(fr_ptr, &mut *boxed_fr as *mut Fr, 1);
+            write_volatile(fr_ptr, Fr::zero());
+            boxed_fr
+        };
+        let sk = SecretKey(boxed_fr);
+        sk.mlock_secret_memory();
+        sk
     }
 
     /// Returns the matching public key.
     pub fn public_key(&self) -> PublicKey {
-        PublicKey(G1Affine::one().mul(self.0))
+        PublicKey(G1Affine::one().mul(*self.0))
     }
 
     /// Signs the given element of `G2`.
     pub fn sign_g2<H: Into<G2Affine>>(&self, hash: H) -> Signature {
-        Signature(hash.into().mul(self.0))
+        Signature(hash.into().mul(*self.0))
     }
 
     /// Signs the given message.
@@ -210,8 +284,17 @@ impl SecretKey {
             return None;
         }
         let Ciphertext(ref u, ref v, _) = *ct;
-        let g = u.into_affine().mul(self.0);
+        let g = u.into_affine().mul(*self.0);
         Some(xor_vec(&hash_bytes(g, v.len()), v))
+    }
+
+    /// Generates a non-redacted debug string. This method differs from
+    /// the `Debug` implementation in that it *does* leak the secret prime
+    /// field element.
+    pub fn reveal(&self) -> String {
+        let uncomp = self.public_key().0.into_affine().into_uncompressed();
+        let bytes = uncomp.as_ref();
+        format!("SecretKey({:?})", HexBytes(bytes))
     }
 }
 
@@ -219,18 +302,24 @@ impl SecretKey {
 #[derive(Clone, PartialEq, Eq, Rand, Default)]
 pub struct SecretKeyShare(SecretKey);
 
+/// A debug statement where the secret prime field element is redacted.
 impl fmt::Debug for SecretKeyShare {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let uncomp = self.0.public_key().0.into_affine().into_uncompressed();
-        let bytes = uncomp.as_ref();
-        write!(f, "SecretKeyShare({:?})", HexBytes(bytes))
+        write!(f, "SecretKeyShare(...)")
     }
 }
 
 impl SecretKeyShare {
-    /// Creates a secret key share from an existing value
-    pub fn from_value(f: Fr) -> Self {
-        SecretKeyShare(SecretKey::from_value(f))
+    /// Creates a secret key share from an existing value. This constructor
+    /// takes a pointer to avoid any unnecessary stack copying/moving of
+    /// secrets. The field element willm be copied bytewise onto the heap,
+    /// the resulting `Box` is then stored in the `SecretKey` which is then
+    /// wrapped in a `SecretKeyShare`.
+    ///
+    /// *NOTE* this constructor will overwrite the pointed to `Fr` element
+    /// with zeros.
+    pub fn from_mut_ptr(fr_ptr: *mut Fr) -> Self {
+        SecretKeyShare(SecretKey::from_mut_ptr(fr_ptr))
     }
 
     /// Returns the matching public key share.
@@ -258,7 +347,16 @@ impl SecretKeyShare {
 
     /// Returns a decryption share, without validating the ciphertext.
     pub fn decrypt_share_no_verify(&self, ct: &Ciphertext) -> DecryptionShare {
-        DecryptionShare(ct.0.into_affine().mul((self.0).0))
+        DecryptionShare(ct.0.into_affine().mul(*(self.0).0))
+    }
+
+    /// Generates a non-redacted debug string. This method differs from
+    /// the `Debug` implementation in that it *does* leak the secret prime
+    /// field element.
+    pub fn reveal(&self) -> String {
+        let uncomp = self.0.public_key().0.into_affine().into_uncompressed();
+        let bytes = uncomp.as_ref();
+        format!("SecretKeyShare({:?})", HexBytes(bytes))
     }
 }
 
@@ -389,8 +487,8 @@ impl SecretKeySet {
 
     /// Returns the `i`-th secret key share.
     pub fn secret_key_share<T: IntoFr>(&self, i: T) -> SecretKeyShare {
-        let value = self.poly.evaluate(into_fr_plus_1(i));
-        SecretKeyShare(SecretKey(value))
+        let mut fr = self.poly.evaluate(into_fr_plus_1(i));
+        SecretKeyShare::from_mut_ptr(&mut fr as *mut Fr)
     }
 
     /// Returns the corresponding public key set. That information can be shared publicly.
@@ -403,7 +501,8 @@ impl SecretKeySet {
     /// Returns the secret master key.
     #[cfg(test)]
     fn secret_key(&self) -> SecretKey {
-        SecretKey(self.poly.evaluate(0))
+        let mut fr = self.poly.evaluate(0);
+        SecretKey::from_mut_ptr(&mut fr as *mut Fr)
     }
 }
 

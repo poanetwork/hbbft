@@ -17,22 +17,46 @@
 //! polynomials (in two variables) over a field `Fr`, as well as their _commitments_ in `G`.
 
 use std::borrow::Borrow;
+use std::fmt;
 use std::hash::{Hash, Hasher};
-use std::ptr::write_volatile;
+use std::mem::{size_of, size_of_val};
 use std::{cmp, iter, ops};
 
+use memsec::{memzero, mlock, munlock};
 use pairing::bls12_381::{Fr, G1, G1Affine};
 use pairing::{CurveAffine, CurveProjective, Field};
 use rand::Rng;
 
-use super::IntoFr;
+use super::{ContainsSecret, IntoFr};
 
 /// A univariate polynomial in the prime field.
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, PartialEq, Eq)]
 pub struct Poly {
     /// The coefficients of a polynomial.
     #[serde(with = "super::serde_impl::field_vec")]
     pub(super) coeff: Vec<Fr>,
+}
+
+impl From<Vec<Fr>> for Poly {
+    fn from(coeff: Vec<Fr>) -> Self {
+        let poly = Poly { coeff };
+        poly.mlock_secret_memory();
+        poly
+    }
+}
+
+impl Clone for Poly {
+    fn clone(&self) -> Self {
+        Poly::from(self.coeff.clone())
+    }
+}
+
+/// A debug statement where the `coeff` vector of prime field elements has
+/// been redacted.
+impl fmt::Debug for Poly {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "Poly {{ coeff: ... }}")
+    }
 }
 
 impl<B: Borrow<Poly>> ops::AddAssign<B> for Poly {
@@ -140,8 +164,9 @@ impl<'a, B: Borrow<Poly>> ops::Mul<B> for &'a Poly {
     type Output = Poly;
 
     fn mul(self, rhs: B) -> Self::Output {
-        let coeff = (0..(self.coeff.len() + rhs.borrow().coeff.len() - 1))
+        let coeff: Vec<Fr> = (0..(self.coeff.len() + rhs.borrow().coeff.len() - 1))
             .map(|i| {
+                // TODO: clear these secrets from the stack.
                 let mut c = Fr::zero();
                 for j in i.saturating_sub(rhs.borrow().degree())..(1 + cmp::min(i, self.degree())) {
                     let mut s = self.coeff[j];
@@ -151,7 +176,7 @@ impl<'a, B: Borrow<Poly>> ops::Mul<B> for &'a Poly {
                 c
             })
             .collect();
-        Poly { coeff }
+        Poly::from(coeff)
     }
 }
 
@@ -192,12 +217,37 @@ impl<'a> ops::Mul<u64> for Poly {
 
 impl Drop for Poly {
     fn drop(&mut self) {
-        let start = self.coeff.as_mut_ptr();
+        self.zero_secret_memory();
+        self.munlock_secret_memory();
+    }
+}
+
+impl ContainsSecret for Poly {
+    fn mlock_secret_memory(&self) {
+        let ptr = self.coeff.as_ptr() as *mut u8;
+        let n_bytes = size_of_val(self.coeff.as_slice());
         unsafe {
-            for i in 0..self.coeff.len() {
-                let ptr = start.offset(i as isize);
-                write_volatile(ptr, Fr::zero());
+            if !mlock(ptr, n_bytes) {
+                println!("POLY MLOCK FAILED!");
             }
+        }
+    }
+
+    fn munlock_secret_memory(&self) {
+        let ptr = self.coeff.as_ptr() as *mut u8;
+        let n_bytes = size_of_val(self.coeff.as_slice());
+        unsafe {
+            if !munlock(ptr, n_bytes) {
+                println!("POLY MUNLOCK FAILED!");
+            }
+        }
+    }
+
+    fn zero_secret_memory(&self) {
+        let ptr = self.coeff.as_ptr() as *mut u8;
+        let n_bytes = size_of_val(self.coeff.as_slice());
+        unsafe {
+            memzero(ptr, n_bytes);
         }
     }
 }
@@ -205,14 +255,13 @@ impl Drop for Poly {
 impl Poly {
     /// Creates a random polynomial.
     pub fn random<R: Rng>(degree: usize, rng: &mut R) -> Self {
-        Poly {
-            coeff: (0..(degree + 1)).map(|_| rng.gen()).collect(),
-        }
+        let coeff: Vec<Fr> = (0..=degree).map(|_| rng.gen()).collect();
+        Poly::from(coeff)
     }
 
     /// Returns the polynomial with constant value `0`.
     pub fn zero() -> Self {
-        Poly { coeff: Vec::new() }
+        Poly::from(vec![])
     }
 
     /// Returns the polynomial with constant value `1`.
@@ -222,7 +271,8 @@ impl Poly {
 
     /// Returns the polynomial with constant value `c`.
     pub fn constant(c: Fr) -> Self {
-        Poly { coeff: vec![c] }
+        // TODO: clear secret `Fr` argument from stack frame.
+        Poly::from(vec![c])
     }
 
     /// Returns the identity function, i.e. the polynomial "`x`".
@@ -232,12 +282,11 @@ impl Poly {
 
     /// Returns the (monic) monomial "`x.pow(degree)`".
     pub fn monomial(degree: usize) -> Self {
-        Poly {
-            coeff: iter::repeat(Fr::zero())
-                .take(degree)
-                .chain(iter::once(Fr::one()))
-                .collect(),
-        }
+        let coeff: Vec<Fr> = iter::repeat(Fr::zero())
+            .take(degree)
+            .chain(iter::once(Fr::one()))
+            .collect();
+        Poly::from(coeff)
     }
 
     /// Returns the unique polynomial `f` of degree `samples.len() - 1` with the given values
@@ -284,7 +333,20 @@ impl Poly {
     fn remove_zeros(&mut self) {
         let zeros = self.coeff.iter().rev().take_while(|c| c.is_zero()).count();
         let len = self.coeff.len() - zeros;
-        self.coeff.truncate(len)
+        self.coeff.truncate(len);
+        self.munlock_truncated(zeros);
+    }
+
+    // Removes the `mlock` for zero prime field elements that have been
+    // truncated from the `coeff` vector.
+    fn munlock_truncated(&self, len: usize) {
+        let n_bytes_truncated = len * size_of::<Fr>();
+        unsafe {
+            let ptr = self.coeff.as_ptr().offset(self.coeff.len() as isize) as *mut u8;
+            if !munlock(ptr, n_bytes_truncated) {
+                println!("POLY TRUNCATE MUNLOCK FAILED!");
+            }
+        }
     }
 
     /// Returns the unique polynomial `f` of degree `samples.len() - 1` with the given values
@@ -315,6 +377,13 @@ impl Poly {
             result *= (Self::identity() - Self::constant(sx)) * Self::constant(denom);
         }
         result
+    }
+
+    /// Generates a non-redacted debug string. This method differs from
+    /// the `Debug` implementation in that it *does* leak the secret prime
+    /// field elements.
+    pub fn reveal(&self) -> String {
+        format!("Poly {{ coeff: {:?} }}", self.coeff)
     }
 }
 
@@ -395,7 +464,6 @@ impl Commitment {
 ///
 /// This can be used for Verifiable Secret Sharing and Distributed Key Generation. See the module
 /// documentation for details.
-#[derive(Debug, Clone)]
 pub struct BivarPoly {
     /// The polynomial's degree in each of the two variables.
     degree: usize,
@@ -404,14 +472,58 @@ pub struct BivarPoly {
     coeff: Vec<Fr>,
 }
 
+impl Clone for BivarPoly {
+    fn clone(&self) -> Self {
+        let poly = BivarPoly {
+            degree: self.degree,
+            coeff: self.coeff.clone(),
+        };
+        poly.mlock_secret_memory();
+        poly
+    }
+}
+
 impl Drop for BivarPoly {
     fn drop(&mut self) {
-        let start = self.coeff.as_mut_ptr();
+        self.zero_secret_memory();
+        self.munlock_secret_memory();
+    }
+}
+
+/// A debug statement where the `coeff` vector of prime field elements has
+/// been redacted.
+impl fmt::Debug for BivarPoly {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "BivarPoly {{ degree: {}, coeff: ... }}", self.degree)
+    }
+}
+
+impl ContainsSecret for BivarPoly {
+    fn mlock_secret_memory(&self) {
+        let ptr = self.coeff.as_ptr() as *mut u8;
+        let n_bytes = size_of_val(self.coeff.as_slice());
         unsafe {
-            for i in 0..self.coeff.len() {
-                let ptr = start.offset(i as isize);
-                write_volatile(ptr, Fr::zero());
+            if !mlock(ptr, n_bytes) {
+                println!("BivarPoly MLOCK FAILED!");
             }
+        }
+    }
+
+    fn munlock_secret_memory(&self) {
+        let ptr = self.coeff.as_ptr() as *mut u8;
+        let n_bytes = size_of_val(self.coeff.as_slice());
+        unsafe {
+            if !munlock(ptr, n_bytes) {
+                println!("BivarPoly MUNLOCK FAILED!");
+            }
+        }
+    }
+
+    fn zero_secret_memory(&self) {
+        let ptr = self.coeff.as_ptr() as *mut u8;
+        let n_bytes = size_of_val(self.coeff.as_slice());
+        unsafe {
+            memzero(ptr, n_bytes);
         }
     }
 }
@@ -419,10 +531,12 @@ impl Drop for BivarPoly {
 impl BivarPoly {
     /// Creates a random polynomial.
     pub fn random<R: Rng>(degree: usize, rng: &mut R) -> Self {
-        BivarPoly {
+        let poly = BivarPoly {
             degree,
             coeff: (0..coeff_pos(degree + 1, 0)).map(|_| rng.gen()).collect(),
-        }
+        };
+        poly.mlock_secret_memory();
+        poly
     }
 
     /// Returns the polynomial's degree: It is the same in both variables.
@@ -452,6 +566,7 @@ impl BivarPoly {
         let x_pow = self.powers(x);
         let coeff: Vec<Fr> = (0..=self.degree)
             .map(|i| {
+                // TODO: clear these secrets from the stack.
                 let mut result = Fr::zero();
                 for (j, x_pow_j) in x_pow.iter().enumerate() {
                     let mut summand = self.coeff[coeff_pos(i, j)];
@@ -461,7 +576,7 @@ impl BivarPoly {
                 result
             })
             .collect();
-        Poly { coeff }
+        Poly::from(coeff)
     }
 
     /// Returns the corresponding commitment. That information can be shared publicly.
@@ -476,6 +591,16 @@ impl BivarPoly {
     /// Returns the `0`-th to `degree`-th power of `x`.
     fn powers<T: IntoFr>(&self, x: T) -> Vec<Fr> {
         powers(x, self.degree)
+    }
+
+    /// Generates a non-redacted debug string. This method differs from the
+    /// `Debug` implementation in that it *does* leak the the struct's
+    /// internal state.
+    pub fn reveal(&self) -> String {
+        format!(
+            "BivarPoly {{ degree: {}, coeff: {:?} }}",
+            self.degree, self.coeff
+        )
     }
 }
 
