@@ -192,11 +192,14 @@ where
 
     /// Proposes a contribution in the current epoch.
     pub fn propose(&mut self, contrib: C) -> Result<Step<C, NodeUid>> {
-        let step = self.honey_badger.input(InternalContrib {
-            contrib,
-            key_gen_messages: self.key_gen_msg_buffer.clone(),
-            votes: self.vote_counter.pending_votes().cloned().collect(),
-        })?;
+        let step = self
+            .honey_badger
+            .input(InternalContrib {
+                contrib,
+                key_gen_messages: self.key_gen_msg_buffer.clone(),
+                votes: self.vote_counter.pending_votes().cloned().collect(),
+            })
+            .map_err(ErrorKind::ProposeHoneyBadger)?;
         self.process_output(step)
     }
 
@@ -226,7 +229,10 @@ where
             return Err(ErrorKind::UnknownSender.into());
         }
         // Handle the message.
-        let step = self.honey_badger.handle_message(sender_id, message)?;
+        let step = self
+            .honey_badger
+            .handle_message(sender_id, message)
+            .map_err(ErrorKind::HandleHoneyBadgerMessageHoneyBadger)?;
         self.process_output(step)
     }
 
@@ -375,7 +381,8 @@ where
 
     /// Signs and sends a `KeyGenMessage` and also tries to commit it.
     fn send_transaction(&mut self, kg_msg: KeyGenMessage) -> Result<Step<C, NodeUid>> {
-        let ser = bincode::serialize(&kg_msg)?;
+        let ser =
+            bincode::serialize(&kg_msg).map_err(|err| ErrorKind::SendTransactionBincode(*err))?;
         let sig = Box::new(self.netinfo.secret_key().sign(ser));
         if self.netinfo.is_validator() {
             let our_uid = self.netinfo.our_uid().clone();
@@ -412,7 +419,8 @@ where
         sig: &Signature,
         kg_msg: &KeyGenMessage,
     ) -> Result<bool> {
-        let ser = bincode::serialize(kg_msg)?;
+        let ser =
+            bincode::serialize(kg_msg).map_err(|err| ErrorKind::VerifySignatureBincode(*err))?;
         let pk_opt = (self.netinfo.public_key(node_id)).or_else(|| {
             self.key_gen
                 .iter()

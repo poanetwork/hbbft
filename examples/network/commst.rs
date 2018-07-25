@@ -7,7 +7,7 @@ use std::io;
 use std::net::TcpStream;
 
 use hbbft::messaging::SourcedMessage;
-use hbbft::proto_io::{self, ProtoIo};
+use hbbft::proto_io::{ErrorKind, ProtoIo};
 use protobuf::Message;
 
 #[derive(Debug)]
@@ -85,13 +85,12 @@ impl<'a, P: Message + 'a, M: Into<P> + From<P> + Send + 'a> CommsTask<'a, P, M> 
                             message: message.into(),
                         }).unwrap();
                     }
-                    Err(proto_io::Error(proto_io::ErrorKind::Protobuf(e), _)) => {
-                        warn!("Node {} - Protobuf error {}", node_index, e)
-                    }
-                    Err(e) => {
-                        warn!("Node {} - Critical error {:?}", node_index, e);
-                        break;
-                    }
+                    Err(err) => match err.kind() {
+                        ErrorKind::Protobuf(pe) => {
+                            warn!("Node {} - Protobuf error {}", node_index, pe)
+                        }
+                        _ => warn!("Node {} - Critical error {:?}", node_index, err),
+                    },
                 }
             }
         });

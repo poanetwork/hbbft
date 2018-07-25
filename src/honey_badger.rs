@@ -25,13 +25,14 @@
 use rand::Rand;
 use std::collections::btree_map::Entry;
 use std::collections::{BTreeMap, BTreeSet};
-use std::fmt::Debug;
+use std::fmt::{self, Debug, Display};
 use std::hash::Hash;
 use std::marker::PhantomData;
 use std::mem;
 use std::sync::Arc;
 
 use bincode;
+use failure::{Backtrace, Context, Fail};
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 
@@ -40,19 +41,66 @@ use crypto::{Ciphertext, DecryptionShare};
 use fault_log::{Fault, FaultKind, FaultLog};
 use messaging::{self, DistAlgorithm, NetworkInfo, Target};
 
-error_chain!{
-    links {
-        CommonSubset(common_subset::Error, common_subset::ErrorKind);
+/// Honey badger error variants.
+#[derive(Debug, Fail)]
+pub enum ErrorKind {
+    #[fail(display = "ProposeBincode error: {}", _0)]
+    ProposeBincode(bincode::ErrorKind),
+    #[fail(display = "ProposeCommonSubset0 error: {}", _0)]
+    ProposeCommonSubset0(common_subset::Error),
+    #[fail(display = "ProposeCommonSubset1 error: {}", _0)]
+    ProposeCommonSubset1(common_subset::Error),
+    #[fail(display = "HandleCommonMessageCommonSubset0 error: {}", _0)]
+    HandleCommonMessageCommonSubset0(common_subset::Error),
+    #[fail(display = "HandleCommonMessageCommonSubset1 error: {}", _0)]
+    HandleCommonMessageCommonSubset1(common_subset::Error),
+    #[fail(display = "Unknown sender")]
+    UnknownSender,
+}
+
+/// A honey badger error.
+#[derive(Debug)]
+pub struct Error {
+    inner: Context<ErrorKind>,
+}
+
+impl Fail for Error {
+    fn cause(&self) -> Option<&Fail> {
+        self.inner.cause()
     }
 
-    foreign_links {
-        Bincode(Box<bincode::ErrorKind>);
-    }
-
-    errors {
-        UnknownSender
+    fn backtrace(&self) -> Option<&Backtrace> {
+        self.inner.backtrace()
     }
 }
+
+impl Error {
+    pub fn kind(&self) -> &ErrorKind {
+        self.inner.get_context()
+    }
+}
+
+impl From<ErrorKind> for Error {
+    fn from(kind: ErrorKind) -> Error {
+        Error {
+            inner: Context::new(kind),
+        }
+    }
+}
+
+impl From<Context<ErrorKind>> for Error {
+    fn from(inner: Context<ErrorKind>) -> Error {
+        Error { inner }
+    }
+}
+
+impl Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        Display::fmt(&self.inner, f)
+    }
+}
+
+pub type Result<T> = ::std::result::Result<T, Error>;
 
 /// A Honey Badger builder, to configure the parameters and create new instances of `HoneyBadger`.
 pub struct HoneyBadgerBuilder<C, NodeUid> {
@@ -195,14 +243,17 @@ where
         let cs_step = {
             let cs = match self.common_subsets.entry(epoch) {
                 Entry::Occupied(entry) => entry.into_mut(),
-                Entry::Vacant(entry) => {
-                    entry.insert(CommonSubset::new(self.netinfo.clone(), epoch)?)
-                }
+                Entry::Vacant(entry) => entry.insert(
+                    CommonSubset::new(self.netinfo.clone(), epoch)
+                        .map_err(ErrorKind::ProposeCommonSubset0)?,
+                ),
             };
-            let ser_prop = bincode::serialize(&proposal)?;
+            let ser_prop =
+                bincode::serialize(&proposal).map_err(|err| ErrorKind::ProposeBincode(*err))?;
             let ciphertext = self.netinfo.public_key_set().public_key().encrypt(ser_prop);
             self.has_input = true;
-            cs.input(bincode::serialize(&ciphertext).unwrap())?
+            cs.input(bincode::serialize(&ciphertext).unwrap())
+                .map_err(ErrorKind::ProposeCommonSubset1)?
         };
         self.process_output(cs_step, epoch)
     }
@@ -245,11 +296,15 @@ where
                         // Epoch has already terminated. Message is obsolete.
                         return Ok(Step::default());
                     } else {
-                        entry.insert(CommonSubset::new(self.netinfo.clone(), epoch)?)
+                        entry.insert(
+                            CommonSubset::new(self.netinfo.clone(), epoch)
+                                .map_err(ErrorKind::HandleCommonMessageCommonSubset0)?,
+                        )
                     }
                 }
             };
-            cs.handle_message(sender_id, message)?
+            cs.handle_message(sender_id, message)
+                .map_err(ErrorKind::HandleCommonMessageCommonSubset1)?
         };
         let step = self.process_output(cs_step, epoch)?;
         self.remove_terminated(epoch);

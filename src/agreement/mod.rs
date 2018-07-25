@@ -77,20 +77,21 @@ use common_coin::{self, CommonCoin, CommonCoinMessage};
 use fault_log::{Fault, FaultKind};
 use messaging::{self, DistAlgorithm, NetworkInfo, Target};
 
-error_chain!{
-    links {
-        CommonCoin(common_coin::Error, common_coin::ErrorKind);
-    }
-
-    errors {
-        UnknownProposer {
-            description("unknown proposer")
-        }
-        InputNotAccepted {
-            description("input not accepted")
-        }
-    }
+/// An agreement error.
+#[derive(Clone, Eq, PartialEq, Debug, Fail)]
+pub enum Error {
+    #[fail(display = "HandleCoinCommonCoin error: {}", _0)]
+    HandleCoinCommonCoin(common_coin::Error),
+    #[fail(display = "TryFinishConfRoundCommonCoin error: {}", _0)]
+    TryFinishConfRoundCommonCoin(common_coin::Error),
+    #[fail(display = "Unknown proposer")]
+    UnknownProposer,
+    #[fail(display = "Input not accepted")]
+    InputNotAccepted,
 }
+
+/// An agreement result.
+pub type Result<T> = ::std::result::Result<T, Error>;
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub enum AgreementContent {
@@ -267,7 +268,7 @@ impl<NodeUid: Clone + Debug + Ord> Agreement<NodeUid> {
         proposer_id: NodeUid,
     ) -> Result<Self> {
         if !netinfo.is_node_validator(&proposer_id) {
-            return Err(ErrorKind::UnknownProposer.into());
+            return Err(Error::UnknownProposer);
         }
         Ok(Agreement {
             netinfo,
@@ -291,7 +292,7 @@ impl<NodeUid: Clone + Debug + Ord> Agreement<NodeUid> {
     /// Sets the input value for agreement.
     fn set_input(&mut self, input: bool) -> Result<Step<NodeUid>> {
         if self.epoch != 0 || self.estimated.is_some() {
-            return Err(ErrorKind::InputNotAccepted.into());
+            return Err(Error::InputNotAccepted);
         }
         // Set the initial estimated value to the input value.
         self.estimated = Some(input);
@@ -411,9 +412,9 @@ impl<NodeUid: Clone + Debug + Ord> Agreement<NodeUid> {
     ) -> Result<Step<NodeUid>> {
         let coin_step = match self.coin_state {
             CoinState::Decided(_) => return Ok(Step::default()), // Coin value is already decided.
-            CoinState::InProgress(ref mut common_coin) => {
-                common_coin.handle_message(sender_id, msg)?
-            }
+            CoinState::InProgress(ref mut common_coin) => common_coin
+                .handle_message(sender_id, msg)
+                .map_err(Error::HandleCoinCommonCoin)?,
         };
         self.on_coin_step(coin_step)
     }
@@ -571,7 +572,9 @@ impl<NodeUid: Clone + Debug + Ord> Agreement<NodeUid> {
         // Invoke the common coin.
         let coin_step = match self.coin_state {
             CoinState::Decided(_) => return Ok(Step::default()), // Coin has already decided.
-            CoinState::InProgress(ref mut common_coin) => common_coin.input(())?,
+            CoinState::InProgress(ref mut common_coin) => common_coin
+                .input(())
+                .map_err(Error::TryFinishConfRoundCommonCoin)?,
         };
         let mut step = self.on_coin_step(coin_step)?;
         step.extend(self.try_update_epoch()?);

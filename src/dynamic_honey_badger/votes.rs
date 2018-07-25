@@ -6,7 +6,7 @@ use std::sync::Arc;
 use bincode;
 use serde::{Deserialize, Serialize};
 
-use super::{Change, Result};
+use super::{Change, ErrorKind, Result};
 use crypto::Signature;
 use fault_log::{FaultKind, FaultLog};
 use messaging::NetworkInfo;
@@ -50,7 +50,8 @@ where
             era: self.era,
             num: self.pending.get(&voter).map_or(0, |sv| sv.vote.num + 1),
         };
-        let ser_vote = bincode::serialize(&vote)?;
+        let ser_vote =
+            bincode::serialize(&vote).map_err(|err| ErrorKind::SignVoteForBincode(*err))?;
         let signed_vote = SignedVote {
             vote,
             voter: voter.clone(),
@@ -149,7 +150,8 @@ where
 
     /// Returns `true` if the signature is valid.
     fn validate(&self, signed_vote: &SignedVote<NodeUid>) -> Result<bool> {
-        let ser_vote = bincode::serialize(&signed_vote.vote)?;
+        let ser_vote =
+            bincode::serialize(&signed_vote.vote).map_err(|err| ErrorKind::ValidateBincode(*err))?;
         let pk_opt = self.netinfo.public_key(&signed_vote.voter);
         Ok(pk_opt.map_or(false, |pk| pk.verify(&signed_vote.sig, ser_vote)))
     }

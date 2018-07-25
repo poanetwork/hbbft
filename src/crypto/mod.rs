@@ -20,7 +20,7 @@ use pairing::{CurveAffine, CurveProjective, Engine, Field};
 use rand::{ChaChaRng, OsRng, Rng, SeedableRng};
 use ring::digest;
 
-use self::error::{ErrorKind, Result};
+use self::error::{Error, Result};
 use self::into_fr::IntoFr;
 use self::poly::{Commitment, Poly};
 use fmt::HexBytes;
@@ -459,13 +459,13 @@ where
         .map(|(i, sample)| (into_fr_plus_1(i), sample))
         .collect();
     if samples.len() < t {
-        return Err(ErrorKind::NotEnoughShares.into());
+        return Err(Error::NotEnoughShares);
     }
     let mut result = C::zero();
     let mut indexes = Vec::new();
     for (x, sample) in samples.iter().take(t) {
         if indexes.contains(x) {
-            return Err(ErrorKind::DuplicateEntry.into());
+            return Err(Error::DuplicateEntry);
         }
         indexes.push(x.clone());
         // Compute the value at 0 of the Lagrange polynomial that is `0` at the other data
