@@ -11,7 +11,7 @@
 //!
 //! ## How it works
 //!
-//! * The proposer uses a Reed-Solomon code to split the value into _N_ chunks, _2 f + 1_ of which
+//! * The proposer uses a Reed-Solomon code to split the value into _N_ chunks, _N - 2 f_ of which
 //! suffice to reconstruct the value. These chunks are put into a Merkle tree, so that with the
 //! tree's root hash `h`, branch `bi` and chunk `si`, the `i`-th chunk `si` can be verified by
 //! anyone as belonging to the Merkle tree with root hash `h`. These values are "proof" number `i`:
@@ -21,11 +21,11 @@
 //! * Every (correct) node that receives `Value(pi)` from the proposer sends it on to everyone else
 //! as `Echo(pi)`. An `Echo` translates to: "I have received `pi` directly from the proposer." If
 //! the proposer sends another `Value` message it is ignored.
-//! * So every node that receives at least _2 f + 1_ `Echo` messages with the same root hash can
+//! * So every node that receives at least _f + 1_ `Echo` messages with the same root hash can
 //! decode a value.
 //! * Every node that has received _N - f_ `Echo`s with the same root hash from different nodes
-//! knows that at least _2 f + 1_ _correct_ nodes have sent an `Echo` with that hash to everyone,
-//! and therefore everyone will eventually receive at least _2 f + 1_ of them. So upon receiving
+//! knows that at least _N - 2 f_ _correct_ nodes have sent an `Echo` with that hash to everyone,
+//! and therefore everyone will eventually receive at least _N - f_ of them. So upon receiving
 //! _N - f_ `Echo`s, they send a `Ready(h)` to everyone. It translates to: "I know that everyone
 //! will eventually be able to decode the value with root hash `h`." Moreover, since every correct
 //! node only sends one kind of `Echo` message, there is no danger of receiving _N - f_ `Echo`s
@@ -38,7 +38,7 @@
 //! will eventually receive _2 f + 1_, and multicast it itself. Therefore, every correct node will
 //! eventually receive _2 f + 1_ `Ready`s, too. _And_ we know at this point that every correct
 //! node will eventually be able to decode (i.e. receive at least _2 f + 1_ `Echo` messages).
-//! * So a node with _2 f + 1_ `Ready`s and _2 f + 1_ `Echos` will decode and _output_ the value,
+//! * So a node with _2 f + 1_ `Ready`s and _N - 2 f_ `Echos` will decode and _output_ the value,
 //! knowing that every other correct node will eventually do the same.
 //!
 //! ## Example usage
@@ -484,12 +484,12 @@ impl<NodeUid: Debug + Clone + Ord> Broadcast<NodeUid> {
         Ok(step)
     }
 
-    /// Checks whether the condition for output are met for this hash, and if so, sets the output
+    /// Checks whether the conditions for output are met for this hash, and if so, sets the output
     /// value.
     fn compute_output(&mut self, hash: &[u8]) -> Result<Step<NodeUid>> {
         if self.decided
             || self.count_readys(hash) <= 2 * self.netinfo.num_faulty()
-            || self.count_echos(hash) <= self.netinfo.num_faulty()
+            || self.count_echos(hash) < self.coding.data_shard_count()
         {
             return Ok(Step::default());
         }
