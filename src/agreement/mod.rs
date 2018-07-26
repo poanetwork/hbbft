@@ -314,6 +314,8 @@ impl<NodeUid: Clone + Debug + Ord> Agreement<NodeUid> {
             .filter(|values| values.contains(&b))
             .count();
 
+        let mut step = Step::default();
+
         // upon receiving `BVal(b)` messages from 2f + 1 nodes,
         // bin_values := bin_values ∪ {b}
         if count_bval == 2 * self.netinfo.num_faulty() + 1 {
@@ -324,19 +326,19 @@ impl<NodeUid: Clone + Debug + Ord> Agreement<NodeUid> {
             // where w ∈ bin_values
             if previous_bin_values == BinValues::None {
                 // Send an `Aux` message at most once per epoch.
-                self.send_aux(b)
-            } else if bin_values_changed {
-                self.on_bin_values_changed()
-            } else {
-                Ok(Step::default())
+                step.extend(self.send_aux(b)?);
             }
-        } else if count_bval == self.netinfo.num_faulty() + 1 && !self.sent_bval.contains(&b) {
+            if bin_values_changed {
+                step.extend(self.on_bin_values_changed()?);
+            }
+        }
+
+        if count_bval == self.netinfo.num_faulty() + 1 && !self.sent_bval.contains(&b) {
             // upon receiving `BVal(b)` messages from f + 1 nodes, if
             // `BVal(b)` has not been sent, multicast `BVal(b)`
-            self.send_bval(b)
-        } else {
-            Ok(Step::default())
+            step.extend(self.send_bval(b)?);
         }
+        Ok(step)
     }
 
     /// Called when `bin_values` changes as a result of receiving a `BVal` message. Tries to update
