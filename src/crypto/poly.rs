@@ -21,9 +21,11 @@ use std::hash::{Hash, Hasher};
 use std::ptr::write_volatile;
 use std::{cmp, iter, ops};
 
-use pairing::bls12_381::{Fr, FrRepr, G1, G1Affine};
-use pairing::{CurveAffine, CurveProjective, Field, PrimeField};
+use pairing::bls12_381::{Fr, G1, G1Affine};
+use pairing::{CurveAffine, CurveProjective, Field};
 use rand::Rng;
+
+use super::IntoFr;
 
 /// A univariate polynomial in the prime field.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -61,6 +63,30 @@ impl<B: Borrow<Poly>> ops::Add<B> for Poly {
     }
 }
 
+impl<'a> ops::Add<Fr> for Poly {
+    type Output = Poly;
+
+    fn add(mut self, rhs: Fr) -> Self::Output {
+        if self.coeff.is_empty() {
+            if !rhs.is_zero() {
+                self.coeff.push(rhs);
+            }
+        } else {
+            self.coeff[0].add_assign(&rhs);
+            self.remove_zeros();
+        }
+        self
+    }
+}
+
+impl<'a> ops::Add<u64> for Poly {
+    type Output = Poly;
+
+    fn add(self, rhs: u64) -> Self::Output {
+        self + rhs.into_fr()
+    }
+}
+
 impl<B: Borrow<Poly>> ops::SubAssign<B> for Poly {
     fn sub_assign(&mut self, rhs: B) {
         let len = cmp::max(self.coeff.len(), rhs.borrow().coeff.len());
@@ -86,6 +112,25 @@ impl<B: Borrow<Poly>> ops::Sub<B> for Poly {
     fn sub(mut self, rhs: B) -> Poly {
         self -= rhs;
         self
+    }
+}
+
+// Clippy thinks using `+` in a `Sub` implementation is suspicious.
+#[cfg_attr(feature = "cargo-clippy", allow(suspicious_arithmetic_impl))]
+impl<'a> ops::Sub<Fr> for Poly {
+    type Output = Poly;
+
+    fn sub(self, mut rhs: Fr) -> Self::Output {
+        rhs.negate();
+        self + rhs
+    }
+}
+
+impl<'a> ops::Sub<u64> for Poly {
+    type Output = Poly;
+
+    fn sub(self, rhs: u64) -> Self::Output {
+        self - rhs.into_fr()
     }
 }
 
@@ -121,6 +166,27 @@ impl<B: Borrow<Poly>> ops::Mul<B> for Poly {
 impl<B: Borrow<Self>> ops::MulAssign<B> for Poly {
     fn mul_assign(&mut self, rhs: B) {
         *self = &*self * rhs;
+    }
+}
+
+impl<'a> ops::Mul<Fr> for Poly {
+    type Output = Poly;
+
+    fn mul(mut self, rhs: Fr) -> Self::Output {
+        if rhs.is_zero() {
+            self.coeff.clear();
+        } else {
+            self.coeff.iter_mut().for_each(|c| c.mul_assign(&rhs));
+        }
+        self
+    }
+}
+
+impl<'a> ops::Mul<u64> for Poly {
+    type Output = Poly;
+
+    fn mul(self, rhs: u64) -> Self::Output {
+        self * rhs.into_fr()
     }
 }
 
@@ -176,15 +242,13 @@ impl Poly {
 
     /// Returns the unique polynomial `f` of degree `samples.len() - 1` with the given values
     /// `(x, f(x))`.
-    pub fn interpolate<'a, T, I>(samples_repr: I) -> Self
+    pub fn interpolate<T, U, I>(samples_repr: I) -> Self
     where
-        I: IntoIterator<Item = (&'a T, &'a Fr)>,
-        T: Into<FrRepr> + Clone + 'a,
+        I: IntoIterator<Item = (T, U)>,
+        T: IntoFr,
+        U: IntoFr,
     {
-        let convert = |(x_repr, y): (&T, &Fr)| {
-            let x = Fr::from_repr(x_repr.clone().into()).expect("invalid index");
-            (x, *y)
-        };
+        let convert = |(x, y): (T, U)| (x.into_fr(), y.into_fr());
         let samples: Vec<(Fr, Fr)> = samples_repr.into_iter().map(convert).collect();
         Self::compute_interpolation(&samples)
     }
@@ -195,12 +259,12 @@ impl Poly {
     }
 
     /// Returns the value at the point `i`.
-    pub fn evaluate<T: Into<FrRepr>>(&self, i: T) -> Fr {
+    pub fn evaluate<T: IntoFr>(&self, i: T) -> Fr {
         let mut result = match self.coeff.last() {
             None => return Fr::zero(),
             Some(c) => *c,
         };
-        let x = Fr::from_repr(i.into()).expect("invalid index");
+        let x = i.into_fr();
         for c in self.coeff.iter().rev().skip(1) {
             result.mul_assign(&x);
             result.add_assign(c);
@@ -306,12 +370,12 @@ impl Commitment {
     }
 
     /// Returns the `i`-th public key share.
-    pub fn evaluate<T: Into<FrRepr>>(&self, i: T) -> G1 {
+    pub fn evaluate<T: IntoFr>(&self, i: T) -> G1 {
         let mut result = match self.coeff.last() {
             None => return G1::zero(),
             Some(c) => *c,
         };
-        let x = Fr::from_repr(i.into()).expect("invalid index");
+        let x = i.into_fr();
         for c in self.coeff.iter().rev().skip(1) {
             result.mul_assign(x);
             result.add_assign(c);
@@ -367,7 +431,7 @@ impl BivarPoly {
     }
 
     /// Returns the polynomial's value at the point `(x, y)`.
-    pub fn evaluate<T: Into<FrRepr>>(&self, x: T, y: T) -> Fr {
+    pub fn evaluate<T: IntoFr>(&self, x: T, y: T) -> Fr {
         let x_pow = self.powers(x);
         let y_pow = self.powers(y);
         // TODO: Can we save a few multiplication steps here due to the symmetry?
@@ -384,7 +448,7 @@ impl BivarPoly {
     }
 
     /// Returns the `x`-th row, as a univariate polynomial.
-    pub fn row<T: Into<FrRepr>>(&self, x: T) -> Poly {
+    pub fn row<T: IntoFr>(&self, x: T) -> Poly {
         let x_pow = self.powers(x);
         let coeff: Vec<Fr> = (0..=self.degree)
             .map(|i| {
@@ -410,8 +474,8 @@ impl BivarPoly {
     }
 
     /// Returns the `0`-th to `degree`-th power of `x`.
-    fn powers<T: Into<FrRepr>>(&self, x_repr: T) -> Vec<Fr> {
-        powers(x_repr, self.degree)
+    fn powers<T: IntoFr>(&self, x: T) -> Vec<Fr> {
+        powers(x, self.degree)
     }
 }
 
@@ -441,7 +505,7 @@ impl BivarCommitment {
     }
 
     /// Returns the commitment's value at the point `(x, y)`.
-    pub fn evaluate<T: Into<FrRepr>>(&self, x: T, y: T) -> G1 {
+    pub fn evaluate<T: IntoFr>(&self, x: T, y: T) -> G1 {
         let x_pow = self.powers(x);
         let y_pow = self.powers(y);
         // TODO: Can we save a few multiplication steps here due to the symmetry?
@@ -458,7 +522,7 @@ impl BivarCommitment {
     }
 
     /// Returns the `x`-th row, as a commitment to a univariate polynomial.
-    pub fn row<T: Into<FrRepr>>(&self, x: T) -> Commitment {
+    pub fn row<T: IntoFr>(&self, x: T) -> Commitment {
         let x_pow = self.powers(x);
         let coeff: Vec<G1> = (0..=self.degree)
             .map(|i| {
@@ -475,18 +539,18 @@ impl BivarCommitment {
     }
 
     /// Returns the `0`-th to `degree`-th power of `x`.
-    fn powers<T: Into<FrRepr>>(&self, x_repr: T) -> Vec<Fr> {
-        powers(x_repr, self.degree)
+    fn powers<T: IntoFr>(&self, x: T) -> Vec<Fr> {
+        powers(x, self.degree)
     }
 }
 
 /// Returns the `0`-th to `degree`-th power of `x`.
-fn powers<P: PrimeField, T: Into<P::Repr>>(x_repr: T, degree: usize) -> Vec<P> {
-    let x = &P::from_repr(x_repr.into()).expect("invalid index");
-    let mut x_pow_i = P::one();
+fn powers<T: IntoFr>(into_x: T, degree: usize) -> Vec<Fr> {
+    let x = into_x.into_fr();
+    let mut x_pow_i = Fr::one();
     iter::once(x_pow_i)
         .chain((0..degree).map(|_| {
-            x_pow_i.mul_assign(x);
+            x_pow_i.mul_assign(&x);
             x_pow_i
         }))
         .collect()
@@ -507,19 +571,11 @@ fn coeff_pos(i: usize, j: usize) -> usize {
 mod tests {
     use std::collections::BTreeMap;
 
-    use super::{coeff_pos, BivarPoly, Poly};
+    use super::{coeff_pos, BivarPoly, IntoFr, Poly};
 
     use pairing::bls12_381::{Fr, G1Affine};
-    use pairing::{CurveAffine, Field, PrimeField};
+    use pairing::{CurveAffine, Field};
     use rand;
-
-    fn fr(x: i64) -> Fr {
-        let mut result = Fr::from_repr((x.abs() as u64).into()).unwrap();
-        if x < 0 {
-            result.negate();
-        }
-        result
-    }
 
     #[test]
     fn test_coeff_pos() {
@@ -538,22 +594,15 @@ mod tests {
 
     #[test]
     fn poly() {
-        // The polynomial "`5 * x.pow(3) + x.pow(1) - 2`".
-        let poly =
-            Poly::monomial(3) * Poly::constant(fr(5)) + Poly::monomial(1) - Poly::constant(fr(2));
-        let coeff = vec![fr(-2), fr(1), fr(0), fr(5)];
+        // The polynomial 5 X³ + X - 2.
+        let poly = Poly::monomial(3) * 5 + Poly::monomial(1) - 2;
+        let coeff: Vec<_> = [-2, 1, 0, 5].into_iter().map(IntoFr::into_fr).collect();
         assert_eq!(Poly { coeff }, poly);
-        let samples = vec![
-            (fr(-1), fr(-8)),
-            (fr(2), fr(40)),
-            (fr(3), fr(136)),
-            (fr(5), fr(628)),
-        ];
+        let samples = vec![(-1, -8), (2, 40), (3, 136), (5, 628)];
         for &(x, y) in &samples {
-            assert_eq!(y, poly.evaluate(x));
+            assert_eq!(y.into_fr(), poly.evaluate(x));
         }
-        let sample_iter = samples.iter().map(|&(ref x, ref y)| (x, y));
-        assert_eq!(Poly::interpolate(sample_iter), poly);
+        assert_eq!(Poly::interpolate(samples), poly);
     }
 
     #[test]
@@ -571,7 +620,7 @@ mod tests {
             .collect();
         let pub_bi_commits: Vec<_> = bi_polys.iter().map(BivarPoly::commitment).collect();
 
-        let mut sec_keys = vec![fr(0); node_num];
+        let mut sec_keys = vec![Fr::zero(); node_num];
 
         // Each dealer sends row `m` to node `m`, where the index starts at `1`. Don't send row `0`
         // to anyone! The nodes verify their rows, and send _value_ `s` on to node `s`. They again
@@ -579,20 +628,20 @@ mod tests {
         for (bi_poly, bi_commit) in bi_polys.iter().zip(&pub_bi_commits) {
             for m in 1..=node_num {
                 // Node `m` receives its row and verifies it.
-                let row_poly = bi_poly.row(m as u64);
-                let row_commit = bi_commit.row(m as u64);
+                let row_poly = bi_poly.row(m);
+                let row_commit = bi_commit.row(m);
                 assert_eq!(row_poly.commitment(), row_commit);
                 // Node `s` receives the `s`-th value and verifies it.
                 for s in 1..=node_num {
-                    let val = row_poly.evaluate(s as u64);
+                    let val = row_poly.evaluate(s);
                     let val_g1 = G1Affine::one().mul(val);
-                    assert_eq!(bi_commit.evaluate(m as u64, s as u64), val_g1);
+                    assert_eq!(bi_commit.evaluate(m, s), val_g1);
                     // The node can't verify this directly, but it should have the correct value:
-                    assert_eq!(bi_poly.evaluate(m as u64, s as u64), val);
+                    assert_eq!(bi_poly.evaluate(m, s), val);
                 }
 
                 // A cheating dealer who modified the polynomial would be detected.
-                let wrong_poly = row_poly.clone() + Poly::monomial(2) * Poly::constant(fr(5));
+                let wrong_poly = row_poly.clone() + Poly::monomial(2) * Poly::constant(5.into_fr());
                 assert_ne!(wrong_poly.commitment(), row_commit);
 
                 // If `2 * faulty_num + 1` nodes confirm that they received a valid row, then at
@@ -604,15 +653,15 @@ mod tests {
                 // `m` received three correct entries from that row:
                 let received: BTreeMap<_, _> = [1, 2, 4]
                     .iter()
-                    .map(|&i| (i, bi_poly.evaluate(m as u64, i as u64)))
+                    .map(|&i| (i, bi_poly.evaluate(m, i)))
                     .collect();
-                let my_row = Poly::interpolate(&received);
-                assert_eq!(bi_poly.evaluate(m as u64, 0), my_row.evaluate(0));
+                let my_row = Poly::interpolate(received);
+                assert_eq!(bi_poly.evaluate(m, 0), my_row.evaluate(0));
                 assert_eq!(row_poly, my_row);
 
                 // The node sums up all values number `0` it received from the different dealer. No
                 // dealer and no other node knows the sum in the end.
-                sec_keys[m - 1].add_assign(&my_row.evaluate(0));
+                sec_keys[m - 1].add_assign(&my_row.evaluate(Fr::zero()));
             }
         }
 
@@ -626,7 +675,7 @@ mod tests {
             sec_key_set += bi_poly.row(0);
         }
         for m in 1..=node_num {
-            assert_eq!(sec_key_set.evaluate(m as u64), sec_keys[m - 1]);
+            assert_eq!(sec_key_set.evaluate(m), sec_keys[m - 1]);
         }
 
         // The sum of the first rows of the public commitments is the commitment to the secret key

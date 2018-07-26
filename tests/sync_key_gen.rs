@@ -68,8 +68,8 @@ fn test_sync_key_gen_with(threshold: usize, node_num: usize) {
             let sk = opt_sk.expect("new secret key");
             assert_eq!(pks, pub_key_set);
             let sig = sk.sign(msg);
-            assert!(pks.public_key_share(idx as u64).verify(&sig, msg));
-            (idx as u64, sig)
+            assert!(pks.public_key_share(idx).verify(&sig, msg));
+            (idx, sig)
         })
         .collect();
     let sig = pub_key_set
