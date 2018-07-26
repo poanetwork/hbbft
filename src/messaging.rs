@@ -53,6 +53,7 @@ impl<M, N> TargetedMessage<M, N> {
 /// Result of one step of the local state machine of a distributed algorithm. Such a result should
 /// be used and never discarded by the client of the algorithm.
 #[must_use = "The algorithm step result must be used."]
+#[derive(Debug)]
 pub struct Step<D>
 where
     D: DistAlgorithm,
@@ -92,6 +93,12 @@ where
             fault_log,
             messages,
         }
+    }
+
+    /// Returns the same step, with the given additional output.
+    pub fn with_output(mut self, output: D::Output) -> Self {
+        self.output.push_back(output);
+        self
     }
 
     /// Converts `self` into a step of another type, given conversion methods for output and

@@ -15,6 +15,7 @@ use messaging::NetworkInfo;
 ///
 /// This is reset whenever the set of validators changes or a change reaches a majority. We call
 /// the epochs since the last reset the current _era_.
+#[derive(Debug)]
 pub struct VoteCounter<NodeUid> {
     /// Shared network data.
     netinfo: Arc<NetworkInfo<NodeUid>>,

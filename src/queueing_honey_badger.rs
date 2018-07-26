@@ -106,6 +106,7 @@ where
 
 /// A Honey Badger instance that can handle adding and removing nodes and manages a transaction
 /// queue.
+#[derive(Debug)]
 pub struct QueueingHoneyBadger<Tx, NodeUid>
 where
     Tx: Eq + Serialize + for<'r> Deserialize<'r> + Debug + Hash,
@@ -190,14 +191,13 @@ where
     /// Initiates the next epoch by proposing a batch from the queue.
     fn propose(&mut self) -> Result<Step<Tx, NodeUid>> {
         let amount = cmp::max(1, self.batch_size / self.dyn_hb.netinfo().num_nodes());
-        // TODO: This will output immediately if we are the only validator.
-        if self.dyn_hb.has_input() {
-            Ok(Step::default()) // Error?
-        } else {
+        // TODO: This will loop indefinitely if we are the only validator.
+        let mut step = Step::default();
+        while !self.dyn_hb.has_input() {
             let proposal = self.queue.choose(amount, self.batch_size);
-            let step = self.dyn_hb.input(Input::User(proposal))?;
-            Ok(Step::new(step.output, step.fault_log, step.messages))
+            step.extend(self.dyn_hb.input(Input::User(proposal))?.convert());
         }
+        Ok(step)
     }
 }
 

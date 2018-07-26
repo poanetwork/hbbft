@@ -102,6 +102,7 @@ where
 }
 
 /// An instance of the Honey Badger Byzantine fault tolerant consensus algorithm.
+#[derive(Debug)]
 pub struct HoneyBadger<C, NodeUid: Rand> {
     /// Shared network data.
     netinfo: Arc<NetworkInfo<NodeUid>>,
