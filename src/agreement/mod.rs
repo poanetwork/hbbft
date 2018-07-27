@@ -510,8 +510,6 @@ impl<NodeUid: Clone + Debug + Ord> Agreement<NodeUid> {
         let received_term = replace(&mut self.received_term, BTreeMap::new());
         for (sender_id, b) in received_term {
             step.extend(self.handle_term(&sender_id, b)?);
-            // Place the TERM message back.
-            self.received_term.insert(sender_id, b);
             if self.terminated {
                 return Ok(step);
             }
