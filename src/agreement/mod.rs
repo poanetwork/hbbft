@@ -505,7 +505,10 @@ impl<NodeUid: Clone + Debug + Ord> Agreement<NodeUid> {
 
         self.estimated = Some(b);
         let mut step = self.send_bval(b)?;
-        for (sender_id, b) in self.received_term.clone() {
+        // Create a temporary map of received TERM messages to avoid a second mutable access to
+        // `self`.
+        let received_term = replace(&mut self.received_term, BTreeMap::new());
+        for (sender_id, b) in received_term {
             step.extend(self.handle_term(&sender_id, b)?);
             if self.terminated {
                 return Ok(step);
