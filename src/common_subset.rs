@@ -247,7 +247,7 @@ impl<NodeUid: Clone + Debug + Ord + Rand> CommonSubset<NodeUid> {
             self.agreement_results
         );
 
-        if value && self.count_true() == self.netinfo.num_nodes() - self.netinfo.num_faulty() {
+        if value && self.count_true() == self.netinfo.num_correct() {
             // Upon delivery of value 1 from at least N − f instances of BA, provide
             // input 0 to each instance of BA that has not yet been provided input.
             for (uid, agreement) in &mut self.agreement_instances {
@@ -271,8 +271,7 @@ impl<NodeUid: Clone + Debug + Ord + Rand> CommonSubset<NodeUid> {
     }
 
     fn try_agreement_completion(&mut self) -> Option<BTreeMap<NodeUid, ProposedValue>> {
-        if self.decided || self.count_true() < self.netinfo.num_nodes() - self.netinfo.num_faulty()
-        {
+        if self.decided || self.count_true() < self.netinfo.num_correct() {
             return None;
         }
         // Once all instances of BA have completed, let C ⊂ [1..N] be

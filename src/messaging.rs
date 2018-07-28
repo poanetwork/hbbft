@@ -275,15 +275,21 @@ impl<NodeUid: Clone + Ord> NetworkInfo<NodeUid> {
         self.public_keys.keys()
     }
 
-    /// The total number of nodes.
+    /// The total number _N_ of nodes.
     pub fn num_nodes(&self) -> usize {
         self.num_nodes
     }
 
-    /// The maximum number of faulty, Byzantine nodes up to which Honey Badger is guaranteed to be
-    /// correct.
+    /// The maximum number _f_ of faulty, Byzantine nodes up to which Honey Badger is guaranteed to
+    /// be correct.
     pub fn num_faulty(&self) -> usize {
         self.num_faulty
+    }
+
+    /// The minimum number _N - f_ of correct nodes with which Honey Badger is guaranteed to be
+    /// correct.
+    pub fn num_correct(&self) -> usize {
+        self.num_nodes - self.num_faulty
     }
 
     /// Returns our secret key share for threshold cryptography.

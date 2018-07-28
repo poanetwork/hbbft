@@ -1,5 +1,6 @@
 use std::iter::FromIterator;
 use std::mem::replace;
+use std::vec;
 
 /// A lattice-valued description of the state of `bin_values`, essentially the same as the set of
 /// subsets of `bool`.
@@ -107,5 +108,19 @@ impl FromIterator<BinValues> for BinValues {
         }
 
         v
+    }
+}
+
+impl IntoIterator for BinValues {
+    type Item = bool;
+    type IntoIter = vec::IntoIter<bool>;
+
+    fn into_iter(self) -> vec::IntoIter<bool> {
+        match self {
+            BinValues::None => vec![].into_iter(),
+            BinValues::False => vec![false].into_iter(),
+            BinValues::True => vec![true].into_iter(),
+            BinValues::Both => vec![false, true].into_iter(),
+        }
     }
 }
