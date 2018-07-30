@@ -594,9 +594,9 @@ impl<NodeUid: Clone + Debug + Ord> Agreement<NodeUid> {
         let mut values = BinValues::None;
         let mut count = 0;
         for b in self.bin_values {
-            let b_count = self.received_aux.get(&b).map_or(0, BTreeSet::len);
+            let b_count = self.received_aux.get(b).map_or(0, BTreeSet::len);
             if b_count > 0 {
-                values.insert(b);
+                values.insert(*b);
                 count += b_count;
             }
         }
