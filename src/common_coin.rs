@@ -166,20 +166,20 @@ where
     }
 
     fn try_output(&mut self) -> Result<Step<NodeUid, T>> {
-        let received_shares = &self.received_shares;
         debug!(
             "{:?} received {} shares, had_input = {}",
             self.netinfo.our_uid(),
-            received_shares.len(),
+            self.received_shares.len(),
             self.had_input
         );
-        if self.had_input && received_shares.len() > self.netinfo.num_faulty() {
+        if self.had_input && self.received_shares.len() > self.netinfo.num_faulty() {
             let sig = self.combine_and_verify_sig()?;
             // Output the parity of the verified signature.
             let parity = sig.parity();
             debug!("{:?} output {}", self.netinfo.our_uid(), parity);
             self.terminated = true;
-            Ok(Step::default().with_output(parity))
+            let step = self.input(())?; // Before terminating, make sure we sent our share.
+            Ok(step.with_output(parity))
         } else {
             Ok(Step::default())
         }

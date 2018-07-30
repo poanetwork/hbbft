@@ -444,9 +444,7 @@ impl<NodeUid: Debug + Clone + Ord> Broadcast<NodeUid> {
         // Save the proof for reconstructing the tree later.
         self.echos.insert(sender_id.clone(), p);
 
-        if self.ready_sent
-            || self.count_echos(&hash) < self.netinfo.num_nodes() - self.netinfo.num_faulty()
-        {
+        if self.ready_sent || self.count_echos(&hash) < self.netinfo.num_correct() {
             return self.compute_output(&hash);
         }
 
