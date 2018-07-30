@@ -11,6 +11,7 @@ extern crate hbbft;
 extern crate log;
 extern crate pairing;
 extern crate serde;
+extern crate threshold_crypto as crypto;
 
 mod network;
 

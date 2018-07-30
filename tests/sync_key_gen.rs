@@ -5,10 +5,12 @@ extern crate env_logger;
 extern crate hbbft;
 extern crate pairing;
 extern crate rand;
+extern crate threshold_crypto as crypto;
 
 use std::collections::BTreeMap;
 
-use hbbft::crypto::{PublicKey, SecretKey};
+use crypto::{PublicKey, SecretKey};
+
 use hbbft::sync_key_gen::{PartOutcome, SyncKeyGen};
 
 fn test_sync_key_gen_with(threshold: usize, node_num: usize) {

@@ -5,11 +5,11 @@ use std::iter::once;
 use std::marker::PhantomData;
 use std::sync::Arc;
 
+use crypto::{SecretKey, SecretKeySet, SecretKeyShare};
 use rand::{self, Rand, Rng};
 use serde::{Deserialize, Serialize};
 
 use super::{ChangeState, DynamicHoneyBadger, JoinPlan, Result, Step, VoteCounter};
-use crypto::{SecretKey, SecretKeySet, SecretKeyShare};
 use honey_badger::HoneyBadger;
 use messaging::NetworkInfo;
 

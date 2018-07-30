@@ -52,10 +52,11 @@
 //! ```
 //! extern crate rand;
 //! extern crate hbbft;
+//! extern crate threshold_crypto;
 //!
 //! use std::collections::BTreeMap;
 //!
-//! use hbbft::crypto::{PublicKey, SecretKey, SignatureShare};
+//! use threshold_crypto::{PublicKey, SecretKey, SignatureShare};
 //! use hbbft::sync_key_gen::{PartOutcome, SyncKeyGen};
 //!
 //! // Two out of four shares will suffice to sign or encrypt something.
