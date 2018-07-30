@@ -1,133 +1,90 @@
-use std::iter::FromIterator;
-use std::mem::replace;
-use std::slice;
+/// The empty set of boolean values.
+pub const NONE: BinValues = BinValues(0b00);
 
-/// A lattice-valued description of the state of `bin_values`, essentially the same as the set of
-/// subsets of `bool`.
-#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Rand)]
-pub enum BinValues {
-    None,
-    False,
-    True,
-    Both,
-}
+/// The set containing only `false`.
+pub const FALSE: BinValues = BinValues(0b01);
+
+/// The set containing only `true`.
+pub const TRUE: BinValues = BinValues(0b10);
+
+/// The set of both boolean values, `false` and `true`.
+pub const BOTH: BinValues = BinValues(0b11);
+
+/// A set of `bool` values, represented as a single byte in memory.
+#[derive(
+    Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Rand, Default,
+)]
+pub struct BinValues(u8);
 
 impl BinValues {
-    pub fn new() -> Self {
-        BinValues::None
-    }
-
-    pub fn clear(&mut self) {
-        replace(self, BinValues::None);
-    }
-
-    pub fn from_bool(b: bool) -> Self {
-        if b {
-            BinValues::True
-        } else {
-            BinValues::False
-        }
-    }
-
-    /// Inserts a boolean value into the `BinValues` and returns true iff the `BinValues` has
+    /// Inserts a boolean value into the `BinValues` and returns `true` iff the `BinValues` has
     /// changed as a result.
     pub fn insert(&mut self, b: bool) -> bool {
-        match self {
-            BinValues::None => {
-                replace(self, BinValues::from_bool(b));
-                true
-            }
-            BinValues::False if b => {
-                replace(self, BinValues::Both);
-                true
-            }
-            BinValues::True if !b => {
-                replace(self, BinValues::Both);
-                true
-            }
-            _ => false,
-        }
+        let prev = *self;
+        self.0 |= Self::from(b).0;
+        prev != *self
     }
 
-    pub fn union(&mut self, other: BinValues) {
-        match self {
-            BinValues::None => {
-                replace(self, other);
-            }
-            BinValues::False if other == BinValues::True => {
-                replace(self, BinValues::Both);
-            }
-            BinValues::True if other == BinValues::False => {
-                replace(self, BinValues::Both);
-            }
-            _ => {}
-        }
+    /// Removes a value from the set.
+    pub fn remove(&mut self, b: bool) {
+        self.0 &= Self::from(!b).0;
     }
 
+    /// Returns `true` if the set contains the value `b`.
     pub fn contains(self, b: bool) -> bool {
-        match self {
-            BinValues::None => false,
-            BinValues::Both => true,
-            BinValues::False if !b => true,
-            BinValues::True if b => true,
-            _ => false,
-        }
+        self.0 & Self::from(b).0 != 0
     }
 
+    /// Returns `true` if every element of `self` is also an element of `other`.
     pub fn is_subset(self, other: BinValues) -> bool {
-        match self {
-            BinValues::None => true,
-            BinValues::False if other == BinValues::False || other == BinValues::Both => true,
-            BinValues::True if other == BinValues::True || other == BinValues::Both => true,
-            BinValues::Both if other == BinValues::Both => true,
-            _ => false,
-        }
+        self.0 & other.0 == self.0
     }
 
+    /// Returns `Some(b)` if the set is the singleton with the value `b`, otherwise `None`.
     pub fn definite(self) -> Option<bool> {
         match self {
-            BinValues::False => Some(false),
-            BinValues::True => Some(true),
+            FALSE => Some(false),
+            TRUE => Some(true),
             _ => None,
         }
     }
 }
 
-impl Default for BinValues {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl FromIterator<BinValues> for BinValues {
-    fn from_iter<I: IntoIterator<Item = BinValues>>(iter: I) -> Self {
-        let mut v = BinValues::new();
-
-        for i in iter {
-            v.union(i);
+impl From<bool> for BinValues {
+    fn from(b: bool) -> Self {
+        if b {
+            TRUE
+        } else {
+            FALSE
         }
-
-        v
     }
 }
 
-// Statically allocated slices for constructing `BinValues` iterators:
+/// An iterator over a `BinValues`.
+#[derive(Clone, Copy, Debug)]
+pub struct BinValuesIter(BinValues);
 
-const NONE: &[bool] = &[];
-const FALSE: &[bool] = &[false];
-const TRUE: &[bool] = &[true];
-const BOTH: &[bool] = &[false, true];
+impl Iterator for BinValuesIter {
+    type Item = bool;
+
+    fn next(&mut self) -> Option<bool> {
+        if self.0.contains(true) {
+            self.0.remove(true);
+            Some(true)
+        } else if self.0.contains(false) {
+            self.0.remove(false);
+            Some(false)
+        } else {
+            None
+        }
+    }
+}
 
 impl IntoIterator for BinValues {
-    type Item = &'static bool;
-    type IntoIter = slice::Iter<'static, bool>;
+    type Item = bool;
+    type IntoIter = BinValuesIter;
 
     fn into_iter(self) -> Self::IntoIter {
-        match self {
-            BinValues::None => NONE.into_iter(),
-            BinValues::False => FALSE.into_iter(),
-            BinValues::True => TRUE.into_iter(),
-            BinValues::Both => BOTH.into_iter(),
-        }
+        BinValuesIter(self)
     }
 }

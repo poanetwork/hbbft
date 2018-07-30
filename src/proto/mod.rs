@@ -4,7 +4,7 @@ pub mod message;
 use merkle::proof::{Lemma, Positioned, Proof};
 use ring::digest::Algorithm;
 
-use agreement::bin_values::BinValues;
+use agreement::bin_values;
 use agreement::{AgreementContent, AgreementMessage};
 use broadcast::BroadcastMessage;
 use common_coin::CommonCoinMessage;
@@ -80,10 +80,10 @@ impl AgreementMessage {
             }
             AgreementContent::Conf(v) => {
                 let bin_values = match v {
-                    BinValues::None => 0,
-                    BinValues::False => 1,
-                    BinValues::True => 2,
-                    BinValues::Both => 3,
+                    bin_values::NONE => 0,
+                    bin_values::FALSE => 1,
+                    bin_values::TRUE => 2,
+                    _ => 3,
                 };
                 p.set_conf(bin_values);
             }
@@ -108,10 +108,10 @@ impl AgreementMessage {
             Some(AgreementContent::Aux(mp.get_aux()).with_epoch(epoch))
         } else if mp.has_conf() {
             match mp.get_conf() {
-                0 => Some(BinValues::None),
-                1 => Some(BinValues::False),
-                2 => Some(BinValues::True),
-                3 => Some(BinValues::Both),
+                0 => Some(bin_values::NONE),
+                1 => Some(bin_values::FALSE),
+                2 => Some(bin_values::TRUE),
+                3 => Some(bin_values::BOTH),
                 _ => None,
             }.map(|bin_values| AgreementContent::Conf(bin_values).with_epoch(epoch))
         } else if mp.has_term() {

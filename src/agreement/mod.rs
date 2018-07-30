@@ -194,7 +194,7 @@ pub struct Agreement<NodeUid> {
     /// Values received in `BVal` messages. Reset on every epoch update.
     received_bval: BTreeMap<bool, BTreeSet<NodeUid>>,
     /// Sent `BVal` values. Reset on every epoch update.
-    sent_bval: BTreeSet<bool>,
+    sent_bval: BinValues,
     /// Values received in `Aux` messages. Reset on every epoch update.
     received_aux: BTreeMap<bool, BTreeSet<NodeUid>>,
     /// Received `Conf` messages. Reset on every epoch update.
@@ -275,9 +275,9 @@ impl<NodeUid: Clone + Debug + Ord> Agreement<NodeUid> {
             session_id,
             proposer_id,
             epoch: 0,
-            bin_values: BinValues::new(),
+            bin_values: bin_values::NONE,
             received_bval: BTreeMap::new(),
-            sent_bval: BTreeSet::new(),
+            sent_bval: bin_values::NONE,
             received_aux: BTreeMap::new(),
             received_conf: BTreeMap::new(),
             received_term: BTreeMap::new(),
@@ -340,7 +340,7 @@ impl<NodeUid: Clone + Debug + Ord> Agreement<NodeUid> {
         if count_bval == 2 * self.netinfo.num_faulty() + 1 {
             self.bin_values.insert(b);
 
-            if self.bin_values != BinValues::Both {
+            if self.bin_values != bin_values::BOTH {
                 step.extend(self.send(AgreementContent::Aux(b))?) // First entry: send `Aux(b)`.
             } else {
                 step.extend(self.on_bval_or_aux()?); // Otherwise just check for `Conf` condition.
@@ -398,7 +398,7 @@ impl<NodeUid: Clone + Debug + Ord> Agreement<NodeUid> {
             // Otherwise handle the `Term` as a `BVal`, `Aux` and `Conf`.
             let mut step = self.handle_bval(sender_id, b)?;
             step.extend(self.handle_aux(sender_id, b)?);
-            step.extend(self.handle_conf(sender_id, BinValues::from_bool(b))?);
+            step.extend(self.handle_conf(sender_id, BinValues::from(b))?);
             Ok(step)
         }
     }
@@ -422,7 +422,7 @@ impl<NodeUid: Clone + Debug + Ord> Agreement<NodeUid> {
     /// Checks whether there are _N - f_ `Aux` messages with values in `bin_values`. If so, starts
     /// the `Conf` round or decides.
     fn on_bval_or_aux(&mut self) -> Result<Step<NodeUid>> {
-        if self.bin_values == BinValues::None || self.conf_values.is_some() {
+        if self.bin_values == bin_values::NONE || self.conf_values.is_some() {
             return Ok(Step::default());
         }
         let (aux_count, aux_vals) = self.count_aux();
@@ -594,12 +594,12 @@ impl<NodeUid: Clone + Debug + Ord> Agreement<NodeUid> {
     /// _N - f_ agreeing messages would not always terminate. We can, however, expect every good
     /// node to send an `Aux` value that will eventually end up in our `bin_values`.
     fn count_aux(&self) -> (usize, BinValues) {
-        let mut values = BinValues::None;
+        let mut values = bin_values::NONE;
         let mut count = 0;
         for b in self.bin_values {
-            let b_count = self.received_aux.get(b).map_or(0, BTreeSet::len);
+            let b_count = self.received_aux.get(&b).map_or(0, BTreeSet::len);
             if b_count > 0 {
-                values.insert(*b);
+                values.insert(b);
                 count += b_count;
             }
         }
@@ -608,15 +608,14 @@ impl<NodeUid: Clone + Debug + Ord> Agreement<NodeUid> {
 
     /// Increments the epoch, sets the new estimate and handles queued messages.
     fn update_epoch(&mut self, b: bool) -> Result<Step<NodeUid>> {
-        self.bin_values.clear();
+        self.bin_values = bin_values::NONE;
         self.received_bval = self.received_term.clone();
-        self.sent_bval.clear();
+        self.sent_bval = bin_values::NONE;
         self.received_aux = self.received_term.clone();
         self.received_conf.clear();
         for (v, ids) in &self.received_term {
             for id in ids {
-                self.received_conf
-                    .insert(id.clone(), BinValues::from_bool(*v));
+                self.received_conf.insert(id.clone(), BinValues::from(*v));
             }
         }
         self.conf_values = None;
