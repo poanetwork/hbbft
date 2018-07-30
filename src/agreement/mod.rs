@@ -74,6 +74,7 @@ use itertools::Itertools;
 
 use agreement::bin_values::BinValues;
 use common_coin::{self, CommonCoin, CommonCoinMessage};
+use fault_log::{Fault, FaultKind};
 use messaging::{self, DistAlgorithm, NetworkInfo, Target};
 
 error_chain!{
@@ -328,7 +329,7 @@ impl<NodeUid: Clone + Debug + Ord> Agreement<NodeUid> {
         let count_bval = {
             let entry = self.received_bval.entry(b).or_insert_with(BTreeSet::new);
             if !entry.insert(sender_id.clone()) {
-                return Ok(Step::default()); // TODO: Fault?
+                return Ok(Fault::new(sender_id.clone(), FaultKind::DuplicateBVal).into());
             }
             entry.len()
         };
@@ -361,10 +362,14 @@ impl<NodeUid: Clone + Debug + Ord> Agreement<NodeUid> {
             return Ok(Step::default());
         }
         // TODO: Detect duplicate `Aux` messages and report faults.
-        self.received_aux
+        if !self
+            .received_aux
             .entry(b)
             .or_insert_with(BTreeSet::new)
-            .insert(sender_id.clone());
+            .insert(sender_id.clone())
+        {
+            return Ok(Fault::new(sender_id.clone(), FaultKind::DuplicateAux).into());
+        }
         self.on_bval_or_aux()
     }
 
@@ -565,7 +570,7 @@ impl<NodeUid: Clone + Debug + Ord> Agreement<NodeUid> {
 
         // Invoke the common coin.
         let coin_step = match self.coin_state {
-            CoinState::Decided(_) => return Ok(Step::default()), // TODO: Error!
+            CoinState::Decided(_) => return Ok(Step::default()), // Coin has already decided.
             CoinState::InProgress(ref mut common_coin) => common_coin.input(())?,
         };
         let mut step = self.on_coin_step(coin_step)?;
