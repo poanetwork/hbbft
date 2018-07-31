@@ -1,31 +1,6 @@
-//! # Honey Badger
-//!
-//! Honey Badger allows a network of _N_ nodes with at most _f_ faulty ones,
-//! where _3 f < N_, to input "contributions" - any kind of data -, and to agree on a sequence of
-//! _batches_ of contributions. The protocol proceeds in _epochs_, starting at number 0, and outputs
-//! one batch in each epoch. It never terminates: It handles a continuous stream of incoming
-//! contributions and keeps producing new batches from them. All correct nodes will output the same
-//! batch for each epoch. Each validator proposes one contribution per epoch, and every batch will
-//! contain the contributions of at least _N - f_ validators.
-//!
-//! ## How it works
-//!
-//! In every epoch, every validator encrypts their contribution and proposes it to the others.
-//! A `CommonSubset` instance determines which proposals are accepted and will be part of the new
-//! batch. Using threshold encryption, the nodes collaboratively decrypt all accepted
-//! contributions. Invalid contributions (that e.g. cannot be deserialized) are discarded - their
-//! proposers must be faulty -, and the remaining ones are output as the new batch. The next epoch
-//! begins as soon as the validators propose new contributions again.
-//!
-//! So it is essentially an endlessly repeating `CommonSubset`, but with the proposed values
-//! encrypted. The encryption makes it harder for an attacker to try and censor a particular value
-//! by influencing the set of proposals that make it into the common subset, because they don't
-//! know the decrypted values before the subset is determined.
-
-use rand::Rand;
 use std::collections::btree_map::Entry;
 use std::collections::{BTreeMap, BTreeSet};
-use std::fmt::{self, Debug, Display};
+use std::fmt::Debug;
 use std::hash::Hash;
 use std::marker::PhantomData;
 use std::mem;
@@ -33,147 +8,41 @@ use std::sync::Arc;
 
 use bincode;
 use crypto::{Ciphertext, DecryptionShare};
-use failure::{Backtrace, Context, Fail};
 use itertools::Itertools;
+use rand::Rand;
 use serde::{Deserialize, Serialize};
 
+use super::{Batch, Error, ErrorKind, HoneyBadgerBuilder, Message, MessageContent, Result};
 use common_subset::{self, CommonSubset};
 use fault_log::{Fault, FaultKind, FaultLog};
 use messaging::{self, DistAlgorithm, NetworkInfo, Target};
-
-/// Honey badger error variants.
-#[derive(Debug, Fail)]
-pub enum ErrorKind {
-    #[fail(display = "ProposeBincode error: {}", _0)]
-    ProposeBincode(bincode::ErrorKind),
-    #[fail(display = "ProposeCommonSubset0 error: {}", _0)]
-    ProposeCommonSubset0(common_subset::Error),
-    #[fail(display = "ProposeCommonSubset1 error: {}", _0)]
-    ProposeCommonSubset1(common_subset::Error),
-    #[fail(display = "HandleCommonMessageCommonSubset0 error: {}", _0)]
-    HandleCommonMessageCommonSubset0(common_subset::Error),
-    #[fail(display = "HandleCommonMessageCommonSubset1 error: {}", _0)]
-    HandleCommonMessageCommonSubset1(common_subset::Error),
-    #[fail(display = "Unknown sender")]
-    UnknownSender,
-}
-
-/// A honey badger error.
-#[derive(Debug)]
-pub struct Error {
-    inner: Context<ErrorKind>,
-}
-
-impl Fail for Error {
-    fn cause(&self) -> Option<&Fail> {
-        self.inner.cause()
-    }
-
-    fn backtrace(&self) -> Option<&Backtrace> {
-        self.inner.backtrace()
-    }
-}
-
-impl Error {
-    pub fn kind(&self) -> &ErrorKind {
-        self.inner.get_context()
-    }
-}
-
-impl From<ErrorKind> for Error {
-    fn from(kind: ErrorKind) -> Error {
-        Error {
-            inner: Context::new(kind),
-        }
-    }
-}
-
-impl From<Context<ErrorKind>> for Error {
-    fn from(inner: Context<ErrorKind>) -> Error {
-        Error { inner }
-    }
-}
-
-impl Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        Display::fmt(&self.inner, f)
-    }
-}
-
-pub type Result<T> = ::std::result::Result<T, Error>;
-
-/// A Honey Badger builder, to configure the parameters and create new instances of `HoneyBadger`.
-pub struct HoneyBadgerBuilder<C, NodeUid> {
-    /// Shared network data.
-    netinfo: Arc<NetworkInfo<NodeUid>>,
-    /// The maximum number of future epochs for which we handle messages simultaneously.
-    max_future_epochs: usize,
-    _phantom: PhantomData<C>,
-}
-
-impl<C, NodeUid> HoneyBadgerBuilder<C, NodeUid>
-where
-    C: Serialize + for<'r> Deserialize<'r> + Debug + Hash + Eq,
-    NodeUid: Ord + Clone + Debug + Rand,
-{
-    /// Returns a new `HoneyBadgerBuilder` configured to use the node IDs and cryptographic keys
-    /// specified by `netinfo`.
-    pub fn new(netinfo: Arc<NetworkInfo<NodeUid>>) -> Self {
-        HoneyBadgerBuilder {
-            netinfo,
-            max_future_epochs: 3,
-            _phantom: PhantomData,
-        }
-    }
-
-    /// Sets the maximum number of future epochs for which we handle messages simultaneously.
-    pub fn max_future_epochs(&mut self, max_future_epochs: usize) -> &mut Self {
-        self.max_future_epochs = max_future_epochs;
-        self
-    }
-
-    /// Creates a new Honey Badger instance.
-    pub fn build(&self) -> HoneyBadger<C, NodeUid> {
-        HoneyBadger {
-            netinfo: self.netinfo.clone(),
-            epoch: 0,
-            has_input: false,
-            common_subsets: BTreeMap::new(),
-            max_future_epochs: self.max_future_epochs as u64,
-            incoming_queue: BTreeMap::new(),
-            received_shares: BTreeMap::new(),
-            decrypted_contributions: BTreeMap::new(),
-            ciphertexts: BTreeMap::new(),
-            _phantom: PhantomData,
-        }
-    }
-}
 
 /// An instance of the Honey Badger Byzantine fault tolerant consensus algorithm.
 #[derive(Debug)]
 pub struct HoneyBadger<C, NodeUid: Rand> {
     /// Shared network data.
-    netinfo: Arc<NetworkInfo<NodeUid>>,
+    pub(super) netinfo: Arc<NetworkInfo<NodeUid>>,
     /// The earliest epoch from which we have not yet received output.
-    epoch: u64,
+    pub(super) epoch: u64,
     /// Whether we have already submitted a proposal for the current epoch.
-    has_input: bool,
+    pub(super) has_input: bool,
     /// The Asynchronous Common Subset instance that decides which nodes' transactions to include,
     /// indexed by epoch.
-    common_subsets: BTreeMap<u64, CommonSubset<NodeUid>>,
+    pub(super) common_subsets: BTreeMap<u64, CommonSubset<NodeUid>>,
     /// The maximum number of `CommonSubset` instances that we run simultaneously.
-    max_future_epochs: u64,
+    pub(super) max_future_epochs: u64,
     /// Messages for future epochs that couldn't be handled yet.
-    incoming_queue: BTreeMap<u64, Vec<(NodeUid, MessageContent<NodeUid>)>>,
+    pub(super) incoming_queue: BTreeMap<u64, Vec<(NodeUid, MessageContent<NodeUid>)>>,
     /// Received decryption shares for an epoch. Each decryption share has a sender and a
     /// proposer. The outer `BTreeMap` has epochs as its key. The next `BTreeMap` has proposers as
     /// its key. The inner `BTreeMap` has the sender as its key.
-    received_shares: BTreeMap<u64, BTreeMap<NodeUid, BTreeMap<NodeUid, DecryptionShare>>>,
+    pub(super) received_shares:
+        BTreeMap<u64, BTreeMap<NodeUid, BTreeMap<NodeUid, DecryptionShare>>>,
     /// Decoded accepted proposals.
-    decrypted_contributions: BTreeMap<NodeUid, Vec<u8>>,
+    pub(super) decrypted_contributions: BTreeMap<NodeUid, Vec<u8>>,
     /// Ciphertexts output by Common Subset in an epoch.
-    ciphertexts: BTreeMap<u64, BTreeMap<NodeUid, Ciphertext>>,
-    _phantom: PhantomData<C>,
+    pub(super) ciphertexts: BTreeMap<u64, BTreeMap<NodeUid, Ciphertext>>,
+    pub(super) _phantom: PhantomData<C>,
 }
 
 pub type Step<C, NodeUid> = messaging::Step<HoneyBadger<C, NodeUid>>;
@@ -629,87 +498,5 @@ where
             );
             self.common_subsets.remove(&epoch);
         }
-    }
-}
-
-/// A batch of contributions the algorithm has output.
-#[derive(Clone, Debug)]
-pub struct Batch<C, NodeUid> {
-    pub epoch: u64,
-    pub contributions: BTreeMap<NodeUid, C>,
-}
-
-impl<C, NodeUid: Ord> Batch<C, NodeUid> {
-    /// Returns an iterator over references to all transactions included in the batch.
-    pub fn iter<'a>(&'a self) -> impl Iterator<Item = <&'a C as IntoIterator>::Item>
-    where
-        &'a C: IntoIterator,
-    {
-        self.contributions.values().flat_map(|item| item)
-    }
-
-    /// Returns an iterator over all transactions included in the batch. Consumes the batch.
-    pub fn into_tx_iter(self) -> impl Iterator<Item = <C as IntoIterator>::Item>
-    where
-        C: IntoIterator,
-    {
-        self.contributions.into_iter().flat_map(|(_, vec)| vec)
-    }
-
-    /// Returns the number of transactions in the batch (without detecting duplicates).
-    pub fn len<Tx>(&self) -> usize
-    where
-        C: AsRef<[Tx]>,
-    {
-        self.contributions
-            .values()
-            .map(C::as_ref)
-            .map(<[Tx]>::len)
-            .sum()
-    }
-
-    /// Returns `true` if the batch contains no transactions.
-    pub fn is_empty<Tx>(&self) -> bool
-    where
-        C: AsRef<[Tx]>,
-    {
-        self.contributions
-            .values()
-            .map(C::as_ref)
-            .all(<[Tx]>::is_empty)
-    }
-}
-
-/// The content of a `HoneyBadger` message. It should be further annotated with an epoch.
-#[derive(Clone, Debug, Deserialize, Rand, Serialize)]
-pub enum MessageContent<NodeUid: Rand> {
-    /// A message belonging to the common subset algorithm in the given epoch.
-    CommonSubset(common_subset::Message<NodeUid>),
-    /// A decrypted share of the output of `proposer_id`.
-    DecryptionShare {
-        proposer_id: NodeUid,
-        share: DecryptionShare,
-    },
-}
-
-impl<NodeUid: Rand> MessageContent<NodeUid> {
-    pub fn with_epoch(self, epoch: u64) -> Message<NodeUid> {
-        Message {
-            epoch,
-            content: self,
-        }
-    }
-}
-
-/// A message sent to or received from another node's Honey Badger instance.
-#[derive(Clone, Debug, Deserialize, Rand, Serialize)]
-pub struct Message<NodeUid: Rand> {
-    epoch: u64,
-    content: MessageContent<NodeUid>,
-}
-
-impl<NodeUid: Rand> Message<NodeUid> {
-    pub fn epoch(&self) -> u64 {
-        self.epoch
     }
 }
