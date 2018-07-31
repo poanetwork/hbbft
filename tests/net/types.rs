@@ -54,18 +54,20 @@ impl fmt::Debug for FaultyNodeIdx {
     }
 }
 
-/// Network operation.
+/// Network operation of message type `M`.
 ///
 /// Network operations advance the state of the test network, they simulate the passage of time
 /// and what happens during.
 #[derive(Debug)]
-pub enum NetworkOp {
+pub enum NetworkOp<M> {
     /// Swaps two messages in the message queue.
     Swap(MessageIdx, MessageIdx),
     /// Drops a message to/from a faulty node from the network.
     DropFaulty(FaultyMessageIdx),
     /// Inject a message from a faulty node in the network.
-    InjectFaulty(FaultyNodeIdx, ()),
+    InjectFaulty(FaultyNodeIdx, NodeIdx, M),
+    /// Inject a broadcast from a faulty node in the network.
+    InjectFaultyBroadcast(FaultyNodeIdx, M),
     /// Replay a message sent by/to a faulty node, changing the target and originating node.
     ReplayFaulty(FaultyMessageIdx, NodeIdx),
     /// Handle the next message in the queue.
@@ -77,9 +79,9 @@ pub enum NetworkOp {
 /// Network operation list.
 ///
 /// Wraps a list of network operations, mainly to implement custom formatting and debug functions.
-struct OpList(pub Vec<NetworkOp>);
+pub struct OpList<M>(pub Vec<NetworkOp<M>>);
 
-impl fmt::Debug for OpList {
+impl<M: fmt::Debug> fmt::Debug for OpList<M> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         /// Currently, debug formatting is just passed through. It is conceivable to shorten
         /// the output by grouping `HandleMessage`s in the future.
