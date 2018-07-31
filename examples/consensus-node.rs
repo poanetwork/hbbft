@@ -1,5 +1,6 @@
 //! Example of a consensus node that uses the `hbbft::node::Node` struct for
 //! running the distributed consensus state machine.
+extern crate bincode;
 extern crate crossbeam;
 #[macro_use]
 extern crate crossbeam_channel;
@@ -9,7 +10,7 @@ extern crate hbbft;
 #[macro_use]
 extern crate log;
 extern crate pairing;
-extern crate protobuf;
+extern crate serde;
 
 mod network;
 
