@@ -1,24 +1,17 @@
 //! Connection data and initiation routines.
 
 use std::collections::{BTreeMap, HashSet};
-use std::io::BufReader;
 use std::net::{SocketAddr, TcpListener, TcpStream};
 
 #[derive(Debug)]
 pub struct Connection {
     pub stream: TcpStream,
-    pub reader: BufReader<TcpStream>,
     pub node_str: String,
 }
 
 impl Connection {
     pub fn new(stream: TcpStream, node_str: String) -> Self {
-        Connection {
-            // Create a read buffer of 1K bytes.
-            reader: BufReader::with_capacity(1024, stream.try_clone().unwrap()),
-            stream,
-            node_str,
-        }
+        Connection { stream, node_str }
     }
 }
 

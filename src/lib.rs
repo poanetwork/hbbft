@@ -97,9 +97,6 @@
 //! `hbbft` supports [serde](https://serde.rs/): All message types implement the `Serialize` and
 //! `Deserialize` traits so they can be easily serialized or included as part of other serializable
 //! types.
-//!
-//! If `serialization-protobuf` is enabled, the message types support serialization with [Google
-//! protocol buffers](https://developers.google.com/protocol-buffers/docs/overview).
 
 // TODO: Remove this once https://github.com/rust-lang-nursery/error-chain/issues/245 is resolved.
 #![allow(renamed_and_removed_lints)]
@@ -114,8 +111,6 @@ extern crate log;
 extern crate itertools;
 extern crate merkle;
 extern crate pairing;
-#[cfg(feature = "serialization-protobuf")]
-extern crate protobuf;
 extern crate rand;
 #[macro_use]
 extern crate rand_derive;
@@ -135,10 +130,6 @@ pub mod fault_log;
 mod fmt;
 pub mod honey_badger;
 pub mod messaging;
-#[cfg(feature = "serialization-protobuf")]
-pub mod proto;
-#[cfg(feature = "serialization-protobuf")]
-pub mod proto_io;
 pub mod queueing_honey_badger;
 pub mod sync_key_gen;
 pub mod transaction_queue;

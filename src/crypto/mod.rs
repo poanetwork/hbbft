@@ -5,8 +5,6 @@
 pub mod error;
 mod into_fr;
 pub mod poly;
-#[cfg(feature = "serialization-protobuf")]
-pub mod protobuf_impl;
 pub mod serde_impl;
 
 use std::fmt;

@@ -1,14 +1,14 @@
 //! Comms task structure. A comms task communicates with a remote node through a
 //! socket. Local communication with coordinating threads is made via
 //! `crossbeam_channel::unbounded()`.
+use bincode;
 use crossbeam;
 use crossbeam_channel::{Receiver, Sender};
+use serde::{Deserialize, Serialize};
 use std::io;
 use std::net::TcpStream;
 
 use hbbft::messaging::SourcedMessage;
-use hbbft::proto_io::{ErrorKind, ProtoIo};
-use protobuf::Message;
 
 #[derive(Debug)]
 pub enum Error {
@@ -23,18 +23,18 @@ impl From<io::Error> for Error {
 
 /// A communication task connects a remote node to the thread that manages the
 /// consensus algorithm.
-pub struct CommsTask<'a, P: 'a, M: 'a> {
+pub struct CommsTask<'a, M: 'a> {
     /// The transmit side of the multiple producer channel from comms threads.
     tx: &'a Sender<SourcedMessage<M, usize>>,
     /// The receive side of the channel to the comms thread.
     rx: &'a Receiver<M>,
     /// The socket IO task.
-    io: ProtoIo<TcpStream, P>,
+    stream: TcpStream,
     /// The index of this comms task for identification against its remote node.
     pub node_index: usize,
 }
 
-impl<'a, P: Message + 'a, M: Into<P> + From<P> + Send + 'a> CommsTask<'a, P, M> {
+impl<'a, M: Serialize + for<'de> Deserialize<'de> + Send + 'a> CommsTask<'a, M> {
     pub fn new(
         tx: &'a Sender<SourcedMessage<M, usize>>,
         rx: &'a Receiver<M>,
@@ -50,7 +50,7 @@ impl<'a, P: Message + 'a, M: Into<P> + From<P> + Send + 'a> CommsTask<'a, P, M> 
         CommsTask {
             tx,
             rx,
-            io: ProtoIo::from_stream(stream),
+            stream,
             node_index,
         }
     }
@@ -61,7 +61,7 @@ impl<'a, P: Message + 'a, M: Into<P> + From<P> + Send + 'a> CommsTask<'a, P, M> 
         // Borrow parts of `self` before entering the thread binding scope.
         let tx = self.tx;
         let rx = self.rx;
-        let mut io1 = self.io.try_clone()?;
+        let mut stream1 = self.stream.try_clone()?;
         let node_index = self.node_index;
 
         crossbeam::scope(move |scope| {
@@ -71,26 +71,30 @@ impl<'a, P: Message + 'a, M: Into<P> + From<P> + Send + 'a> CommsTask<'a, P, M> 
                     // Receive a multicast message from the manager thread.
                     let message = rx.recv().unwrap();
                     // Forward the message to the remote node.
-                    io1.send(&message.into()).unwrap();
+                    bincode::serialize_into(&mut stream1, &message)
+                        .expect("message serialization failed");
                 }
             });
 
             // Remote comms receive loop.
             debug!("Starting remote RX loop for node {}", node_index);
             loop {
-                match self.io.recv() {
+                match bincode::deserialize_from(&mut self.stream) {
                     Ok(message) => {
                         tx.send(SourcedMessage {
                             source: node_index,
-                            message: message.into(),
+                            message,
                         }).unwrap();
                     }
-                    Err(err) => match err.kind() {
-                        ErrorKind::Protobuf(pe) => {
-                            warn!("Node {} - Protobuf error {}", node_index, pe)
+                    Err(err) => {
+                        if let bincode::ErrorKind::Io(ref io_err) = *err {
+                            if io_err.kind() == io::ErrorKind::UnexpectedEof {
+                                info!("Node {} disconnected.", node_index);
+                                break;
+                            }
                         }
-                        _ => warn!("Node {} - Critical error {:?}", node_index, err),
-                    },
+                        panic!("Node {} - Deserialization error {:?}", node_index, err);
+                    }
                 }
             }
         });

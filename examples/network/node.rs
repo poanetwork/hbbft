@@ -46,7 +46,6 @@ use hbbft::broadcast::{Broadcast, BroadcastMessage};
 use hbbft::crypto::poly::Poly;
 use hbbft::crypto::{SecretKey, SecretKeySet};
 use hbbft::messaging::{DistAlgorithm, NetworkInfo, SourcedMessage};
-use hbbft::proto::message::BroadcastProto;
 use network::commst;
 use network::connection;
 use network::messaging::Messaging;
@@ -182,7 +181,7 @@ impl<T: Clone + Debug + AsRef<[u8]> + PartialEq + Send + Sync + From<Vec<u8>> + 
                 let rx_to_comms = &rxs_to_comms[node_index];
 
                 scope.spawn(move || {
-                    match commst::CommsTask::<BroadcastProto, BroadcastMessage>::new(
+                    match commst::CommsTask::<BroadcastMessage>::new(
                         tx_from_comms,
                         rx_to_comms,
                         // FIXME: handle error

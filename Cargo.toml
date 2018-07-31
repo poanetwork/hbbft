@@ -26,19 +26,12 @@ itertools = "0.7"
 log = "0.4.1"
 merkle = { git = "https://github.com/afck/merkle.rs", branch = "public-proof", features = [ "serialization-serde" ] }
 pairing = { version = "0.14.2", features = ["u128-support"] }
-protobuf = { version = "2.0.0", optional = true }
 rand = "0.4.2"
 rand_derive = "0.3.1"
 reed-solomon-erasure = "3.1.0"
 ring = "^0.12"
 serde = "1.0.55"
 serde_derive = "1.0.55"
-
-[features]
-serialization-protobuf = [ "protobuf", "protobuf-codegen-pure" ]
-
-[build-dependencies]
-protobuf-codegen-pure = { version = "2.0.0", optional = true }
 
 [dev-dependencies]
 colored = "1.6"
@@ -50,7 +43,6 @@ signifix = "0.9"
 
 [[example]]
 name = "consensus-node"
-required-features = [ "serialization-protobuf" ]
 
 [[example]]
 name = "simulation"
