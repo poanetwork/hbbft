@@ -63,7 +63,7 @@
 //! * After _f + 1_ nodes have sent us their coin shares, we receive the coin output and assign it
 //! to `s`.
 
-pub mod bin_values;
+pub mod bool_set;
 
 use rand;
 use std::collections::{BTreeMap, BTreeSet};
@@ -72,7 +72,7 @@ use std::sync::Arc;
 
 use itertools::Itertools;
 
-use agreement::bin_values::BinValues;
+use agreement::bool_set::BoolSet;
 use common_coin::{self, CommonCoin, CommonCoinMessage};
 use fault_log::{Fault, FaultKind};
 use messaging::{self, DistAlgorithm, NetworkInfo, Target};
@@ -100,7 +100,7 @@ pub enum AgreementContent {
     /// `Aux` message.
     Aux(bool),
     /// `Conf` message.
-    Conf(BinValues),
+    Conf(BoolSet),
     /// `Term` message.
     Term(bool),
     /// Common Coin message,
@@ -190,15 +190,15 @@ pub struct Agreement<NodeUid> {
     /// Agreement algorithm epoch.
     epoch: u32,
     /// Bin values. Reset on every epoch update.
-    bin_values: BinValues,
+    bin_values: BoolSet,
     /// Values received in `BVal` messages. Reset on every epoch update.
     received_bval: BTreeMap<bool, BTreeSet<NodeUid>>,
     /// Sent `BVal` values. Reset on every epoch update.
-    sent_bval: BTreeSet<bool>,
+    sent_bval: BoolSet,
     /// Values received in `Aux` messages. Reset on every epoch update.
     received_aux: BTreeMap<bool, BTreeSet<NodeUid>>,
     /// Received `Conf` messages. Reset on every epoch update.
-    received_conf: BTreeMap<NodeUid, BinValues>,
+    received_conf: BTreeMap<NodeUid, BoolSet>,
     /// Received `Term` messages. Kept throughout epoch updates. These count as `BVal`, `Aux` and
     /// `Conf` messages for all future epochs.
     received_term: BTreeMap<bool, BTreeSet<NodeUid>>,
@@ -214,7 +214,7 @@ pub struct Agreement<NodeUid> {
     // TODO: Find a better solution for this; defend against spam.
     incoming_queue: BTreeMap<u32, Vec<(NodeUid, AgreementContent)>>,
     /// The values we found in the first _N - f_ `Aux` messages that were in `bin_values`.
-    conf_values: Option<BinValues>,
+    conf_values: Option<BoolSet>,
     /// The state of this epoch's common coin.
     coin_state: CoinState<NodeUid>,
 }
@@ -275,9 +275,9 @@ impl<NodeUid: Clone + Debug + Ord> Agreement<NodeUid> {
             session_id,
             proposer_id,
             epoch: 0,
-            bin_values: BinValues::new(),
+            bin_values: bool_set::NONE,
             received_bval: BTreeMap::new(),
-            sent_bval: BTreeSet::new(),
+            sent_bval: bool_set::NONE,
             received_aux: BTreeMap::new(),
             received_conf: BTreeMap::new(),
             received_term: BTreeMap::new(),
@@ -340,7 +340,7 @@ impl<NodeUid: Clone + Debug + Ord> Agreement<NodeUid> {
         if count_bval == 2 * self.netinfo.num_faulty() + 1 {
             self.bin_values.insert(b);
 
-            if self.bin_values != BinValues::Both {
+            if self.bin_values != bool_set::BOTH {
                 step.extend(self.send(AgreementContent::Aux(b))?) // First entry: send `Aux(b)`.
             } else {
                 step.extend(self.on_bval_or_aux()?); // Otherwise just check for `Conf` condition.
@@ -376,7 +376,7 @@ impl<NodeUid: Clone + Debug + Ord> Agreement<NodeUid> {
 
     /// Handles a `Conf` message. When _N - f_ `Conf` messages with values in `bin_values` have
     /// been received, updates the epoch or decides.
-    fn handle_conf(&mut self, sender_id: &NodeUid, v: BinValues) -> Result<Step<NodeUid>> {
+    fn handle_conf(&mut self, sender_id: &NodeUid, v: BoolSet) -> Result<Step<NodeUid>> {
         self.received_conf.insert(sender_id.clone(), v);
         self.try_finish_conf_round()
     }
@@ -398,7 +398,7 @@ impl<NodeUid: Clone + Debug + Ord> Agreement<NodeUid> {
             // Otherwise handle the `Term` as a `BVal`, `Aux` and `Conf`.
             let mut step = self.handle_bval(sender_id, b)?;
             step.extend(self.handle_aux(sender_id, b)?);
-            step.extend(self.handle_conf(sender_id, BinValues::from_bool(b))?);
+            step.extend(self.handle_conf(sender_id, BoolSet::from(b))?);
             Ok(step)
         }
     }
@@ -422,7 +422,7 @@ impl<NodeUid: Clone + Debug + Ord> Agreement<NodeUid> {
     /// Checks whether there are _N - f_ `Aux` messages with values in `bin_values`. If so, starts
     /// the `Conf` round or decides.
     fn on_bval_or_aux(&mut self) -> Result<Step<NodeUid>> {
-        if self.bin_values == BinValues::None || self.conf_values.is_some() {
+        if self.bin_values == bool_set::NONE || self.conf_values.is_some() {
             return Ok(Step::default());
         }
         let (aux_count, aux_vals) = self.count_aux();
@@ -449,7 +449,7 @@ impl<NodeUid: Clone + Debug + Ord> Agreement<NodeUid> {
     }
 
     /// Multicasts a `Conf(values)` message, and handles it.
-    fn send_conf(&mut self, values: BinValues) -> Result<Step<NodeUid>> {
+    fn send_conf(&mut self, values: BoolSet) -> Result<Step<NodeUid>> {
         if self.conf_values.is_some() {
             // Only one `Conf` message is allowed in an epoch.
             return Ok(Step::default());
@@ -583,7 +583,7 @@ impl<NodeUid: Clone + Debug + Ord> Agreement<NodeUid> {
 
     /// Counts the number of received `Conf` messages with values in `bin_values`.
     fn count_conf(&self) -> usize {
-        let is_bin_val = |conf: &&BinValues| conf.is_subset(self.bin_values);
+        let is_bin_val = |conf: &&BoolSet| conf.is_subset(self.bin_values);
         self.received_conf.values().filter(is_bin_val).count()
     }
 
@@ -593,13 +593,13 @@ impl<NodeUid: Clone + Debug + Ord> Agreement<NodeUid> {
     /// In general, we can't expect every good node to send the same `Aux` value, so waiting for
     /// _N - f_ agreeing messages would not always terminate. We can, however, expect every good
     /// node to send an `Aux` value that will eventually end up in our `bin_values`.
-    fn count_aux(&self) -> (usize, BinValues) {
-        let mut values = BinValues::None;
+    fn count_aux(&self) -> (usize, BoolSet) {
+        let mut values = bool_set::NONE;
         let mut count = 0;
         for b in self.bin_values {
-            let b_count = self.received_aux.get(b).map_or(0, BTreeSet::len);
+            let b_count = self.received_aux.get(&b).map_or(0, BTreeSet::len);
             if b_count > 0 {
-                values.insert(*b);
+                values.insert(b);
                 count += b_count;
             }
         }
@@ -608,15 +608,14 @@ impl<NodeUid: Clone + Debug + Ord> Agreement<NodeUid> {
 
     /// Increments the epoch, sets the new estimate and handles queued messages.
     fn update_epoch(&mut self, b: bool) -> Result<Step<NodeUid>> {
-        self.bin_values.clear();
+        self.bin_values = bool_set::NONE;
         self.received_bval = self.received_term.clone();
-        self.sent_bval.clear();
+        self.sent_bval = bool_set::NONE;
         self.received_aux = self.received_term.clone();
         self.received_conf.clear();
         for (v, ids) in &self.received_term {
             for id in ids {
-                self.received_conf
-                    .insert(id.clone(), BinValues::from_bool(*v));
+                self.received_conf.insert(id.clone(), BoolSet::from(*v));
             }
         }
         self.conf_values = None;

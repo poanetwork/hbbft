@@ -4,7 +4,7 @@ pub mod message;
 use merkle::proof::{Lemma, Positioned, Proof};
 use ring::digest::Algorithm;
 
-use agreement::bin_values::BinValues;
+use agreement::bool_set;
 use agreement::{AgreementContent, AgreementMessage};
 use broadcast::BroadcastMessage;
 use common_coin::CommonCoinMessage;
@@ -79,13 +79,13 @@ impl AgreementMessage {
                 p.set_aux(b);
             }
             AgreementContent::Conf(v) => {
-                let bin_values = match v {
-                    BinValues::None => 0,
-                    BinValues::False => 1,
-                    BinValues::True => 2,
-                    BinValues::Both => 3,
+                let bool_set = match v {
+                    bool_set::NONE => 0,
+                    bool_set::FALSE => 1,
+                    bool_set::TRUE => 2,
+                    _ => 3,
                 };
-                p.set_conf(bin_values);
+                p.set_conf(bool_set);
             }
             AgreementContent::Term(b) => {
                 p.set_term(b);
@@ -108,12 +108,12 @@ impl AgreementMessage {
             Some(AgreementContent::Aux(mp.get_aux()).with_epoch(epoch))
         } else if mp.has_conf() {
             match mp.get_conf() {
-                0 => Some(BinValues::None),
-                1 => Some(BinValues::False),
-                2 => Some(BinValues::True),
-                3 => Some(BinValues::Both),
+                0 => Some(bool_set::NONE),
+                1 => Some(bool_set::FALSE),
+                2 => Some(bool_set::TRUE),
+                3 => Some(bool_set::BOTH),
                 _ => None,
-            }.map(|bin_values| AgreementContent::Conf(bin_values).with_epoch(epoch))
+            }.map(|bool_set| AgreementContent::Conf(bool_set).with_epoch(epoch))
         } else if mp.has_term() {
             Some(AgreementContent::Term(mp.get_term()).with_epoch(epoch))
         } else if mp.has_coin() {
