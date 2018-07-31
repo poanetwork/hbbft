@@ -30,20 +30,19 @@ use crypto::{Signature, SignatureShare};
 use fault_log::{Fault, FaultKind};
 use messaging::{self, DistAlgorithm, NetworkInfo, Target};
 
-error_chain! {
-    links {
-        Crypto(cerror::Error, cerror::ErrorKind);
-    }
-
-    errors {
-        UnknownSender {
-            description("unknown sender")
-        }
-        VerificationFailed {
-            description("signature verification failed")
-        }
-    }
+/// A common coin error.
+#[derive(Clone, Eq, PartialEq, Debug, Fail)]
+pub enum Error {
+    #[fail(display = "CombineAndVerifySigCrypto error: {}", _0)]
+    CombineAndVerifySigCrypto(cerror::Error),
+    #[fail(display = "Unknown sender")]
+    UnknownSender,
+    #[fail(display = "Signature verification failed")]
+    VerificationFailed,
 }
+
+/// A common coin result.
+pub type Result<T> = ::std::result::Result<T, Error>;
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Rand)]
 pub struct CommonCoinMessage(SignatureShare);
@@ -160,7 +159,7 @@ where
             }
             self.received_shares.insert(sender_id.clone(), share);
         } else {
-            return Err(ErrorKind::UnknownSender.into());
+            return Err(Error::UnknownSender);
         }
         self.try_output()
     }
@@ -189,7 +188,11 @@ where
         // Pass the indices of sender nodes to `combine_signatures`.
         let to_idx = |(id, share)| (self.netinfo.node_index(id).unwrap(), share);
         let shares = self.received_shares.iter().map(to_idx);
-        let sig = self.netinfo.public_key_set().combine_signatures(shares)?;
+        let sig = self
+            .netinfo
+            .public_key_set()
+            .combine_signatures(shares)
+            .map_err(Error::CombineAndVerifySigCrypto)?;
         if !self
             .netinfo
             .public_key_set()
@@ -201,7 +204,7 @@ where
                 "{:?} main public key verification failed",
                 self.netinfo.our_uid()
             );
-            Err(ErrorKind::VerificationFailed.into())
+            Err(Error::VerificationFailed)
         } else {
             Ok(sig)
         }

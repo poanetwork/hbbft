@@ -164,20 +164,36 @@ use fault_log::{Fault, FaultKind};
 use fmt::{HexBytes, HexList, HexProof};
 use messaging::{self, DistAlgorithm, NetworkInfo, Target};
 
-error_chain!{
-    foreign_links {
-        ReedSolomon(rse::Error);
-    }
-
-    errors {
-        InstanceCannotPropose
-        NotImplemented
-        ProofConstructionFailed
-        RootHashMismatch
-        Threading
-        UnknownSender
-    }
+/// A broadcast error.
+#[derive(Clone, PartialEq, Debug, Fail)]
+pub enum Error {
+    #[fail(display = "CodingNewReedSolomon error: {}", _0)]
+    CodingNewReedSolomon(#[cause] rse::Error),
+    #[fail(display = "CodingEncodeReedSolomon error: {}", _0)]
+    CodingEncodeReedSolomon(#[cause] rse::Error),
+    #[fail(display = "CodingReconstructShardsReedSolomon error: {}", _0)]
+    CodingReconstructShardsReedSolomon(#[cause] rse::Error),
+    #[fail(
+        display = "CodingReconstructShardsTrivialReedSolomon error: {}",
+        _0
+    )]
+    CodingReconstructShardsTrivialReedSolomon(#[cause] rse::Error),
+    #[fail(display = "Instance cannot propose")]
+    InstanceCannotPropose,
+    #[fail(display = "Not implemented")]
+    NotImplemented,
+    #[fail(display = "Proof construction failed")]
+    ProofConstructionFailed,
+    #[fail(display = "Root hash mismatch")]
+    RootHashMismatch,
+    #[fail(display = "Threading")]
+    Threading,
+    #[fail(display = "Unknown sender")]
+    UnknownSender,
 }
+
+/// A broadcast result.
+pub type Result<T> = ::std::result::Result<T, Error>;
 
 /// The three kinds of message sent during the reliable broadcast stage of the
 /// consensus algorithm.
@@ -255,7 +271,7 @@ impl<NodeUid: Debug + Clone + Ord> DistAlgorithm for Broadcast<NodeUid> {
 
     fn input(&mut self, input: Self::Input) -> Result<Step<NodeUid>> {
         if *self.netinfo.our_uid() != self.proposer_id {
-            return Err(ErrorKind::InstanceCannotPropose.into());
+            return Err(Error::InstanceCannotPropose);
         }
         // Split the value into chunks/shards, encode them with erasure codes.
         // Assemble a Merkle tree from data and parity shards. Take all proofs
@@ -272,7 +288,7 @@ impl<NodeUid: Debug + Clone + Ord> DistAlgorithm for Broadcast<NodeUid> {
         message: Self::Message,
     ) -> Result<Step<NodeUid>> {
         if !self.netinfo.is_node_validator(sender_id) {
-            return Err(ErrorKind::UnknownSender.into());
+            return Err(Error::UnknownSender);
         }
         match message {
             BroadcastMessage::Value(p) => self.handle_value(sender_id, p),
@@ -368,7 +384,7 @@ impl<NodeUid: Debug + Clone + Ord> Broadcast<NodeUid> {
         let mtree = MerkleTree::from_vec(&digest::SHA256, shards_t);
 
         // Default result in case of `gen_proof` error.
-        let mut result = Err(ErrorKind::ProofConstructionFailed.into());
+        let mut result = Err(Error::ProofConstructionFailed);
         assert_eq!(self.netinfo.num_nodes(), mtree.iter().count());
 
         let mut step = Step::default();
@@ -376,7 +392,7 @@ impl<NodeUid: Debug + Clone + Ord> Broadcast<NodeUid> {
         for (leaf_value, uid) in mtree.iter().zip(self.netinfo.all_uids()) {
             let proof = mtree
                 .gen_proof(leaf_value.to_vec())
-                .ok_or(ErrorKind::ProofConstructionFailed)?;
+                .ok_or(Error::ProofConstructionFailed)?;
             if *uid == *self.netinfo.our_uid() {
                 // The proof is addressed to this node.
                 result = Ok(proof);
@@ -591,7 +607,8 @@ impl Coding {
     /// Creates a new `Coding` instance with the given number of shards.
     fn new(data_shard_num: usize, parity_shard_num: usize) -> Result<Self> {
         Ok(if parity_shard_num > 0 {
-            let rs = ReedSolomon::new(data_shard_num, parity_shard_num)?;
+            let rs = ReedSolomon::new(data_shard_num, parity_shard_num)
+                .map_err(Error::CodingNewReedSolomon)?;
             Coding::ReedSolomon(Box::new(rs))
         } else {
             Coding::Trivial(data_shard_num)
@@ -617,7 +634,9 @@ impl Coding {
     /// Constructs (and overwrites) the parity shards.
     fn encode(&self, slices: &mut [&mut [u8]]) -> Result<()> {
         match *self {
-            Coding::ReedSolomon(ref rs) => rs.encode(slices)?,
+            Coding::ReedSolomon(ref rs) => {
+                rs.encode(slices).map_err(Error::CodingEncodeReedSolomon)?
+            }
             Coding::Trivial(_) => (),
         }
         Ok(())
@@ -626,10 +645,14 @@ impl Coding {
     /// If enough shards are present, reconstructs the missing ones.
     fn reconstruct_shards(&self, shards: &mut [Option<Box<[u8]>>]) -> Result<()> {
         match *self {
-            Coding::ReedSolomon(ref rs) => rs.reconstruct_shards(shards)?,
+            Coding::ReedSolomon(ref rs) => rs
+                .reconstruct_shards(shards)
+                .map_err(Error::CodingReconstructShardsReedSolomon)?,
             Coding::Trivial(_) => {
                 if shards.iter().any(Option::is_none) {
-                    return Err(rse::Error::TooFewShardsPresent.into());
+                    return Err(Error::CodingReconstructShardsTrivialReedSolomon(
+                        rse::Error::TooFewShardsPresent,
+                    ));
                 }
             }
         }
@@ -645,7 +668,7 @@ fn decode_from_shards(
 ) -> Option<Vec<u8>> {
     // Try to interpolate the Merkle tree using the Reed-Solomon erasure coding scheme.
     if let Err(err) = coding.reconstruct_shards(leaf_values) {
-        debug!("Shard reconstruction failed: {:?}", err); // Faulty proposer
+        error!("Shard reconstruction failed: {:?}", err); // Faulty proposer
         return None;
     }
 

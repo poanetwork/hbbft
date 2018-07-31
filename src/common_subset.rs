@@ -34,18 +34,29 @@ use fmt::HexBytes;
 use messaging::{self, DistAlgorithm, NetworkInfo};
 use rand::Rand;
 
-error_chain!{
-    links {
-        Agreement(agreement::Error, agreement::ErrorKind);
-        Broadcast(broadcast::Error, broadcast::ErrorKind);
-    }
-
-    errors {
-        MultipleAgreementResults
-        NoSuchAgreementInstance
-        NoSuchBroadcastInstance
-    }
+/// A common subset error.
+#[derive(Clone, PartialEq, Debug, Fail)]
+pub enum Error {
+    #[fail(display = "NewAgreement error: {}", _0)]
+    NewAgreement(agreement::Error),
+    #[fail(display = "ProcessAgreementAgreement0 error: {}", _0)]
+    ProcessAgreementAgreement0(agreement::Error),
+    #[fail(display = "ProcessAgreementAgreement1 error: {}", _0)]
+    ProcessAgreementAgreement1(agreement::Error),
+    #[fail(display = "NewBroadcast error: {}", _0)]
+    NewBroadcast(broadcast::Error),
+    #[fail(display = "ProcessBroadcastBroadcast error: {}", _0)]
+    ProcessBroadcastBroadcast(broadcast::Error),
+    #[fail(display = "Multiple agreement results")]
+    MultipleAgreementResults,
+    #[fail(display = "No such agreement instance")]
+    NoSuchAgreementInstance,
+    #[fail(display = "No such broadcast instance")]
+    NoSuchBroadcastInstance,
 }
+
+/// A common subset result.
+pub type Result<T> = ::std::result::Result<T, Error>;
 
 // TODO: Make this a generic argument of `CommonSubset`.
 type ProposedValue = Vec<u8>;
@@ -118,7 +129,7 @@ impl<NodeUid: Clone + Debug + Ord + Rand> CommonSubset<NodeUid> {
         for proposer_id in netinfo.all_uids() {
             broadcast_instances.insert(
                 proposer_id.clone(),
-                Broadcast::new(netinfo.clone(), proposer_id.clone())?,
+                Broadcast::new(netinfo.clone(), proposer_id.clone()).map_err(Error::NewBroadcast)?,
             );
         }
 
@@ -127,7 +138,8 @@ impl<NodeUid: Clone + Debug + Ord + Rand> CommonSubset<NodeUid> {
         for proposer_id in netinfo.all_uids() {
             agreement_instances.insert(
                 proposer_id.clone(),
-                Agreement::new(netinfo.clone(), session_id, proposer_id.clone())?,
+                Agreement::new(netinfo.clone(), session_id, proposer_id.clone())
+                    .map_err(Error::NewAgreement)?,
             );
         }
 
@@ -189,9 +201,12 @@ impl<NodeUid: Clone + Debug + Ord + Rand> CommonSubset<NodeUid> {
             let broadcast = self
                 .broadcast_instances
                 .get_mut(proposer_id)
-                .ok_or(ErrorKind::NoSuchBroadcastInstance)?;
+                .ok_or(Error::NoSuchBroadcastInstance)?;
             let to_msg = |b_msg| Message::Broadcast(proposer_id.clone(), b_msg);
-            let output = step.extend_with(f(broadcast)?, to_msg);
+            let output = step.extend_with(
+                f(broadcast).map_err(Error::ProcessBroadcastBroadcast)?,
+                to_msg,
+            );
             if let Some(output) = output.into_iter().next() {
                 output
             } else {
@@ -222,12 +237,15 @@ impl<NodeUid: Clone + Debug + Ord + Rand> CommonSubset<NodeUid> {
             let agreement = self
                 .agreement_instances
                 .get_mut(proposer_id)
-                .ok_or(ErrorKind::NoSuchAgreementInstance)?;
+                .ok_or(Error::NoSuchAgreementInstance)?;
             if agreement.terminated() {
                 return Ok(step);
             }
             let to_msg = |a_msg| Message::Agreement(proposer_id.clone(), a_msg);
-            let output = step.extend_with(f(agreement)?, to_msg);
+            let output = step.extend_with(
+                f(agreement).map_err(Error::ProcessAgreementAgreement0)?,
+                to_msg,
+            );
             if let Some(output) = output.into_iter().next() {
                 output
             } else {
@@ -239,7 +257,7 @@ impl<NodeUid: Clone + Debug + Ord + Rand> CommonSubset<NodeUid> {
             .insert(proposer_id.clone(), value)
             .is_some()
         {
-            return Err(ErrorKind::MultipleAgreementResults.into());
+            return Err(Error::MultipleAgreementResults);
         }
         debug!(
             "{:?} Updated Agreement results: {:?}",
@@ -253,9 +271,14 @@ impl<NodeUid: Clone + Debug + Ord + Rand> CommonSubset<NodeUid> {
             for (uid, agreement) in &mut self.agreement_instances {
                 if agreement.accepts_input() {
                     let to_msg = |a_msg| Message::Agreement(uid.clone(), a_msg);
-                    for output in step.extend_with(agreement.input(false)?, to_msg) {
+                    for output in step.extend_with(
+                        agreement
+                            .input(false)
+                            .map_err(Error::ProcessAgreementAgreement1)?,
+                        to_msg,
+                    ) {
                         if self.agreement_results.insert(uid.clone(), output).is_some() {
-                            return Err(ErrorKind::MultipleAgreementResults.into());
+                            return Err(Error::MultipleAgreementResults);
                         }
                     }
                 }

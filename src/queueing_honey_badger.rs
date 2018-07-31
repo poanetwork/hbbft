@@ -22,9 +22,11 @@
 
 use std::cmp;
 use std::fmt::Debug;
+use std::fmt::{self, Display};
 use std::hash::Hash;
 use std::marker::PhantomData;
 
+use failure::{Backtrace, Context, Fail};
 use rand::Rand;
 use serde::{Deserialize, Serialize};
 
@@ -34,11 +36,60 @@ use transaction_queue::TransactionQueue;
 
 pub use dynamic_honey_badger::{Change, ChangeState, Input};
 
-error_chain!{
-    links {
-        DynamicHoneyBadger(dynamic_honey_badger::Error, dynamic_honey_badger::ErrorKind);
+/// Queueing honey badger error variants.
+#[derive(Debug, Fail)]
+pub enum ErrorKind {
+    #[fail(display = "Input error: {}", _0)]
+    Input(dynamic_honey_badger::Error),
+    #[fail(display = "Handle message error: {}", _0)]
+    HandleMessage(dynamic_honey_badger::Error),
+    #[fail(display = "Propose error: {}", _0)]
+    Propose(dynamic_honey_badger::Error),
+}
+
+/// A queueing honey badger error.
+#[derive(Debug)]
+pub struct Error {
+    inner: Context<ErrorKind>,
+}
+
+impl Fail for Error {
+    fn cause(&self) -> Option<&Fail> {
+        self.inner.cause()
+    }
+
+    fn backtrace(&self) -> Option<&Backtrace> {
+        self.inner.backtrace()
     }
 }
+
+impl Error {
+    pub fn kind(&self) -> &ErrorKind {
+        self.inner.get_context()
+    }
+}
+
+impl From<ErrorKind> for Error {
+    fn from(kind: ErrorKind) -> Error {
+        Error {
+            inner: Context::new(kind),
+        }
+    }
+}
+
+impl From<Context<ErrorKind>> for Error {
+    fn from(inner: Context<ErrorKind>) -> Error {
+        Error { inner }
+    }
+}
+
+impl Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        Display::fmt(&self.inner, f)
+    }
+}
+
+pub type Result<T> = ::std::result::Result<T, Error>;
 
 /// A Queueing Honey Badger builder, to configure the parameters and create new instances of
 /// `QueueingHoneyBadger`.
@@ -141,7 +192,11 @@ where
                 self.queue.0.push_back(tx);
                 Ok(Step::default())
             }
-            Input::Change(change) => Ok(self.dyn_hb.input(Input::Change(change))?.convert()),
+            Input::Change(change) => Ok(self
+                .dyn_hb
+                .input(Input::Change(change))
+                .map_err(ErrorKind::Input)?
+                .convert()),
         }
     }
 
@@ -152,7 +207,8 @@ where
     ) -> Result<Step<Tx, NodeUid>> {
         let mut step = self
             .dyn_hb
-            .handle_message(sender_id, message)?
+            .handle_message(sender_id, message)
+            .map_err(ErrorKind::HandleMessage)?
             .convert::<Self>();
         for batch in &step.output {
             self.queue.remove_all(batch.iter());
@@ -195,7 +251,12 @@ where
         let mut step = Step::default();
         while !self.dyn_hb.has_input() {
             let proposal = self.queue.choose(amount, self.batch_size);
-            step.extend(self.dyn_hb.input(Input::User(proposal))?.convert());
+            step.extend(
+                self.dyn_hb
+                    .input(Input::User(proposal))
+                    .map_err(ErrorKind::Propose)?
+                    .convert(),
+            );
         }
         Ok(step)
     }

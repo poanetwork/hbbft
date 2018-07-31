@@ -1,10 +1,14 @@
 //! Protobuf message IO task structure.
 
+use failure::{Backtrace, Context, Fail};
 use protobuf::{self, Message, ProtobufError};
-use std::io::{Read, Write};
+use std::io::{self, Read, Write};
 use std::marker::PhantomData;
 use std::net::TcpStream;
-use std::{cmp, io};
+use std::{
+    cmp,
+    fmt::{self, Display},
+};
 
 /// A magic key to put right before each message. An atavism of primitive serial
 /// protocols.
@@ -12,22 +16,76 @@ use std::{cmp, io};
 /// TODO: Replace it with a proper handshake at connection initiation.
 const FRAME_START: u32 = 0x2C0F_FEE5;
 
-error_chain!{
-    types {
-        Error, ErrorKind, ResultExt, ProtoIoResult;
+/// IO/Messaging error variants.
+#[derive(Debug, Fail)]
+pub enum ErrorKind {
+    #[fail(display = "Io error: {}", _0)]
+    Io(#[cause] io::Error),
+    #[fail(display = "Protobuf error: {}", _0)]
+    Protobuf(#[cause] ProtobufError),
+    #[fail(display = "Decode error")]
+    Decode,
+    #[fail(display = "Encode error")]
+    Encode,
+    #[fail(display = "Frame start mismatch error")]
+    FrameStartMismatch,
+}
+
+/// An IO/Messaging error.
+#[derive(Debug)]
+pub struct Error {
+    inner: Context<ErrorKind>,
+}
+
+impl Fail for Error {
+    fn cause(&self) -> Option<&Fail> {
+        self.inner.cause()
     }
 
-    foreign_links {
-        Io(io::Error);
-        Protobuf(ProtobufError);
-    }
-
-    errors {
-        Decode
-        Encode
-        FrameStartMismatch
+    fn backtrace(&self) -> Option<&Backtrace> {
+        self.inner.backtrace()
     }
 }
+
+impl Error {
+    pub fn kind(&self) -> &ErrorKind {
+        self.inner.get_context()
+    }
+}
+
+impl From<ErrorKind> for Error {
+    fn from(kind: ErrorKind) -> Error {
+        Error {
+            inner: Context::new(kind),
+        }
+    }
+}
+
+impl From<Context<ErrorKind>> for Error {
+    fn from(inner: Context<ErrorKind>) -> Error {
+        Error { inner }
+    }
+}
+
+impl From<io::Error> for Error {
+    fn from(err: io::Error) -> Error {
+        ErrorKind::Io(err).into()
+    }
+}
+
+impl From<ProtobufError> for Error {
+    fn from(err: ProtobufError) -> Error {
+        ErrorKind::Protobuf(err).into()
+    }
+}
+
+impl Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        Display::fmt(&self.inner, f)
+    }
+}
+
+pub type ProtoIoResult<T> = ::std::result::Result<T, Error>;
 
 fn encode_u32_to_be(value: u32, buffer: &mut [u8]) -> ProtoIoResult<()> {
     if buffer.len() < 4 {
