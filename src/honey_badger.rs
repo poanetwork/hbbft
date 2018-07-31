@@ -307,7 +307,7 @@ where
                 .map_err(ErrorKind::HandleCommonMessageCommonSubset1)?
         };
         let step = self.process_output(cs_step, epoch)?;
-        self.remove_terminated(epoch);
+        self.remove_terminated();
         Ok(step)
     }
 
@@ -613,20 +613,21 @@ where
     }
 
     /// Removes all `CommonSubset` instances from _past_ epochs that have terminated.
-    fn remove_terminated(&mut self, from_epoch: u64) {
-        for epoch in from_epoch..self.epoch {
-            if self
-                .common_subsets
-                .get(&epoch)
-                .map_or(false, CommonSubset::terminated)
-            {
-                debug!(
-                    "{:?} Epoch {} has terminated.",
-                    self.netinfo.our_uid(),
-                    epoch
-                );
-                self.common_subsets.remove(&epoch);
-            }
+    fn remove_terminated(&mut self) {
+        let terminated_epochs: Vec<u64> = self
+            .common_subsets
+            .iter()
+            .take_while(|&(epoch, _)| *epoch < self.epoch)
+            .filter(|&(_, cs)| cs.terminated())
+            .map(|(epoch, _)| *epoch)
+            .collect();
+        for epoch in terminated_epochs {
+            debug!(
+                "{:?} Epoch {} has terminated.",
+                self.netinfo.our_uid(),
+                epoch
+            );
+            self.common_subsets.remove(&epoch);
         }
     }
 }
