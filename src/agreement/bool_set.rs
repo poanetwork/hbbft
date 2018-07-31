@@ -1,23 +1,23 @@
 /// The empty set of boolean values.
-pub const NONE: BinValues = BinValues(0b00);
+pub const NONE: BoolSet = BoolSet(0b00);
 
 /// The set containing only `false`.
-pub const FALSE: BinValues = BinValues(0b01);
+pub const FALSE: BoolSet = BoolSet(0b01);
 
 /// The set containing only `true`.
-pub const TRUE: BinValues = BinValues(0b10);
+pub const TRUE: BoolSet = BoolSet(0b10);
 
 /// The set of both boolean values, `false` and `true`.
-pub const BOTH: BinValues = BinValues(0b11);
+pub const BOTH: BoolSet = BoolSet(0b11);
 
 /// A set of `bool` values, represented as a single byte in memory.
 #[derive(
     Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Rand, Default,
 )]
-pub struct BinValues(u8);
+pub struct BoolSet(u8);
 
-impl BinValues {
-    /// Inserts a boolean value into the `BinValues` and returns `true` iff the `BinValues` has
+impl BoolSet {
+    /// Inserts a boolean value into the `BoolSet` and returns `true` iff the `BoolSet` has
     /// changed as a result.
     pub fn insert(&mut self, b: bool) -> bool {
         let prev = *self;
@@ -36,7 +36,7 @@ impl BinValues {
     }
 
     /// Returns `true` if every element of `self` is also an element of `other`.
-    pub fn is_subset(self, other: BinValues) -> bool {
+    pub fn is_subset(self, other: BoolSet) -> bool {
         self.0 & other.0 == self.0
     }
 
@@ -50,7 +50,7 @@ impl BinValues {
     }
 }
 
-impl From<bool> for BinValues {
+impl From<bool> for BoolSet {
     fn from(b: bool) -> Self {
         if b {
             TRUE
@@ -60,11 +60,11 @@ impl From<bool> for BinValues {
     }
 }
 
-/// An iterator over a `BinValues`.
+/// An iterator over a `BoolSet`.
 #[derive(Clone, Copy, Debug)]
-pub struct BinValuesIter(BinValues);
+pub struct BoolSetIter(BoolSet);
 
-impl Iterator for BinValuesIter {
+impl Iterator for BoolSetIter {
     type Item = bool;
 
     fn next(&mut self) -> Option<bool> {
@@ -80,11 +80,11 @@ impl Iterator for BinValuesIter {
     }
 }
 
-impl IntoIterator for BinValues {
+impl IntoIterator for BoolSet {
     type Item = bool;
-    type IntoIter = BinValuesIter;
+    type IntoIter = BoolSetIter;
 
     fn into_iter(self) -> Self::IntoIter {
-        BinValuesIter(self)
+        BoolSetIter(self)
     }
 }
