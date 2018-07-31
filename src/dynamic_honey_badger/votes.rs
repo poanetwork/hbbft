@@ -195,7 +195,7 @@ mod tests {
     /// order.
     fn setup(node_num: usize, era: u64) -> (Vec<VoteCounter<usize>>, Vec<Vec<SignedVote<usize>>>) {
         // Create keys for threshold cryptography.
-        let netinfos = NetworkInfo::generate_map(0..node_num);
+        let netinfos = NetworkInfo::generate_map(0..node_num).unwrap();
 
         // Create a `VoteCounter` instance for each node.
         let create_counter =

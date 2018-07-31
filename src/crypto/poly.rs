@@ -27,7 +27,7 @@ use pairing::bls12_381::{Fr, G1, G1Affine};
 use pairing::{CurveAffine, CurveProjective, Field};
 use rand::Rng;
 
-use super::{ContainsSecret, IntoFr};
+use super::{ContainsSecret, ErrorKind, IntoFr, Result};
 
 /// A univariate polynomial in the prime field.
 #[derive(Serialize, Deserialize, PartialEq, Eq)]
@@ -37,17 +37,12 @@ pub struct Poly {
     pub(super) coeff: Vec<Fr>,
 }
 
-impl From<Vec<Fr>> for Poly {
-    fn from(coeff: Vec<Fr>) -> Self {
-        let poly = Poly { coeff };
-        poly.mlock_secret_memory();
-        poly
-    }
-}
-
 impl Clone for Poly {
     fn clone(&self) -> Self {
-        Poly::from(self.coeff.clone())
+        match Poly::new(self.coeff.clone()) {
+            Ok(poly) => poly,
+            Err(e) =>  panic!("{}", e),
+        }
     }
 }
 
@@ -61,12 +56,21 @@ impl fmt::Debug for Poly {
 
 impl<B: Borrow<Poly>> ops::AddAssign<B> for Poly {
     fn add_assign(&mut self, rhs: B) {
-        let len = cmp::max(self.coeff.len(), rhs.borrow().coeff.len());
-        self.coeff.resize(len, Fr::zero());
+        let len = self.coeff.len();
+        let rhs_len = rhs.borrow().coeff.len();
+        if rhs_len > len {
+            self.coeff.resize(rhs_len, Fr::zero());
+            let n_coeffs_added = rhs_len - len;
+            if let Err(e) = self.extend_mlock(n_coeffs_added) {
+                panic!("{}", e);
+            }
+        }
         for (self_c, rhs_c) in self.coeff.iter_mut().zip(&rhs.borrow().coeff) {
             self_c.add_assign(rhs_c);
         }
-        self.remove_zeros();
+        if let Err(e) = self.remove_zeros() {
+            panic!("{}", e);
+        }
     }
 }
 
@@ -94,10 +98,15 @@ impl<'a> ops::Add<Fr> for Poly {
         if self.coeff.is_empty() {
             if !rhs.is_zero() {
                 self.coeff.push(rhs);
+                if let Err(e) = self.extend_mlock(1) {
+                    panic!("{}", e);
+                }
             }
         } else {
             self.coeff[0].add_assign(&rhs);
-            self.remove_zeros();
+            if let Err(e) = self.remove_zeros() {
+                panic!("{}", e);
+            }
         }
         self
     }
@@ -113,12 +122,20 @@ impl<'a> ops::Add<u64> for Poly {
 
 impl<B: Borrow<Poly>> ops::SubAssign<B> for Poly {
     fn sub_assign(&mut self, rhs: B) {
-        let len = cmp::max(self.coeff.len(), rhs.borrow().coeff.len());
-        self.coeff.resize(len, Fr::zero());
+        let len = self.coeff.len();
+        let rhs_len = rhs.borrow().coeff.len();
+        if rhs_len > len {
+            self.coeff.resize(rhs_len, Fr::zero());
+            if let Err(e) = self.extend_mlock(rhs_len - len) {
+                panic!("{}", e);
+            }
+        }
         for (self_c, rhs_c) in self.coeff.iter_mut().zip(&rhs.borrow().coeff) {
             self_c.sub_assign(rhs_c);
         }
-        self.remove_zeros();
+        if let Err(e) = self.remove_zeros() {
+            panic!("{}", e);
+        }
     }
 }
 
@@ -176,7 +193,11 @@ impl<'a, B: Borrow<Poly>> ops::Mul<B> for &'a Poly {
                 c
             })
             .collect();
-        Poly::from(coeff)
+    
+        match Poly::new(coeff) {
+            Ok(poly) => poly,
+            Err(e) => panic!("{}", e)
+        }
     }
 }
 
@@ -199,7 +220,11 @@ impl<'a> ops::Mul<Fr> for Poly {
 
     fn mul(mut self, rhs: Fr) -> Self::Output {
         if rhs.is_zero() {
+            let len = self.coeff.len();
             self.coeff.clear();
+            if let Err(e) = self.truncate_mlock(len) {
+                panic!("{}", e);
+            }
         } else {
             self.coeff.iter_mut().for_each(|c| c.mul_assign(&rhs));
         }
@@ -218,28 +243,38 @@ impl<'a> ops::Mul<u64> for Poly {
 impl Drop for Poly {
     fn drop(&mut self) {
         self.zero_secret_memory();
-        self.munlock_secret_memory();
+        if let Err(e) =  self.munlock_secret_memory() {
+            panic!("{}", e);
+        }
     }
 }
 
 impl ContainsSecret for Poly {
-    fn mlock_secret_memory(&self) {
+    fn mlock_secret_memory(&self) -> Result<()> {
         let ptr = self.coeff.as_ptr() as *mut u8;
         let n_bytes = size_of_val(self.coeff.as_slice());
-        unsafe {
-            if !mlock(ptr, n_bytes) {
-                println!("POLY MLOCK FAILED!");
-            }
+        let mlock_succeeded = unsafe {
+            mlock(ptr, n_bytes)
+        };
+        if mlock_succeeded {
+            Ok(())
+        } else {
+            let msg = "failed to mlock `Poly` coefficients".to_string();
+            Err(ErrorKind::MlockFailed(msg).into())
         }
     }
 
-    fn munlock_secret_memory(&self) {
+    fn munlock_secret_memory(&self) -> Result<()> {
         let ptr = self.coeff.as_ptr() as *mut u8;
         let n_bytes = size_of_val(self.coeff.as_slice());
-        unsafe {
-            if !munlock(ptr, n_bytes) {
-                println!("POLY MUNLOCK FAILED!");
-            }
+        let munlock_succeeded = unsafe {
+            munlock(ptr, n_bytes)
+        };
+        if munlock_succeeded {
+            Ok(())
+        } else {
+            let msg = "failed to munlock `Poly` coefficients".to_string();
+            Err(ErrorKind::MunlockFailed(msg).into())
         }
     }
 
@@ -253,45 +288,51 @@ impl ContainsSecret for Poly {
 }
 
 impl Poly {
+    pub fn new(coeff: Vec<Fr>) -> Result<Self> {
+        let poly = Poly { coeff };
+        poly.mlock_secret_memory()?;
+        Ok(poly)
+    }
+
     /// Creates a random polynomial.
-    pub fn random<R: Rng>(degree: usize, rng: &mut R) -> Self {
+    pub fn random<R: Rng>(degree: usize, rng: &mut R) -> Result<Self> {
         let coeff: Vec<Fr> = (0..=degree).map(|_| rng.gen()).collect();
-        Poly::from(coeff)
+        Poly::new(coeff)
     }
 
     /// Returns the polynomial with constant value `0`.
-    pub fn zero() -> Self {
-        Poly::from(vec![])
+    pub fn zero() -> Result<Self> {
+        Poly::new(vec![])
     }
 
     /// Returns the polynomial with constant value `1`.
-    pub fn one() -> Self {
+    pub fn one() -> Result<Self> {
         Self::monomial(0)
     }
 
     /// Returns the polynomial with constant value `c`.
-    pub fn constant(c: Fr) -> Self {
+    pub fn constant(c: Fr) -> Result<Self> {
         // TODO: clear secret `Fr` argument from stack frame.
-        Poly::from(vec![c])
+        Poly::new(vec![c])
     }
 
     /// Returns the identity function, i.e. the polynomial "`x`".
-    pub fn identity() -> Self {
+    pub fn identity() -> Result<Self> {
         Self::monomial(1)
     }
 
     /// Returns the (monic) monomial "`x.pow(degree)`".
-    pub fn monomial(degree: usize) -> Self {
+    pub fn monomial(degree: usize) -> Result<Self> {
         let coeff: Vec<Fr> = iter::repeat(Fr::zero())
             .take(degree)
             .chain(iter::once(Fr::one()))
             .collect();
-        Poly::from(coeff)
+        Poly::new(coeff)
     }
 
     /// Returns the unique polynomial `f` of degree `samples.len() - 1` with the given values
     /// `(x, f(x))`.
-    pub fn interpolate<T, U, I>(samples_repr: I) -> Self
+    pub fn interpolate<T, U, I>(samples_repr: I) -> Result<Self>
     where
         I: IntoIterator<Item = (T, U)>,
         T: IntoFr,
@@ -330,28 +371,52 @@ impl Poly {
     }
 
     /// Removes all trailing zero coefficients.
-    fn remove_zeros(&mut self) {
+    fn remove_zeros(&mut self) -> Result<()> {
         let zeros = self.coeff.iter().rev().take_while(|c| c.is_zero()).count();
         let len = self.coeff.len() - zeros;
         self.coeff.truncate(len);
-        self.munlock_truncated(zeros);
+        self.truncate_mlock(zeros)
     }
 
-    // Removes the `mlock` for zero prime field elements that have been
-    // truncated from the `coeff` vector.
-    fn munlock_truncated(&self, len: usize) {
+    // Removes the `mlock` for zeros that have been truncated from the
+    // `coeff` vector.
+    fn truncate_mlock(&self, len: usize) -> Result<()> {
         let n_bytes_truncated = len * size_of::<Fr>();
-        unsafe {
-            let ptr = self.coeff.as_ptr().offset(self.coeff.len() as isize) as *mut u8;
-            if !munlock(ptr, n_bytes_truncated) {
-                println!("POLY TRUNCATE MUNLOCK FAILED!");
-            }
+        let munlock_succeeded = unsafe {
+            let ptr = self.coeff.as_ptr()
+                .offset(self.coeff.len() as isize)
+                as *mut u8;
+            munlock(ptr, n_bytes_truncated)
+        };
+        if munlock_succeeded {
+            Ok(())
+        } else {
+            let msg = "failed to munlock truncated `Poly`".to_string();
+            Err(ErrorKind::MunlockFailed(msg).into())
+        }
+    }
+
+    // Extends the `mlock` on the `coeff` vector when `len` new elements are added.
+    fn extend_mlock(&self, len: usize) -> Result<()> {
+        let n_bytes_extended = len * size_of::<Fr>();
+        let offset = (self.coeff.len() - len) as isize;
+
+        let mlock_succeeded = unsafe {
+            let ptr = self.coeff.as_ptr().offset(offset) as *mut u8;
+            mlock(ptr, n_bytes_extended)
+        };
+        
+        if mlock_succeeded {
+            Ok(())
+        } else {
+            let msg = "failed to extend `Poly` mlock".to_string();
+            Err(ErrorKind::MlockFailed(msg).into())
         }
     }
 
     /// Returns the unique polynomial `f` of degree `samples.len() - 1` with the given values
     /// `(x, f(x))`.
-    fn compute_interpolation(samples: &[(Fr, Fr)]) -> Self {
+    fn compute_interpolation(samples: &[(Fr, Fr)]) -> Result<Self> {
         if samples.is_empty() {
             return Poly::zero();
         } else if samples.len() == 1 {
@@ -360,23 +425,23 @@ impl Poly {
         // The degree is at least 1 now.
         let degree = samples.len() - 1;
         // Interpolate all but the last sample.
-        let prev = Self::compute_interpolation(&samples[..degree]);
+        let prev = Self::compute_interpolation(&samples[..degree])?;
         let (x, mut y) = samples[degree]; // The last sample.
         y.sub_assign(&prev.evaluate(x));
-        let step = Self::lagrange(x, &samples[..degree]);
-        prev + step * Self::constant(y)
+        let step = Self::lagrange(x, &samples[..degree])?;
+        Self::constant(y).map(|poly| poly * step + prev)
     }
 
     /// Returns the Lagrange base polynomial that is `1` in `p` and `0` in every `samples[i].0`.
-    fn lagrange(p: Fr, samples: &[(Fr, Fr)]) -> Self {
-        let mut result = Self::one();
+    fn lagrange(p: Fr, samples: &[(Fr, Fr)]) -> Result<Self> {
+        let mut result = Self::one()?;
         for &(sx, _) in samples {
             let mut denom = p;
             denom.sub_assign(&sx);
             denom = denom.inverse().expect("sample points must be distinct");
-            result *= (Self::identity() - Self::constant(sx)) * Self::constant(denom);
+            result *= (Self::identity()? - Self::constant(sx)?) * Self::constant(denom)?;
         }
-        result
+        Ok(result)
     }
 
     /// Generates a non-redacted debug string. This method differs from
@@ -478,7 +543,9 @@ impl Clone for BivarPoly {
             degree: self.degree,
             coeff: self.coeff.clone(),
         };
-        poly.mlock_secret_memory();
+        if let Err(e) =  self.mlock_secret_memory() {
+            panic!("{}", e);
+        }
         poly
     }
 }
@@ -486,7 +553,9 @@ impl Clone for BivarPoly {
 impl Drop for BivarPoly {
     fn drop(&mut self) {
         self.zero_secret_memory();
-        self.munlock_secret_memory();
+        if let Err(e) = self.munlock_secret_memory() {
+            panic!("{}", e);
+        }
     }
 }
 
@@ -499,23 +568,31 @@ impl fmt::Debug for BivarPoly {
 }
 
 impl ContainsSecret for BivarPoly {
-    fn mlock_secret_memory(&self) {
+    fn mlock_secret_memory(&self) -> Result<()> {
         let ptr = self.coeff.as_ptr() as *mut u8;
         let n_bytes = size_of_val(self.coeff.as_slice());
-        unsafe {
-            if !mlock(ptr, n_bytes) {
-                println!("BivarPoly MLOCK FAILED!");
-            }
+        let mlock_succeeded = unsafe {
+            mlock(ptr, n_bytes)
+        };
+        if mlock_succeeded {
+            Ok(())
+        } else {
+            let msg = "failed to mlock `BivarPoly` coefficients".to_string();
+            Err(ErrorKind::MlockFailed(msg).into())
         }
     }
 
-    fn munlock_secret_memory(&self) {
+    fn munlock_secret_memory(&self) -> Result<()> {
         let ptr = self.coeff.as_ptr() as *mut u8;
         let n_bytes = size_of_val(self.coeff.as_slice());
-        unsafe {
-            if !munlock(ptr, n_bytes) {
-                println!("BivarPoly MUNLOCK FAILED!");
-            }
+        let munlock_succeeded = unsafe {
+            munlock(ptr, n_bytes)
+        };
+        if munlock_succeeded {
+            Ok(())
+        } else {
+            let msg = "failed to munlock `BivarPoly` coefficients".to_string();
+            Err(ErrorKind::MlockFailed(msg).into())
         }
     }
 
@@ -530,13 +607,13 @@ impl ContainsSecret for BivarPoly {
 
 impl BivarPoly {
     /// Creates a random polynomial.
-    pub fn random<R: Rng>(degree: usize, rng: &mut R) -> Self {
+    pub fn random<R: Rng>(degree: usize, rng: &mut R) -> Result<Self> {
         let poly = BivarPoly {
             degree,
             coeff: (0..coeff_pos(degree + 1, 0)).map(|_| rng.gen()).collect(),
         };
-        poly.mlock_secret_memory();
-        poly
+        poly.mlock_secret_memory()?;
+        Ok(poly)
     }
 
     /// Returns the polynomial's degree: It is the same in both variables.
@@ -562,7 +639,7 @@ impl BivarPoly {
     }
 
     /// Returns the `x`-th row, as a univariate polynomial.
-    pub fn row<T: IntoFr>(&self, x: T) -> Poly {
+    pub fn row<T: IntoFr>(&self, x: T) -> Result<Poly> {
         let x_pow = self.powers(x);
         let coeff: Vec<Fr> = (0..=self.degree)
             .map(|i| {
@@ -576,7 +653,7 @@ impl BivarPoly {
                 result
             })
             .collect();
-        Poly::from(coeff)
+        Poly::new(coeff)
     }
 
     /// Returns the corresponding commitment. That information can be shared publicly.
@@ -720,14 +797,14 @@ mod tests {
     #[test]
     fn poly() {
         // The polynomial 5 X³ + X - 2.
-        let poly = Poly::monomial(3) * 5 + Poly::monomial(1) - 2;
+        let poly = Poly::monomial(3).unwrap() * 5 + Poly::monomial(1).unwrap() - 2;
         let coeff: Vec<_> = [-2, 1, 0, 5].into_iter().map(IntoFr::into_fr).collect();
         assert_eq!(Poly { coeff }, poly);
         let samples = vec![(-1, -8), (2, 40), (3, 136), (5, 628)];
         for &(x, y) in &samples {
             assert_eq!(y.into_fr(), poly.evaluate(x));
         }
-        assert_eq!(Poly::interpolate(samples), poly);
+        assert_eq!(Poly::interpolate(samples).unwrap(), poly);
     }
 
     #[test]
@@ -741,7 +818,7 @@ mod tests {
         // generates random bivariate polynomials and publicly commits to them. In partice, the
         // dealers can e.g. be any `faulty_num + 1` nodes.
         let bi_polys: Vec<BivarPoly> = (0..dealer_num)
-            .map(|_| BivarPoly::random(faulty_num, &mut rng))
+            .map(|_| BivarPoly::random(faulty_num, &mut rng).unwrap())
             .collect();
         let pub_bi_commits: Vec<_> = bi_polys.iter().map(BivarPoly::commitment).collect();
 
@@ -753,7 +830,7 @@ mod tests {
         for (bi_poly, bi_commit) in bi_polys.iter().zip(&pub_bi_commits) {
             for m in 1..=node_num {
                 // Node `m` receives its row and verifies it.
-                let row_poly = bi_poly.row(m);
+                let row_poly = bi_poly.row(m).unwrap();
                 let row_commit = bi_commit.row(m);
                 assert_eq!(row_poly.commitment(), row_commit);
                 // Node `s` receives the `s`-th value and verifies it.
@@ -766,7 +843,7 @@ mod tests {
                 }
 
                 // A cheating dealer who modified the polynomial would be detected.
-                let wrong_poly = row_poly.clone() + Poly::monomial(2) * Poly::constant(5.into_fr());
+                let wrong_poly = row_poly.clone() + Poly::monomial(2).unwrap() * Poly::constant(5.into_fr()).unwrap();
                 assert_ne!(wrong_poly.commitment(), row_commit);
 
                 // If `2 * faulty_num + 1` nodes confirm that they received a valid row, then at
@@ -780,7 +857,7 @@ mod tests {
                     .iter()
                     .map(|&i| (i, bi_poly.evaluate(m, i)))
                     .collect();
-                let my_row = Poly::interpolate(received);
+                let my_row = Poly::interpolate(received).unwrap();
                 assert_eq!(bi_poly.evaluate(m, 0), my_row.evaluate(0));
                 assert_eq!(row_poly, my_row);
 
@@ -795,9 +872,9 @@ mod tests {
         // The whole first column never gets added up in practice, because nobody has all the
         // information. We do it anyway here; entry `0` is the secret key that is not known to
         // anyone, neither a dealer, nor a node:
-        let mut sec_key_set = Poly::zero();
+        let mut sec_key_set = Poly::zero().unwrap();
         for bi_poly in &bi_polys {
-            sec_key_set += bi_poly.row(0);
+            sec_key_set += bi_poly.row(0).unwrap();
         }
         for m in 1..=node_num {
             assert_eq!(sec_key_set.evaluate(m), sec_keys[m - 1]);
@@ -805,7 +882,7 @@ mod tests {
 
         // The sum of the first rows of the public commitments is the commitment to the secret key
         // set.
-        let mut sum_commit = Poly::zero().commitment();
+        let mut sum_commit = Poly::zero().unwrap().commitment();
         for bi_commit in &pub_bi_commits {
             sum_commit += bi_commit.row(0);
         }

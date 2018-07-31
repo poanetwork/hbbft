@@ -290,7 +290,7 @@ where
             if let Some((key_gen, change)) = self.take_ready_key_gen() {
                 // If DKG completed, apply the change, restart Honey Badger, and inform the user.
                 debug!("{:?} DKG for {:?} complete!", self.our_id(), change);
-                self.netinfo = key_gen.into_network_info();
+                self.netinfo = key_gen.into_network_info()?;
                 self.restart_honey_badger(batch.epoch + 1);
                 batch.set_change(ChangeState::Complete(change), &self.netinfo);
             } else if let Some(change) = self.vote_counter.compute_majority().cloned() {
@@ -331,7 +331,7 @@ where
         let threshold = (pub_keys.len() - 1) / 3;
         let sk = self.netinfo.secret_key().clone();
         let our_uid = self.our_id().clone();
-        let (key_gen, part) = SyncKeyGen::new(our_uid, sk, pub_keys, threshold);
+        let (key_gen, part) = SyncKeyGen::new(our_uid, sk, pub_keys, threshold)?;
         self.key_gen = Some((key_gen, change.clone()));
         if let Some(part) = part {
             self.send_transaction(KeyGenMessage::Part(part))

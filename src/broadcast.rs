@@ -70,7 +70,7 @@
 //!     let mut rng = thread_rng();
 //!
 //!     // Create a random set of keys for testing.
-//!     let netinfos = NetworkInfo::generate_map(0..NUM_NODES);
+//!     let netinfos = NetworkInfo::generate_map(0..NUM_NODES).unwrap();
 //!
 //!     // Create initial nodes by instantiating a `Broadcast` for each.
 //!     let mut nodes = BTreeMap::new();

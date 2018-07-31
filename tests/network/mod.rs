@@ -398,7 +398,7 @@ where
         G: Fn(BTreeMap<D::NodeUid, Arc<NetworkInfo<D::NodeUid>>>) -> A,
     {
         let mut rng = rand::thread_rng();
-        let mut netinfos = NetworkInfo::generate_map((0..(good_num + adv_num)).map(NodeUid));
+        let mut netinfos = NetworkInfo::generate_map((0..(good_num + adv_num)).map(NodeUid)).unwrap();
         let obs_netinfo = {
             let node_ni = netinfos.values().next().unwrap();
             NetworkInfo::new(

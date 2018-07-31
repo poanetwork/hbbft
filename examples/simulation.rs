@@ -268,7 +268,7 @@ where
     where
         F: Fn(NetworkInfo<NodeUid>) -> (D, Step<D>),
     {
-        let netinfos = NetworkInfo::generate_map((0..(good_num + adv_num)).map(NodeUid));
+        let netinfos = NetworkInfo::generate_map((0..(good_num + adv_num)).map(NodeUid)).unwrap();
         let new_node = |(uid, netinfo): (NodeUid, NetworkInfo<_>)| {
             (uid, TestNode::new(new_algo(netinfo), hw_quality))
         };

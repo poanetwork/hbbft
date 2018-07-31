@@ -22,7 +22,7 @@ use pairing::{CurveAffine, CurveProjective, Engine, Field};
 use rand::{ChaChaRng, OsRng, Rand, Rng, SeedableRng};
 use ring::digest;
 
-use self::error::{ErrorKind, Result};
+pub use self::error::{Error, ErrorKind, Result};
 use self::into_fr::IntoFr;
 use self::poly::{Commitment, Poly};
 use fmt::HexBytes;
@@ -37,9 +37,9 @@ pub(crate) trait ContainsSecret {
     /// Calls the `mlock` system call on the region of memory allocated for
     /// the secret prime field element or elements. This results in that
     /// region of memory not being swapped to disk.
-    fn mlock_secret_memory(&self);
+    fn mlock_secret_memory(&self) -> Result<()>;
     /// Undoes the `mlock` on the secret region of memory.
-    fn munlock_secret_memory(&self);
+    fn munlock_secret_memory(&self) -> Result<()>;
     /// Overwrites the secret prime field elements with zeros.
     fn zero_secret_memory(&self);
 }
@@ -179,28 +179,39 @@ pub struct SecretKey(Box<Fr>);
 impl Default for SecretKey {
     fn default() -> Self {
         let mut fr = Fr::zero();
-        SecretKey::from_mut_ptr(&mut fr as *mut Fr)
+        match SecretKey::from_mut_ptr(&mut fr as *mut Fr) {
+            Ok(sk) => sk,
+            Err(e) => panic!("{}", e),
+        }
     }
 }
 
 impl Rand for SecretKey {
     fn rand<R: Rng>(rng: &mut R) -> Self {
         let mut fr = Fr::rand(rng);
-        SecretKey::from_mut_ptr(&mut fr as *mut Fr)
+        match SecretKey::from_mut_ptr(&mut fr as *mut Fr) {
+            Ok(sk) => sk,
+            Err(e) => panic!("{}", e),
+        }
     }
 }
 
 impl Clone for SecretKey {
     fn clone(&self) -> Self {
         let mut fr = *self.0;
-        SecretKey::from_mut_ptr(&mut fr as *mut Fr)
+        match SecretKey::from_mut_ptr(&mut fr as *mut Fr) {
+            Ok(sk) => sk,
+            Err(e) => panic!("{}", e),
+        }
     }
 }
 
 impl Drop for SecretKey {
     fn drop(&mut self) {
         self.zero_secret_memory();
-        self.munlock_secret_memory();
+        if let Err(e) = self.munlock_secret_memory() {
+            panic!("{}", e);
+        }
     }
 }
 
@@ -212,23 +223,31 @@ impl fmt::Debug for SecretKey {
 }
 
 impl ContainsSecret for SecretKey {
-    fn mlock_secret_memory(&self) {
+    fn mlock_secret_memory(&self) -> Result<()> {
         let ptr = &*self.0 as *const Fr as *mut u8;
         let n_bytes = size_of_val(&*self.0);
-        unsafe {
-            if !mlock(ptr, n_bytes) {
-                println!("SK MLOCK FAILED!");
-            }
+        let mlock_succeeded = unsafe {
+            mlock(ptr, n_bytes)
+        };
+        if mlock_succeeded {
+            Ok(())
+        } else {
+            let msg = "failed to mlock `SecretKey` memory".to_string();
+            Err(ErrorKind::MlockFailed(msg).into())
         }
     }
 
-    fn munlock_secret_memory(&self) {
+    fn munlock_secret_memory(&self) -> Result<()> {
         let ptr = &*self.0 as *const Fr as *mut u8;
         let n_bytes = size_of_val(&*self.0);
-        unsafe {
-            if !munlock(ptr, n_bytes) {
-                println!("SK MUNLOCK FAILED!");
-            }
+        let munlock_succeeded = unsafe {
+            munlock(ptr, n_bytes)
+        };
+        if munlock_succeeded {
+            Ok(())
+        } else {
+            let msg = "failed to munlock `SecretKey` memory".to_string();
+            Err(ErrorKind::MunlockFailed(msg).into())
         }
     }
 
@@ -251,7 +270,7 @@ impl SecretKey {
     /// *WARNING* this constructor will overwrite the pointed to `Fr` element
     /// with zeros.
     #[cfg_attr(feature = "cargo-clippy", allow(not_unsafe_ptr_arg_deref))]
-    pub fn from_mut_ptr(fr_ptr: *mut Fr) -> Self {
+    pub fn from_mut_ptr(fr_ptr: *mut Fr) -> Result<Self> {
         let boxed_fr = unsafe {
             let mut boxed_fr = Box::new(Fr::zero());
             copy_nonoverlapping(fr_ptr, &mut *boxed_fr as *mut Fr, 1);
@@ -259,8 +278,15 @@ impl SecretKey {
             boxed_fr
         };
         let sk = SecretKey(boxed_fr);
-        sk.mlock_secret_memory();
-        sk
+        sk.mlock_secret_memory()?;
+        Ok(sk)
+    }
+
+    /// A wrapper around `let sk: SecretKey = rand::random();`.
+    pub fn random() -> Self {
+        use rand::thread_rng;
+        let mut rng = thread_rng();
+        SecretKey::rand(&mut rng)
     }
 
     /// Returns the matching public key.
@@ -318,8 +344,8 @@ impl SecretKeyShare {
     ///
     /// *NOTE* this constructor will overwrite the pointed to `Fr` element
     /// with zeros.
-    pub fn from_mut_ptr(fr_ptr: *mut Fr) -> Self {
-        SecretKeyShare(SecretKey::from_mut_ptr(fr_ptr))
+    pub fn from_mut_ptr(fr_ptr: *mut Fr) -> Result<Self> {
+        SecretKey::from_mut_ptr(fr_ptr).map(SecretKeyShare)
     }
 
     /// Returns the matching public key share.
@@ -473,10 +499,9 @@ impl From<Poly> for SecretKeySet {
 impl SecretKeySet {
     /// Creates a set of secret key shares, where any `threshold + 1` of them can collaboratively
     /// sign and decrypt.
-    pub fn random<R: Rng>(threshold: usize, rng: &mut R) -> Self {
-        SecretKeySet {
-            poly: Poly::random(threshold, rng),
-        }
+    pub fn random<R: Rng>(threshold: usize, rng: &mut R) -> Result<Self> {
+        let poly = Poly::random(threshold, rng)?;
+        Ok(SecretKeySet { poly })
     }
 
     /// Returns the threshold `t`: any set of `t + 1` signature shares can be combined into a full
@@ -486,7 +511,7 @@ impl SecretKeySet {
     }
 
     /// Returns the `i`-th secret key share.
-    pub fn secret_key_share<T: IntoFr>(&self, i: T) -> SecretKeyShare {
+    pub fn secret_key_share<T: IntoFr>(&self, i: T) -> Result<SecretKeyShare> {
         let mut fr = self.poly.evaluate(into_fr_plus_1(i));
         SecretKeyShare::from_mut_ptr(&mut fr as *mut Fr)
     }
@@ -500,7 +525,7 @@ impl SecretKeySet {
 
     /// Returns the secret master key.
     #[cfg(test)]
-    fn secret_key(&self) -> SecretKey {
+    fn secret_key(&self) -> Result<SecretKey> {
         let mut fr = self.poly.evaluate(0);
         SecretKey::from_mut_ptr(&mut fr as *mut Fr)
     }
@@ -610,7 +635,7 @@ mod tests {
     #[test]
     fn test_threshold_sig() {
         let mut rng = rand::thread_rng();
-        let sk_set = SecretKeySet::random(3, &mut rng);
+        let sk_set = SecretKeySet::random(3, &mut rng).unwrap();
         let pk_set = sk_set.public_keys();
 
         // Make sure the keys are different, and the first coefficient is the main key.
@@ -619,16 +644,16 @@ mod tests {
         assert_ne!(pk_set.public_key(), pk_set.public_key_share(2).0);
 
         // Make sure we don't hand out the main secret key to anyone.
-        assert_ne!(sk_set.secret_key(), sk_set.secret_key_share(0).0);
-        assert_ne!(sk_set.secret_key(), sk_set.secret_key_share(1).0);
-        assert_ne!(sk_set.secret_key(), sk_set.secret_key_share(2).0);
+        assert_ne!(sk_set.secret_key().unwrap(), sk_set.secret_key_share(0).unwrap().0);
+        assert_ne!(sk_set.secret_key().unwrap(), sk_set.secret_key_share(1).unwrap().0);
+        assert_ne!(sk_set.secret_key().unwrap(), sk_set.secret_key_share(2).unwrap().0);
 
         let msg = "Totally real news";
 
         // The threshold is 3, so 4 signature shares will suffice to recreate the share.
         let sigs: BTreeMap<_, _> = [5, 8, 7, 10]
             .into_iter()
-            .map(|i| (*i, sk_set.secret_key_share(*i).sign(msg)))
+            .map(|i| (*i, sk_set.secret_key_share(*i).unwrap().sign(msg)))
             .collect();
 
         // Each of the shares is a valid signature matching its public key share.
@@ -643,7 +668,7 @@ mod tests {
         // A different set of signatories produces the same signature.
         let sigs2: BTreeMap<_, _> = [42, 43, 44, 45]
             .into_iter()
-            .map(|i| (*i, sk_set.secret_key_share(*i).sign(msg)))
+            .map(|i| (*i, sk_set.secret_key_share(*i).unwrap().sign(msg)))
             .collect();
         let sig2 = pk_set.combine_signatures(&sigs2).expect("signatures match");
         assert_eq!(sig, sig2);
@@ -676,7 +701,7 @@ mod tests {
     #[test]
     fn test_threshold_enc() {
         let mut rng = rand::thread_rng();
-        let sk_set = SecretKeySet::random(3, &mut rng);
+        let sk_set = SecretKeySet::random(3, &mut rng).unwrap();
         let pk_set = sk_set.public_keys();
         let msg = b"Totally real news";
         let ciphertext = pk_set.public_key().encrypt(&msg[..]);
@@ -685,7 +710,7 @@ mod tests {
         let shares: BTreeMap<_, _> = [5, 8, 7, 10]
             .into_iter()
             .map(|i| {
-                let ski = sk_set.secret_key_share(*i);
+                let ski = sk_set.secret_key_share(*i).unwrap();
                 let share = ski.decrypt_share(&ciphertext).expect("ciphertext is valid");
                 (*i, share)
             })
