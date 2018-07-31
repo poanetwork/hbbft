@@ -63,10 +63,10 @@ use std::mem;
 use std::sync::Arc;
 
 use bincode;
+use crypto::{PublicKey, PublicKeySet, Signature};
 use serde::{Deserialize, Serialize};
 
 use self::votes::{SignedVote, VoteCounter};
-use crypto::{PublicKey, PublicKeySet, Signature};
 use fault_log::{FaultKind, FaultLog};
 use honey_badger::{self, HoneyBadger, Message as HbMessage};
 use messaging::{self, DistAlgorithm, NetworkInfo, Target};

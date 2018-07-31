@@ -4,10 +4,10 @@ use std::hash::Hash;
 use std::sync::Arc;
 
 use bincode;
+use crypto::Signature;
 use serde::{Deserialize, Serialize};
 
 use super::{Change, ErrorKind, Result};
-use crypto::Signature;
 use fault_log::{FaultKind, FaultLog};
 use messaging::NetworkInfo;
 

@@ -13,6 +13,7 @@ extern crate rand;
 extern crate rand_derive;
 #[macro_use]
 extern crate serde_derive;
+extern crate threshold_crypto as crypto;
 
 mod network;
 

@@ -34,7 +34,6 @@
 //! the consensus `result` is not an error then every successfully terminated
 //! consensus node will be the same `result`.
 
-use crossbeam;
 use std::collections::{BTreeSet, HashSet};
 use std::fmt::Debug;
 use std::marker::{Send, Sync};
@@ -42,9 +41,11 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::{io, iter, process, thread, time};
 
+use crossbeam;
+use crypto::poly::Poly;
+use crypto::{SecretKey, SecretKeySet};
+
 use hbbft::broadcast::{Broadcast, BroadcastMessage};
-use hbbft::crypto::poly::Poly;
-use hbbft::crypto::{SecretKey, SecretKeySet};
 use hbbft::messaging::{DistAlgorithm, NetworkInfo, SourcedMessage};
 use network::commst;
 use network::connection;

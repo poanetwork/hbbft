@@ -32,12 +32,12 @@ use std::mem;
 use std::sync::Arc;
 
 use bincode;
+use crypto::{Ciphertext, DecryptionShare};
 use failure::{Backtrace, Context, Fail};
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 
 use common_subset::{self, CommonSubset};
-use crypto::{Ciphertext, DecryptionShare};
 use fault_log::{Fault, FaultKind, FaultLog};
 use messaging::{self, DistAlgorithm, NetworkInfo, Target};
 

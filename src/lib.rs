@@ -119,12 +119,12 @@ extern crate ring;
 extern crate serde;
 #[macro_use]
 extern crate serde_derive;
+extern crate threshold_crypto as crypto;
 
 pub mod agreement;
 pub mod broadcast;
 pub mod common_coin;
 pub mod common_subset;
-pub mod crypto;
 pub mod dynamic_honey_badger;
 pub mod fault_log;
 mod fmt;

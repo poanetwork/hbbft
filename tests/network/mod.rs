@@ -3,9 +3,9 @@ use std::fmt::{self, Debug};
 use std::mem;
 use std::sync::Arc;
 
+use crypto::SecretKeyShare;
 use rand::{self, Rng};
 
-use hbbft::crypto::SecretKeyShare;
 use hbbft::messaging::{DistAlgorithm, NetworkInfo, Step, Target, TargetedMessage};
 
 /// A node identifier. In the tests, nodes are simply numbered.
