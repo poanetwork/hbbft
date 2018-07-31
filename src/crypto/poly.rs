@@ -41,7 +41,7 @@ impl Clone for Poly {
     fn clone(&self) -> Self {
         match Poly::new(self.coeff.clone()) {
             Ok(poly) => poly,
-            Err(e) =>  panic!("{}", e),
+            Err(e) => panic!("{}", e),
         }
     }
 }
@@ -54,6 +54,7 @@ impl fmt::Debug for Poly {
     }
 }
 
+#[cfg_attr(feature = "cargo-clippy", allow(suspicious_op_assign_impl))]
 impl<B: Borrow<Poly>> ops::AddAssign<B> for Poly {
     fn add_assign(&mut self, rhs: B) {
         let len = self.coeff.len();
@@ -193,10 +194,10 @@ impl<'a, B: Borrow<Poly>> ops::Mul<B> for &'a Poly {
                 c
             })
             .collect();
-    
+
         match Poly::new(coeff) {
             Ok(poly) => poly,
-            Err(e) => panic!("{}", e)
+            Err(e) => panic!("{}", e),
         }
     }
 }
@@ -243,7 +244,7 @@ impl<'a> ops::Mul<u64> for Poly {
 impl Drop for Poly {
     fn drop(&mut self) {
         self.zero_secret_memory();
-        if let Err(e) =  self.munlock_secret_memory() {
+        if let Err(e) = self.munlock_secret_memory() {
             panic!("{}", e);
         }
     }
@@ -253,9 +254,7 @@ impl ContainsSecret for Poly {
     fn mlock_secret_memory(&self) -> Result<()> {
         let ptr = self.coeff.as_ptr() as *mut u8;
         let n_bytes = size_of_val(self.coeff.as_slice());
-        let mlock_succeeded = unsafe {
-            mlock(ptr, n_bytes)
-        };
+        let mlock_succeeded = unsafe { mlock(ptr, n_bytes) };
         if mlock_succeeded {
             Ok(())
         } else {
@@ -267,9 +266,7 @@ impl ContainsSecret for Poly {
     fn munlock_secret_memory(&self) -> Result<()> {
         let ptr = self.coeff.as_ptr() as *mut u8;
         let n_bytes = size_of_val(self.coeff.as_slice());
-        let munlock_succeeded = unsafe {
-            munlock(ptr, n_bytes)
-        };
+        let munlock_succeeded = unsafe { munlock(ptr, n_bytes) };
         if munlock_succeeded {
             Ok(())
         } else {
@@ -383,9 +380,7 @@ impl Poly {
     fn truncate_mlock(&self, len: usize) -> Result<()> {
         let n_bytes_truncated = len * size_of::<Fr>();
         let munlock_succeeded = unsafe {
-            let ptr = self.coeff.as_ptr()
-                .offset(self.coeff.len() as isize)
-                as *mut u8;
+            let ptr = self.coeff.as_ptr().offset(self.coeff.len() as isize) as *mut u8;
             munlock(ptr, n_bytes_truncated)
         };
         if munlock_succeeded {
@@ -405,7 +400,7 @@ impl Poly {
             let ptr = self.coeff.as_ptr().offset(offset) as *mut u8;
             mlock(ptr, n_bytes_extended)
         };
-        
+
         if mlock_succeeded {
             Ok(())
         } else {
@@ -543,7 +538,7 @@ impl Clone for BivarPoly {
             degree: self.degree,
             coeff: self.coeff.clone(),
         };
-        if let Err(e) =  self.mlock_secret_memory() {
+        if let Err(e) = self.mlock_secret_memory() {
             panic!("{}", e);
         }
         poly
@@ -571,9 +566,7 @@ impl ContainsSecret for BivarPoly {
     fn mlock_secret_memory(&self) -> Result<()> {
         let ptr = self.coeff.as_ptr() as *mut u8;
         let n_bytes = size_of_val(self.coeff.as_slice());
-        let mlock_succeeded = unsafe {
-            mlock(ptr, n_bytes)
-        };
+        let mlock_succeeded = unsafe { mlock(ptr, n_bytes) };
         if mlock_succeeded {
             Ok(())
         } else {
@@ -585,9 +578,7 @@ impl ContainsSecret for BivarPoly {
     fn munlock_secret_memory(&self) -> Result<()> {
         let ptr = self.coeff.as_ptr() as *mut u8;
         let n_bytes = size_of_val(self.coeff.as_slice());
-        let munlock_succeeded = unsafe {
-            munlock(ptr, n_bytes)
-        };
+        let munlock_succeeded = unsafe { munlock(ptr, n_bytes) };
         if munlock_succeeded {
             Ok(())
         } else {
@@ -843,7 +834,8 @@ mod tests {
                 }
 
                 // A cheating dealer who modified the polynomial would be detected.
-                let wrong_poly = row_poly.clone() + Poly::monomial(2).unwrap() * Poly::constant(5.into_fr()).unwrap();
+                let wrong_poly = row_poly.clone()
+                    + Poly::monomial(2).unwrap() * Poly::constant(5.into_fr()).unwrap();
                 assert_ne!(wrong_poly.commitment(), row_commit);
 
                 // If `2 * faulty_num + 1` nodes confirm that they received a valid row, then at

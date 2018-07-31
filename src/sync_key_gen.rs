@@ -292,7 +292,8 @@ impl<NodeUid: Ord + Clone + Debug> SyncKeyGen<NodeUid> {
             let bytes = bincode::serialize(&row).expect("failed to serialize row");
             Ok(pk.encrypt(&bytes))
         };
-        let rows = key_gen.pub_keys
+        let rows = key_gen
+            .pub_keys
             .values()
             .enumerate()
             .map(encrypt)
@@ -406,10 +407,9 @@ impl<NodeUid: Ord + Clone + Debug> SyncKeyGen<NodeUid> {
                 sk_val.add_assign(&row.evaluate(0));
             }
         }
-        let opt_sk = opt_sk_val.map_or(
-            Ok(None),
-            |mut fr| SecretKeyShare::from_mut_ptr(&mut fr as *mut Fr).map(Some)
-        )?;
+        let opt_sk = opt_sk_val.map_or(Ok(None), |mut fr| {
+            SecretKeyShare::from_mut_ptr(&mut fr as *mut Fr).map(Some)
+        })?;
         Ok((pk_commit.into(), opt_sk))
     }
 

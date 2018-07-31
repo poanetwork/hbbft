@@ -226,9 +226,7 @@ impl ContainsSecret for SecretKey {
     fn mlock_secret_memory(&self) -> Result<()> {
         let ptr = &*self.0 as *const Fr as *mut u8;
         let n_bytes = size_of_val(&*self.0);
-        let mlock_succeeded = unsafe {
-            mlock(ptr, n_bytes)
-        };
+        let mlock_succeeded = unsafe { mlock(ptr, n_bytes) };
         if mlock_succeeded {
             Ok(())
         } else {
@@ -240,9 +238,7 @@ impl ContainsSecret for SecretKey {
     fn munlock_secret_memory(&self) -> Result<()> {
         let ptr = &*self.0 as *const Fr as *mut u8;
         let n_bytes = size_of_val(&*self.0);
-        let munlock_succeeded = unsafe {
-            munlock(ptr, n_bytes)
-        };
+        let munlock_succeeded = unsafe { munlock(ptr, n_bytes) };
         if munlock_succeeded {
             Ok(())
         } else {
@@ -644,9 +640,18 @@ mod tests {
         assert_ne!(pk_set.public_key(), pk_set.public_key_share(2).0);
 
         // Make sure we don't hand out the main secret key to anyone.
-        assert_ne!(sk_set.secret_key().unwrap(), sk_set.secret_key_share(0).unwrap().0);
-        assert_ne!(sk_set.secret_key().unwrap(), sk_set.secret_key_share(1).unwrap().0);
-        assert_ne!(sk_set.secret_key().unwrap(), sk_set.secret_key_share(2).unwrap().0);
+        assert_ne!(
+            sk_set.secret_key().unwrap(),
+            sk_set.secret_key_share(0).unwrap().0
+        );
+        assert_ne!(
+            sk_set.secret_key().unwrap(),
+            sk_set.secret_key_share(1).unwrap().0
+        );
+        assert_ne!(
+            sk_set.secret_key().unwrap(),
+            sk_set.secret_key_share(2).unwrap().0
+        );
 
         let msg = "Totally real news";
 

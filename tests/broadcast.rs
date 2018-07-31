@@ -77,7 +77,12 @@ impl Adversary<Broadcast<NodeUid>> for ProposeAdversary {
         };
 
         // FIXME: Take the correct, known keys from the network.
-        let netinfo = Arc::new(NetworkInfo::generate_map(node_ids).unwrap().remove(&id).unwrap());
+        let netinfo = Arc::new(
+            NetworkInfo::generate_map(node_ids)
+                .unwrap()
+                .remove(&id)
+                .unwrap(),
+        );
         let mut bc = Broadcast::new(netinfo, id).expect("broadcast instance");
         // FIXME: Use the output.
         let step = bc.input(b"Fake news".to_vec()).expect("propose");
