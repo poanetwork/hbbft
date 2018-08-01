@@ -25,9 +25,11 @@ In addition to **validators**, the algorithms support **observers**: These don't
 
 ## Algorithms
 
-- [x] **[Honey Badger](https://github.com/poanetwork/hbbft/blob/master/src/honey_badger.rs):** Each node inputs transactions. The protocol outputs a sequence of batches of transactions.
+- [x] **[Honey Badger](https://github.com/poanetwork/hbbft/blob/master/src/honey_badger/mod.rs):** Each node inputs transactions. The protocol outputs a sequence of batches of transactions.
 
-- [ ] **[Dynamic Honey Badger](https://github.com/poanetwork/hbbft/blob/master/src/dynamic_honey_badger.rs):** A modified Honey Badger where nodes can dynamically add and remove other nodes to/from the network.
+- [x] **[Dynamic Honey Badger](https://github.com/poanetwork/hbbft/blob/master/src/dynamic_honey_badger/mod.rs):** A modified Honey Badger where nodes can dynamically add and remove other nodes to/from the network.
+
+- [x] **[Queueing Honey Badger](https://github.com/poanetwork/hbbft/blob/master/src/queueing_honey_badger.rs):** Works exactly like Dynamic Honey Badger, but includes a built in transaction queue.
 
 - [x] **[Subset](https://github.com/poanetwork/hbbft/blob/master/src/common_subset.rs):** Each node inputs data. The nodes agree on a subset of suggested data. 
 
@@ -38,6 +40,11 @@ In addition to **validators**, the algorithms support **observers**: These don't
 - [x] **[Coin](https://github.com/poanetwork/hbbft/blob/master/src/common_coin.rs):** A pseudorandom binary value used by the Binary Agreement protocol.
 
 - [x] **[Synchronous Key Generation](https://github.com/poanetwork/hbbft/blob/master/src/sync_key_gen.rs)** A dealerless algorithm that generates keys for threshold encryption and signing. Unlike the other algorithms, this one is _completely synchronous_ and should run on top of Honey Badger (or another consensus algorithm)
+
+### External crates developed for this library 
+
+- [x] **[Threshold Crypto](https://github.com/poanetwork/threshold_crypto):** A threshold cryptosystem for collaborative message decryption and signature creation. 
+
 
 ## Getting Started
 
@@ -116,14 +123,13 @@ $ cargo run --example simulation --release -- -b 500
 
 See [Issues](https://github.com/poanetwork/hbbft/issues) for all tasks.
 
-- [ ] Dynamic Honey Badger (adding and removing nodes in a live network environment) ([#47](https://github.com/poanetwork/hbbft/issues/47#issuecomment-394640406))
 - [ ] Create additional adversarial scenarios and tests
 - [ ] Networking example to detail Honey Badger implementation
 
 ## Protocol Modifications
 
 Our implementation modifies the protocols described in "[The Honey Badger of BFT Protocols](https://eprint.iacr.org/2016/199.pdf)" in several ways:
-*  We use a [pairing elliptic curve library](https://github.com/ebfull/pairing) to implement pairing-based cryptography rather than Gap Diffie-Hellman groups. 
+*  We use a [pairing elliptic curve library](https://github.com/ebfull/pairing) to implement pairing-based cryptography using a Barrento-Lynn-Scott (BLS12-381) curve. 
 * We add a `Terminate` message to the Binary Agreement algorithm. Termination occurs following output, preventing the algorithm from running (or staying in memory) indefinitely. ([#53](https://github.com/poanetwork/hbbft/issues/55))
 *  We add a `Conf` message to the Binary Agreement algorithm. An additional message phase prevents an attack if an adversary controls a network scheduler and a node. ([#37](https://github.com/poanetwork/hbbft/issues/37))
 *  We return additional information from the Subset and Honey Badger algorithms that specifies which node input which data. This allows for identification of potentially malicious nodes.
