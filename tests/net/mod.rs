@@ -22,7 +22,7 @@ pub mod types;
 use std::{collections, sync};
 
 pub use self::types::{FaultyMessageIdx, FaultyNodeIdx, MessageIdx, NetworkOp, NodeIdx, OpList};
-use hbbft::messaging::{self, DistAlgorithm, NetworkInfo};
+use hbbft::messaging::{self, DistAlgorithm, NetworkInfo, Step};
 
 #[derive(Debug)]
 struct Node<D: DistAlgorithm> {
@@ -79,11 +79,12 @@ enum CrankError<D: DistAlgorithm> {
     },
 }
 
-// FIXME: Remove clone (only used for process_op)
-impl<D: DistAlgorithm> VirtualNet<D>
+impl<D> VirtualNet<D>
 where
+    D: DistAlgorithm,
     D::Message: Clone,
 {
+    #[inline]
     pub fn new(nodes: NodeMap<D>) -> Self {
         VirtualNet {
             nodes,
@@ -91,14 +92,16 @@ where
         }
     }
 
-    fn process_message<I>(&mut self, sender: D::NodeUid, messages: I)
+    #[inline]
+    fn process_messages<'a, I>(&mut self, sender: D::NodeUid, messages: I)
     where
-        I: Iterator<Item = messaging::TargetedMessage<D::Message, D::NodeUid>>,
+        D: 'a,
+        I: Iterator<Item = &'a messaging::TargetedMessage<D::Message, D::NodeUid>>,
     {
         for tmsg in messages {
-            match tmsg.target {
+            match &tmsg.target {
                 messaging::Target::Node(to) => {
-                    NetworkMessage::new(sender.clone(), tmsg.message, to);
+                    NetworkMessage::new(sender.clone(), tmsg.message.clone(), to.clone());
                 }
                 messaging::Target::All => for to in self.nodes.keys() {
                     NetworkMessage::new(sender.clone(), tmsg.message.clone(), to.clone());
@@ -108,8 +111,8 @@ where
     }
 
     // FIXME: correct return type
-    // FIXME: iterator?
-    pub fn crank(&mut self) -> Option<Result<(), CrankError<D>>> {
+    #[inline]
+    pub fn crank(&mut self) -> Option<Result<Step<D>, CrankError<D>>> {
         // Missing: Step 0: Give Adversary a chance to do things/
 
         // Step 1: Pick a message from the queue and deliver it.
@@ -121,11 +124,7 @@ where
 
             // We always expect a step to be produced (an adversary wanting to swallow a message
             // can do this either in the earlier step or by returning an empty step).
-            let messaging::Step {
-                output,
-                fault_log,
-                messages,
-            } = if is_faulty {
+            let step = if is_faulty {
                 // FIXME: Messages for faulty nodes are passed to the adversary instead, who can
                 // modify them at will.
                 unimplemented!()
@@ -145,11 +144,14 @@ where
                 )
             };
 
-            // All messages are expanded and added to the queue.
-            self.process_message(msg.from, messages.into_iter());
-            unimplemented!()
-        };
-        unimplemented!()
+            // All messages are expanded and added to the queue. We opt for copying them, so we can
+            // return unaltered step later on for inspection.
+            self.process_messages(msg.from, step.messages.iter());
+            Some(Ok(step))
+        } else {
+            // There are no more network messages in the queue.
+            None
+        }
     }
 
     // pub fn faulty_nodes(&self) -> impl Iterator<Item = &Node<N>> {
@@ -242,6 +244,21 @@ where
     //         _ => unimplemented!(),
     //     }
     // }
+}
+
+// Convenient iterator implementation, just calls crank.
+// FIXME: Making this more ergonomic should be a priority.
+impl<D> Iterator for VirtualNet<D>
+where
+    D: DistAlgorithm,
+    D::Message: Clone,
+{
+    type Item = Result<Step<D>, CrankError<D>>;
+
+    #[inline]
+    fn next(&mut self) -> Option<Self::Item> {
+        self.crank()
+    }
 }
 
 // impl<D: DistAlgorithm> VirtualNet<N> {
