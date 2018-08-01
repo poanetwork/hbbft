@@ -100,6 +100,8 @@
 
 // TODO: Remove this once https://github.com/rust-lang-nursery/error-chain/issues/245 is resolved.
 #![allow(renamed_and_removed_lints)]
+// We put algorithm structs in `src/algorithm/algorithm.rs`.
+#![cfg_attr(feature = "cargo-clippy", allow(module_inception))]
 
 extern crate bincode;
 extern crate byteorder;
