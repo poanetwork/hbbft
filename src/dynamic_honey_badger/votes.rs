@@ -13,7 +13,7 @@ use messaging::NetworkInfo;
 
 /// A buffer and counter collecting pending and committed votes for validator set changes.
 ///
-/// This is reset whenever the set of validators changes or a change reaches a majority. We call
+/// This is reset whenever the set of validators changes or a change reaches _f + 1_ votes. We call
 /// the epochs since the last reset the current _era_.
 #[derive(Debug)]
 pub struct VoteCounter<NodeUid> {
@@ -134,14 +134,14 @@ where
         Ok(FaultLog::new())
     }
 
-    /// Returns the change that has a majority of votes, if any.
-    pub fn compute_majority(&self) -> Option<&Change<NodeUid>> {
+    /// Returns the change that has at least _f + 1_ votes, if any.
+    pub fn compute_winner(&self) -> Option<&Change<NodeUid>> {
         let mut vote_counts: HashMap<&Change<NodeUid>, usize> = HashMap::new();
         for vote in self.committed.values() {
             let change = &vote.change;
             let entry = vote_counts.entry(change).or_insert(0);
             *entry += 1;
-            if *entry * 2 > self.netinfo.num_nodes() {
+            if *entry > self.netinfo.num_faulty() {
                 return Some(change);
             }
         }
@@ -179,6 +179,10 @@ pub struct SignedVote<NodeUid> {
 impl<NodeUid> SignedVote<NodeUid> {
     pub fn era(&self) -> u64 {
         self.vote.era
+    }
+
+    pub fn voter(&self) -> &NodeUid {
+        &self.voter
     }
 }
 
@@ -270,14 +274,14 @@ mod tests {
 
     #[test]
     fn test_committed_votes() {
-        let node_num = 4;
+        let node_num = 4; // At most one faulty node.
         let era = 5;
         // Create the counter instances and the matrix of signed votes.
         let (mut counters, sv) = setup(node_num, era);
         // We will only use counter number 0.
         let ct = &mut counters[0];
 
-        let mut vote_batch = vec![sv[1][1].clone(), sv[2][1].clone()];
+        let mut vote_batch = vec![sv[1][1].clone()];
         // Include a vote with a wrong signature.
         vote_batch.push(SignedVote {
             sig: sv[2][1].sig.clone(),
@@ -288,13 +292,13 @@ mod tests {
             .expect("add committed");
         let expected_faults = FaultLog::init(1, FaultKind::InvalidCommittedVote);
         assert_eq!(faults, expected_faults);
-        assert_eq!(ct.compute_majority(), None);
+        assert_eq!(ct.compute_winner(), None);
 
-        // Adding the third vote for `Remove(1)` should return the change: It has the majority.
+        // Adding the second vote for `Remove(1)` should return the change: It has f + 1 votes.
         let faults = ct
-            .add_committed_vote(&1, sv[3][1].clone())
+            .add_committed_vote(&1, sv[2][1].clone())
             .expect("add committed");
         assert!(faults.is_empty());
-        assert_eq!(ct.compute_majority(), Some(&Change::Remove(1)));
+        assert_eq!(ct.compute_winner(), Some(&Change::Remove(1)));
     }
 }

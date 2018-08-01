@@ -132,6 +132,14 @@ where
         !self.netinfo.is_validator() || self.has_input
     }
 
+    /// Returns the number of validators from which we have already received a proposal for the
+    /// current epoch.
+    pub(crate) fn received_proposals(&self) -> usize {
+        self.common_subsets
+            .get(&self.epoch)
+            .map_or(0, CommonSubset::received_proposals)
+    }
+
     /// Handles a message for the given epoch.
     fn handle_message_content(
         &mut self,

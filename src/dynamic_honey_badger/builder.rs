@@ -61,7 +61,7 @@ where
             vote_counter: VoteCounter::new(arc_netinfo, 0),
             key_gen_msg_buffer: Vec::new(),
             honey_badger,
-            key_gen: None,
+            key_gen_state: None,
             incoming_queue: Vec::new(),
         }
     }
@@ -104,7 +104,7 @@ where
             vote_counter: VoteCounter::new(arc_netinfo, join_plan.epoch),
             key_gen_msg_buffer: Vec::new(),
             honey_badger,
-            key_gen: None,
+            key_gen_state: None,
             incoming_queue: Vec::new(),
         };
         let step = match join_plan.change {
