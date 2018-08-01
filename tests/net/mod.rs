@@ -57,7 +57,7 @@ impl<M, N> NetworkMessage<M, N> {
     }
 }
 
-type NodeMap<D: DistAlgorithm> = collections::BTreeMap<D::NodeUid, Node<D>>;
+type NodeMap<D> = collections::BTreeMap<<D as DistAlgorithm>::NodeUid, Node<D>>;
 
 struct VirtualNet<D>
 where
