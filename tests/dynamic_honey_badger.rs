@@ -70,12 +70,6 @@ where
 
     // Handle messages in random order until all nodes have output all transactions.
     while network.nodes.values().any(node_busy) {
-        // Remove all messages belonging to epochs after all expected outputs.
-        for node in network.nodes.values_mut().filter(|node| !node_busy(node)) {
-            if let Some(last) = node.outputs().last().map(Batch::epoch) {
-                node.queue.retain(|(_, ref msg)| msg.epoch() < last);
-            }
-        }
         // If a node is expecting input, take it from the queue. Otherwise handle a message.
         let input_ids: Vec<_> = network
             .nodes

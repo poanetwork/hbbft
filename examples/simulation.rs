@@ -307,14 +307,14 @@ where
         }
     }
 
-    /// Handles a queued message in one of the nodes with the earliest timestamp.
-    pub fn step(&mut self) -> NodeUid {
+    /// Handles a queued message in one of the nodes with the earliest timestamp, if any. Returns
+    /// the recipient's ID.
+    pub fn step(&mut self) -> Option<NodeUid> {
         let min_time = self
             .nodes
             .values()
             .filter_map(TestNode::next_event_time)
-            .min()
-            .expect("no more messages in queue");
+            .min()?;
         let min_ids: Vec<NodeUid> = self
             .nodes
             .iter()
@@ -328,7 +328,7 @@ where
             node.out_queue.drain(..).collect()
         };
         self.dispatch_messages(msgs);
-        next_id
+        Some(next_id)
     }
 
     /// Returns the number of messages that have been handled so far.
@@ -371,7 +371,7 @@ impl EpochInfo {
             .minmax()
             .into_option()
             .unwrap();
-        let txs = batch.len();
+        let txs = batch.iter().unique().count();
         println!(
             "{:>5} {:6} {:6} {:5} {:9} {:>9}B",
             batch.epoch().to_string().cyan(),
@@ -386,27 +386,14 @@ impl EpochInfo {
 }
 
 /// Proposes `num_txs` values and expects nodes to output and order them.
-fn simulate_honey_badger(
-    mut network: TestNetwork<QueueingHoneyBadger<Transaction, NodeUid>>,
-    num_txs: usize,
-) {
-    // Returns `true` if the node has not output all transactions yet.
-    // If it has, and has advanced another epoch, it clears all messages for later epochs.
-    let node_busy = |node: &mut TestNode<QueueingHoneyBadger<Transaction, NodeUid>>| {
-        node.outputs
-            .iter()
-            .map(|&(_, ref batch)| batch.len())
-            .sum::<usize>() < num_txs
-    };
-
+fn simulate_honey_badger(mut network: TestNetwork<QueueingHoneyBadger<Transaction, NodeUid>>) {
     // Handle messages until all nodes have output all transactions.
     println!(
         "{}",
         "Epoch  Min/Max Time   Txs Msgs/Node  Size/Node".bold()
     );
     let mut epochs = Vec::new();
-    while network.nodes.values_mut().any(node_busy) {
-        let id = network.step();
+    while let Some(id) = network.step() {
         for &(time, ref batch) in &network.nodes[&id].outputs {
             let epoch = batch.epoch() as usize;
             if epochs.len() <= epoch {
@@ -444,7 +431,9 @@ fn main() {
     );
     println!();
     let num_good_nodes = args.flag_n - args.flag_f;
-    let txs = (0..args.flag_txs).map(|_| Transaction::new(args.flag_tx_size));
+    let txs: Vec<_> = (0..args.flag_txs)
+        .map(|_| Transaction::new(args.flag_tx_size))
+        .collect();
     let new_honey_badger = |netinfo: NetworkInfo<NodeUid>| {
         let dyn_hb = DynamicHoneyBadger::builder().build(netinfo);
         QueueingHoneyBadger::builder(dyn_hb)
@@ -458,5 +447,5 @@ fn main() {
         cpu_factor: (10_000f32 / args.flag_cpu) as u32,
     };
     let network = TestNetwork::new(num_good_nodes, args.flag_f, new_honey_badger, hw_quality);
-    simulate_honey_badger(network, args.flag_txs);
+    simulate_honey_badger(network);
 }
