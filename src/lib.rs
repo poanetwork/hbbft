@@ -121,7 +121,7 @@ extern crate ring;
 extern crate serde;
 #[macro_use]
 extern crate serde_derive;
-extern crate threshold_crypto as crypto;
+pub extern crate threshold_crypto as crypto;
 
 pub mod agreement;
 pub mod broadcast;
