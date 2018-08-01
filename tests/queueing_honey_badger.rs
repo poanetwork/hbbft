@@ -63,10 +63,6 @@ fn test_queueing_honey_badger<A>(
         if node.outputs().iter().flat_map(Batch::iter).unique().count() < num_txs {
             return true;
         }
-        if node.outputs().last().unwrap().is_empty() {
-            let last = node.outputs().last().unwrap().epoch();
-            node.queue.retain(|(_, ref msg)| msg.epoch() < last);
-        }
         false
     };
 

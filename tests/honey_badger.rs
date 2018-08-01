@@ -134,14 +134,7 @@ where
     // Returns `true` if the node has not output all transactions yet.
     // If it has, and has advanced another epoch, it clears all messages for later epochs.
     let node_busy = |node: &mut TestNode<UsizeHoneyBadger>| {
-        if node.outputs().iter().flat_map(Batch::iter).unique().count() < num_txs {
-            return true;
-        }
-        if node.outputs().last().unwrap().is_empty() {
-            let last = node.outputs().last().unwrap().epoch;
-            node.queue.retain(|(_, ref msg)| msg.epoch() < last);
-        }
-        false
+        node.outputs().iter().flat_map(Batch::iter).unique().count() < num_txs
     };
 
     let mut rng = rand::thread_rng();

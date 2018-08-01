@@ -13,8 +13,8 @@
 //! `Change` input variant, which contains either a vote `Add(node_id, public_key)`, to add an
 //! existing observer to the set of validators, or `Remove(node_id)` to remove it. Each
 //! validator can have at most one active vote, and casting another vote revokes the previous one.
-//! Once a simple majority of validators has the same active vote, a reconfiguration process
-//! begins: They create new cryptographic key shares for the new group of validators.
+//! Once _f + 1_ validators have the same active vote, a reconfiguration process begins: They
+//! create new cryptographic key shares for the new group of validators.
 //!
 //! The state of that process after each epoch is communicated via the `change` field in `Batch`.
 //! When this contains an `InProgress(..)` value, key generation begins. The joining validator (in
@@ -50,10 +50,10 @@
 //! contributions in its own batch. The other transactions are processed: votes are counted and key
 //! generation messages are passed into a `SyncKeyGen` instance.
 //!
-//! Whenever a change receives a majority of votes, the votes are reset and key generation for that
+//! Whenever a change receives _f + 1_ votes, the votes are reset and key generation for that
 //! change begins. If key generation completes successfully, the Honey Badger instance is dropped,
-//! and replaced by a new one with the new set of participants. If a different change gains a
-//! majority before that happens, key generation resets again, and is attempted for the new change.
+//! and replaced by a new one with the new set of participants. If a different change wins a
+//! vote before that happens, key generation resets again, and is attempted for the new change.
 
 use rand::Rand;
 use std::collections::BTreeMap;
@@ -67,7 +67,7 @@ use crypto::{PublicKey, PublicKeySet, Signature};
 use serde::{Deserialize, Serialize};
 
 use self::votes::{SignedVote, VoteCounter};
-use fault_log::{FaultKind, FaultLog};
+use fault_log::{Fault, FaultKind, FaultLog};
 use honey_badger::{self, HoneyBadger, Message as HbMessage};
 use messaging::{self, DistAlgorithm, NetworkInfo, Target};
 use sync_key_gen::{Ack, Part, PartOutcome, SyncKeyGen};
@@ -108,7 +108,7 @@ pub struct DynamicHoneyBadger<C, NodeUid: Rand> {
     /// The `HoneyBadger` instance with the current set of nodes.
     honey_badger: HoneyBadger<InternalContrib<C, NodeUid>, NodeUid>,
     /// The current key generation process, and the change it applies to.
-    key_gen: Option<(SyncKeyGen<NodeUid>, Change<NodeUid>)>,
+    key_gen_state: Option<KeyGenState<NodeUid>>,
     /// A queue for messages from future epochs that cannot be handled yet.
     incoming_queue: Vec<(NodeUid, Message<NodeUid>)>,
 }
@@ -154,10 +154,9 @@ where
                 Message::HoneyBadger(_, hb_msg) => {
                     self.handle_honey_badger_message(sender_id, hb_msg)
                 }
-                Message::KeyGen(_, kg_msg, sig) => {
-                    self.handle_key_gen_message(sender_id, kg_msg, *sig)?;
-                    Ok(Step::default())
-                }
+                Message::KeyGen(_, kg_msg, sig) => self
+                    .handle_key_gen_message(sender_id, kg_msg, *sig)
+                    .map(FaultLog::into),
                 Message::SignedVote(signed_vote) => self
                     .vote_counter
                     .add_pending_vote(sender_id, signed_vote)
@@ -218,6 +217,34 @@ where
         &self.netinfo
     }
 
+    /// Returns `true` if we should make our contribution for the next epoch, even if we don't have
+    /// content ourselves, to avoid stalling the network.
+    ///
+    /// By proposing only if this returns `true`, you can prevent an adversary from making the
+    /// network output empty baches indefinitely, but it also means that the network won't advance
+    /// if fewer than _f + 1_ nodes have pending contributions.
+    pub fn should_propose(&self) -> bool {
+        if self.has_input() {
+            return false; // We have already proposed.
+        }
+        if self.honey_badger.received_proposals() > self.netinfo.num_faulty() {
+            return true; // At least one correct node wants to move on to the next epoch.
+        }
+        let is_our_vote = |signed_vote: &SignedVote<_>| signed_vote.voter() == self.our_id();
+        if self.vote_counter.pending_votes().any(is_our_vote) {
+            return true; // We have pending input to vote for a validator change.
+        }
+        let kgs = match self.key_gen_state {
+            None => return false, // No ongoing key generation.
+            Some(ref kgs) => kgs,
+        };
+        // If either we or the candidate have a pending key gen message, we should propose.
+        let ours_or_candidates = |msg: &SignedKeyGenMsg<_>| {
+            msg.1 == *self.our_id() || Some(&msg.1) == kgs.change.candidate()
+        };
+        self.key_gen_msg_buffer.iter().any(ours_or_candidates)
+    }
+
     /// Handles a message for the `HoneyBadger` instance.
     fn handle_honey_badger_message(
         &mut self,
@@ -243,11 +270,41 @@ where
         sender_id: &NodeUid,
         kg_msg: KeyGenMessage,
         sig: Signature,
-    ) -> Result<()> {
-        self.verify_signature(sender_id, &sig, &kg_msg)?;
+    ) -> Result<FaultLog<NodeUid>> {
+        if !self.verify_signature(sender_id, &sig, &kg_msg)? {
+            info!("Invalid signature from {:?} for: {:?}.", sender_id, kg_msg);
+            let fault_kind = FaultKind::InvalidKeyGenMessageSignature;
+            return Ok(Fault::new(sender_id.clone(), fault_kind).into());
+        }
+        let kgs = match self.key_gen_state {
+            Some(ref mut kgs) => kgs,
+            None => {
+                info!(
+                    "Unexpected key gen message from {:?}: {:?}.",
+                    sender_id, kg_msg
+                );
+                return Ok(Fault::new(sender_id.clone(), FaultKind::UnexpectedKeyGenMessage).into());
+            }
+        };
+
+        // If the joining node is correct, it will send at most (N + 1)² + 1 key generation
+        // messages.
+        if Some(sender_id) == kgs.change.candidate() {
+            let n = self.netinfo.num_nodes() + 1;
+            if kgs.candidate_msg_count > n * n {
+                info!(
+                    "Too many key gen messages from candidate {:?}: {:?}.",
+                    sender_id, kg_msg
+                );
+                let fault_kind = FaultKind::TooManyCandidateKeyGenMessages;
+                return Ok(Fault::new(sender_id.clone(), fault_kind).into());
+            }
+            kgs.candidate_msg_count += 1;
+        }
+
         let tx = SignedKeyGenMsg(self.start_epoch, sender_id.clone(), kg_msg, sig);
         self.key_gen_msg_buffer.push(tx);
-        Ok(())
+        Ok(FaultLog::default())
     }
 
     /// Processes all pending batches output by Honey Badger.
@@ -272,7 +329,7 @@ where
                 } = int_contrib;
                 step.fault_log
                     .extend(self.vote_counter.add_committed_votes(&id, votes)?);
-                batch.contributions.insert(id, contrib);
+                batch.contributions.insert(id.clone(), contrib);
                 self.key_gen_msg_buffer
                     .retain(|skgm| !key_gen_messages.contains(skgm));
                 for SignedKeyGenMsg(epoch, s_id, kg_msg, sig) in key_gen_messages {
@@ -281,9 +338,12 @@ where
                         continue;
                     }
                     if !self.verify_signature(&s_id, &sig, &kg_msg)? {
-                        info!("Invalid signature from {:?} for: {:?}.", s_id, kg_msg);
+                        info!(
+                            "Invalid signature in {:?}'s batch from {:?} for: {:?}.",
+                            id, s_id, kg_msg
+                        );
                         let fault_kind = FaultKind::InvalidKeyGenMessageSignature;
-                        step.fault_log.append(s_id.clone(), fault_kind);
+                        step.fault_log.append(id.clone(), fault_kind);
                         continue;
                     }
                     step.extend(match kg_msg {
@@ -293,14 +353,14 @@ where
                 }
             }
 
-            if let Some((key_gen, change)) = self.take_ready_key_gen() {
+            if let Some(kgs) = self.take_ready_key_gen() {
                 // If DKG completed, apply the change, restart Honey Badger, and inform the user.
-                debug!("{:?} DKG for {:?} complete!", self.our_id(), change);
-                self.netinfo = key_gen.into_network_info();
+                debug!("{:?} DKG for {:?} complete!", self.our_id(), kgs.change);
+                self.netinfo = kgs.key_gen.into_network_info();
                 self.restart_honey_badger(batch.epoch + 1);
-                batch.set_change(ChangeState::Complete(change), &self.netinfo);
-            } else if let Some(change) = self.vote_counter.compute_majority().cloned() {
-                // If there is a majority, restart DKG. Inform the user about the current change.
+                batch.set_change(ChangeState::Complete(kgs.change), &self.netinfo);
+            } else if let Some(change) = self.vote_counter.compute_winner().cloned() {
+                // If there is a new change, restart DKG. Inform the user about the current change.
                 step.extend(self.update_key_gen(batch.epoch + 1, &change)?);
                 batch.set_change(ChangeState::InProgress(change), &self.netinfo);
             }
@@ -316,10 +376,10 @@ where
         Ok(step)
     }
 
-    /// If the majority of votes has changed, restarts Key Generation for the set of nodes implied
+    /// If the winner of the vote has changed, restarts Key Generation for the set of nodes implied
     /// by the current change.
     fn update_key_gen(&mut self, epoch: u64, change: &Change<NodeUid>) -> Result<Step<C, NodeUid>> {
-        if self.key_gen.as_ref().map(|&(_, ref ch)| ch) == Some(change) {
+        if self.key_gen_state.as_ref().map(|kgs| &kgs.change) == Some(change) {
             return Ok(Step::default()); // The change is the same as before. Continue DKG as is.
         }
         debug!("{:?} Restarting DKG for {:?}.", self.our_id(), change);
@@ -338,7 +398,7 @@ where
         let sk = self.netinfo.secret_key().clone();
         let our_uid = self.our_id().clone();
         let (key_gen, part) = SyncKeyGen::new(our_uid, sk, pub_keys, threshold);
-        self.key_gen = Some((key_gen, change.clone()));
+        self.key_gen_state = Some(KeyGenState::new(key_gen, change.clone()));
         if let Some(part) = part {
             self.send_transaction(KeyGenMessage::Part(part))
         } else {
@@ -360,10 +420,8 @@ where
 
     /// Handles a `Part` message that was output by Honey Badger.
     fn handle_part(&mut self, sender_id: &NodeUid, part: Part) -> Result<Step<C, NodeUid>> {
-        let handle = |&mut (ref mut key_gen, _): &mut (SyncKeyGen<NodeUid>, _)| {
-            key_gen.handle_part(&sender_id, part)
-        };
-        match self.key_gen.as_mut().and_then(handle) {
+        let handle = |kgs: &mut KeyGenState<NodeUid>| kgs.key_gen.handle_part(&sender_id, part);
+        match self.key_gen_state.as_mut().and_then(handle) {
             Some(PartOutcome::Valid(ack)) => self.send_transaction(KeyGenMessage::Ack(ack)),
             Some(PartOutcome::Invalid(fault_log)) => Ok(fault_log.into()),
             None => Ok(Step::default()),
@@ -372,8 +430,8 @@ where
 
     /// Handles an `Ack` message that was output by Honey Badger.
     fn handle_ack(&mut self, sender_id: &NodeUid, ack: Ack) -> Result<FaultLog<NodeUid>> {
-        if let Some(&mut (ref mut key_gen, _)) = self.key_gen.as_mut() {
-            Ok(key_gen.handle_ack(&sender_id, ack))
+        if let Some(kgs) = self.key_gen_state.as_mut() {
+            Ok(kgs.key_gen.handle_ack(sender_id, ack))
         } else {
             Ok(FaultLog::new())
         }
@@ -394,18 +452,18 @@ where
         Ok(Target::All.message(msg).into())
     }
 
-    /// If the current Key Generation process is ready, returns the `SyncKeyGen`.
+    /// If the current Key Generation process is ready, returns the `KeyGenState`.
     ///
     /// We require the minimum number of completed proposals (`SyncKeyGen::is_ready`) and if a new
     /// node is joining, we require in addition that the new node's proposal is complete. That way
     /// the new node knows that it's key is secret, without having to trust any number of nodes.
-    fn take_ready_key_gen(&mut self) -> Option<(SyncKeyGen<NodeUid>, Change<NodeUid>)> {
-        let is_ready = |&(ref key_gen, ref change): &(SyncKeyGen<_>, Change<_>)| {
-            let candidate_ready = |id: &NodeUid| key_gen.is_node_ready(id);
-            key_gen.is_ready() && change.candidate().map_or(true, candidate_ready)
-        };
-        if self.key_gen.as_ref().map_or(false, is_ready) {
-            self.key_gen.take()
+    fn take_ready_key_gen(&mut self) -> Option<KeyGenState<NodeUid>> {
+        if self
+            .key_gen_state
+            .as_ref()
+            .map_or(false, KeyGenState::is_ready)
+        {
+            self.key_gen_state.take()
         } else {
             None
         }
@@ -413,6 +471,8 @@ where
 
     /// Returns `true` if the signature of `kg_msg` by the node with the specified ID is valid.
     /// Returns an error if the payload fails to serialize.
+    ///
+    /// This accepts signatures from both validators and the currently joining candidate, if any.
     fn verify_signature(
         &self,
         node_id: &NodeUid,
@@ -421,15 +481,12 @@ where
     ) -> Result<bool> {
         let ser =
             bincode::serialize(kg_msg).map_err(|err| ErrorKind::VerifySignatureBincode(*err))?;
-        let pk_opt = (self.netinfo.public_key(node_id)).or_else(|| {
-            self.key_gen
-                .iter()
-                .filter_map(|&(_, ref change): &(_, Change<_>)| match *change {
-                    Change::Add(ref id, ref pk) if id == node_id => Some(pk),
-                    Change::Add(_, _) | Change::Remove(_) => None,
-                })
-                .next()
-        });
+        let get_candidate_key = || {
+            self.key_gen_state
+                .as_ref()
+                .and_then(|kgs| kgs.candidate_key(node_id))
+        };
+        let pk_opt = self.netinfo.public_key(node_id).or_else(get_candidate_key);
         Ok(pk_opt.map_or(false, |pk| pk.verify(&sig, ser)))
     }
 }
@@ -503,4 +560,41 @@ pub struct JoinPlan<NodeUid: Ord> {
     pub_key_set: PublicKeySet,
     /// The public keys of the nodes taking part in key generation.
     pub_keys: BTreeMap<NodeUid, PublicKey>,
+}
+
+/// The ongoing key generation, together with information about the validator change.
+#[derive(Debug)]
+struct KeyGenState<NodeUid> {
+    /// The key generation instance.
+    key_gen: SyncKeyGen<NodeUid>,
+    /// The change for which key generation is performed.
+    change: Change<NodeUid>,
+    /// The number of key generation messages received from the candidate. At most _N² + 1_ are
+    /// accepted.
+    candidate_msg_count: usize,
+}
+
+impl<NodeUid: Ord + Clone + Debug> KeyGenState<NodeUid> {
+    fn new(key_gen: SyncKeyGen<NodeUid>, change: Change<NodeUid>) -> Self {
+        KeyGenState {
+            key_gen,
+            change,
+            candidate_msg_count: 0,
+        }
+    }
+
+    /// Returns `true` if the candidate's, if any, as well as enough validators' key generation
+    /// parts have been completed.
+    fn is_ready(&self) -> bool {
+        let candidate_ready = |id: &NodeUid| self.key_gen.is_node_ready(id);
+        self.key_gen.is_ready() && self.change.candidate().map_or(true, candidate_ready)
+    }
+
+    /// If the node `node_id` is the currently joining candidate, returns its public key.
+    fn candidate_key(&self, node_id: &NodeUid) -> Option<&PublicKey> {
+        match self.change {
+            Change::Add(ref id, ref pk) if id == node_id => Some(pk),
+            Change::Add(_, _) | Change::Remove(_) => None,
+        }
+    }
 }

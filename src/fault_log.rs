@@ -26,6 +26,11 @@ pub enum FaultKind {
     /// `DynamicHoneyBadger` received a key generation message with an invalid
     /// signature.
     InvalidKeyGenMessageSignature,
+    /// `DynamicHoneyBadger` received a key generation message when there was no key generation in
+    /// progress.
+    UnexpectedKeyGenMessage,
+    /// `DynamicHoneyBadger` received more key generation messages from the candidate than expected.
+    TooManyCandidateKeyGenMessages,
     /// `DynamicHoneyBadger` received a message (Accept, Propose, or Change)
     /// with an invalid signature.
     IncorrectPayloadSignature,

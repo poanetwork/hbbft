@@ -164,6 +164,11 @@ impl<NodeUid: Clone + Debug + Ord + Rand> CommonSubset<NodeUid> {
         self.process_broadcast(&uid, |bc| bc.input(value))
     }
 
+    /// Returns the number of validators from which we have already received a proposal.
+    pub(crate) fn received_proposals(&self) -> usize {
+        self.broadcast_results.len()
+    }
+
     /// Receives a broadcast message from a remote node `sender_id` concerning a
     /// value proposed by the node `proposer_id`.
     fn handle_broadcast(

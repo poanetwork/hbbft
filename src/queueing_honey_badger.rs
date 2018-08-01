@@ -4,7 +4,9 @@
 //! an epoch is output, it will automatically select a list of pending transactions and propose it
 //! for the next one. The user can continuously add more pending transactions to the queue.
 //!
-//! **Note**: `QueueingHoneyBadger` currently requires at least two validators.
+//! If there are no pending transactions, no validators in the process of being added or
+//! removed and not enough other nodes have proposed yet, no automatic proposal will be made: The
+//! network then waits until at least _f + 1_ have any content for the next epoch.
 //!
 //! ## How it works
 //!
@@ -187,17 +189,19 @@ where
     fn input(&mut self, input: Self::Input) -> Result<Step<Tx, NodeUid>> {
         // User transactions are forwarded to `HoneyBadger` right away. Internal messages are
         // in addition signed and broadcast.
-        match input {
+        let mut step = match input {
             Input::User(tx) => {
                 self.queue.0.push_back(tx);
-                Ok(Step::default())
+                Step::default()
             }
-            Input::Change(change) => Ok(self
+            Input::Change(change) => self
                 .dyn_hb
                 .input(Input::Change(change))
                 .map_err(ErrorKind::Input)?
-                .convert()),
-        }
+                .convert(),
+        };
+        step.extend(self.propose()?);
+        Ok(step)
     }
 
     fn handle_message(
@@ -244,12 +248,21 @@ where
         &self.dyn_hb
     }
 
+    /// Returns `true` if we are ready to propose our contribution for the next epoch, i.e. if the
+    /// previous epoch has completed and we have either pending transactions or we are required to
+    /// make a proposal to avoid stalling the network.
+    fn can_propose(&self) -> bool {
+        if self.dyn_hb.has_input() {
+            return false; // Previous epoch is still in progress.
+        }
+        !self.queue.0.is_empty() || self.dyn_hb.should_propose()
+    }
+
     /// Initiates the next epoch by proposing a batch from the queue.
     fn propose(&mut self) -> Result<Step<Tx, NodeUid>> {
-        let amount = cmp::max(1, self.batch_size / self.dyn_hb.netinfo().num_nodes());
-        // TODO: This will loop indefinitely if we are the only validator.
         let mut step = Step::default();
-        while !self.dyn_hb.has_input() {
+        while self.can_propose() {
+            let amount = cmp::max(1, self.batch_size / self.dyn_hb.netinfo().num_nodes());
             let proposal = self.queue.choose(amount, self.batch_size);
             step.extend(
                 self.dyn_hb
