@@ -17,15 +17,15 @@ macro_rules! try_some {
     };
 }
 
-pub mod types;
+// pub mod types;
 
 use std::{collections, sync};
 
-pub use self::types::{FaultyMessageIdx, FaultyNodeIdx, MessageIdx, NetworkOp, NodeIdx, OpList};
+// pub use self::types::{FaultyMessageIdx, FaultyNodeIdx, MessageIdx, NetworkOp, NodeIdx, OpList};
 use hbbft::messaging::{self, DistAlgorithm, NetworkInfo, Step};
 
 #[derive(Debug)]
-struct Node<D: DistAlgorithm> {
+pub struct Node<D: DistAlgorithm> {
     netinfo: sync::Arc<NetworkInfo<D::NodeUid>>,
     algorithm: D,
     is_faulty: bool,
@@ -33,11 +33,12 @@ struct Node<D: DistAlgorithm> {
 
 impl<D: DistAlgorithm> Node<D> {
     #[inline]
-    fn is_faulty(&self) -> bool {
+    pub fn is_faulty(&self) -> bool {
         self.is_faulty
     }
+
     #[inline]
-    fn node_id(&self) -> &D::NodeUid {
+    pub fn node_id(&self) -> &D::NodeUid {
         self.netinfo.our_uid()
     }
 }
@@ -45,7 +46,7 @@ impl<D: DistAlgorithm> Node<D> {
 // Note: We do not use `messaging::TargetedMessage` and `messaging::SourceMessage` here, since we
 //       the nesting is inconvenient and we do not want to support broadcasts at this level.
 #[derive(Clone, Debug)]
-struct NetworkMessage<M, N> {
+pub struct NetworkMessage<M, N> {
     from: N,
     to: N,
     payload: M,
@@ -57,9 +58,9 @@ impl<M, N> NetworkMessage<M, N> {
     }
 }
 
-type NodeMap<D> = collections::BTreeMap<<D as DistAlgorithm>::NodeUid, Node<D>>;
+pub type NodeMap<D> = collections::BTreeMap<<D as DistAlgorithm>::NodeUid, Node<D>>;
 
-struct VirtualNet<D>
+pub struct VirtualNet<D>
 where
     D: DistAlgorithm,
 {
@@ -70,7 +71,7 @@ where
 }
 
 #[derive(Debug, Fail)]
-enum CrankError<D: DistAlgorithm> {
+pub enum CrankError<D: DistAlgorithm> {
     #[fail(display = "Node error'd processing network message {:?}. Error: {:?}", msg, err)]
     CorrectNodeErr {
         msg: NetworkMessage<D::Message, D::NodeUid>,
@@ -110,7 +111,6 @@ where
         }
     }
 
-    // FIXME: correct return type
     #[inline]
     pub fn crank(&mut self) -> Option<Result<Step<D>, CrankError<D>>> {
         // Missing: Step 0: Give Adversary a chance to do things/
