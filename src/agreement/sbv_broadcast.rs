@@ -1,0 +1,208 @@
+//! # Synchronized Binary Value Broadcast
+//!
+//! This performs the `BVal` and `Aux` steps for `Agreement`.
+//!
+//! Validators input binary values, and each node outputs a set of one or two binary values.
+//! These outputs are not necessarily the same in each node, but it is guaranteed that whenever two
+//! nodes output singletons _{v}_ and _{w}_, then _v = w_.
+//!
+//! It will only output once, but can continue handling messages and will keep track of the set
+//! `bin_values` of values for which _2 f + 1_ `BVal`s were received.
+
+use rand;
+use std::fmt::Debug;
+use std::sync::Arc;
+
+use super::bool_multimap::BoolMultimap;
+use super::bool_set::{self, BoolSet};
+use super::{Error, Result};
+use fault_log::{Fault, FaultKind};
+use messaging::{self, DistAlgorithm, NetworkInfo, Target};
+
+pub type Step<NodeUid> = messaging::Step<SbvBroadcast<NodeUid>>;
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub enum Message {
+    BVal(bool),
+    Aux(bool),
+}
+
+// NOTE: Extending rand_derive to correctly generate random values from boxes would make this
+// implementation obsolete; however at the time of this writing, `rand::Rand` is already deprecated
+// with no replacement in sight.
+impl rand::Rand for Message {
+    fn rand<R: rand::Rng>(rng: &mut R) -> Self {
+        let message_type = *rng.choose(&["bval", "aux"]).unwrap();
+
+        match message_type {
+            "bval" => Message::BVal(rand::random()),
+            "aux" => Message::Aux(rand::random()),
+            _ => unreachable!(),
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct SbvBroadcast<NodeUid> {
+    /// Shared network information.
+    netinfo: Arc<NetworkInfo<NodeUid>>,
+    /// The set of values for which _2 f + 1_ `BVal`s have been received.
+    bin_values: BoolSet,
+    /// The nodes that sent us a `BVal(b)`, by `b`.
+    received_bval: BoolMultimap<NodeUid>,
+    /// The values `b` for which we already sent `BVal(b)`.
+    sent_bval: BoolSet,
+    /// The nodes that sent us an `Aux(b)`, by `b`.
+    received_aux: BoolMultimap<NodeUid>,
+    /// Whether we have already output.
+    terminated: bool,
+}
+
+impl<NodeUid: Clone + Debug + Ord> DistAlgorithm for SbvBroadcast<NodeUid> {
+    type NodeUid = NodeUid;
+    type Input = bool;
+    type Output = BoolSet;
+    type Message = Message;
+    type Error = Error;
+
+    fn input(&mut self, input: Self::Input) -> Result<Step<NodeUid>> {
+        self.send_bval(input)
+    }
+
+    fn handle_message(
+        &mut self,
+        sender_id: &Self::NodeUid,
+        msg: Self::Message,
+    ) -> Result<Step<NodeUid>> {
+        match msg {
+            Message::BVal(b) => self.handle_bval(sender_id, b),
+            Message::Aux(b) => self.handle_aux(sender_id, b),
+        }
+    }
+
+    fn terminated(&self) -> bool {
+        self.terminated
+    }
+
+    fn our_id(&self) -> &Self::NodeUid {
+        self.netinfo.our_uid()
+    }
+}
+
+impl<NodeUid: Clone + Debug + Ord> SbvBroadcast<NodeUid> {
+    pub fn new(netinfo: Arc<NetworkInfo<NodeUid>>) -> Self {
+        SbvBroadcast {
+            netinfo,
+            bin_values: bool_set::NONE,
+            received_bval: BoolMultimap::default(),
+            sent_bval: bool_set::NONE,
+            received_aux: BoolMultimap::default(),
+            terminated: false,
+        }
+    }
+
+    /// Resets the algorithm, but assumes the given `init` values have already been received as
+    /// both `BVal` and `Aux` messages.
+    pub fn clear(&mut self, init: &BoolMultimap<NodeUid>) {
+        self.bin_values = bool_set::NONE;
+        self.received_bval = init.clone();
+        self.sent_bval = bool_set::NONE;
+        self.received_aux = init.clone();
+        self.terminated = false;
+    }
+
+    /// Handles a `BVal(b)` message.
+    ///
+    /// Upon receiving _f + 1_ `BVal(b)`, multicasts `BVal(b)`. Upon receiving _2 f + 1_ `BVal(b)`,
+    /// updates `bin_values`. When `bin_values` gets its first entry, multicasts `Aux(b)`.
+    pub fn handle_bval(&mut self, sender_id: &NodeUid, b: bool) -> Result<Step<NodeUid>> {
+        let count_bval = {
+            if !self.received_bval[b].insert(sender_id.clone()) {
+                return Ok(Fault::new(sender_id.clone(), FaultKind::DuplicateBVal).into());
+            }
+            self.received_bval[b].len()
+        };
+
+        let mut step = Step::default();
+
+        if count_bval == 2 * self.netinfo.num_faulty() + 1 {
+            self.bin_values.insert(b);
+
+            if self.bin_values != bool_set::BOTH {
+                step.extend(self.send(Message::Aux(b))?) // First entry: send `Aux(b)`.
+            } else {
+                step.extend(self.try_output()?); // Otherwise just check for `Conf` condition.
+            }
+        }
+
+        if count_bval == self.netinfo.num_faulty() + 1 {
+            step.extend(self.send_bval(b)?);
+        }
+
+        Ok(step)
+    }
+
+    /// Returns the current `bin_values`: the set of `b` for which _2 f + 1_ `BVal`s were received.
+    pub fn bin_values(&self) -> BoolSet {
+        self.bin_values
+    }
+
+    /// Multicasts and handles a message. Does nothing if we are only an observer.
+    fn send(&mut self, msg: Message) -> Result<Step<NodeUid>> {
+        if !self.netinfo.is_validator() {
+            return Ok(Step::default());
+        }
+        let mut step: Step<_> = Target::All.message(msg.clone()).into();
+        let our_uid = &self.netinfo.our_uid().clone();
+        step.extend(self.handle_message(our_uid, msg)?);
+        Ok(step)
+    }
+
+    /// Multicasts a `BVal(b)` message, and handles it.
+    fn send_bval(&mut self, b: bool) -> Result<Step<NodeUid>> {
+        // Record the value `b` as sent. If it was already there, don't send it again.
+        if !self.sent_bval.insert(b) {
+            return Ok(Step::default());
+        }
+        self.send(Message::BVal(b))
+    }
+
+    /// Handles an `Aux` message.
+    pub fn handle_aux(&mut self, sender_id: &NodeUid, b: bool) -> Result<Step<NodeUid>> {
+        if !self.received_aux[b].insert(sender_id.clone()) {
+            return Ok(Fault::new(sender_id.clone(), FaultKind::DuplicateAux).into());
+        }
+        self.try_output()
+    }
+
+    /// Checks whether there are _N - f_ `Aux` messages with values in `bin_values`, and outputs.
+    fn try_output(&mut self) -> Result<Step<NodeUid>> {
+        if self.terminated || self.bin_values == bool_set::NONE {
+            return Ok(Step::default());
+        }
+        let (aux_count, aux_vals) = self.count_aux();
+        if aux_count < self.netinfo.num_correct() {
+            return Ok(Step::default());
+        }
+        self.terminated = true;
+        Ok(Step::default().with_output(aux_vals))
+    }
+
+    /// The count of `Aux` messages such that the set of values carried by those messages is a
+    /// subset of `bin_values`.
+    ///
+    /// In general, we can't expect every good node to send the same `Aux` value, so waiting for
+    /// _N - f_ agreeing messages would not always terminate. We can, however, expect every good
+    /// node to send an `Aux` value that will eventually end up in our `bin_values`.
+    fn count_aux(&self) -> (usize, BoolSet) {
+        let mut values = bool_set::NONE;
+        let mut count = 0;
+        for b in self.bin_values {
+            if !self.received_aux[b].is_empty() {
+                values.insert(b);
+                count += self.received_aux[b].len();
+            }
+        }
+        (count, values)
+    }
+}
