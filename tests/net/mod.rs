@@ -246,8 +246,17 @@ where
     // }
 }
 
-// Convenient iterator implementation, just calls crank.
-// FIXME: Making this more ergonomic should be a priority.
+/// Convenient iterator implementation, calls crank repeatedly until the message queue is empty.
+///
+/// Accessing the network during iterator would require
+/// [streaming iterators](https://crates.io/crates/streaming-iterator), an alternative is using
+/// a `while let` loop:
+///
+/// ```rust,no_run
+/// while let Some(rstep) = net.step() {
+///     // `net` can still be mutable borrowed here.
+/// }
+/// ```
 impl<D> Iterator for VirtualNet<D>
 where
     D: DistAlgorithm,
