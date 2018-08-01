@@ -6,6 +6,38 @@
 //! Networks are "cranked" to move things forward; each crank of a network causes one message to be
 //! delivered to a node.
 
+// pub mod types;
+
+use std::cell::RefCell;
+use std::{collections, mem, sync};
+
+// pub use self::types::{FaultyMessageIdx, FaultyNodeIdx, MessageIdx, NetworkOp, NodeIdx, OpList};
+use hbbft::messaging::{self, DistAlgorithm, NetworkInfo, Step};
+
+pub trait Adversary<D>
+where
+    D: DistAlgorithm,
+{
+    fn pre_crank(&mut self, net: &mut VirtualNet<D>) {}
+    fn tamper(&mut self, net: &mut VirtualNet<D>, msg: &NetMessage<D>) -> Step<D> {
+        unimplemented!()
+    }
+}
+
+pub struct NullAdversary {}
+
+impl NullAdversary {
+    fn new() -> NullAdversary {
+        NullAdversary {}
+    }
+}
+
+impl<D> Adversary<D> for NullAdversary
+where
+    D: DistAlgorithm,
+{
+}
+
 // FIXME: It would be nice to stick this macro somewhere reusable.
 /// Like `try!`, but wraps into an `Option::Some` as well.
 macro_rules! try_some {
@@ -16,13 +48,6 @@ macro_rules! try_some {
         }
     };
 }
-
-// pub mod types;
-
-use std::{collections, sync};
-
-// pub use self::types::{FaultyMessageIdx, FaultyNodeIdx, MessageIdx, NetworkOp, NodeIdx, OpList};
-use hbbft::messaging::{self, DistAlgorithm, NetworkInfo, Step};
 
 #[derive(Debug)]
 pub struct Node<D: DistAlgorithm> {
@@ -59,6 +84,8 @@ impl<M, N> NetworkMessage<M, N> {
 }
 
 pub type NodeMap<D> = collections::BTreeMap<<D as DistAlgorithm>::NodeUid, Node<D>>;
+pub type NetMessage<D> =
+    NetworkMessage<<D as DistAlgorithm>::Message, <D as DistAlgorithm>::NodeUid>;
 
 pub struct VirtualNet<D>
 where
@@ -67,17 +94,26 @@ where
     /// Maps node IDs to actual node instances.
     nodes: NodeMap<D>,
     /// A collection of all network messages queued up for delivery.
-    messages: collections::VecDeque<NetworkMessage<D::Message, D::NodeUid>>,
+    messages: collections::VecDeque<NetMessage<D>>,
+    /// An Adversary that controls the network delivery schedule and all faulty nodes. Optional
+    /// only when no faulty nodes are defined.
+    adversary: Option<Box<dyn Adversary<D>>>,
 }
 
 #[derive(Debug, Fail)]
 pub enum CrankError<D: DistAlgorithm> {
     #[fail(display = "Node error'd processing network message {:?}. Error: {:?}", msg, err)]
     CorrectNodeErr {
-        msg: NetworkMessage<D::Message, D::NodeUid>,
+        msg: NetMessage<D>,
         #[cause]
         err: D::Error,
     },
+    #[fail(display = "The node with ID {:?} is faulty, but no adversary is set.", _0)]
+    FaultyNodeButNoAdversary(D::NodeUid),
+    #[fail(
+        display = "Node {} disappeared or never existed, while it still had incoming messages.", _0
+    )]
+    NodeDisappeared(D::NodeUid),
 }
 
 impl<D> VirtualNet<D>
@@ -90,6 +126,16 @@ where
         VirtualNet {
             nodes,
             messages: collections::VecDeque::new(),
+            adversary: None,
+        }
+    }
+
+    #[inline]
+    pub fn new_with_adversary(nodes: NodeMap<D>, adversary: Box<dyn Adversary<D>>) -> Self {
+        VirtualNet {
+            nodes,
+            messages: collections::VecDeque::new(),
+            adversary: Some(adversary),
         }
     }
 
@@ -111,34 +157,65 @@ where
         }
     }
 
+    /// # Panics
+    ///
+    /// TODO: [] (indexing)
     #[inline]
     pub fn crank(&mut self) -> Option<Result<Step<D>, CrankError<D>>> {
-        // Missing: Step 0: Give Adversary a chance to do things/
+        // Step 0: We give the Adversary a chance to affect the network.
+
+        // Swap the adversary out with a dummy, to get around ownership restrictions.
+        let mut adv = None;
+        mem::swap(&mut self.adversary, &mut adv);
+        if let Some(ref mut adversary) = adv {
+            // If an adversary was set, we let it affect the network now.
+            adversary.pre_crank(self)
+        }
+        mem::swap(&mut self.adversary, &mut adv);
 
         // Step 1: Pick a message from the queue and deliver it.
         if let Some(msg) = self.messages.pop_front() {
             // Unfortunately, we have to re-borrow the target node further down to make the borrow
             // checker happy. First, we check if the receiving node is faulty, so we can dispatch
             // through the adversary if it is.
-            let is_faulty = self.nodes[&msg.to].is_faulty();
+            let is_faulty = try_some!(
+                self.nodes
+                    .get(&msg.to)
+                    .ok_or_else(|| CrankError::NodeDisappeared(msg.to.clone()))
+            ).is_faulty();
 
-            // We always expect a step to be produced (an adversary wanting to swallow a message
-            // can do this either in the earlier step or by returning an empty step).
-            let step = if is_faulty {
-                // FIXME: Messages for faulty nodes are passed to the adversary instead, who can
-                // modify them at will.
-                unimplemented!()
+            let step: Step<_> = if is_faulty {
+                let mut adv = None;
+
+                // The swap-dance is painful here, as we are creating an `opt_step` just to avoid
+                // borrow issues.
+                mem::swap(&mut self.adversary, &mut adv);
+                let opt_step = adv.as_mut().map(|adversary| {
+                    // If an adversary was set, we let it affect the network now.
+                    adversary.tamper(self, &msg)
+                });
+                mem::swap(&mut self.adversary, &mut adv);
+
+                try_some!(
+                    // A missing adversary here could technically be a panic, as it is almost always
+                    // a programming error. Since it can occur fairly far down the stack, it's
+                    // reported using as a regular `Err` here, to allow carrying more context.
+                    opt_step.ok_or_else(|| CrankError::FaultyNodeButNoAdversary(msg.to.clone()))
+                )
             } else {
                 // While not very performant, we copy every message once and keep it around for
                 // better error handling in case something goes wrong. We have to let go of the
                 // original message when moving the payload into `handle_message`.
                 let msg_copy = msg.clone();
 
-                try_some!(
+                let node = try_some!(
                     self.nodes
                         .get_mut(&msg.to)
-                        .expect("node disappeared during cranking")
-                        .algorithm
+                        .ok_or_else(|| CrankError::NodeDisappeared(msg.to.clone()))
+                );
+
+                try_some!(
+                    node.algorithm
                         .handle_message(&msg.from, msg.payload)
                         .map_err(move |err| CrankError::CorrectNodeErr { msg: msg_copy, err })
                 )
