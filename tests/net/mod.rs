@@ -16,11 +16,19 @@ use hbbft::messaging::{self, DistAlgorithm, NetworkInfo, Step};
 
 pub trait Adversary<D>
 where
+    D::Message: Clone,
     D: DistAlgorithm,
 {
-    fn pre_crank(&mut self, net: &mut VirtualNet<D>) {}
-    fn tamper(&mut self, net: &mut VirtualNet<D>, msg: &NetMessage<D>) -> Step<D> {
-        unimplemented!()
+    fn pre_crank(&mut self, net: &mut VirtualNet<D>) {
+        // The default implementation does not alter anything.
+    }
+    fn tamper(
+        &mut self,
+        net: &mut VirtualNet<D>,
+        msg: NetMessage<D>,
+    ) -> Result<Step<D>, CrankError<D>> {
+        // By default, no tampering is done.
+        net.handle_network_message(msg)
     }
 }
 
@@ -34,6 +42,7 @@ impl NullAdversary {
 
 impl<D> Adversary<D> for NullAdversary
 where
+    D::Message: Clone,
     D: DistAlgorithm,
 {
 }
@@ -157,6 +166,21 @@ where
         }
     }
 
+    #[inline]
+    fn handle_network_message(&mut self, msg: NetMessage<D>) -> Result<Step<D>, CrankError<D>> {
+        let node = self.nodes
+            .get_mut(&msg.to)
+            .ok_or_else(|| CrankError::NodeDisappeared(msg.to.clone()))?;
+
+        // Store a copy of the message, in case we need to pass it to the error variant.
+        // By reducing the information in `CrankError::CorrectNodeErr`, we could reduce overhead
+        // here if necessary.
+        let msg_copy = msg.clone();
+        node.algorithm
+            .handle_message(&msg.from, msg.payload)
+            .map_err(move |err| CrankError::CorrectNodeErr { msg: msg_copy, err })
+    }
+
     /// # Panics
     ///
     /// TODO: [] (indexing)
@@ -175,6 +199,8 @@ where
 
         // Step 1: Pick a message from the queue and deliver it.
         if let Some(msg) = self.messages.pop_front() {
+            let sender = msg.from.clone();
+
             // Unfortunately, we have to re-borrow the target node further down to make the borrow
             // checker happy. First, we check if the receiving node is faulty, so we can dispatch
             // through the adversary if it is.
@@ -186,44 +212,34 @@ where
 
             let step: Step<_> = if is_faulty {
                 let mut adv = None;
+                let receiver = msg.to.clone();
 
                 // The swap-dance is painful here, as we are creating an `opt_step` just to avoid
                 // borrow issues.
                 mem::swap(&mut self.adversary, &mut adv);
-                let opt_step = adv.as_mut().map(|adversary| {
+                let opt_tamper_result = adv.as_mut().map(|adversary| {
                     // If an adversary was set, we let it affect the network now.
-                    adversary.tamper(self, &msg)
+                    adversary.tamper(self, msg)
                 });
                 mem::swap(&mut self.adversary, &mut adv);
 
-                try_some!(
-                    // A missing adversary here could technically be a panic, as it is almost always
-                    // a programming error. Since it can occur fairly far down the stack, it's
-                    // reported using as a regular `Err` here, to allow carrying more context.
-                    opt_step.ok_or_else(|| CrankError::FaultyNodeButNoAdversary(msg.to.clone()))
-                )
-            } else {
-                // While not very performant, we copy every message once and keep it around for
-                // better error handling in case something goes wrong. We have to let go of the
-                // original message when moving the payload into `handle_message`.
-                let msg_copy = msg.clone();
-
-                let node = try_some!(
-                    self.nodes
-                        .get_mut(&msg.to)
-                        .ok_or_else(|| CrankError::NodeDisappeared(msg.to.clone()))
+                // An error will be returned here, if the adversary was missing.
+                let tamper_result = try_some!(
+                    opt_tamper_result.ok_or_else(|| CrankError::FaultyNodeButNoAdversary(receiver))
                 );
 
-                try_some!(
-                    node.algorithm
-                        .handle_message(&msg.from, msg.payload)
-                        .map_err(move |err| CrankError::CorrectNodeErr { msg: msg_copy, err })
-                )
+                // A missing adversary here could technically be a panic, as it is almost always
+                // a programming error. Since it can occur fairly far down the stack, it's
+                // reported using as a regular `Err` here, to allow carrying more context.
+                try_some!(tamper_result)
+            } else {
+                // A correct node simply handles the message.
+                try_some!(self.handle_network_message(msg))
             };
 
             // All messages are expanded and added to the queue. We opt for copying them, so we can
             // return unaltered step later on for inspection.
-            self.process_messages(msg.from, step.messages.iter());
+            self.process_messages(sender, step.messages.iter());
             Some(Ok(step))
         } else {
             // There are no more network messages in the queue.
