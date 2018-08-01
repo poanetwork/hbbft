@@ -106,6 +106,7 @@
 
 extern crate bincode;
 extern crate byteorder;
+extern crate errno;
 #[macro_use]
 extern crate error_chain;
 extern crate init_with;

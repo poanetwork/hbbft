@@ -15,6 +15,7 @@ use std::mem::size_of_val;
 use std::ptr::{copy_nonoverlapping, write_volatile};
 
 use byteorder::{BigEndian, ByteOrder};
+use errno::errno;
 use init_with::InitWith;
 use memsec::{memzero, mlock, munlock};
 use pairing::bls12_381::{Bls12, Fr, G1, G1Affine, G2, G2Affine};
@@ -230,7 +231,7 @@ impl ContainsSecret for SecretKey {
         if mlock_succeeded {
             Ok(())
         } else {
-            let msg = "failed to mlock `SecretKey` memory".to_string();
+            let msg = format!("failed to mlock `SecretKey` memory ({:?})", errno());
             Err(ErrorKind::MlockFailed(msg).into())
         }
     }
@@ -242,7 +243,7 @@ impl ContainsSecret for SecretKey {
         if munlock_succeeded {
             Ok(())
         } else {
-            let msg = "failed to munlock `SecretKey` memory".to_string();
+            let msg = format!("failed to munlock `SecretKey` memory ({:?})", errno());
             Err(ErrorKind::MunlockFailed(msg).into())
         }
     }

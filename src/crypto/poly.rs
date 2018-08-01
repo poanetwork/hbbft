@@ -22,6 +22,7 @@ use std::hash::{Hash, Hasher};
 use std::mem::{size_of, size_of_val};
 use std::{cmp, iter, ops};
 
+use errno::errno;
 use memsec::{memzero, mlock, munlock};
 use pairing::bls12_381::{Fr, G1, G1Affine};
 use pairing::{CurveAffine, CurveProjective, Field};
@@ -258,7 +259,7 @@ impl ContainsSecret for Poly {
         if mlock_succeeded {
             Ok(())
         } else {
-            let msg = "failed to mlock `Poly` coefficients".to_string();
+            let msg = format!("failed to mlock `Poly` coefficients ({:?})", errno());
             Err(ErrorKind::MlockFailed(msg).into())
         }
     }
@@ -270,7 +271,7 @@ impl ContainsSecret for Poly {
         if munlock_succeeded {
             Ok(())
         } else {
-            let msg = "failed to munlock `Poly` coefficients".to_string();
+            let msg = format!("failed to munlock `Poly` coefficients ({:?})", errno());
             Err(ErrorKind::MunlockFailed(msg).into())
         }
     }
@@ -386,7 +387,7 @@ impl Poly {
         if munlock_succeeded {
             Ok(())
         } else {
-            let msg = "failed to munlock truncated `Poly`".to_string();
+            let msg = format!("failed to munlock truncated `Poly` ({:?})", errno());
             Err(ErrorKind::MunlockFailed(msg).into())
         }
     }
@@ -395,16 +396,14 @@ impl Poly {
     fn extend_mlock(&self, len: usize) -> Result<()> {
         let n_bytes_extended = len * size_of::<Fr>();
         let offset = (self.coeff.len() - len) as isize;
-
         let mlock_succeeded = unsafe {
             let ptr = self.coeff.as_ptr().offset(offset) as *mut u8;
             mlock(ptr, n_bytes_extended)
         };
-
         if mlock_succeeded {
             Ok(())
         } else {
-            let msg = "failed to extend `Poly` mlock".to_string();
+            let msg = format!("failed to extend `Poly` mlock ({:?})", errno());
             Err(ErrorKind::MlockFailed(msg).into())
         }
     }
@@ -570,7 +569,7 @@ impl ContainsSecret for BivarPoly {
         if mlock_succeeded {
             Ok(())
         } else {
-            let msg = "failed to mlock `BivarPoly` coefficients".to_string();
+            let msg = format!("failed to mlock `BivarPoly` coefficients ({:?})", errno());
             Err(ErrorKind::MlockFailed(msg).into())
         }
     }
@@ -582,7 +581,7 @@ impl ContainsSecret for BivarPoly {
         if munlock_succeeded {
             Ok(())
         } else {
-            let msg = "failed to munlock `BivarPoly` coefficients".to_string();
+            let msg = format!("failed to munlock `BivarPoly` coefficients ({:?})", errno());
             Err(ErrorKind::MlockFailed(msg).into())
         }
     }
