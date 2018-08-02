@@ -86,7 +86,11 @@ where
 }
 
 #[derive(Debug, Fail)]
-pub enum CrankError<D: DistAlgorithm> {
+pub enum CrankError<D: DistAlgorithm>
+where
+    D::Message: Send + Sync,
+    D::NodeUid: Send + Sync,
+{
     #[fail(display = "Node error'd processing network message {:?}. Error: {:?}", msg, err)]
     CorrectNodeErr {
         msg: NetMessage<D>,
@@ -104,7 +108,8 @@ pub enum CrankError<D: DistAlgorithm> {
 impl<D> VirtualNet<D>
 where
     D: DistAlgorithm,
-    D::Message: Clone,
+    D::Message: Clone + Send + Sync,
+    D::NodeUid: Clone + Send + Sync,
 {
     #[inline]
     pub fn new_with_adversary(nodes: NodeMap<D>, adversary: Box<dyn Adversary<D>>) -> Self {
@@ -388,7 +393,8 @@ where
 impl<D> Iterator for VirtualNet<D>
 where
     D: DistAlgorithm,
-    D::Message: Clone,
+    D::Message: Clone + Send + Sync,
+    D::NodeUid: Send + Sync,
 {
     type Item = Result<Step<D>, CrankError<D>>;
 
