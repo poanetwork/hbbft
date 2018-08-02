@@ -81,8 +81,7 @@ where
                     // If there's only one node, it will immediately output on input. Make sure we
                     // first process all incoming messages before providing input again.
                     && (network.nodes.len() > 2 || node.queue.is_empty())
-            })
-            .map(|(id, _)| *id)
+            }).map(|(id, _)| *id)
             .collect();
         if let Some(id) = rng.choose(&input_ids) {
             let queue = queues.get_mut(id).unwrap();

@@ -270,8 +270,7 @@ where
                         step.fault_log.append(proposer_id, fault_kind);
                         None
                     }
-                })
-                .collect();
+                }).collect();
         let batch = Batch {
             epoch: self.epoch,
             contributions,

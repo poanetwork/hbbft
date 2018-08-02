@@ -67,11 +67,10 @@ where
         sender_id: &NodeUid,
         signed_vote: SignedVote<NodeUid>,
     ) -> Result<FaultLog<NodeUid>> {
-        if signed_vote.vote.era != self.era
-            || self
-                .pending
-                .get(&signed_vote.voter)
-                .map_or(false, |sv| sv.vote.num >= signed_vote.vote.num)
+        if signed_vote.vote.era != self.era || self
+            .pending
+            .get(&signed_vote.voter)
+            .map_or(false, |sv| sv.vote.num >= signed_vote.vote.num)
         {
             return Ok(FaultLog::new()); // The vote is obsolete or already exists.
         }
@@ -150,8 +149,8 @@ where
 
     /// Returns `true` if the signature is valid.
     fn validate(&self, signed_vote: &SignedVote<NodeUid>) -> Result<bool> {
-        let ser_vote =
-            bincode::serialize(&signed_vote.vote).map_err(|err| ErrorKind::ValidateBincode(*err))?;
+        let ser_vote = bincode::serialize(&signed_vote.vote)
+            .map_err(|err| ErrorKind::ValidateBincode(*err))?;
         let pk_opt = self.netinfo.public_key(&signed_vote.voter);
         Ok(pk_opt.map_or(false, |pk| pk.verify(&signed_vote.sig, ser_vote)))
     }
