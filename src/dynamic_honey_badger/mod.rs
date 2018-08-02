@@ -65,12 +65,12 @@ mod votes;
 use crypto::{PublicKey, PublicKeySet, Signature};
 use rand::Rand;
 use std::collections::BTreeMap;
-use std::fmt::Debug;
 
 use self::votes::{SignedVote, VoteCounter};
 use honey_badger::Message as HbMessage;
 use messaging;
 use sync_key_gen::{Ack, Part, SyncKeyGen};
+use traits::NodeUidT;
 
 pub use self::batch::Batch;
 pub use self::builder::DynamicHoneyBadgerBuilder;
@@ -78,15 +78,15 @@ pub use self::change::{Change, ChangeState};
 pub use self::dynamic_honey_badger::DynamicHoneyBadger;
 pub use self::error::{Error, ErrorKind, Result};
 
-pub type Step<C, NodeUid> = messaging::Step<DynamicHoneyBadger<C, NodeUid>>;
+pub type Step<C, N> = messaging::Step<DynamicHoneyBadger<C, N>>;
 
 /// The user input for `DynamicHoneyBadger`.
 #[derive(Clone, Debug)]
-pub enum Input<C, NodeUid> {
+pub enum Input<C, N> {
     /// A user-defined contribution for the next epoch.
     User(C),
     /// A vote to change the set of validators.
-    Change(Change<NodeUid>),
+    Change(Change<N>),
 }
 
 /// An internal message containing a vote for adding or removing a validator, or a message for key
@@ -102,16 +102,16 @@ pub enum KeyGenMessage {
 
 /// A message sent to or received from another node's Honey Badger instance.
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub enum Message<NodeUid: Rand> {
+pub enum Message<N: Rand> {
     /// A message belonging to the `HoneyBadger` algorithm started in the given epoch.
-    HoneyBadger(u64, HbMessage<NodeUid>),
+    HoneyBadger(u64, HbMessage<N>),
     /// A transaction to be committed, signed by a node.
     KeyGen(u64, KeyGenMessage, Box<Signature>),
     /// A vote to be committed, signed by a validator.
-    SignedVote(SignedVote<NodeUid>),
+    SignedVote(SignedVote<N>),
 }
 
-impl<NodeUid: Rand> Message<NodeUid> {
+impl<N: Rand> Message<N> {
     fn start_epoch(&self) -> u64 {
         match *self {
             Message::HoneyBadger(epoch, _) => epoch,
@@ -133,31 +133,31 @@ impl<NodeUid: Rand> Message<NodeUid> {
 /// of voting and key generation after a specific epoch, so that the new node will be in sync if it
 /// joins in the next one.
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct JoinPlan<NodeUid: Ord> {
+pub struct JoinPlan<N: Ord> {
     /// The first epoch the new node will observe.
     epoch: u64,
     /// The current change. If `InProgress`, key generation for it is beginning at `epoch`.
-    change: ChangeState<NodeUid>,
+    change: ChangeState<N>,
     /// The current public key set for threshold cryptography.
     pub_key_set: PublicKeySet,
     /// The public keys of the nodes taking part in key generation.
-    pub_keys: BTreeMap<NodeUid, PublicKey>,
+    pub_keys: BTreeMap<N, PublicKey>,
 }
 
 /// The ongoing key generation, together with information about the validator change.
 #[derive(Debug)]
-struct KeyGenState<NodeUid> {
+struct KeyGenState<N> {
     /// The key generation instance.
-    key_gen: SyncKeyGen<NodeUid>,
+    key_gen: SyncKeyGen<N>,
     /// The change for which key generation is performed.
-    change: Change<NodeUid>,
+    change: Change<N>,
     /// The number of key generation messages received from the candidate. At most _N² + 1_ are
     /// accepted.
     candidate_msg_count: usize,
 }
 
-impl<NodeUid: Ord + Clone + Debug> KeyGenState<NodeUid> {
-    fn new(key_gen: SyncKeyGen<NodeUid>, change: Change<NodeUid>) -> Self {
+impl<N: NodeUidT> KeyGenState<N> {
+    fn new(key_gen: SyncKeyGen<N>, change: Change<N>) -> Self {
         KeyGenState {
             key_gen,
             change,
@@ -168,12 +168,12 @@ impl<NodeUid: Ord + Clone + Debug> KeyGenState<NodeUid> {
     /// Returns `true` if the candidate's, if any, as well as enough validators' key generation
     /// parts have been completed.
     fn is_ready(&self) -> bool {
-        let candidate_ready = |id: &NodeUid| self.key_gen.is_node_ready(id);
+        let candidate_ready = |id: &N| self.key_gen.is_node_ready(id);
         self.key_gen.is_ready() && self.change.candidate().map_or(true, candidate_ready)
     }
 
     /// If the node `node_id` is the currently joining candidate, returns its public key.
-    fn candidate_key(&self, node_id: &NodeUid) -> Option<&PublicKey> {
+    fn candidate_key(&self, node_id: &N) -> Option<&PublicKey> {
         match self.change {
             Change::Add(ref id, ref pk) if id == node_id => Some(pk),
             Change::Add(_, _) | Change::Remove(_) => None,
@@ -184,15 +184,15 @@ impl<NodeUid: Ord + Clone + Debug> KeyGenState<NodeUid> {
 /// The contribution for the internal `HoneyBadger` instance: this includes a user-defined
 /// application-level contribution as well as internal signed messages.
 #[derive(Clone, Eq, PartialEq, Debug, Serialize, Deserialize, Hash)]
-struct InternalContrib<C, NodeUid> {
+struct InternalContrib<C, N> {
     /// A user-defined contribution.
     contrib: C,
     /// Key generation messages that get committed via Honey Badger to communicate synchronously.
-    key_gen_messages: Vec<SignedKeyGenMsg<NodeUid>>,
+    key_gen_messages: Vec<SignedKeyGenMsg<N>>,
     /// Signed votes for validator set changes.
-    votes: Vec<SignedVote<NodeUid>>,
+    votes: Vec<SignedVote<N>>,
 }
 
 /// A signed internal message.
 #[derive(Eq, PartialEq, Debug, Serialize, Deserialize, Hash, Clone)]
-struct SignedKeyGenMsg<NodeUid>(u64, NodeUid, KeyGenMessage, Signature);
+struct SignedKeyGenMsg<N>(u64, N, KeyGenMessage, Signature);

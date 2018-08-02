@@ -24,7 +24,6 @@
 //! values for which the decision was "yes".
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::fmt::Debug;
 use std::result;
 use std::sync::Arc;
 
@@ -33,6 +32,7 @@ use broadcast::{self, Broadcast, BroadcastMessage};
 use fmt::HexBytes;
 use messaging::{self, DistAlgorithm, NetworkInfo};
 use rand::Rand;
+use traits::NodeUidT;
 
 /// A common subset error.
 #[derive(Clone, PartialEq, Debug, Fail)]
@@ -63,37 +63,37 @@ type ProposedValue = Vec<u8>;
 
 /// Message from Common Subset to remote nodes.
 #[derive(Serialize, Deserialize, Clone, Debug, Rand)]
-pub enum Message<NodeUid: Rand> {
+pub enum Message<N: Rand> {
     /// A message for the broadcast algorithm concerning the set element proposed by the given node.
-    Broadcast(NodeUid, BroadcastMessage),
+    Broadcast(N, BroadcastMessage),
     /// A message for the agreement algorithm concerning the set element proposed by the given
     /// node.
-    Agreement(NodeUid, AgreementMessage),
+    Agreement(N, AgreementMessage),
 }
 
 /// Asynchronous Common Subset algorithm instance
 #[derive(Debug)]
-pub struct CommonSubset<NodeUid: Rand> {
+pub struct CommonSubset<N: Rand> {
     /// Shared network information.
-    netinfo: Arc<NetworkInfo<NodeUid>>,
-    broadcast_instances: BTreeMap<NodeUid, Broadcast<NodeUid>>,
-    agreement_instances: BTreeMap<NodeUid, Agreement<NodeUid>>,
-    broadcast_results: BTreeMap<NodeUid, ProposedValue>,
-    agreement_results: BTreeMap<NodeUid, bool>,
+    netinfo: Arc<NetworkInfo<N>>,
+    broadcast_instances: BTreeMap<N, Broadcast<N>>,
+    agreement_instances: BTreeMap<N, Agreement<N>>,
+    broadcast_results: BTreeMap<N, ProposedValue>,
+    agreement_results: BTreeMap<N, bool>,
     /// Whether the instance has decided on a value.
     decided: bool,
 }
 
-pub type Step<NodeUid> = messaging::Step<CommonSubset<NodeUid>>;
+pub type Step<N> = messaging::Step<CommonSubset<N>>;
 
-impl<NodeUid: Clone + Debug + Ord + Rand> DistAlgorithm for CommonSubset<NodeUid> {
-    type NodeUid = NodeUid;
+impl<N: NodeUidT + Rand> DistAlgorithm for CommonSubset<N> {
+    type NodeUid = N;
     type Input = ProposedValue;
-    type Output = BTreeMap<NodeUid, ProposedValue>;
-    type Message = Message<NodeUid>;
+    type Output = BTreeMap<N, ProposedValue>;
+    type Message = Message<N>;
     type Error = Error;
 
-    fn input(&mut self, input: Self::Input) -> Result<Step<NodeUid>> {
+    fn input(&mut self, input: Self::Input) -> Result<Step<N>> {
         debug!(
             "{:?} Proposing {:?}",
             self.netinfo.our_uid(),
@@ -106,7 +106,7 @@ impl<NodeUid: Clone + Debug + Ord + Rand> DistAlgorithm for CommonSubset<NodeUid
         &mut self,
         sender_id: &Self::NodeUid,
         message: Self::Message,
-    ) -> Result<Step<NodeUid>> {
+    ) -> Result<Step<N>> {
         match message {
             Message::Broadcast(p_id, b_msg) => self.handle_broadcast(sender_id, &p_id, b_msg),
             Message::Agreement(p_id, a_msg) => self.handle_agreement(sender_id, &p_id, a_msg),
@@ -122,10 +122,10 @@ impl<NodeUid: Clone + Debug + Ord + Rand> DistAlgorithm for CommonSubset<NodeUid
     }
 }
 
-impl<NodeUid: Clone + Debug + Ord + Rand> CommonSubset<NodeUid> {
-    pub fn new(netinfo: Arc<NetworkInfo<NodeUid>>, session_id: u64) -> Result<Self> {
+impl<N: NodeUidT + Rand> CommonSubset<N> {
+    pub fn new(netinfo: Arc<NetworkInfo<N>>, session_id: u64) -> Result<Self> {
         // Create all broadcast instances.
-        let mut broadcast_instances: BTreeMap<NodeUid, Broadcast<NodeUid>> = BTreeMap::new();
+        let mut broadcast_instances: BTreeMap<N, Broadcast<N>> = BTreeMap::new();
         for proposer_id in netinfo.all_uids() {
             broadcast_instances.insert(
                 proposer_id.clone(),
@@ -134,7 +134,7 @@ impl<NodeUid: Clone + Debug + Ord + Rand> CommonSubset<NodeUid> {
         }
 
         // Create all agreement instances.
-        let mut agreement_instances: BTreeMap<NodeUid, Agreement<NodeUid>> = BTreeMap::new();
+        let mut agreement_instances: BTreeMap<N, Agreement<N>> = BTreeMap::new();
         for proposer_id in netinfo.all_uids() {
             agreement_instances.insert(
                 proposer_id.clone(),
@@ -155,7 +155,7 @@ impl<NodeUid: Clone + Debug + Ord + Rand> CommonSubset<NodeUid> {
 
     /// Common Subset input message handler. It receives a value for broadcast
     /// and redirects it to the corresponding broadcast instance.
-    pub fn send_proposed_value(&mut self, value: ProposedValue) -> Result<Step<NodeUid>> {
+    pub fn send_proposed_value(&mut self, value: ProposedValue) -> Result<Step<N>> {
         if !self.netinfo.is_validator() {
             return Ok(Step::default());
         }
@@ -173,10 +173,10 @@ impl<NodeUid: Clone + Debug + Ord + Rand> CommonSubset<NodeUid> {
     /// value proposed by the node `proposer_id`.
     fn handle_broadcast(
         &mut self,
-        sender_id: &NodeUid,
-        proposer_id: &NodeUid,
+        sender_id: &N,
+        proposer_id: &N,
         bmessage: BroadcastMessage,
-    ) -> Result<Step<NodeUid>> {
+    ) -> Result<Step<N>> {
         self.process_broadcast(proposer_id, |bc| bc.handle_message(sender_id, bmessage))
     }
 
@@ -184,10 +184,10 @@ impl<NodeUid: Clone + Debug + Ord + Rand> CommonSubset<NodeUid> {
     /// a value proposed by the node `proposer_id`.
     fn handle_agreement(
         &mut self,
-        sender_id: &NodeUid,
-        proposer_id: &NodeUid,
+        sender_id: &N,
+        proposer_id: &N,
         amessage: AgreementMessage,
-    ) -> Result<Step<NodeUid>> {
+    ) -> Result<Step<N>> {
         // Send the message to the local instance of Agreement
         self.process_agreement(proposer_id, |agreement| {
             agreement.handle_message(sender_id, amessage)
@@ -196,10 +196,9 @@ impl<NodeUid: Clone + Debug + Ord + Rand> CommonSubset<NodeUid> {
 
     /// Upon delivery of v_j from RBC_j, if input has not yet been provided to
     /// BA_j, then provide input 1 to BA_j. See Figure 11.
-    fn process_broadcast<F>(&mut self, proposer_id: &NodeUid, f: F) -> Result<Step<NodeUid>>
+    fn process_broadcast<F>(&mut self, proposer_id: &N, f: F) -> Result<Step<N>>
     where
-        F: FnOnce(&mut Broadcast<NodeUid>)
-            -> result::Result<broadcast::Step<NodeUid>, broadcast::Error>,
+        F: FnOnce(&mut Broadcast<N>) -> result::Result<broadcast::Step<N>, broadcast::Error>,
     {
         let mut step = Step::default();
         let value = {
@@ -219,7 +218,7 @@ impl<NodeUid: Clone + Debug + Ord + Rand> CommonSubset<NodeUid> {
             }
         };
         self.broadcast_results.insert(proposer_id.clone(), value);
-        let set_agreement_input = |agreement: &mut Agreement<NodeUid>| {
+        let set_agreement_input = |agreement: &mut Agreement<N>| {
             if agreement.accepts_input() {
                 agreement.input(true)
             } else {
@@ -232,10 +231,9 @@ impl<NodeUid: Clone + Debug + Ord + Rand> CommonSubset<NodeUid> {
 
     /// Callback to be invoked on receipt of the decision value of the Agreement
     /// instance `uid`.
-    fn process_agreement<F>(&mut self, proposer_id: &NodeUid, f: F) -> Result<Step<NodeUid>>
+    fn process_agreement<F>(&mut self, proposer_id: &N, f: F) -> Result<Step<N>>
     where
-        F: FnOnce(&mut Agreement<NodeUid>)
-            -> result::Result<agreement::Step<NodeUid>, agreement::Error>,
+        F: FnOnce(&mut Agreement<N>) -> result::Result<agreement::Step<N>, agreement::Error>,
     {
         let mut step = Step::default();
         let value = {
@@ -298,7 +296,7 @@ impl<NodeUid: Clone + Debug + Ord + Rand> CommonSubset<NodeUid> {
         self.agreement_results.values().filter(|v| **v).count()
     }
 
-    fn try_agreement_completion(&mut self) -> Option<BTreeMap<NodeUid, ProposedValue>> {
+    fn try_agreement_completion(&mut self) -> Option<BTreeMap<N, ProposedValue>> {
         if self.decided || self.count_true() < self.netinfo.num_correct() {
             return None;
         }
@@ -313,7 +311,7 @@ impl<NodeUid: Clone + Debug + Ord + Rand> CommonSubset<NodeUid> {
             self.netinfo.our_uid()
         );
         // All instances of Agreement that delivered `true` (or "1" in the paper).
-        let delivered_1: BTreeSet<&NodeUid> = self
+        let delivered_1: BTreeSet<&N> = self
             .agreement_results
             .iter()
             .filter(|(_, v)| **v)
@@ -322,7 +320,7 @@ impl<NodeUid: Clone + Debug + Ord + Rand> CommonSubset<NodeUid> {
         debug!("Agreement instances that delivered 1: {:?}", delivered_1);
 
         // Results of Broadcast instances in `delivered_1`
-        let broadcast_results: BTreeMap<NodeUid, ProposedValue> = self
+        let broadcast_results: BTreeMap<N, ProposedValue> = self
             .broadcast_results
             .iter()
             .filter(|(k, _)| delivered_1.contains(k))

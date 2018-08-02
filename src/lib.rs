@@ -135,3 +135,21 @@ pub mod messaging;
 pub mod queueing_honey_badger;
 pub mod sync_key_gen;
 pub mod transaction_queue;
+
+/// Common supertraits.
+pub mod traits {
+    use std::fmt::Debug;
+    use std::hash::Hash;
+
+    /// A transaction, user message, etc.
+    pub trait Contribution: Eq + Debug + Hash + Send + Sync {}
+    impl<C> Contribution for C where C: Eq + Debug + Hash + Send + Sync {}
+
+    /// A peer node's unique identifier.
+    pub trait NodeUidT: Eq + Ord + Clone + Debug + Hash + Send + Sync {}
+    impl<N> NodeUidT for N where N: Eq + Ord + Clone + Debug + Hash + Send + Sync {}
+
+    /// Messages.
+    pub trait Message: Debug + Send + Sync {}
+    impl<M> Message for M where M: Debug + Send + Sync {}
+}

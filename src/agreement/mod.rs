@@ -92,7 +92,7 @@ pub enum Error {
 /// An agreement result.
 pub type Result<T> = ::std::result::Result<T, Error>;
 
-pub type Step<NodeUid> = messaging::Step<Agreement<NodeUid>>;
+pub type Step<N> = messaging::Step<Agreement<N>>;
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub enum AgreementContent {
