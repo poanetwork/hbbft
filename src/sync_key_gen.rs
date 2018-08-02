@@ -166,6 +166,7 @@ use crypto::serde_impl::field_vec::FieldWrap;
 use crypto::{Ciphertext, PublicKey, PublicKeySet, SecretKey, SecretKeyShare};
 use fault_log::{FaultKind, FaultLog};
 use messaging::NetworkInfo;
+use traits::NodeUidT;
 
 // TODO: No need to send our own row and value to ourselves.
 
@@ -228,7 +229,7 @@ impl ProposalState {
 }
 
 /// The outcome of handling and verifying a `Part` message.
-pub enum PartOutcome<NodeUid: Clone> {
+pub enum PartOutcome<N: Clone> {
     /// The message was valid: the part of it that was encrypted to us matched the public
     /// commitment, so we can multicast an `Ack` message for it.
     Valid(Ack),
@@ -236,40 +237,40 @@ pub enum PartOutcome<NodeUid: Clone> {
     // fault is logged and passed onto the caller.
     /// The message was invalid: the part encrypted to us was malformed or didn't match the
     /// commitment. We now know that the proposer is faulty, and dont' send an `Ack`.
-    Invalid(FaultLog<NodeUid>),
+    Invalid(FaultLog<N>),
 }
 
 /// A synchronous algorithm for dealerless distributed key generation.
 ///
 /// It requires that all nodes handle all messages in the exact same order.
 #[derive(Debug)]
-pub struct SyncKeyGen<NodeUid> {
+pub struct SyncKeyGen<N> {
     /// Our node ID.
-    our_uid: NodeUid,
+    our_uid: N,
     /// Our node index.
     our_idx: Option<u64>,
     /// Our secret key.
     sec_key: SecretKey,
     /// The public keys of all nodes, by node index.
-    pub_keys: BTreeMap<NodeUid, PublicKey>,
+    pub_keys: BTreeMap<N, PublicKey>,
     /// Proposed bivariate polynomials.
     parts: BTreeMap<u64, ProposalState>,
     /// The degree of the generated polynomial.
     threshold: usize,
 }
 
-impl<NodeUid: Ord + Clone + Debug> SyncKeyGen<NodeUid> {
+impl<N: NodeUidT> SyncKeyGen<N> {
     /// Creates a new `SyncKeyGen` instance, together with the `Part` message that should be
     /// multicast to all nodes.
     ///
     /// If we are not a validator but only an observer, no `Part` message is produced and no
     /// messages need to be sent.
     pub fn new(
-        our_uid: NodeUid,
+        our_uid: N,
         sec_key: SecretKey,
-        pub_keys: BTreeMap<NodeUid, PublicKey>,
+        pub_keys: BTreeMap<N, PublicKey>,
         threshold: usize,
-    ) -> (SyncKeyGen<NodeUid>, Option<Part>) {
+    ) -> (SyncKeyGen<N>, Option<Part>) {
         let our_idx = pub_keys
             .keys()
             .position(|uid| *uid == our_uid)
@@ -305,9 +306,9 @@ impl<NodeUid: Ord + Clone + Debug> SyncKeyGen<NodeUid> {
     /// Note that `handle_part` also needs to explicitly be called with this instance's own `Part`.
     pub fn handle_part(
         &mut self,
-        sender_id: &NodeUid,
+        sender_id: &N,
         Part(commit, rows): Part,
-    ) -> Option<PartOutcome<NodeUid>> {
+    ) -> Option<PartOutcome<N>> {
         let sender_idx = self.node_index(sender_id)?;
         let opt_commit_row = self.our_idx.map(|idx| commit.row(idx + 1));
         match self.parts.entry(sender_idx) {
@@ -351,7 +352,7 @@ impl<NodeUid: Ord + Clone + Debug> SyncKeyGen<NodeUid> {
     ///
     /// All participating nodes must handle the exact same sequence of messages.
     /// Note that `handle_ack` also needs to explicitly be called with this instance's own `Ack`s.
-    pub fn handle_ack(&mut self, sender_id: &NodeUid, ack: Ack) -> FaultLog<NodeUid> {
+    pub fn handle_ack(&mut self, sender_id: &N, ack: Ack) -> FaultLog<N> {
         let mut fault_log = FaultLog::new();
         if let Some(sender_idx) = self.node_index(sender_id) {
             if let Err(err) = self.handle_ack_or_err(sender_idx, ack) {
@@ -372,7 +373,7 @@ impl<NodeUid: Ord + Clone + Debug> SyncKeyGen<NodeUid> {
     }
 
     /// Returns `true` if the part of the given node is complete.
-    pub fn is_node_ready(&self, proposer_id: &NodeUid) -> bool {
+    pub fn is_node_ready(&self, proposer_id: &N) -> bool {
         self.node_index(proposer_id)
             .and_then(|proposer_idx| self.parts.get(&proposer_idx))
             .map_or(false, |part| part.is_complete(self.threshold))
@@ -412,7 +413,7 @@ impl<NodeUid: Ord + Clone + Debug> SyncKeyGen<NodeUid> {
     ///
     /// All participating nodes must have handled the exact same sequence of `Part` and `Ack`
     /// messages before calling this method. Otherwise their key shares will not match.
-    pub fn into_network_info(self) -> NetworkInfo<NodeUid> {
+    pub fn into_network_info(self) -> NetworkInfo<N> {
         let (pk_set, opt_sk_share) = self.generate();
         let sk_share = opt_sk_share.unwrap_or_default(); // TODO: Make this an option.
         NetworkInfo::new(self.our_uid, sk_share, pk_set, self.sec_key, self.pub_keys)
@@ -453,7 +454,7 @@ impl<NodeUid: Ord + Clone + Debug> SyncKeyGen<NodeUid> {
     }
 
     /// Returns the index of the node, or `None` if it is unknown.
-    fn node_index(&self, node_id: &NodeUid) -> Option<u64> {
+    fn node_index(&self, node_id: &N) -> Option<u64> {
         if let Some(node_idx) = self.pub_keys.keys().position(|uid| uid == node_id) {
             Some(node_idx as u64)
         } else {

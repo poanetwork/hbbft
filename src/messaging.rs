@@ -4,6 +4,7 @@ use std::iter::once;
 
 use crypto::{PublicKey, PublicKeySet, PublicKeyShare, SecretKey, SecretKeyShare};
 use fault_log::{Fault, FaultLog};
+use traits::{MessageT, NodeUidT};
 
 /// Message sent by a given source.
 #[derive(Clone, Debug)]
@@ -57,7 +58,7 @@ impl<M, N> TargetedMessage<M, N> {
 pub struct Step<D>
 where
     D: DistAlgorithm,
-    <D as DistAlgorithm>::NodeUid: Clone,
+    <D as DistAlgorithm>::NodeUid: NodeUidT,
 {
     pub output: VecDeque<D::Output>,
     pub fault_log: FaultLog<D::NodeUid>,
@@ -67,7 +68,7 @@ where
 impl<D> Default for Step<D>
 where
     D: DistAlgorithm,
-    <D as DistAlgorithm>::NodeUid: Clone,
+    <D as DistAlgorithm>::NodeUid: NodeUidT,
 {
     fn default() -> Step<D> {
         Step {
@@ -80,7 +81,7 @@ where
 
 impl<D: DistAlgorithm> Step<D>
 where
-    <D as DistAlgorithm>::NodeUid: Clone,
+    <D as DistAlgorithm>::NodeUid: NodeUidT,
 {
     /// Creates a new `Step` from the given collections.
     pub fn new(
@@ -184,14 +185,14 @@ impl<D: DistAlgorithm> From<TargetedMessage<D::Message, D::NodeUid>> for Step<D>
 /// A distributed algorithm that defines a message flow.
 pub trait DistAlgorithm {
     /// Unique node identifier.
-    type NodeUid: Debug + Clone + Ord + Eq;
+    type NodeUid: NodeUidT;
     /// The input provided by the user.
     type Input;
     /// The output type. Some algorithms return an output exactly once, others return multiple
     /// times.
     type Output;
     /// The messages that need to be exchanged between the instances in the participating nodes.
-    type Message: Debug;
+    type Message: MessageT;
     /// The errors that can occur during execution.
     type Error: Debug;
 
@@ -218,8 +219,8 @@ pub trait DistAlgorithm {
 
 /// Common data shared between algorithms: the nodes' IDs and key shares.
 #[derive(Debug, Clone)]
-pub struct NetworkInfo<NodeUid> {
-    our_uid: NodeUid,
+pub struct NetworkInfo<N> {
+    our_uid: N,
     num_nodes: usize,
     num_faulty: usize,
     is_validator: bool,
@@ -227,22 +228,22 @@ pub struct NetworkInfo<NodeUid> {
     secret_key_share: SecretKeyShare,
     secret_key: SecretKey,
     public_key_set: PublicKeySet,
-    public_key_shares: BTreeMap<NodeUid, PublicKeyShare>,
-    public_keys: BTreeMap<NodeUid, PublicKey>,
-    node_indices: BTreeMap<NodeUid, usize>,
+    public_key_shares: BTreeMap<N, PublicKeyShare>,
+    public_keys: BTreeMap<N, PublicKey>,
+    node_indices: BTreeMap<N, usize>,
 }
 
-impl<NodeUid: Clone + Ord> NetworkInfo<NodeUid> {
+impl<N: NodeUidT> NetworkInfo<N> {
     pub fn new(
-        our_uid: NodeUid,
+        our_uid: N,
         secret_key_share: SecretKeyShare,
         public_key_set: PublicKeySet,
         secret_key: SecretKey,
-        public_keys: BTreeMap<NodeUid, PublicKey>,
+        public_keys: BTreeMap<N, PublicKey>,
     ) -> Self {
         let num_nodes = public_keys.len();
         let is_validator = public_keys.contains_key(&our_uid);
-        let node_indices: BTreeMap<NodeUid, usize> = public_keys
+        let node_indices: BTreeMap<N, usize> = public_keys
             .keys()
             .enumerate()
             .map(|(n, id)| (id.clone(), n))
@@ -266,12 +267,12 @@ impl<NodeUid: Clone + Ord> NetworkInfo<NodeUid> {
     }
 
     /// The ID of the node the algorithm runs on.
-    pub fn our_uid(&self) -> &NodeUid {
+    pub fn our_uid(&self) -> &N {
         &self.our_uid
     }
 
     /// ID of all nodes in the network.
-    pub fn all_uids(&self) -> impl Iterator<Item = &NodeUid> {
+    pub fn all_uids(&self) -> impl Iterator<Item = &N> {
         self.public_keys.keys()
     }
 
@@ -308,27 +309,27 @@ impl<NodeUid: Clone + Ord> NetworkInfo<NodeUid> {
     }
 
     /// Returns the public key share if a node with that ID exists, otherwise `None`.
-    pub fn public_key_share(&self, id: &NodeUid) -> Option<&PublicKeyShare> {
+    pub fn public_key_share(&self, id: &N) -> Option<&PublicKeyShare> {
         self.public_key_shares.get(id)
     }
 
     /// Returns a map of all node IDs to their public key shares.
-    pub fn public_key_share_map(&self) -> &BTreeMap<NodeUid, PublicKeyShare> {
+    pub fn public_key_share_map(&self) -> &BTreeMap<N, PublicKeyShare> {
         &self.public_key_shares
     }
 
     /// Returns a map of all node IDs to their public keys.
-    pub fn public_key(&self, id: &NodeUid) -> Option<&PublicKey> {
+    pub fn public_key(&self, id: &N) -> Option<&PublicKey> {
         self.public_keys.get(id)
     }
 
     /// Returns a map of all node IDs to their public keys.
-    pub fn public_key_map(&self) -> &BTreeMap<NodeUid, PublicKey> {
+    pub fn public_key_map(&self) -> &BTreeMap<N, PublicKey> {
         &self.public_keys
     }
 
     /// The index of a node in a canonical numbering of all nodes.
-    pub fn node_index(&self, id: &NodeUid) -> Option<usize> {
+    pub fn node_index(&self, id: &N) -> Option<usize> {
         self.node_indices.get(id).cloned()
     }
 
@@ -350,14 +351,14 @@ impl<NodeUid: Clone + Ord> NetworkInfo<NodeUid> {
 
     /// Returns `true` if the given node takes part in the consensus itself. If not, it is only an
     /// observer.
-    pub fn is_node_validator(&self, uid: &NodeUid) -> bool {
+    pub fn is_node_validator(&self, uid: &N) -> bool {
         self.public_keys.contains_key(uid)
     }
 
     /// Generates a map of matching `NetworkInfo`s for testing.
-    pub fn generate_map<I>(uids: I) -> BTreeMap<NodeUid, NetworkInfo<NodeUid>>
+    pub fn generate_map<I>(uids: I) -> BTreeMap<N, NetworkInfo<N>>
     where
-        I: IntoIterator<Item = NodeUid>,
+        I: IntoIterator<Item = N>,
     {
         use rand::{self, Rng};
 
@@ -365,7 +366,7 @@ impl<NodeUid: Clone + Ord> NetworkInfo<NodeUid> {
 
         let mut rng = rand::thread_rng();
 
-        let all_uids: BTreeSet<NodeUid> = uids.into_iter().collect();
+        let all_uids: BTreeSet<N> = uids.into_iter().collect();
         let num_faulty = (all_uids.len() - 1) / 3;
 
         // Generate the keys for threshold cryptography.
@@ -381,7 +382,7 @@ impl<NodeUid: Clone + Ord> NetworkInfo<NodeUid> {
             .collect();
 
         // Create the corresponding `NetworkInfo` for each node.
-        let create_netinfo = |(i, uid): (usize, NodeUid)| {
+        let create_netinfo = |(i, uid): (usize, N)| {
             let netinfo = NetworkInfo::new(
                 uid.clone(),
                 sk_set.secret_key_share(i),

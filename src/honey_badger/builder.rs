@@ -1,6 +1,4 @@
 use std::collections::BTreeMap;
-use std::fmt::Debug;
-use std::hash::Hash;
 use std::marker::PhantomData;
 use std::sync::Arc;
 
@@ -9,24 +7,25 @@ use serde::{Deserialize, Serialize};
 
 use super::HoneyBadger;
 use messaging::NetworkInfo;
+use traits::{Contribution, NodeUidT};
 
 /// A Honey Badger builder, to configure the parameters and create new instances of `HoneyBadger`.
-pub struct HoneyBadgerBuilder<C, NodeUid> {
+pub struct HoneyBadgerBuilder<C, N> {
     /// Shared network data.
-    netinfo: Arc<NetworkInfo<NodeUid>>,
+    netinfo: Arc<NetworkInfo<N>>,
     /// The maximum number of future epochs for which we handle messages simultaneously.
     max_future_epochs: usize,
     _phantom: PhantomData<C>,
 }
 
-impl<C, NodeUid> HoneyBadgerBuilder<C, NodeUid>
+impl<C, N> HoneyBadgerBuilder<C, N>
 where
-    C: Serialize + for<'r> Deserialize<'r> + Debug + Hash + Eq,
-    NodeUid: Ord + Clone + Debug + Rand,
+    C: Contribution + Serialize + for<'r> Deserialize<'r>,
+    N: NodeUidT + Rand,
 {
     /// Returns a new `HoneyBadgerBuilder` configured to use the node IDs and cryptographic keys
     /// specified by `netinfo`.
-    pub fn new(netinfo: Arc<NetworkInfo<NodeUid>>) -> Self {
+    pub fn new(netinfo: Arc<NetworkInfo<N>>) -> Self {
         HoneyBadgerBuilder {
             netinfo,
             max_future_epochs: 3,
@@ -41,7 +40,7 @@ where
     }
 
     /// Creates a new Honey Badger instance.
-    pub fn build(&self) -> HoneyBadger<C, NodeUid> {
+    pub fn build(&self) -> HoneyBadger<C, N> {
         HoneyBadger {
             netinfo: self.netinfo.clone(),
             epoch: 0,

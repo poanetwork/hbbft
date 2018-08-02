@@ -1,5 +1,4 @@
 use std::collections::BTreeMap;
-use std::fmt::Debug;
 
 use rand::Rand;
 use serde::{Deserialize, Serialize};
@@ -7,22 +6,23 @@ use serde::{Deserialize, Serialize};
 use super::{ChangeState, JoinPlan};
 use crypto::{PublicKey, PublicKeySet};
 use messaging::NetworkInfo;
+use traits::NodeUidT;
 
 /// A batch of transactions the algorithm has output.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct Batch<C, NodeUid> {
+pub struct Batch<C, N> {
     /// The sequence number: there is exactly one batch in each epoch.
     pub(super) epoch: u64,
     /// The user contributions committed in this epoch.
-    pub(super) contributions: BTreeMap<NodeUid, C>,
+    pub(super) contributions: BTreeMap<N, C>,
     /// The current state of adding or removing a node: whether any is in progress, or completed
     /// this epoch.
-    change: ChangeState<NodeUid>,
+    change: ChangeState<N>,
     /// The public network info, if `change` is not `None`.
-    pub_netinfo: Option<(PublicKeySet, BTreeMap<NodeUid, PublicKey>)>,
+    pub_netinfo: Option<(PublicKeySet, BTreeMap<N, PublicKey>)>,
 }
 
-impl<C, NodeUid: Ord + Rand + Clone + Debug> Batch<C, NodeUid> {
+impl<C, N: NodeUidT + Rand> Batch<C, N> {
     /// Returns a new, empty batch with the given epoch.
     pub fn new(epoch: u64) -> Self {
         Batch {
@@ -39,7 +39,7 @@ impl<C, NodeUid: Ord + Rand + Clone + Debug> Batch<C, NodeUid> {
 
     /// Returns whether any change to the set of participating nodes is in progress or was
     /// completed in this epoch.
-    pub fn change(&self) -> &ChangeState<NodeUid> {
+    pub fn change(&self) -> &ChangeState<N> {
         &self.change
     }
 
@@ -60,33 +60,33 @@ impl<C, NodeUid: Ord + Rand + Clone + Debug> Batch<C, NodeUid> {
     }
 
     /// Returns the number of transactions in the batch (without detecting duplicates).
-    pub fn len<Tx>(&self) -> usize
+    pub fn len<T>(&self) -> usize
     where
-        C: AsRef<[Tx]>,
+        C: AsRef<[T]>,
     {
         self.contributions
             .values()
             .map(C::as_ref)
-            .map(<[Tx]>::len)
+            .map(<[T]>::len)
             .sum()
     }
 
     /// Returns `true` if the batch contains no transactions.
-    pub fn is_empty<Tx>(&self) -> bool
+    pub fn is_empty<T>(&self) -> bool
     where
-        C: AsRef<[Tx]>,
+        C: AsRef<[T]>,
     {
         self.contributions
             .values()
             .map(C::as_ref)
-            .all(<[Tx]>::is_empty)
+            .all(<[T]>::is_empty)
     }
 
     /// Returns the `JoinPlan` to be sent to new observer nodes, if it is possible to join in the
     /// next epoch.
-    pub fn join_plan(&self) -> Option<JoinPlan<NodeUid>>
+    pub fn join_plan(&self) -> Option<JoinPlan<N>>
     where
-        NodeUid: Serialize + for<'r> Deserialize<'r>,
+        N: Serialize + for<'r> Deserialize<'r>,
     {
         self.pub_netinfo
             .as_ref()
@@ -100,11 +100,7 @@ impl<C, NodeUid: Ord + Rand + Clone + Debug> Batch<C, NodeUid> {
 
     /// Sets the current change state, and if it is not `None`, inserts the network information so
     /// that a `JoinPlan` can be generated for the next epoch.
-    pub(super) fn set_change(
-        &mut self,
-        change: ChangeState<NodeUid>,
-        netinfo: &NetworkInfo<NodeUid>,
-    ) {
+    pub(super) fn set_change(&mut self, change: ChangeState<N>, netinfo: &NetworkInfo<N>) {
         self.change = change;
         if self.change != ChangeState::None {
             self.pub_netinfo = Some((
