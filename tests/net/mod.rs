@@ -7,45 +7,14 @@
 //! delivered to a node.
 
 // pub mod types;
+pub mod adversary;
 
-use std::cell::RefCell;
 use std::{collections, mem, sync};
 
 // pub use self::types::{FaultyMessageIdx, FaultyNodeIdx, MessageIdx, NetworkOp, NodeIdx, OpList};
 use hbbft::messaging::{self, DistAlgorithm, NetworkInfo, Step};
 
-pub trait Adversary<D>
-where
-    D::Message: Clone,
-    D: DistAlgorithm,
-{
-    fn pre_crank(&mut self, net: &mut VirtualNet<D>) {
-        // The default implementation does not alter anything.
-    }
-    fn tamper(
-        &mut self,
-        net: &mut VirtualNet<D>,
-        msg: NetMessage<D>,
-    ) -> Result<Step<D>, CrankError<D>> {
-        // By default, no tampering is done.
-        net.handle_network_message(msg)
-    }
-}
-
-pub struct NullAdversary {}
-
-impl NullAdversary {
-    fn new() -> NullAdversary {
-        NullAdversary {}
-    }
-}
-
-impl<D> Adversary<D> for NullAdversary
-where
-    D::Message: Clone,
-    D: DistAlgorithm,
-{
-}
+pub use self::adversary::Adversary;
 
 // FIXME: It would be nice to stick this macro somewhere reusable.
 /// Like `try!`, but wraps into an `Option::Some` as well.
