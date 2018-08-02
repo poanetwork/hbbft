@@ -9,7 +9,7 @@
 // pub mod types;
 pub mod adversary;
 
-use std::{collections, mem, sync};
+use std::{collections, mem};
 
 // pub use self::types::{FaultyMessageIdx, FaultyNodeIdx, MessageIdx, NetworkOp, NodeIdx, OpList};
 use hbbft::messaging::{self, DistAlgorithm, NetworkInfo, Step};
@@ -29,12 +29,19 @@ macro_rules! try_some {
 
 #[derive(Debug)]
 pub struct Node<D: DistAlgorithm> {
-    netinfo: sync::Arc<NetworkInfo<D::NodeUid>>,
     algorithm: D,
     is_faulty: bool,
 }
 
 impl<D: DistAlgorithm> Node<D> {
+    #[inline]
+    pub fn new(algorithm: D, is_faulty: bool) -> Self {
+        Node {
+            algorithm,
+            is_faulty,
+        }
+    }
+
     #[inline]
     pub fn is_faulty(&self) -> bool {
         self.is_faulty
@@ -42,7 +49,7 @@ impl<D: DistAlgorithm> Node<D> {
 
     #[inline]
     pub fn node_id(&self) -> &D::NodeUid {
-        self.netinfo.our_uid()
+        self.algorithm.our_id()
     }
 }
 
@@ -100,15 +107,6 @@ where
     D::Message: Clone,
 {
     #[inline]
-    pub fn new(nodes: NodeMap<D>) -> Self {
-        VirtualNet {
-            nodes,
-            messages: collections::VecDeque::new(),
-            adversary: None,
-        }
-    }
-
-    #[inline]
     pub fn new_with_adversary(nodes: NodeMap<D>, adversary: Box<dyn Adversary<D>>) -> Self {
         VirtualNet {
             nodes,
@@ -116,6 +114,79 @@ where
             adversary: Some(adversary),
         }
     }
+
+    pub fn new_with_step<F, I>(node_ids: I, faulty: usize, cons: F) -> Self
+    where
+        F: Fn(D::NodeUid, NetworkInfo<D::NodeUid>) -> (D, Step<D>),
+        I: IntoIterator<Item = D::NodeUid>,
+    {
+        let net_infos = messaging::NetworkInfo::generate_map(node_ids);
+
+        assert!(
+            faulty * 3 < net_infos.len(),
+            "Too many faulty nodes requested, `f` must satisfy `3f < total_nodes`."
+        );
+
+        let mut steps = collections::BTreeMap::new();
+        let nodes = net_infos
+            .into_iter()
+            .enumerate()
+            .map(move |(idx, (id, netinfo))| {
+                let (algorithm, step) = cons(id.clone(), netinfo);
+                steps.insert(id.clone(), step);
+                (id, Node::new(algorithm, idx < faulty))
+            })
+            .collect();
+
+        // TODO: Handle steps.
+
+        VirtualNet {
+            nodes,
+            messages: collections::VecDeque::new(),
+            adversary: None,
+        }
+    }
+
+    pub fn new<F, I>(node_ids: I, faulty: usize, cons: F) -> Self
+    where
+        F: Fn(D::NodeUid, NetworkInfo<D::NodeUid>) -> D,
+        I: IntoIterator<Item = D::NodeUid>,
+    {
+        Self::new_with_step(node_ids, faulty, |id, netinfo| {
+            (cons(id, netinfo), Default::default())
+        })
+    }
+
+    // pub fn from_netinfo<F>(
+    //     net_infos: collections::BTreeMap<D::NodeUid, NetworkInfo<D::NodeUid>>,
+    //     num_faulty: usize,
+    //     cons: F,
+    // ) -> Self
+    // where
+    //     F: Fn(D::NodeUid, NetworkInfo<D::NodeUid>) -> (D, Step<D>),
+    // {
+    //     assert!(
+    //         num_faulty * 3 < net_infos.len(),
+    //         "Too many faulty nodes requested, `f` must satisfy `3f < total_nodes`."
+    //     );
+
+    //     let mut steps = collections::BTreeMap::new();
+    //     let nodes = net_infos
+    //         .into_iter()
+    //         .enumerate()
+    //         .map(move |(idx, (id, netinfo))| {
+    //             let (algorithm, step) = cons(id.clone(), netinfo);
+    //             steps.insert(id.clone(), step);
+    //             (id, Node::new(algorithm, idx < num_faulty))
+    //         })
+    //         .collect();
+
+    //     VirtualNet {
+    //         nodes,
+    //         messages: collections::VecDeque::new(),
+    //         adversary: None,
+    //     }
+    // }
 
     #[inline]
     fn process_messages<'a, I>(&mut self, sender: D::NodeUid, messages: I)
