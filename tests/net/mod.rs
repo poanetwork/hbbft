@@ -181,9 +181,6 @@ where
             .map_err(move |err| CrankError::CorrectNodeErr { msg: msg_copy, err })
     }
 
-    /// # Panics
-    ///
-    /// TODO: [] (indexing)
     #[inline]
     pub fn crank(&mut self) -> Option<Result<Step<D>, CrankError<D>>> {
         // Step 0: We give the Adversary a chance to affect the network.
