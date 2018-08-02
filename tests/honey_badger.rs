@@ -175,7 +175,8 @@ where
                      epoch,
                      contributions,
                  }| (epoch, contributions),
-            ).collect();
+            )
+            .collect();
         if expected.is_none() {
             expected = Some(outputs);
         } else if let Some(expected) = &expected {

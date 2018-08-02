@@ -541,7 +541,8 @@ impl<NodeUid: Debug + Clone + Ord> Broadcast<NodeUid> {
                         None
                     }
                 })
-            }).collect();
+            })
+            .collect();
         if let Some(value) =
             decode_from_shards(&mut leaf_values, &self.coding, self.data_shard_num, hash)
         {
