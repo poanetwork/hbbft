@@ -155,13 +155,12 @@ where
         // Step 0: We give the Adversary a chance to affect the network.
 
         // Swap the adversary out with a dummy, to get around ownership restrictions.
-        let mut adv = None;
-        mem::swap(&mut self.adversary, &mut adv);
+        let mut adv = mem::replace(&mut self.adversary, None);
         if let Some(ref mut adversary) = adv {
             // If an adversary was set, we let it affect the network now.
             adversary.pre_crank(self)
         }
-        mem::swap(&mut self.adversary, &mut adv);
+        mem::replace(&mut self.adversary, adv);
 
         // Step 1: Pick a message from the queue and deliver it.
         if let Some(msg) = self.messages.pop_front() {
@@ -177,17 +176,16 @@ where
             ).is_faulty();
 
             let step: Step<_> = if is_faulty {
-                let mut adv = None;
                 let receiver = msg.to.clone();
 
                 // The swap-dance is painful here, as we are creating an `opt_step` just to avoid
                 // borrow issues.
-                mem::swap(&mut self.adversary, &mut adv);
+                let mut adv = mem::replace(&mut self.adversary, None);
                 let opt_tamper_result = adv.as_mut().map(|adversary| {
                     // If an adversary was set, we let it affect the network now.
                     adversary.tamper(self, msg)
                 });
-                mem::swap(&mut self.adversary, &mut adv);
+                mem::replace(&mut self.adversary, adv);
 
                 // An error will be returned here, if the adversary was missing.
                 let tamper_result = try_some!(
