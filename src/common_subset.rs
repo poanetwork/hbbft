@@ -129,7 +129,8 @@ impl<NodeUid: Clone + Debug + Ord + Rand> CommonSubset<NodeUid> {
         for proposer_id in netinfo.all_uids() {
             broadcast_instances.insert(
                 proposer_id.clone(),
-                Broadcast::new(netinfo.clone(), proposer_id.clone()).map_err(Error::NewBroadcast)?,
+                Broadcast::new(netinfo.clone(), proposer_id.clone())
+                    .map_err(Error::NewBroadcast)?,
             );
         }
 
