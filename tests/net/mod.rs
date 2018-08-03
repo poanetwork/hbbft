@@ -8,6 +8,7 @@
 
 // pub mod types;
 pub mod adversary;
+pub mod err;
 
 use std::{collections, mem};
 
@@ -15,6 +16,7 @@ use std::{collections, mem};
 use hbbft::messaging::{self, DistAlgorithm, NetworkInfo, Step};
 
 pub use self::adversary::Adversary;
+pub use self::err::CrankError;
 
 // FIXME: It would be nice to stick this macro somewhere reusable.
 /// Like `try!`, but wraps into an `Option::Some` as well.
@@ -83,81 +85,6 @@ where
     /// An Adversary that controls the network delivery schedule and all faulty nodes. Optional
     /// only when no faulty nodes are defined.
     adversary: Option<Box<dyn Adversary<D>>>,
-}
-
-// FIXME: Document manual implementation.
-pub enum CrankError<D>
-where
-    D: DistAlgorithm,
-{
-    // Note: Currently, neither std::error::Error nor failure::Fail are implemented for D::Error.
-    //       Either would be preferable, and would enable a `cause` implementation.
-    CorrectNodeErr { msg: NetMessage<D>, err: D::Error },
-    FaultyNodeButNoAdversary(D::NodeUid),
-    NodeDisappeared(D::NodeUid),
-}
-
-use failure;
-use std::fmt;
-
-impl<D> fmt::Display for CrankError<D>
-where
-    D: DistAlgorithm,
-{
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            CrankError::CorrectNodeErr { msg, err } => write!(
-                f,
-                "Node error'd processing network message {:?}. Error: {:?}",
-                msg, err
-            ),
-            CrankError::FaultyNodeButNoAdversary(id) => write!(
-                f,
-                "The node with ID {:?} is faulty, but no adversary is set.",
-                id
-            ),
-            CrankError::NodeDisappeared(id) => write!(
-                f,
-                "Node {:?} disappeared or never existed, while it still had incoming messages.",
-                id
-            ),
-        }
-    }
-}
-
-impl<D> fmt::Debug for CrankError<D>
-where
-    D: DistAlgorithm,
-{
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            CrankError::CorrectNodeErr { msg, err } => f.debug_struct("CorrectNodeErr")
-                .field("msg", msg)
-                .field("err", err)
-                .finish(),
-            CrankError::FaultyNodeButNoAdversary(id) => {
-                f.debug_tuple("FaultyNodeButNoAdversary").field(id).finish()
-            }
-            CrankError::NodeDisappeared(id) => f.debug_tuple("NodeDisappeared").field(id).finish(),
-        }
-    }
-}
-
-impl<D> failure::Fail for CrankError<D>
-where
-    D: DistAlgorithm + 'static,
-{
-    fn cause(&self) -> Option<&failure::Fail> {
-        match self {
-            CrankError::CorrectNodeErr { err: _, .. } => {
-                // As soon as the necessary Trait bounds are on DistAlgorithm, this implementation
-                // can be commented in:
-                // Some(err)
-                None
-            }
-            _ => None,
-        }
-    }
 }
 
 impl<D> VirtualNet<D>
