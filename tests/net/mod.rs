@@ -85,23 +85,17 @@ where
     adversary: Option<Box<dyn Adversary<D>>>,
 }
 
-// FIXME: Derive Fail
-// #[derive(Debug)]
+// FIXME: Document manual implementation.
 pub enum CrankError<D>
 where
     D: DistAlgorithm,
 {
-    // #[fail(display = "Node error'd processing network message {:?}. Error: {:?}", msg, err)]
     CorrectNodeErr {
         msg: NetMessage<D>,
         // #[cause]
         // err: D::Error,
     },
-    // #[fail(display = "The node with ID {:?} is faulty, but no adversary is set.", _0)]
     FaultyNodeButNoAdversary(D::NodeUid),
-    // #[fail(
-    // display = "Node {} disappeared or never existed, while it still had incoming messages.", _0
-    // )]
     NodeDisappeared(D::NodeUid),
 }
 
@@ -113,7 +107,23 @@ where
     D: DistAlgorithm,
 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        unimplemented!()
+        match self {
+            CrankError::CorrectNodeErr { msg } => write!(
+                f,
+                "Node error'd processing network message {:?}. Error: {:?}",
+                msg, "XX"
+            ),
+            CrankError::FaultyNodeButNoAdversary(id) => write!(
+                f,
+                "The node with ID {:?} is faulty, but no adversary is set.",
+                id
+            ),
+            CrankError::NodeDisappeared(id) => write!(
+                f,
+                "Node {:?} disappeared or never existed, while it still had incoming messages.",
+                id
+            ),
+        }
     }
 }
 
@@ -122,7 +132,15 @@ where
     D: DistAlgorithm,
 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        unimplemented!()
+        match self {
+            CrankError::CorrectNodeErr { msg } => {
+                f.debug_struct("CorrectNodeErr").field("msg", msg).finish()
+            }
+            CrankError::FaultyNodeButNoAdversary(id) => {
+                f.debug_tuple("FaultyNodeButNoAdversary").field(id).finish()
+            }
+            CrankError::NodeDisappeared(id) => f.debug_tuple("NodeDisappeared").field(id).finish(),
+        }
     }
 }
 
@@ -130,6 +148,7 @@ impl<D> failure::Fail for CrankError<D>
 where
     D: DistAlgorithm + 'static,
 {
+    //     fn cause(&self) -> Option<&Fail> { ... }
 }
 
 impl<D> VirtualNet<D>
