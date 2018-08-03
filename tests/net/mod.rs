@@ -199,12 +199,12 @@ where
             .ok_or_else(|| CrankError::NodeDisappeared(msg.to.clone()))?;
 
         // Store a copy of the message, in case we need to pass it to the error variant.
-        // By reducing the information in `CrankError::CorrectNodeErr`, we could reduce overhead
+        // By reducing the information in `CrankError::AlgorithmError`, we could reduce overhead
         // here if necessary.
         let msg_copy = msg.clone();
         node.algorithm
             .handle_message(&msg.from, msg.payload)
-            .map_err(move |err| CrankError::CorrectNodeErr { msg: msg_copy, err })
+            .map_err(move |err| CrankError::AlgorithmError { msg: msg_copy, err })
     }
 
     #[inline]

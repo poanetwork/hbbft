@@ -20,27 +20,41 @@ pub enum CrankError<D>
 where
     D: DistAlgorithm,
 {
-    CorrectNodeErr {
+    /// The algorithm ran by the node produced a [`DistAlgorithm::Error`] while processing input.
+    AlgorithmError {
+        /// Network message that triggered the error.
         msg: NetMessage<D>,
         // Note: Currently, neither [Error](std::error::Error) nor [Fail](failure::Fail) are
         //       implemented for [`D::Error`].
         //       Either would be preferable, and would enable a [`failure::Fail::cause`]
         //       implementation.
+        /// Error produced by `D`.
         err: D::Error,
     },
+    /// A node was marked as faulty and sent a message, but no adversary was defined.
     FaultyNodeButNoAdversary(D::NodeUid),
+    /// A node unexpectly disappeared from the list of notes. Note that this is likely a bug in
+    /// the network framework code.
     NodeDisappeared(D::NodeUid),
 }
 
+// Note: Deriving [Debug](std::fmt::Debug), [Fail](failure::Fail) and through that,
+//       [Debug](std::fmt::Debug) automatically does not work due to the trait bound of
+//       `D: DistAlgorithm`. For this reason, these three traits are implemented manually.
+//
+//       More details at
+//
+//       * <https://github.com/rust-lang/rust/issues/26925>
+//       * <https://github.com/rust-lang/rust/issues/26925#issuecomment-405189266>
 impl<D> fmt::Display for CrankError<D>
 where
     D: DistAlgorithm,
 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            CrankError::CorrectNodeErr { msg, err } => write!(
+            CrankError::AlgorithmError { msg, err } => write!(
                 f,
-                "Node error'd processing network message {:?}. Error: {:?}",
+                "The Underyling algorithm could not process network message {:?}. Error: {:?}",
                 msg, err
             ),
             CrankError::FaultyNodeButNoAdversary(id) => write!(
@@ -63,7 +77,7 @@ where
 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            CrankError::CorrectNodeErr { msg, err } => f.debug_struct("CorrectNodeErr")
+            CrankError::AlgorithmError { msg, err } => f.debug_struct("AlgorithmError")
                 .field("msg", msg)
                 .field("err", err)
                 .finish(),
@@ -81,7 +95,7 @@ where
 {
     fn cause(&self) -> Option<&failure::Fail> {
         match self {
-            CrankError::CorrectNodeErr { err: _, .. } => {
+            CrankError::AlgorithmError { err: _, .. } => {
                 // As soon as the necessary Trait bounds are on DistAlgorithm, this implementation
                 // can be commented in:
                 // Some(err)
