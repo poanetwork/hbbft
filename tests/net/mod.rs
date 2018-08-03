@@ -90,11 +90,9 @@ pub enum CrankError<D>
 where
     D: DistAlgorithm,
 {
-    CorrectNodeErr {
-        msg: NetMessage<D>,
-        // #[cause]
-        // err: D::Error,
-    },
+    // Note: Currently, neither std::error::Error nor failure::Fail are implemented for D::Error.
+    //       Either would be preferable, and would enable a `cause` implementation.
+    CorrectNodeErr { msg: NetMessage<D>, err: D::Error },
     FaultyNodeButNoAdversary(D::NodeUid),
     NodeDisappeared(D::NodeUid),
 }
@@ -108,10 +106,10 @@ where
 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            CrankError::CorrectNodeErr { msg } => write!(
+            CrankError::CorrectNodeErr { msg, err } => write!(
                 f,
                 "Node error'd processing network message {:?}. Error: {:?}",
-                msg, "XX"
+                msg, err
             ),
             CrankError::FaultyNodeButNoAdversary(id) => write!(
                 f,
@@ -133,9 +131,10 @@ where
 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            CrankError::CorrectNodeErr { msg } => {
-                f.debug_struct("CorrectNodeErr").field("msg", msg).finish()
-            }
+            CrankError::CorrectNodeErr { msg, err } => f.debug_struct("CorrectNodeErr")
+                .field("msg", msg)
+                .field("err", err)
+                .finish(),
             CrankError::FaultyNodeButNoAdversary(id) => {
                 f.debug_tuple("FaultyNodeButNoAdversary").field(id).finish()
             }
@@ -148,7 +147,17 @@ impl<D> failure::Fail for CrankError<D>
 where
     D: DistAlgorithm + 'static,
 {
-    //     fn cause(&self) -> Option<&Fail> { ... }
+    fn cause(&self) -> Option<&failure::Fail> {
+        match self {
+            CrankError::CorrectNodeErr { err: _, .. } => {
+                // As soon as the necessary Trait bounds are on DistAlgorithm, this implementation
+                // can be commented in:
+                // Some(err)
+                None
+            }
+            _ => None,
+        }
+    }
 }
 
 impl<D> VirtualNet<D>
@@ -268,9 +277,7 @@ where
         let msg_copy = msg.clone();
         node.algorithm
             .handle_message(&msg.from, msg.payload)
-            .map_err(move |err| CrankError::CorrectNodeErr {
-                msg: msg_copy, /*err*/
-            })
+            .map_err(move |err| CrankError::CorrectNodeErr { msg: msg_copy, err })
     }
 
     #[inline]
