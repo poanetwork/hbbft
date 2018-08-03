@@ -9,6 +9,8 @@
 // pub mod types;
 pub mod adversary;
 pub mod err;
+#[macro_use]
+mod macros;
 
 use std::{collections, mem};
 
@@ -17,17 +19,6 @@ use hbbft::messaging::{self, DistAlgorithm, NetworkInfo, Step};
 
 pub use self::adversary::Adversary;
 pub use self::err::CrankError;
-
-// FIXME: It would be nice to stick this macro somewhere reusable.
-/// Like `try!`, but wraps into an `Option::Some` as well.
-macro_rules! try_some {
-    ($expr:expr) => {
-        match $expr {
-            Ok(v) => v,
-            Err(e) => return Some(Err(From::from(e))),
-        }
-    };
-}
 
 #[derive(Debug)]
 pub struct Node<D: DistAlgorithm> {
