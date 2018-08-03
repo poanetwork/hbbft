@@ -9,8 +9,8 @@ use hbbft::messaging::{DistAlgorithm, Step};
 
 pub trait Adversary<D>
 where
-    D::Message: Clone + Send + Sync,
     D: DistAlgorithm,
+    D::Message: Clone,
 {
     fn pre_crank(&mut self, _net: &mut VirtualNet<D>) {
         // The default implementation does not alter anything.

@@ -85,31 +85,30 @@ where
     adversary: Option<Box<dyn Adversary<D>>>,
 }
 
-#[derive(Debug, Fail)]
-pub enum CrankError<D: DistAlgorithm>
+// FIXME: Derive Fail
+#[derive(Debug)]
+pub enum CrankError<D>
 where
-    D::Message: Send + Sync,
-    D::NodeUid: Send + Sync,
+    D: DistAlgorithm,
 {
-    #[fail(display = "Node error'd processing network message {:?}. Error: {:?}", msg, err)]
+    // #[fail(display = "Node error'd processing network message {:?}. Error: {:?}", msg, err)]
     CorrectNodeErr {
         msg: NetMessage<D>,
-        #[cause]
+        // #[cause]
         err: D::Error,
     },
-    #[fail(display = "The node with ID {:?} is faulty, but no adversary is set.", _0)]
+    // #[fail(display = "The node with ID {:?} is faulty, but no adversary is set.", _0)]
     FaultyNodeButNoAdversary(D::NodeUid),
-    #[fail(
-        display = "Node {} disappeared or never existed, while it still had incoming messages.", _0
-    )]
+    // #[fail(
+    // display = "Node {} disappeared or never existed, while it still had incoming messages.", _0
+    // )]
     NodeDisappeared(D::NodeUid),
 }
 
 impl<D> VirtualNet<D>
 where
     D: DistAlgorithm,
-    D::Message: Clone + Send + Sync,
-    D::NodeUid: Clone + Send + Sync,
+    D::Message: Clone,
 {
     #[inline]
     pub fn new_with_adversary(nodes: NodeMap<D>, adversary: Box<dyn Adversary<D>>) -> Self {
@@ -393,8 +392,7 @@ where
 impl<D> Iterator for VirtualNet<D>
 where
     D: DistAlgorithm,
-    D::Message: Clone + Send + Sync,
-    D::NodeUid: Send + Sync,
+    D::Message: Clone,
 {
     type Item = Result<Step<D>, CrankError<D>>;
 
