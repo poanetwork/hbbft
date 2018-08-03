@@ -1,13 +1,15 @@
 use std::collections::BTreeMap;
 
+use traits::NodeUidT;
+
 /// A batch of contributions the algorithm has output.
 #[derive(Clone, Debug)]
-pub struct Batch<C, NodeUid> {
+pub struct Batch<C, N> {
     pub epoch: u64,
-    pub contributions: BTreeMap<NodeUid, C>,
+    pub contributions: BTreeMap<N, C>,
 }
 
-impl<C, NodeUid: Ord> Batch<C, NodeUid> {
+impl<C, N: NodeUidT> Batch<C, N> {
     /// Returns an iterator over references to all transactions included in the batch.
     pub fn iter<'a>(&'a self) -> impl Iterator<Item = <&'a C as IntoIterator>::Item>
     where
@@ -25,25 +27,25 @@ impl<C, NodeUid: Ord> Batch<C, NodeUid> {
     }
 
     /// Returns the number of transactions in the batch (without detecting duplicates).
-    pub fn len<Tx>(&self) -> usize
+    pub fn len<T>(&self) -> usize
     where
-        C: AsRef<[Tx]>,
+        C: AsRef<[T]>,
     {
         self.contributions
             .values()
             .map(C::as_ref)
-            .map(<[Tx]>::len)
+            .map(<[T]>::len)
             .sum()
     }
 
     /// Returns `true` if the batch contains no transactions.
-    pub fn is_empty<Tx>(&self) -> bool
+    pub fn is_empty<T>(&self) -> bool
     where
-        C: AsRef<[Tx]>,
+        C: AsRef<[T]>,
     {
         self.contributions
             .values()
             .map(C::as_ref)
-            .all(<[Tx]>::is_empty)
+            .all(<[T]>::is_empty)
     }
 }
