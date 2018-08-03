@@ -45,12 +45,9 @@ where
             netinfo: self.netinfo.clone(),
             epoch: 0,
             has_input: false,
-            common_subsets: BTreeMap::new(),
+            epochs: BTreeMap::new(),
             max_future_epochs: self.max_future_epochs as u64,
             incoming_queue: BTreeMap::new(),
-            threshold_decryption: BTreeMap::new(),
-            decrypted_contributions: BTreeMap::new(),
-            _phantom: PhantomData,
         }
     }
 }

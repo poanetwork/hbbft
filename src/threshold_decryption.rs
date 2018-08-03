@@ -112,6 +112,11 @@ impl<N: NodeUidT> ThresholdDecryption<N> {
         Ok(step)
     }
 
+    /// Returns an iterator over the IDs of all nodes who sent a share.
+    pub fn sender_ids(&self) -> impl Iterator<Item = &N> {
+        self.shares.keys()
+    }
+
     fn handle_message(&mut self, sender_id: &N, message: Message) -> Result<Step<N>> {
         if self.terminated {
             return Ok(Step::default()); // Don't waste time on redundant shares.

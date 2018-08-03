@@ -12,6 +12,8 @@ pub enum FaultKind {
     UnverifiedSignatureShareSender,
     /// `HoneyBadger` received a decryption share from an unverified sender.
     UnverifiedDecryptionShareSender,
+    /// `HoneyBadger` received a decryption share for an unaccepted proposer.
+    UnexpectedDecryptionShare,
     /// `HoneyBadger` was unable to deserialize a proposer's ciphertext.
     InvalidCiphertext,
     /// `HoneyBadger` was unable to decrypt a share received from a proposer.
