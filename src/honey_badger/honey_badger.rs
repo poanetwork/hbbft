@@ -1,19 +1,19 @@
 use std::collections::btree_map::Entry;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::marker::PhantomData;
-use std::mem;
 use std::sync::Arc;
 
 use bincode;
-use crypto::{Ciphertext, DecryptionShare};
+use crypto::Ciphertext;
 use itertools::Itertools;
 use rand::Rand;
 use serde::{Deserialize, Serialize};
 
 use super::{Batch, Error, ErrorKind, HoneyBadgerBuilder, Message, MessageContent, Result};
 use common_subset::{self, CommonSubset};
-use fault_log::{Fault, FaultKind, FaultLog};
-use messaging::{self, DistAlgorithm, NetworkInfo, Target};
+use fault_log::FaultKind;
+use messaging::{self, DistAlgorithm, NetworkInfo};
+use threshold_decryption::{self as td, ThresholdDecryption};
 use traits::{Contribution, NodeUidT};
 
 /// An instance of the Honey Badger Byzantine fault tolerant consensus algorithm.
@@ -32,14 +32,10 @@ pub struct HoneyBadger<C, N: Rand> {
     pub(super) max_future_epochs: u64,
     /// Messages for future epochs that couldn't be handled yet.
     pub(super) incoming_queue: BTreeMap<u64, Vec<(N, MessageContent<N>)>>,
-    /// Received decryption shares for an epoch. Each decryption share has a sender and a
-    /// proposer. The outer `BTreeMap` has epochs as its key. The next `BTreeMap` has proposers as
-    /// its key. The inner `BTreeMap` has the sender as its key.
-    pub(super) received_shares: BTreeMap<u64, BTreeMap<N, BTreeMap<N, DecryptionShare>>>,
+    /// The threshold decryption algorithm, by epoch and proposer.
+    pub(super) threshold_decryption: BTreeMap<u64, BTreeMap<N, ThresholdDecryption<N>>>,
     /// Decoded accepted proposals.
-    pub(super) decrypted_contributions: BTreeMap<N, Vec<u8>>,
-    /// Ciphertexts output by Common Subset in an epoch.
-    pub(super) ciphertexts: BTreeMap<u64, BTreeMap<N, Ciphertext>>,
+    pub(super) decrypted_contributions: BTreeMap<u64, BTreeMap<N, Vec<u8>>>,
     pub(super) _phantom: PhantomData<C>,
 }
 
@@ -108,7 +104,7 @@ where
                 Entry::Occupied(entry) => entry.into_mut(),
                 Entry::Vacant(entry) => entry.insert(
                     CommonSubset::new(self.netinfo.clone(), epoch)
-                        .map_err(ErrorKind::ProposeCommonSubset0)?,
+                        .map_err(ErrorKind::CreateCommonSubset)?,
                 ),
             };
             let ser_prop =
@@ -116,7 +112,7 @@ where
             let ciphertext = self.netinfo.public_key_set().public_key().encrypt(ser_prop);
             self.has_input = true;
             cs.input(bincode::serialize(&ciphertext).unwrap())
-                .map_err(ErrorKind::ProposeCommonSubset1)?
+                .map_err(ErrorKind::InputCommonSubset)?
         };
         self.process_output(cs_step, epoch)
     }
@@ -167,19 +163,15 @@ where
                         // Epoch has already terminated. Message is obsolete.
                         return Ok(Step::default());
                     } else {
-                        entry.insert(
-                            CommonSubset::new(self.netinfo.clone(), epoch)
-                                .map_err(ErrorKind::HandleCommonMessageCommonSubset0)?,
-                        )
+                        let cs_result = CommonSubset::new(self.netinfo.clone(), epoch);
+                        entry.insert(cs_result.map_err(ErrorKind::CreateCommonSubset)?)
                     }
                 }
             };
             cs.handle_message(sender_id, message)
-                .map_err(ErrorKind::HandleCommonMessageCommonSubset1)?
+                .map_err(ErrorKind::HandleCommonSubsetMessage)?
         };
-        let step = self.process_output(cs_step, epoch)?;
-        self.remove_terminated();
-        Ok(step)
+        self.process_output(cs_step, epoch)
     }
 
     /// Handles decryption shares sent by `HoneyBadger` instances.
@@ -188,84 +180,77 @@ where
         sender_id: &N,
         epoch: u64,
         proposer_id: N,
-        share: DecryptionShare,
+        share: td::Message,
     ) -> Result<Step<C, N>> {
-        if let Some(ciphertext) = self
-            .ciphertexts
-            .get(&epoch)
-            .and_then(|cts| cts.get(&proposer_id))
-        {
-            if !self.verify_decryption_share(sender_id, &share, ciphertext) {
-                let fault_kind = FaultKind::UnverifiedDecryptionShareSender;
-                return Ok(Fault::new(sender_id.clone(), fault_kind).into());
-            }
-        }
-
-        // Insert the share.
-        self.received_shares
+        let netinfo = self.netinfo.clone();
+        let td_step = self
+            .threshold_decryption
             .entry(epoch)
             .or_insert_with(BTreeMap::new)
-            .entry(proposer_id)
-            .or_insert_with(BTreeMap::new)
-            .insert(sender_id.clone(), share);
-
+            .entry(proposer_id.clone())
+            .or_insert_with(|| ThresholdDecryption::new(netinfo))
+            .handle_message(sender_id, share)
+            .map_err(ErrorKind::ThresholdDecryption)?;
+        let mut step = self.process_threshold_decryption(epoch, proposer_id, td_step)?;
         if epoch == self.epoch {
-            self.try_output_batches()
-        } else {
-            Ok(Step::default())
+            step.extend(self.try_output_batches()?);
         }
+        Ok(step)
     }
 
-    /// Verifies a given decryption share using the sender's public key and the proposer's
-    /// ciphertext. Returns `true` if verification has been successful and `false` if verification
-    /// has failed.
-    fn verify_decryption_share(
-        &self,
-        sender_id: &N,
-        share: &DecryptionShare,
-        ciphertext: &Ciphertext,
-    ) -> bool {
-        if let Some(pk) = self.netinfo.public_key_share(sender_id) {
-            pk.verify_decryption_share(&share, ciphertext)
-        } else {
-            false
+    /// Processes a Threshold Decryption step.
+    fn process_threshold_decryption(
+        &mut self,
+        epoch: u64,
+        proposer_id: N,
+        td_step: td::Step<N>,
+    ) -> Result<Step<C, N>> {
+        let mut step = Step::default();
+        let opt_output = step.extend_with(td_step, |share| {
+            MessageContent::DecryptionShare {
+                proposer_id: proposer_id.clone(),
+                share,
+            }.with_epoch(epoch)
+        });
+        if let Some(output) = opt_output.into_iter().next() {
+            self.decrypted_contributions
+                .entry(epoch)
+                .or_insert_with(BTreeMap::new)
+                .insert(proposer_id, output);
         }
+        Ok(step)
     }
 
     /// When contributions of transactions have been decrypted for all valid proposers in this
     /// epoch, moves those contributions into a batch, outputs the batch and updates the epoch.
     fn try_output_batch(&mut self) -> Result<Option<Step<C, N>>> {
-        // Return if we don't have ciphertexts yet.
-        let proposer_ids = match self.ciphertexts.get(&self.epoch) {
+        let proposer_ids = match self.threshold_decryption.get(&self.epoch) {
             Some(cts) => cts.keys().cloned().collect_vec(),
-            None => return Ok(None),
+            None => return Ok(None), // Decryption hasn't even started yet.
         };
-
-        // Try to decrypt all contributions. If some are still missing, return.
-        if !proposer_ids
-            .into_iter()
-            .all(|id| self.try_decrypt_proposer_contribution(id))
-        {
-            return Ok(None);
-        }
 
         let mut step = Step::default();
 
         // Deserialize the output.
-        let contributions: BTreeMap<N, C> =
-            mem::replace(&mut self.decrypted_contributions, BTreeMap::new())
+        let contributions: BTreeMap<N, C> = {
+            let decrypted = match self.decrypted_contributions.get(&self.epoch) {
+                Some(dc) if dc.keys().eq(proposer_ids.iter()) => dc,
+                _ => return Ok(None), // Not enough decrypted contributions yet.
+            };
+            decrypted
                 .into_iter()
                 .flat_map(|(proposer_id, ser_contrib)| {
                     // If deserialization fails, the proposer of that item is faulty. Ignore it.
-                    if let Ok(contrib) = bincode::deserialize::<C>(&ser_contrib) {
-                        Some((proposer_id, contrib))
+                    if let Ok(contrib) = bincode::deserialize::<C>(ser_contrib) {
+                        Some((proposer_id.clone(), contrib))
                     } else {
                         let fault_kind = FaultKind::BatchDeserializationFailed;
-                        step.fault_log.append(proposer_id, fault_kind);
+                        step.fault_log.append(proposer_id.clone(), fault_kind);
                         None
                     }
                 })
-                .collect();
+                .collect()
+        };
         let batch = Batch {
             epoch: self.epoch,
             contributions,
@@ -285,8 +270,9 @@ where
     /// Increments the epoch number and clears any state that is local to the finished epoch.
     fn update_epoch(&mut self) -> Result<Step<C, N>> {
         // Clear the state of the old epoch.
-        self.ciphertexts.remove(&self.epoch);
-        self.received_shares.remove(&self.epoch);
+        self.threshold_decryption.remove(&self.epoch);
+        self.decrypted_contributions.remove(&self.epoch);
+        self.common_subsets.remove(&self.epoch);
         self.epoch += 1;
         self.has_input = false;
         let max_epoch = self.epoch + self.max_future_epochs;
@@ -311,51 +297,14 @@ where
         Ok(step)
     }
 
-    /// Tries to decrypt the contribution from a given proposer.
-    fn try_decrypt_proposer_contribution(&mut self, proposer_id: N) -> bool {
-        if self.decrypted_contributions.contains_key(&proposer_id) {
-            return true; // Already decrypted.
-        }
-        let shares = if let Some(shares) = self
-            .received_shares
-            .get(&self.epoch)
-            .and_then(|sh| sh.get(&proposer_id))
-        {
-            shares
-        } else {
-            return false; // No shares yet.
-        };
-        if shares.len() <= self.netinfo.num_faulty() {
-            return false; // Not enough shares yet.
-        }
-
-        if let Some(ciphertext) = self
-            .ciphertexts
-            .get(&self.epoch)
-            .and_then(|cts| cts.get(&proposer_id))
-        {
-            match {
-                let to_idx = |(id, share)| (self.netinfo.node_index(id).unwrap(), share);
-                let share_itr = shares.into_iter().map(to_idx);
-                self.netinfo.public_key_set().decrypt(share_itr, ciphertext)
-            } {
-                Ok(contrib) => {
-                    self.decrypted_contributions.insert(proposer_id, contrib);
-                }
-                Err(err) => error!("{:?} Decryption failed: {:?}.", self.our_id(), err),
-            }
-        }
-        true
-    }
-
     fn send_decryption_shares(
         &mut self,
         cs_output: BTreeMap<N, Vec<u8>>,
         epoch: u64,
     ) -> Result<Step<C, N>> {
         let mut step = Step::default();
-        let mut ciphertexts = BTreeMap::new();
         for (proposer_id, v) in cs_output {
+            // TODO: Input into ThresholdDecryption. Check errors!
             let ciphertext: Ciphertext = match bincode::deserialize(&v) {
                 Ok(ciphertext) => ciphertext,
                 Err(err) => {
@@ -368,96 +317,30 @@ where
                     continue;
                 }
             };
-            if !ciphertext.verify() {
-                warn!("Invalid ciphertext from {:?}", proposer_id);
-                let fault_kind = FaultKind::ShareDecryptionFailed;
-                step.fault_log.append(proposer_id.clone(), fault_kind);
-                continue;
-            }
-            let (incorrect_senders, faults) =
-                self.verify_pending_decryption_shares(&proposer_id, &ciphertext, epoch);
-            self.remove_incorrect_decryption_shares(&proposer_id, incorrect_senders, epoch);
-            step.fault_log.extend(faults);
-            if self.netinfo.is_validator() {
-                step.extend(self.send_decryption_share(&proposer_id, &ciphertext, epoch)?);
-            }
-            ciphertexts.insert(proposer_id, ciphertext);
+            let netinfo = self.netinfo.clone();
+            let td_step = match self
+                .threshold_decryption
+                .entry(epoch)
+                .or_insert_with(BTreeMap::new)
+                .entry(proposer_id.clone())
+                .or_insert_with(|| ThresholdDecryption::new(netinfo))
+                .input(ciphertext)
+            {
+                Ok(td_step) => td_step,
+                Err(td::Error::InvalidCiphertext(_)) => {
+                    warn!("Invalid ciphertext from {:?}", proposer_id);
+                    let fault_kind = FaultKind::ShareDecryptionFailed;
+                    step.fault_log.append(proposer_id.clone(), fault_kind);
+                    continue;
+                }
+                Err(err) => return Err(ErrorKind::ThresholdDecryption(err).into()),
+            };
+            step.extend(self.process_threshold_decryption(epoch, proposer_id, td_step)?);
         }
-        self.ciphertexts.insert(epoch, ciphertexts);
         if epoch == self.epoch {
             step.extend(self.try_output_batches()?);
         }
         Ok(step)
-    }
-
-    /// Sends decryption shares without verifying the ciphertext.
-    fn send_decryption_share(
-        &mut self,
-        proposer_id: &N,
-        ciphertext: &Ciphertext,
-        epoch: u64,
-    ) -> Result<Step<C, N>> {
-        let share = self
-            .netinfo
-            .secret_key_share()
-            .decrypt_share_no_verify(&ciphertext);
-        // Send the share to remote nodes.
-        let our_id = self.netinfo.our_uid().clone();
-        // Insert the share.
-        self.received_shares
-            .entry(epoch)
-            .or_insert_with(BTreeMap::new)
-            .entry(proposer_id.clone())
-            .or_insert_with(BTreeMap::new)
-            .insert(our_id, share.clone());
-        let content = MessageContent::DecryptionShare {
-            proposer_id: proposer_id.clone(),
-            share,
-        };
-        Ok(Target::All.message(content.with_epoch(epoch)).into())
-    }
-
-    /// Verifies the shares of the current epoch that are pending verification. Returned are the
-    /// senders with incorrect pending shares.
-    fn verify_pending_decryption_shares(
-        &self,
-        proposer_id: &N,
-        ciphertext: &Ciphertext,
-        epoch: u64,
-    ) -> (BTreeSet<N>, FaultLog<N>) {
-        let mut incorrect_senders = BTreeSet::new();
-        let mut fault_log = FaultLog::new();
-        if let Some(sender_shares) = self
-            .received_shares
-            .get(&epoch)
-            .and_then(|e| e.get(proposer_id))
-        {
-            for (sender_id, share) in sender_shares {
-                if !self.verify_decryption_share(sender_id, share, ciphertext) {
-                    let fault_kind = FaultKind::UnverifiedDecryptionShareSender;
-                    fault_log.append(sender_id.clone(), fault_kind);
-                    incorrect_senders.insert(sender_id.clone());
-                }
-            }
-        }
-        (incorrect_senders, fault_log)
-    }
-
-    fn remove_incorrect_decryption_shares(
-        &mut self,
-        proposer_id: &N,
-        incorrect_senders: BTreeSet<N>,
-        epoch: u64,
-    ) {
-        if let Some(sender_shares) = self
-            .received_shares
-            .get_mut(&epoch)
-            .and_then(|e| e.get_mut(proposer_id))
-        {
-            for sender_id in incorrect_senders {
-                sender_shares.remove(&sender_id);
-            }
-        }
     }
 
     /// Checks whether the current epoch has output, and if it does, sends out our decryption
@@ -481,24 +364,5 @@ where
             error!("Multiple outputs from a single Common Subset instance.");
         }
         Ok(step)
-    }
-
-    /// Removes all `CommonSubset` instances from _past_ epochs that have terminated.
-    fn remove_terminated(&mut self) {
-        let terminated_epochs: Vec<u64> = self
-            .common_subsets
-            .iter()
-            .take_while(|&(epoch, _)| *epoch < self.epoch)
-            .filter(|&(_, cs)| cs.terminated())
-            .map(|(epoch, _)| *epoch)
-            .collect();
-        for epoch in terminated_epochs {
-            debug!(
-                "{:?} Epoch {} has terminated.",
-                self.netinfo.our_uid(),
-                epoch
-            );
-            self.common_subsets.remove(&epoch);
-        }
     }
 }
