@@ -143,37 +143,6 @@ where
         })
     }
 
-    // pub fn from_netinfo<F>(
-    //     net_infos: collections::BTreeMap<D::NodeUid, NetworkInfo<D::NodeUid>>,
-    //     num_faulty: usize,
-    //     cons: F,
-    // ) -> Self
-    // where
-    //     F: Fn(D::NodeUid, NetworkInfo<D::NodeUid>) -> (D, Step<D>),
-    // {
-    //     assert!(
-    //         num_faulty * 3 < net_infos.len(),
-    //         "Too many faulty nodes requested, `f` must satisfy `3f < total_nodes`."
-    //     );
-
-    //     let mut steps = collections::BTreeMap::new();
-    //     let nodes = net_infos
-    //         .into_iter()
-    //         .enumerate()
-    //         .map(move |(idx, (id, netinfo))| {
-    //             let (algorithm, step) = cons(id.clone(), netinfo);
-    //             steps.insert(id.clone(), step);
-    //             (id, Node::new(algorithm, idx < num_faulty))
-    //         })
-    //         .collect();
-
-    //     VirtualNet {
-    //         nodes,
-    //         messages: collections::VecDeque::new(),
-    //         adversary: None,
-    //     }
-    // }
-
     #[inline]
     fn process_messages<'a, I>(&mut self, sender: D::NodeUid, messages: I)
     where
@@ -383,33 +352,3 @@ where
         self.crank()
     }
 }
-
-// impl<D: DistAlgorithm> VirtualNet<N> {
-//     fn new(node_ids: &[N]) -> Self {
-//         for id in node_ids.into_iter() {}
-
-//         VirtualNet {
-//             nodes: BTreeMap::new(),
-//             messages: VecDeque::new(),
-//         }
-//     }
-
-//     // fn create_node(&mut self, node_id: N, secret_key: SecretKey, public_key_set: PublicKeySet) {
-//     //     00
-//     // }
-// }
-
-// struct Message<K, T> {
-//     from: K,
-//     to: K,
-//     payload: T,
-// }
-
-// struct VirtualNet<K, N, T> {
-//     nodes: HashMap<K, N>,
-//     queue: VecDeque<Message<K, T>>,
-// }
-
-// impl VirtualNet {
-//     fn deliver_message() {}
-// }
