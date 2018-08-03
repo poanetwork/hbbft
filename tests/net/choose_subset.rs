@@ -12,7 +12,7 @@ pub trait ChooseSubset: Sized {
         &'a self,
         max_subset_size: usize,
         rng: R,
-    ) -> Subset<'a, Self, Self::Idx>;
+    ) -> IndexSubset<'a, Self, Self::Idx>;
 }
 
 impl<T> ChooseSubset for Vec<T> {
@@ -22,11 +22,11 @@ impl<T> ChooseSubset for Vec<T> {
         &'a self,
         max_subset_size: usize,
         mut rng: R,
-    ) -> Subset<'a, Self, Self::Idx> {
+    ) -> IndexSubset<'a, Self, Self::Idx> {
         // Indices are always from 0..len, so we are safe using a range.
         let mut indices: Vec<_> = (0..max_subset_size).collect();
         rng.shuffle(&mut indices);
-        Subset { indices, col: self }
+        IndexSubset::new(indices, self)
     }
 }
 
@@ -43,22 +43,22 @@ impl<T> ChooseSubset for Vec<T> {
 /// # Panics
 ///
 /// If `indices` contains a non-existant key, the iterator will panic.
-pub struct Subset<'a, C: 'a, I> {
+pub struct IndexSubset<'a, C: 'a, I> {
     indices: Vec<I>,
     col: &'a C,
 }
 
-impl<'a, C: 'a, I> Subset<'a, C, I> {
-    /// Create a new subset iterator.
+impl<'a, C: 'a, I> IndexSubset<'a, C, I> {
+    /// Create a new index-based subset iterator.
     ///
     /// Every item in `indices` **must** be present in `col`, otherwise the iterator will likely
     /// panic on iteration.
     pub fn new(indices: Vec<I>, col: &'a C) -> Self {
-        Subset { indices, col }
+        IndexSubset { indices, col }
     }
 }
 
-impl<'a, C, I> Iterator for Subset<'a, C, I>
+impl<'a, C, I> Iterator for IndexSubset<'a, C, I>
 where
     C: ops::Index<I>,
     I: 'a,
