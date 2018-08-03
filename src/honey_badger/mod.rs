@@ -24,6 +24,7 @@
 
 mod batch;
 mod builder;
+mod epoch_state;
 mod error;
 mod honey_badger;
 mod message;
