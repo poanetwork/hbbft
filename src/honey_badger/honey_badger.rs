@@ -1,7 +1,5 @@
 use std::collections::btree_map::Entry;
 use std::collections::{BTreeMap, BTreeSet};
-use std::fmt::Debug;
-use std::hash::Hash;
 use std::marker::PhantomData;
 use std::mem;
 use std::sync::Arc;
@@ -16,57 +14,53 @@ use super::{Batch, Error, ErrorKind, HoneyBadgerBuilder, Message, MessageContent
 use common_subset::{self, CommonSubset};
 use fault_log::{Fault, FaultKind, FaultLog};
 use messaging::{self, DistAlgorithm, NetworkInfo, Target};
+use traits::{Contribution, NodeUidT};
 
 /// An instance of the Honey Badger Byzantine fault tolerant consensus algorithm.
 #[derive(Debug)]
-pub struct HoneyBadger<C, NodeUid: Rand> {
+pub struct HoneyBadger<C, N: Rand> {
     /// Shared network data.
-    pub(super) netinfo: Arc<NetworkInfo<NodeUid>>,
+    pub(super) netinfo: Arc<NetworkInfo<N>>,
     /// The earliest epoch from which we have not yet received output.
     pub(super) epoch: u64,
     /// Whether we have already submitted a proposal for the current epoch.
     pub(super) has_input: bool,
     /// The Asynchronous Common Subset instance that decides which nodes' transactions to include,
     /// indexed by epoch.
-    pub(super) common_subsets: BTreeMap<u64, CommonSubset<NodeUid>>,
+    pub(super) common_subsets: BTreeMap<u64, CommonSubset<N>>,
     /// The maximum number of `CommonSubset` instances that we run simultaneously.
     pub(super) max_future_epochs: u64,
     /// Messages for future epochs that couldn't be handled yet.
-    pub(super) incoming_queue: BTreeMap<u64, Vec<(NodeUid, MessageContent<NodeUid>)>>,
+    pub(super) incoming_queue: BTreeMap<u64, Vec<(N, MessageContent<N>)>>,
     /// Received decryption shares for an epoch. Each decryption share has a sender and a
     /// proposer. The outer `BTreeMap` has epochs as its key. The next `BTreeMap` has proposers as
     /// its key. The inner `BTreeMap` has the sender as its key.
-    pub(super) received_shares:
-        BTreeMap<u64, BTreeMap<NodeUid, BTreeMap<NodeUid, DecryptionShare>>>,
+    pub(super) received_shares: BTreeMap<u64, BTreeMap<N, BTreeMap<N, DecryptionShare>>>,
     /// Decoded accepted proposals.
-    pub(super) decrypted_contributions: BTreeMap<NodeUid, Vec<u8>>,
+    pub(super) decrypted_contributions: BTreeMap<N, Vec<u8>>,
     /// Ciphertexts output by Common Subset in an epoch.
-    pub(super) ciphertexts: BTreeMap<u64, BTreeMap<NodeUid, Ciphertext>>,
+    pub(super) ciphertexts: BTreeMap<u64, BTreeMap<N, Ciphertext>>,
     pub(super) _phantom: PhantomData<C>,
 }
 
-pub type Step<C, NodeUid> = messaging::Step<HoneyBadger<C, NodeUid>>;
+pub type Step<C, N> = messaging::Step<HoneyBadger<C, N>>;
 
-impl<C, NodeUid> DistAlgorithm for HoneyBadger<C, NodeUid>
+impl<C, N> DistAlgorithm for HoneyBadger<C, N>
 where
-    C: Serialize + for<'r> Deserialize<'r> + Debug + Hash + Eq,
-    NodeUid: Ord + Clone + Debug + Rand,
+    C: Contribution + Serialize + for<'r> Deserialize<'r>,
+    N: NodeUidT + Rand,
 {
-    type NodeUid = NodeUid;
+    type NodeUid = N;
     type Input = C;
-    type Output = Batch<C, NodeUid>;
-    type Message = Message<NodeUid>;
+    type Output = Batch<C, N>;
+    type Message = Message<N>;
     type Error = Error;
 
-    fn input(&mut self, input: Self::Input) -> Result<Step<C, NodeUid>> {
+    fn input(&mut self, input: Self::Input) -> Result<Step<C, N>> {
         self.propose(&input)
     }
 
-    fn handle_message(
-        &mut self,
-        sender_id: &NodeUid,
-        message: Self::Message,
-    ) -> Result<Step<C, NodeUid>> {
+    fn handle_message(&mut self, sender_id: &N, message: Self::Message) -> Result<Step<C, N>> {
         if !self.netinfo.is_node_validator(sender_id) {
             return Err(ErrorKind::UnknownSender.into());
         }
@@ -87,24 +81,24 @@ where
         false
     }
 
-    fn our_id(&self) -> &NodeUid {
+    fn our_id(&self) -> &N {
         self.netinfo.our_uid()
     }
 }
 
-impl<C, NodeUid> HoneyBadger<C, NodeUid>
+impl<C, N> HoneyBadger<C, N>
 where
-    C: Serialize + for<'r> Deserialize<'r> + Debug + Hash + Eq,
-    NodeUid: Ord + Clone + Debug + Rand,
+    C: Contribution + Serialize + for<'r> Deserialize<'r>,
+    N: NodeUidT + Rand,
 {
     /// Returns a new `HoneyBadgerBuilder` configured to use the node IDs and cryptographic keys
     /// specified by `netinfo`.
-    pub fn builder(netinfo: Arc<NetworkInfo<NodeUid>>) -> HoneyBadgerBuilder<C, NodeUid> {
+    pub fn builder(netinfo: Arc<NetworkInfo<N>>) -> HoneyBadgerBuilder<C, N> {
         HoneyBadgerBuilder::new(netinfo)
     }
 
     /// Proposes a new item in the current epoch.
-    pub fn propose(&mut self, proposal: &C) -> Result<Step<C, NodeUid>> {
+    pub fn propose(&mut self, proposal: &C) -> Result<Step<C, N>> {
         if !self.netinfo.is_validator() {
             return Ok(Step::default());
         }
@@ -143,10 +137,10 @@ where
     /// Handles a message for the given epoch.
     fn handle_message_content(
         &mut self,
-        sender_id: &NodeUid,
+        sender_id: &N,
         epoch: u64,
-        content: MessageContent<NodeUid>,
-    ) -> Result<Step<C, NodeUid>> {
+        content: MessageContent<N>,
+    ) -> Result<Step<C, N>> {
         match content {
             MessageContent::CommonSubset(cs_msg) => {
                 self.handle_common_subset_message(sender_id, epoch, cs_msg)
@@ -160,10 +154,10 @@ where
     /// Handles a message for the common subset sub-algorithm.
     fn handle_common_subset_message(
         &mut self,
-        sender_id: &NodeUid,
+        sender_id: &N,
         epoch: u64,
-        message: common_subset::Message<NodeUid>,
-    ) -> Result<Step<C, NodeUid>> {
+        message: common_subset::Message<N>,
+    ) -> Result<Step<C, N>> {
         let cs_step = {
             // Borrow the instance for `epoch`, or create it.
             let cs = match self.common_subsets.entry(epoch) {
@@ -191,11 +185,11 @@ where
     /// Handles decryption shares sent by `HoneyBadger` instances.
     fn handle_decryption_share_message(
         &mut self,
-        sender_id: &NodeUid,
+        sender_id: &N,
         epoch: u64,
-        proposer_id: NodeUid,
+        proposer_id: N,
         share: DecryptionShare,
-    ) -> Result<Step<C, NodeUid>> {
+    ) -> Result<Step<C, N>> {
         if let Some(ciphertext) = self
             .ciphertexts
             .get(&epoch)
@@ -227,7 +221,7 @@ where
     /// has failed.
     fn verify_decryption_share(
         &self,
-        sender_id: &NodeUid,
+        sender_id: &N,
         share: &DecryptionShare,
         ciphertext: &Ciphertext,
     ) -> bool {
@@ -240,7 +234,7 @@ where
 
     /// When contributions of transactions have been decrypted for all valid proposers in this
     /// epoch, moves those contributions into a batch, outputs the batch and updates the epoch.
-    fn try_output_batch(&mut self) -> Result<Option<Step<C, NodeUid>>> {
+    fn try_output_batch(&mut self) -> Result<Option<Step<C, N>>> {
         // Return if we don't have ciphertexts yet.
         let proposer_ids = match self.ciphertexts.get(&self.epoch) {
             Some(cts) => cts.keys().cloned().collect_vec(),
@@ -258,7 +252,7 @@ where
         let mut step = Step::default();
 
         // Deserialize the output.
-        let contributions: BTreeMap<NodeUid, C> =
+        let contributions: BTreeMap<N, C> =
             mem::replace(&mut self.decrypted_contributions, BTreeMap::new())
                 .into_iter()
                 .flat_map(|(proposer_id, ser_contrib)| {
@@ -270,8 +264,7 @@ where
                         step.fault_log.append(proposer_id, fault_kind);
                         None
                     }
-                })
-                .collect();
+                }).collect();
         let batch = Batch {
             epoch: self.epoch,
             contributions,
@@ -289,7 +282,7 @@ where
     }
 
     /// Increments the epoch number and clears any state that is local to the finished epoch.
-    fn update_epoch(&mut self) -> Result<Step<C, NodeUid>> {
+    fn update_epoch(&mut self) -> Result<Step<C, N>> {
         // Clear the state of the old epoch.
         self.ciphertexts.remove(&self.epoch);
         self.received_shares.remove(&self.epoch);
@@ -309,7 +302,7 @@ where
     }
 
     /// Tries to decrypt contributions from all proposers and output those in a batch.
-    fn try_output_batches(&mut self) -> Result<Step<C, NodeUid>> {
+    fn try_output_batches(&mut self) -> Result<Step<C, N>> {
         let mut step = Step::default();
         while let Some(new_step) = self.try_output_batch()? {
             step.extend(new_step);
@@ -318,7 +311,7 @@ where
     }
 
     /// Tries to decrypt the contribution from a given proposer.
-    fn try_decrypt_proposer_contribution(&mut self, proposer_id: NodeUid) -> bool {
+    fn try_decrypt_proposer_contribution(&mut self, proposer_id: N) -> bool {
         if self.decrypted_contributions.contains_key(&proposer_id) {
             return true; // Already decrypted.
         }
@@ -356,9 +349,9 @@ where
 
     fn send_decryption_shares(
         &mut self,
-        cs_output: BTreeMap<NodeUid, Vec<u8>>,
+        cs_output: BTreeMap<N, Vec<u8>>,
         epoch: u64,
-    ) -> Result<Step<C, NodeUid>> {
+    ) -> Result<Step<C, N>> {
         let mut step = Step::default();
         let mut ciphertexts = BTreeMap::new();
         for (proposer_id, v) in cs_output {
@@ -399,10 +392,10 @@ where
     /// Sends decryption shares without verifying the ciphertext.
     fn send_decryption_share(
         &mut self,
-        proposer_id: &NodeUid,
+        proposer_id: &N,
         ciphertext: &Ciphertext,
         epoch: u64,
-    ) -> Result<Step<C, NodeUid>> {
+    ) -> Result<Step<C, N>> {
         let share = self
             .netinfo
             .secret_key_share()
@@ -427,10 +420,10 @@ where
     /// senders with incorrect pending shares.
     fn verify_pending_decryption_shares(
         &self,
-        proposer_id: &NodeUid,
+        proposer_id: &N,
         ciphertext: &Ciphertext,
         epoch: u64,
-    ) -> (BTreeSet<NodeUid>, FaultLog<NodeUid>) {
+    ) -> (BTreeSet<N>, FaultLog<N>) {
         let mut incorrect_senders = BTreeSet::new();
         let mut fault_log = FaultLog::new();
         if let Some(sender_shares) = self
@@ -451,8 +444,8 @@ where
 
     fn remove_incorrect_decryption_shares(
         &mut self,
-        proposer_id: &NodeUid,
-        incorrect_senders: BTreeSet<NodeUid>,
+        proposer_id: &N,
+        incorrect_senders: BTreeSet<N>,
         epoch: u64,
     ) {
         if let Some(sender_shares) = self
@@ -472,9 +465,9 @@ where
     /// `epoch == Some(given_epoch)`.
     fn process_output(
         &mut self,
-        cs_step: common_subset::Step<NodeUid>,
+        cs_step: common_subset::Step<N>,
         epoch: u64,
-    ) -> Result<Step<C, NodeUid>> {
+    ) -> Result<Step<C, N>> {
         let mut step = Step::default();
         let mut cs_outputs = step.extend_with(cs_step, |cs_msg| {
             MessageContent::CommonSubset(cs_msg).with_epoch(epoch)

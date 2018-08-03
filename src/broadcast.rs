@@ -163,6 +163,7 @@ use ring::digest;
 use fault_log::{Fault, FaultKind};
 use fmt::{HexBytes, HexList, HexProof};
 use messaging::{self, DistAlgorithm, NetworkInfo, Target};
+use traits::NodeUidT;
 
 /// A broadcast error.
 #[derive(Clone, PartialEq, Debug, Fail)]
@@ -239,11 +240,11 @@ impl Debug for BroadcastMessage {
 
 /// Reliable Broadcast algorithm instance.
 #[derive(Debug)]
-pub struct Broadcast<NodeUid> {
+pub struct Broadcast<N> {
     /// Shared network data.
-    netinfo: Arc<NetworkInfo<NodeUid>>,
+    netinfo: Arc<NetworkInfo<N>>,
     /// The UID of the sending node.
-    proposer_id: NodeUid,
+    proposer_id: N,
     data_shard_num: usize,
     coding: Coding,
     /// Whether we have already multicast `Echo`.
@@ -253,15 +254,15 @@ pub struct Broadcast<NodeUid> {
     /// Whether we have already output a value.
     decided: bool,
     /// The proofs we have received via `Echo` messages, by sender ID.
-    echos: BTreeMap<NodeUid, Proof<Vec<u8>>>,
+    echos: BTreeMap<N, Proof<Vec<u8>>>,
     /// The root hashes we received via `Ready` messages, by sender ID.
-    readys: BTreeMap<NodeUid, Vec<u8>>,
+    readys: BTreeMap<N, Vec<u8>>,
 }
 
-pub type Step<NodeUid> = messaging::Step<Broadcast<NodeUid>>;
+pub type Step<N> = messaging::Step<Broadcast<N>>;
 
-impl<NodeUid: Debug + Clone + Ord> DistAlgorithm for Broadcast<NodeUid> {
-    type NodeUid = NodeUid;
+impl<N: NodeUidT> DistAlgorithm for Broadcast<N> {
+    type NodeUid = N;
     // TODO: Allow anything serializable and deserializable, i.e. make this a type parameter
     // T: Serialize + DeserializeOwned
     type Input = Vec<u8>;
@@ -269,7 +270,7 @@ impl<NodeUid: Debug + Clone + Ord> DistAlgorithm for Broadcast<NodeUid> {
     type Message = BroadcastMessage;
     type Error = Error;
 
-    fn input(&mut self, input: Self::Input) -> Result<Step<NodeUid>> {
+    fn input(&mut self, input: Self::Input) -> Result<Step<N>> {
         if *self.netinfo.our_uid() != self.proposer_id {
             return Err(Error::InstanceCannotPropose);
         }
@@ -282,11 +283,7 @@ impl<NodeUid: Debug + Clone + Ord> DistAlgorithm for Broadcast<NodeUid> {
         Ok(step)
     }
 
-    fn handle_message(
-        &mut self,
-        sender_id: &NodeUid,
-        message: Self::Message,
-    ) -> Result<Step<NodeUid>> {
+    fn handle_message(&mut self, sender_id: &N, message: Self::Message) -> Result<Step<N>> {
         if !self.netinfo.is_node_validator(sender_id) {
             return Err(Error::UnknownSender);
         }
@@ -301,15 +298,15 @@ impl<NodeUid: Debug + Clone + Ord> DistAlgorithm for Broadcast<NodeUid> {
         self.decided
     }
 
-    fn our_id(&self) -> &NodeUid {
+    fn our_id(&self) -> &N {
         self.netinfo.our_uid()
     }
 }
 
-impl<NodeUid: Debug + Clone + Ord> Broadcast<NodeUid> {
+impl<N: NodeUidT> Broadcast<N> {
     /// Creates a new broadcast instance to be used by node `our_id` which expects a value proposal
     /// from node `proposer_id`.
-    pub fn new(netinfo: Arc<NetworkInfo<NodeUid>>, proposer_id: NodeUid) -> Result<Self> {
+    pub fn new(netinfo: Arc<NetworkInfo<N>>, proposer_id: N) -> Result<Self> {
         let parity_shard_num = 2 * netinfo.num_faulty();
         let data_shard_num = netinfo.num_nodes() - parity_shard_num;
         let coding = Coding::new(data_shard_num, parity_shard_num)?;
@@ -332,7 +329,7 @@ impl<NodeUid: Debug + Clone + Ord> Broadcast<NodeUid> {
     /// scheme. The returned value contains the shard assigned to this
     /// node. That shard doesn't need to be sent anywhere. It gets recorded in
     /// the broadcast instance.
-    fn send_shards(&mut self, mut value: Vec<u8>) -> Result<(Proof<Vec<u8>>, Step<NodeUid>)> {
+    fn send_shards(&mut self, mut value: Vec<u8>) -> Result<(Proof<Vec<u8>>, Step<N>)> {
         let data_shard_num = self.coding.data_shard_count();
         let parity_shard_num = self.coding.parity_shard_count();
 
@@ -407,7 +404,7 @@ impl<NodeUid: Debug + Clone + Ord> Broadcast<NodeUid> {
     }
 
     /// Handles a received echo and verifies the proof it contains.
-    fn handle_value(&mut self, sender_id: &NodeUid, p: Proof<Vec<u8>>) -> Result<Step<NodeUid>> {
+    fn handle_value(&mut self, sender_id: &N, p: Proof<Vec<u8>>) -> Result<Step<N>> {
         // If the sender is not the proposer or if this is not the first `Value`, ignore.
         if *sender_id != self.proposer_id {
             info!(
@@ -439,7 +436,7 @@ impl<NodeUid: Debug + Clone + Ord> Broadcast<NodeUid> {
     }
 
     /// Handles a received `Echo` message.
-    fn handle_echo(&mut self, sender_id: &NodeUid, p: Proof<Vec<u8>>) -> Result<Step<NodeUid>> {
+    fn handle_echo(&mut self, sender_id: &N, p: Proof<Vec<u8>>) -> Result<Step<N>> {
         // If the sender has already sent `Echo`, ignore.
         if self.echos.contains_key(sender_id) {
             info!(
@@ -469,7 +466,7 @@ impl<NodeUid: Debug + Clone + Ord> Broadcast<NodeUid> {
     }
 
     /// Handles a received `Ready` message.
-    fn handle_ready(&mut self, sender_id: &NodeUid, hash: &[u8]) -> Result<Step<NodeUid>> {
+    fn handle_ready(&mut self, sender_id: &N, hash: &[u8]) -> Result<Step<N>> {
         // If the sender has already sent a `Ready` before, ignore.
         if self.readys.contains_key(sender_id) {
             info!(
@@ -494,7 +491,7 @@ impl<NodeUid: Debug + Clone + Ord> Broadcast<NodeUid> {
     }
 
     /// Sends an `Echo` message and handles it. Does nothing if we are only an observer.
-    fn send_echo(&mut self, p: Proof<Vec<u8>>) -> Result<Step<NodeUid>> {
+    fn send_echo(&mut self, p: Proof<Vec<u8>>) -> Result<Step<N>> {
         self.echo_sent = true;
         if !self.netinfo.is_validator() {
             return Ok(Step::default());
@@ -507,7 +504,7 @@ impl<NodeUid: Debug + Clone + Ord> Broadcast<NodeUid> {
     }
 
     /// Sends a `Ready` message and handles it. Does nothing if we are only an observer.
-    fn send_ready(&mut self, hash: &[u8]) -> Result<Step<NodeUid>> {
+    fn send_ready(&mut self, hash: &[u8]) -> Result<Step<N>> {
         self.ready_sent = true;
         if !self.netinfo.is_validator() {
             return Ok(Step::default());
@@ -521,7 +518,7 @@ impl<NodeUid: Debug + Clone + Ord> Broadcast<NodeUid> {
 
     /// Checks whether the conditions for output are met for this hash, and if so, sets the output
     /// value.
-    fn compute_output(&mut self, hash: &[u8]) -> Result<Step<NodeUid>> {
+    fn compute_output(&mut self, hash: &[u8]) -> Result<Step<N>> {
         if self.decided
             || self.count_readys(hash) <= 2 * self.netinfo.num_faulty()
             || self.count_echos(hash) < self.coding.data_shard_count()
@@ -541,8 +538,7 @@ impl<NodeUid: Debug + Clone + Ord> Broadcast<NodeUid> {
                         None
                     }
                 })
-            })
-            .collect();
+            }).collect();
         if let Some(value) =
             decode_from_shards(&mut leaf_values, &self.coding, self.data_shard_num, hash)
         {
@@ -555,7 +551,7 @@ impl<NodeUid: Debug + Clone + Ord> Broadcast<NodeUid> {
 
     /// Returns `true` if the proof is valid and has the same index as the node ID. Otherwise
     /// logs an info message.
-    fn validate_proof(&self, p: &Proof<Vec<u8>>, id: &NodeUid) -> bool {
+    fn validate_proof(&self, p: &Proof<Vec<u8>>, id: &N) -> bool {
         if !p.validate(&p.root_hash) {
             info!(
                 "Node {:?} received invalid proof: {:?}",

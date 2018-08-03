@@ -1,5 +1,4 @@
 use std::collections::BTreeMap;
-use std::fmt::Debug;
 use std::sync::Arc;
 
 use itertools::Itertools;
@@ -10,18 +9,19 @@ use super::{AgreementContent, AgreementMessage, Error, Nonce, Result, Step};
 use agreement::bool_set::BoolSet;
 use common_coin::{self, CommonCoin, CommonCoinMessage};
 use messaging::{DistAlgorithm, NetworkInfo, Target};
+use traits::NodeUidT;
 
 /// The state of the current epoch's common coin. In some epochs this is fixed, in others it starts
 /// with in `InProgress`.
 #[derive(Debug)]
-enum CoinState<NodeUid> {
+enum CoinState<N> {
     /// The value was fixed in the current epoch, or the coin has already terminated.
     Decided(bool),
     /// The coin value is not known yet.
-    InProgress(CommonCoin<NodeUid, Nonce>),
+    InProgress(CommonCoin<N, Nonce>),
 }
 
-impl<NodeUid> CoinState<NodeUid> {
+impl<N> CoinState<N> {
     /// Returns the value, if this coin has already decided.
     fn value(&self) -> Option<bool> {
         match self {
@@ -31,7 +31,7 @@ impl<NodeUid> CoinState<NodeUid> {
     }
 }
 
-impl<NodeUid> From<bool> for CoinState<NodeUid> {
+impl<N> From<bool> for CoinState<N> {
     fn from(value: bool) -> Self {
         CoinState::Decided(value)
     }
@@ -39,22 +39,22 @@ impl<NodeUid> From<bool> for CoinState<NodeUid> {
 
 /// Binary Agreement instance
 #[derive(Debug)]
-pub struct Agreement<NodeUid> {
+pub struct Agreement<N> {
     /// Shared network information.
-    netinfo: Arc<NetworkInfo<NodeUid>>,
+    netinfo: Arc<NetworkInfo<N>>,
     /// Session ID, e.g, the Honey Badger algorithm epoch.
     session_id: u64,
     /// The ID of the proposer of the value for this agreement instance.
-    proposer_id: NodeUid,
+    proposer_id: N,
     /// Agreement algorithm epoch.
     epoch: u32,
     /// This epoch's Synchronized Binary Value Broadcast instance.
-    sbv_broadcast: SbvBroadcast<NodeUid>,
+    sbv_broadcast: SbvBroadcast<N>,
     /// Received `Conf` messages. Reset on every epoch update.
-    received_conf: BTreeMap<NodeUid, BoolSet>,
+    received_conf: BTreeMap<N, BoolSet>,
     /// Received `Term` messages. Kept throughout epoch updates. These count as `BVal`, `Aux` and
     /// `Conf` messages for all future epochs.
-    received_term: BoolMultimap<NodeUid>,
+    received_term: BoolMultimap<N>,
     /// The estimate of the decision value in the current epoch.
     estimated: Option<bool>,
     /// A permanent, latching copy of the output value. This copy is required because `output` can
@@ -65,21 +65,21 @@ pub struct Agreement<NodeUid> {
     decision: Option<bool>,
     /// A cache for messages for future epochs that cannot be handled yet.
     // TODO: Find a better solution for this; defend against spam.
-    incoming_queue: BTreeMap<u32, Vec<(NodeUid, AgreementContent)>>,
+    incoming_queue: BTreeMap<u32, Vec<(N, AgreementContent)>>,
     /// The values we found in the first _N - f_ `Aux` messages that were in `bin_values`.
     conf_values: Option<BoolSet>,
     /// The state of this epoch's common coin.
-    coin_state: CoinState<NodeUid>,
+    coin_state: CoinState<N>,
 }
 
-impl<NodeUid: Clone + Debug + Ord> DistAlgorithm for Agreement<NodeUid> {
-    type NodeUid = NodeUid;
+impl<N: NodeUidT> DistAlgorithm for Agreement<N> {
+    type NodeUid = N;
     type Input = bool;
     type Output = bool;
     type Message = AgreementMessage;
     type Error = Error;
 
-    fn input(&mut self, input: Self::Input) -> Result<Step<NodeUid>> {
+    fn input(&mut self, input: Self::Input) -> Result<Step<N>> {
         self.set_input(input)
     }
 
@@ -88,7 +88,7 @@ impl<NodeUid: Clone + Debug + Ord> DistAlgorithm for Agreement<NodeUid> {
         &mut self,
         sender_id: &Self::NodeUid,
         AgreementMessage { epoch, content }: Self::Message,
-    ) -> Result<Step<NodeUid>> {
+    ) -> Result<Step<N>> {
         if self.decision.is_some() || (epoch < self.epoch && content.can_expire()) {
             // Message is obsolete: We are already in a later epoch or terminated.
             Ok(Step::default())
@@ -112,12 +112,8 @@ impl<NodeUid: Clone + Debug + Ord> DistAlgorithm for Agreement<NodeUid> {
     }
 }
 
-impl<NodeUid: Clone + Debug + Ord> Agreement<NodeUid> {
-    pub fn new(
-        netinfo: Arc<NetworkInfo<NodeUid>>,
-        session_id: u64,
-        proposer_id: NodeUid,
-    ) -> Result<Self> {
+impl<N: NodeUidT> Agreement<N> {
+    pub fn new(netinfo: Arc<NetworkInfo<N>>, session_id: u64, proposer_id: N) -> Result<Self> {
         if !netinfo.is_node_validator(&proposer_id) {
             return Err(Error::UnknownProposer);
         }
@@ -138,7 +134,7 @@ impl<NodeUid: Clone + Debug + Ord> Agreement<NodeUid> {
     }
 
     /// Sets the input value for agreement.
-    fn set_input(&mut self, input: bool) -> Result<Step<NodeUid>> {
+    fn set_input(&mut self, input: bool) -> Result<Step<N>> {
         if self.epoch != 0 || self.estimated.is_some() {
             return Err(Error::InputNotAccepted);
         }
@@ -157,9 +153,9 @@ impl<NodeUid: Clone + Debug + Ord> Agreement<NodeUid> {
     /// Dispatches the message content to the corresponding handling method.
     fn handle_message_content(
         &mut self,
-        sender_id: &NodeUid,
+        sender_id: &N,
         content: AgreementContent,
-    ) -> Result<Step<NodeUid>> {
+    ) -> Result<Step<N>> {
         match content {
             AgreementContent::SbvBroadcast(msg) => self.handle_sbv_broadcast(sender_id, msg),
             AgreementContent::Conf(v) => self.handle_conf(sender_id, v),
@@ -171,19 +167,16 @@ impl<NodeUid: Clone + Debug + Ord> Agreement<NodeUid> {
     /// Handles a Synchroniced Binary Value Broadcast message.
     fn handle_sbv_broadcast(
         &mut self,
-        sender_id: &NodeUid,
+        sender_id: &N,
         msg: sbv_broadcast::Message,
-    ) -> Result<Step<NodeUid>> {
+    ) -> Result<Step<N>> {
         let sbvb_step = self.sbv_broadcast.handle_message(sender_id, msg)?;
         self.handle_sbvb_step(sbvb_step)
     }
 
     /// Handles a Synchronized Binary Value Broadcast step. On output, starts the `Conf` round or
     /// decides.
-    fn handle_sbvb_step(
-        &mut self,
-        sbvb_step: sbv_broadcast::Step<NodeUid>,
-    ) -> Result<Step<NodeUid>> {
+    fn handle_sbvb_step(&mut self, sbvb_step: sbv_broadcast::Step<N>) -> Result<Step<N>> {
         let mut step = Step::default();
         let output = step.extend_with(sbvb_step, |msg| {
             AgreementContent::SbvBroadcast(msg).with_epoch(self.epoch)
@@ -209,7 +202,7 @@ impl<NodeUid: Clone + Debug + Ord> Agreement<NodeUid> {
 
     /// Handles a `Conf` message. When _N - f_ `Conf` messages with values in `bin_values` have
     /// been received, updates the epoch or decides.
-    fn handle_conf(&mut self, sender_id: &NodeUid, v: BoolSet) -> Result<Step<NodeUid>> {
+    fn handle_conf(&mut self, sender_id: &N, v: BoolSet) -> Result<Step<N>> {
         self.received_conf.insert(sender_id.clone(), v);
         self.try_finish_conf_round()
     }
@@ -217,7 +210,7 @@ impl<NodeUid: Clone + Debug + Ord> Agreement<NodeUid> {
     /// Handles a `Term(v)` message. If we haven't yet decided on a value and there are more than
     /// _f_ such messages with the same value from different nodes, performs expedite termination:
     /// decides on `v`, broadcasts `Term(v)` and terminates the instance.
-    fn handle_term(&mut self, sender_id: &NodeUid, b: bool) -> Result<Step<NodeUid>> {
+    fn handle_term(&mut self, sender_id: &N, b: bool) -> Result<Step<N>> {
         self.received_term[b].insert(sender_id.clone());
         // Check for the expedite termination condition.
         if self.decision.is_some() {
@@ -236,11 +229,7 @@ impl<NodeUid: Clone + Debug + Ord> Agreement<NodeUid> {
 
     /// Handles a Common Coin message. If there is output from Common Coin, starts the next
     /// epoch. The function may output a decision value.
-    fn handle_coin(
-        &mut self,
-        sender_id: &NodeUid,
-        msg: CommonCoinMessage,
-    ) -> Result<Step<NodeUid>> {
+    fn handle_coin(&mut self, sender_id: &N, msg: CommonCoinMessage) -> Result<Step<N>> {
         let coin_step = match self.coin_state {
             CoinState::Decided(_) => return Ok(Step::default()), // Coin value is already decided.
             CoinState::InProgress(ref mut common_coin) => common_coin
@@ -251,7 +240,7 @@ impl<NodeUid: Clone + Debug + Ord> Agreement<NodeUid> {
     }
 
     /// Multicasts a `Conf(values)` message, and handles it.
-    fn send_conf(&mut self, values: BoolSet) -> Result<Step<NodeUid>> {
+    fn send_conf(&mut self, values: BoolSet) -> Result<Step<N>> {
         if self.conf_values.is_some() {
             // Only one `Conf` message is allowed in an epoch.
             return Ok(Step::default());
@@ -268,7 +257,7 @@ impl<NodeUid: Clone + Debug + Ord> Agreement<NodeUid> {
     }
 
     /// Multicasts and handles a message. Does nothing if we are only an observer.
-    fn send(&mut self, content: AgreementContent) -> Result<Step<NodeUid>> {
+    fn send(&mut self, content: AgreementContent) -> Result<Step<N>> {
         if !self.netinfo.is_validator() {
             return Ok(Step::default());
         }
@@ -281,10 +270,7 @@ impl<NodeUid: Clone + Debug + Ord> Agreement<NodeUid> {
     }
 
     /// Handles a step returned from the `CommonCoin`.
-    fn on_coin_step(
-        &mut self,
-        coin_step: common_coin::Step<NodeUid, Nonce>,
-    ) -> Result<Step<NodeUid>> {
+    fn on_coin_step(&mut self, coin_step: common_coin::Step<N, Nonce>) -> Result<Step<N>> {
         let mut step = Step::default();
         let epoch = self.epoch;
         let to_msg = |c_msg| AgreementContent::Coin(Box::new(c_msg)).with_epoch(epoch);
@@ -302,7 +288,7 @@ impl<NodeUid: Clone + Debug + Ord> Agreement<NodeUid> {
     /// With two conf values, the next epoch's estimate is the coin value. If there is only one conf
     /// value and that disagrees with the coin, the conf value is the next epoch's estimate. If
     /// the unique conf value agrees with the coin, terminates and decides on that value.
-    fn try_update_epoch(&mut self) -> Result<Step<NodeUid>> {
+    fn try_update_epoch(&mut self) -> Result<Step<N>> {
         if self.decision.is_some() {
             // Avoid an infinite regression without making an Agreement step.
             return Ok(Step::default());
@@ -325,7 +311,7 @@ impl<NodeUid: Clone + Debug + Ord> Agreement<NodeUid> {
 
     /// Creates the initial coin state for the current epoch, i.e. sets it to the predetermined
     /// value, or initializes a `CommonCoin` instance.
-    fn coin_state(&self) -> CoinState<NodeUid> {
+    fn coin_state(&self) -> CoinState<N> {
         match self.epoch % 3 {
             0 => CoinState::Decided(true),
             1 => CoinState::Decided(false),
@@ -342,7 +328,7 @@ impl<NodeUid: Clone + Debug + Ord> Agreement<NodeUid> {
     }
 
     /// Decides on a value and broadcasts a `Term` message with that value.
-    fn decide(&mut self, b: bool) -> Step<NodeUid> {
+    fn decide(&mut self, b: bool) -> Step<N> {
         if self.decision.is_some() {
             return Step::default();
         }
@@ -366,7 +352,7 @@ impl<NodeUid: Clone + Debug + Ord> Agreement<NodeUid> {
     }
 
     /// Checks whether the _N - f_ `Conf` messages have arrived, and if so, activates the coin.
-    fn try_finish_conf_round(&mut self) -> Result<Step<NodeUid>> {
+    fn try_finish_conf_round(&mut self) -> Result<Step<N>> {
         if self.conf_values.is_none() || self.count_conf() < self.netinfo.num_correct() {
             return Ok(Step::default());
         }
@@ -390,7 +376,7 @@ impl<NodeUid: Clone + Debug + Ord> Agreement<NodeUid> {
     }
 
     /// Increments the epoch, sets the new estimate and handles queued messages.
-    fn update_epoch(&mut self, b: bool) -> Result<Step<NodeUid>> {
+    fn update_epoch(&mut self, b: bool) -> Result<Step<N>> {
         self.sbv_broadcast.clear(&self.received_term);
         self.received_conf.clear();
         for (v, id) in &self.received_term {

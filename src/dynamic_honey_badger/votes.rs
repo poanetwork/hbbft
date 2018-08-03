@@ -1,6 +1,4 @@
 use std::collections::{BTreeMap, HashMap};
-use std::fmt::Debug;
-use std::hash::Hash;
 use std::sync::Arc;
 
 use bincode;
@@ -10,30 +8,31 @@ use serde::{Deserialize, Serialize};
 use super::{Change, ErrorKind, Result};
 use fault_log::{FaultKind, FaultLog};
 use messaging::NetworkInfo;
+use traits::NodeUidT;
 
 /// A buffer and counter collecting pending and committed votes for validator set changes.
 ///
 /// This is reset whenever the set of validators changes or a change reaches _f + 1_ votes. We call
 /// the epochs since the last reset the current _era_.
 #[derive(Debug)]
-pub struct VoteCounter<NodeUid> {
+pub struct VoteCounter<N> {
     /// Shared network data.
-    netinfo: Arc<NetworkInfo<NodeUid>>,
+    netinfo: Arc<NetworkInfo<N>>,
     /// The epoch when voting was reset.
     era: u64,
     /// Pending node transactions that we will propose in the next epoch.
-    pending: BTreeMap<NodeUid, SignedVote<NodeUid>>,
+    pending: BTreeMap<N, SignedVote<N>>,
     /// Collected votes for adding or removing nodes. Each node has one vote, and casting another
     /// vote revokes the previous one.
-    committed: BTreeMap<NodeUid, Vote<NodeUid>>,
+    committed: BTreeMap<N, Vote<N>>,
 }
 
-impl<NodeUid> VoteCounter<NodeUid>
+impl<N> VoteCounter<N>
 where
-    NodeUid: Eq + Hash + Ord + Clone + Debug + Serialize + for<'r> Deserialize<'r>,
+    N: NodeUidT + Serialize + for<'r> Deserialize<'r>,
 {
     /// Creates a new `VoteCounter` object with empty buffer and counter.
-    pub fn new(netinfo: Arc<NetworkInfo<NodeUid>>, era: u64) -> Self {
+    pub fn new(netinfo: Arc<NetworkInfo<N>>, era: u64) -> Self {
         VoteCounter {
             era,
             netinfo,
@@ -43,7 +42,7 @@ where
     }
 
     /// Creates a signed vote for the given change, and inserts it into the pending votes buffer.
-    pub fn sign_vote_for(&mut self, change: Change<NodeUid>) -> Result<&SignedVote<NodeUid>> {
+    pub fn sign_vote_for(&mut self, change: Change<N>) -> Result<&SignedVote<N>> {
         let voter = self.netinfo.our_uid().clone();
         let vote = Vote {
             change,
@@ -64,14 +63,13 @@ where
     /// Inserts a pending vote into the buffer, if it has a higher number than the existing one.
     pub fn add_pending_vote(
         &mut self,
-        sender_id: &NodeUid,
-        signed_vote: SignedVote<NodeUid>,
-    ) -> Result<FaultLog<NodeUid>> {
-        if signed_vote.vote.era != self.era
-            || self
-                .pending
-                .get(&signed_vote.voter)
-                .map_or(false, |sv| sv.vote.num >= signed_vote.vote.num)
+        sender_id: &N,
+        signed_vote: SignedVote<N>,
+    ) -> Result<FaultLog<N>> {
+        if signed_vote.vote.era != self.era || self
+            .pending
+            .get(&signed_vote.voter)
+            .map_or(false, |sv| sv.vote.num >= signed_vote.vote.num)
         {
             return Ok(FaultLog::new()); // The vote is obsolete or already exists.
         }
@@ -87,7 +85,7 @@ where
 
     /// Returns an iterator over all pending votes that are newer than their voter's committed
     /// vote.
-    pub fn pending_votes(&self) -> impl Iterator<Item = &SignedVote<NodeUid>> {
+    pub fn pending_votes(&self) -> impl Iterator<Item = &SignedVote<N>> {
         self.pending.values().filter(move |signed_vote| {
             self.committed
                 .get(&signed_vote.voter)
@@ -98,11 +96,11 @@ where
     // TODO: Document and return fault logs?
     pub fn add_committed_votes<I>(
         &mut self,
-        proposer_id: &NodeUid,
+        proposer_id: &N,
         signed_votes: I,
-    ) -> Result<FaultLog<NodeUid>>
+    ) -> Result<FaultLog<N>>
     where
-        I: IntoIterator<Item = SignedVote<NodeUid>>,
+        I: IntoIterator<Item = SignedVote<N>>,
     {
         let mut fault_log = FaultLog::new();
         for signed_vote in signed_votes {
@@ -114,9 +112,9 @@ where
     /// Inserts a committed vote into the counter, if it has a higher number than the existing one.
     pub fn add_committed_vote(
         &mut self,
-        proposer_id: &NodeUid,
-        signed_vote: SignedVote<NodeUid>,
-    ) -> Result<FaultLog<NodeUid>> {
+        proposer_id: &N,
+        signed_vote: SignedVote<N>,
+    ) -> Result<FaultLog<N>> {
         if self
             .committed
             .get(&signed_vote.voter)
@@ -135,8 +133,8 @@ where
     }
 
     /// Returns the change that has at least _f + 1_ votes, if any.
-    pub fn compute_winner(&self) -> Option<&Change<NodeUid>> {
-        let mut vote_counts: HashMap<&Change<NodeUid>, usize> = HashMap::new();
+    pub fn compute_winner(&self) -> Option<&Change<N>> {
+        let mut vote_counts: HashMap<&Change<N>, usize> = HashMap::new();
         for vote in self.committed.values() {
             let change = &vote.change;
             let entry = vote_counts.entry(change).or_insert(0);
@@ -149,9 +147,9 @@ where
     }
 
     /// Returns `true` if the signature is valid.
-    fn validate(&self, signed_vote: &SignedVote<NodeUid>) -> Result<bool> {
-        let ser_vote =
-            bincode::serialize(&signed_vote.vote).map_err(|err| ErrorKind::ValidateBincode(*err))?;
+    fn validate(&self, signed_vote: &SignedVote<N>) -> Result<bool> {
+        let ser_vote = bincode::serialize(&signed_vote.vote)
+            .map_err(|err| ErrorKind::ValidateBincode(*err))?;
         let pk_opt = self.netinfo.public_key(&signed_vote.voter);
         Ok(pk_opt.map_or(false, |pk| pk.verify(&signed_vote.sig, ser_vote)))
     }
@@ -159,9 +157,9 @@ where
 
 /// A vote fore removing or adding a validator.
 #[derive(Eq, PartialEq, Debug, Serialize, Deserialize, Hash, Clone)]
-struct Vote<NodeUid> {
+struct Vote<N> {
     /// The change this vote is for.
-    change: Change<NodeUid>,
+    change: Change<N>,
     /// The epoch in which the current era began.
     era: u64,
     /// The vote number: VoteCounter can be changed by casting another vote with a higher number.
@@ -170,18 +168,18 @@ struct Vote<NodeUid> {
 
 /// A signed vote for removing or adding a validator.
 #[derive(Eq, PartialEq, Debug, Serialize, Deserialize, Hash, Clone)]
-pub struct SignedVote<NodeUid> {
-    vote: Vote<NodeUid>,
-    voter: NodeUid,
+pub struct SignedVote<N> {
+    vote: Vote<N>,
+    voter: N,
     sig: Signature,
 }
 
-impl<NodeUid> SignedVote<NodeUid> {
+impl<N> SignedVote<N> {
     pub fn era(&self) -> u64 {
         self.vote.era
     }
 
-    pub fn voter(&self) -> &NodeUid {
+    pub fn voter(&self) -> &N {
         &self.voter
     }
 }

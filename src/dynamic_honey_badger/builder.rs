@@ -1,6 +1,4 @@
 use std::default::Default;
-use std::fmt::Debug;
-use std::hash::Hash;
 use std::iter::once;
 use std::marker::PhantomData;
 use std::sync::Arc;
@@ -12,16 +10,17 @@ use serde::{Deserialize, Serialize};
 use super::{ChangeState, DynamicHoneyBadger, JoinPlan, Result, Step, VoteCounter};
 use honey_badger::HoneyBadger;
 use messaging::NetworkInfo;
+use traits::{Contribution, NodeUidT};
 
 /// A Dynamic Honey Badger builder, to configure the parameters and create new instances of
 /// `DynamicHoneyBadger`.
-pub struct DynamicHoneyBadgerBuilder<C, NodeUid> {
+pub struct DynamicHoneyBadgerBuilder<C, N> {
     /// The maximum number of future epochs for which we handle messages simultaneously.
     max_future_epochs: usize,
-    _phantom: PhantomData<(C, NodeUid)>,
+    _phantom: PhantomData<(C, N)>,
 }
 
-impl<C, NodeUid> Default for DynamicHoneyBadgerBuilder<C, NodeUid> {
+impl<C, N> Default for DynamicHoneyBadgerBuilder<C, N> {
     fn default() -> Self {
         // TODO: Use the defaults from `HoneyBadgerBuilder`.
         DynamicHoneyBadgerBuilder {
@@ -31,10 +30,10 @@ impl<C, NodeUid> Default for DynamicHoneyBadgerBuilder<C, NodeUid> {
     }
 }
 
-impl<C, NodeUid> DynamicHoneyBadgerBuilder<C, NodeUid>
+impl<C, N> DynamicHoneyBadgerBuilder<C, N>
 where
-    C: Eq + Serialize + for<'r> Deserialize<'r> + Debug + Hash,
-    NodeUid: Eq + Ord + Clone + Debug + Serialize + for<'r> Deserialize<'r> + Hash + Rand,
+    C: Contribution + Serialize + for<'r> Deserialize<'r>,
+    N: NodeUidT + Serialize + for<'r> Deserialize<'r> + Rand,
 {
     /// Returns a new `DynamicHoneyBadgerBuilder` configured to use the node IDs and cryptographic
     /// keys specified by `netinfo`.
@@ -49,7 +48,7 @@ where
     }
 
     /// Creates a new Dynamic Honey Badger instance with an empty buffer.
-    pub fn build(&self, netinfo: NetworkInfo<NodeUid>) -> DynamicHoneyBadger<C, NodeUid> {
+    pub fn build(&self, netinfo: NetworkInfo<N>) -> DynamicHoneyBadger<C, N> {
         let arc_netinfo = Arc::new(netinfo.clone());
         let honey_badger = HoneyBadger::builder(arc_netinfo.clone())
             .max_future_epochs(self.max_future_epochs)
@@ -67,7 +66,7 @@ where
     }
 
     /// Creates a new `DynamicHoneyBadger` configured to start a new network as a single validator.
-    pub fn build_first_node(&self, our_uid: NodeUid) -> DynamicHoneyBadger<C, NodeUid> {
+    pub fn build_first_node(&self, our_uid: N) -> DynamicHoneyBadger<C, N> {
         let mut rng = rand::thread_rng();
         let sk_set = SecretKeySet::random(0, &mut rng);
         let pk_set = sk_set.public_keys();
@@ -82,10 +81,10 @@ where
     /// the `JoinPlan`.
     pub fn build_joining(
         &self,
-        our_uid: NodeUid,
+        our_uid: N,
         secret_key: SecretKey,
-        join_plan: JoinPlan<NodeUid>,
-    ) -> Result<(DynamicHoneyBadger<C, NodeUid>, Step<C, NodeUid>)> {
+        join_plan: JoinPlan<N>,
+    ) -> Result<(DynamicHoneyBadger<C, N>, Step<C, N>)> {
         let netinfo = NetworkInfo::new(
             our_uid,
             SecretKeyShare::default(), // TODO: Should be an option?

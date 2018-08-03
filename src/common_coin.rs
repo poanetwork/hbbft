@@ -22,13 +22,13 @@
 //! of its bits.
 
 use std::collections::BTreeMap;
-use std::fmt::Debug;
 use std::sync::Arc;
 
 use crypto::error as cerror;
 use crypto::{Signature, SignatureShare};
 use fault_log::{Fault, FaultKind};
 use messaging::{self, DistAlgorithm, NetworkInfo, Target};
+use traits::NodeUidT;
 
 /// A common coin error.
 #[derive(Clone, Eq, PartialEq, Debug, Fail)]
@@ -61,33 +61,33 @@ impl CommonCoinMessage {
 /// receiving at least `num_faulty + 1` shares, attempts to combine them into a signature. If that
 /// signature is valid, the instance outputs it and terminates; otherwise the instance aborts.
 #[derive(Debug)]
-pub struct CommonCoin<NodeUid, T> {
-    netinfo: Arc<NetworkInfo<NodeUid>>,
+pub struct CommonCoin<N, T> {
+    netinfo: Arc<NetworkInfo<N>>,
     /// The name of this common coin. It is required to be unique for each common coin round.
     nonce: T,
     /// All received threshold signature shares.
-    received_shares: BTreeMap<NodeUid, SignatureShare>,
+    received_shares: BTreeMap<N, SignatureShare>,
     /// Whether we provided input to the common coin.
     had_input: bool,
     /// Termination flag.
     terminated: bool,
 }
 
-pub type Step<NodeUid, T> = messaging::Step<CommonCoin<NodeUid, T>>;
+pub type Step<N, T> = messaging::Step<CommonCoin<N, T>>;
 
-impl<NodeUid, T> DistAlgorithm for CommonCoin<NodeUid, T>
+impl<N, T> DistAlgorithm for CommonCoin<N, T>
 where
-    NodeUid: Clone + Debug + Ord,
+    N: NodeUidT,
     T: Clone + AsRef<[u8]>,
 {
-    type NodeUid = NodeUid;
+    type NodeUid = N;
     type Input = ();
     type Output = bool;
     type Message = CommonCoinMessage;
     type Error = Error;
 
     /// Sends our threshold signature share if not yet sent.
-    fn input(&mut self, _input: Self::Input) -> Result<Step<NodeUid, T>> {
+    fn input(&mut self, _input: Self::Input) -> Result<Step<N, T>> {
         if !self.had_input {
             self.had_input = true;
             self.get_coin()
@@ -101,7 +101,7 @@ where
         &mut self,
         sender_id: &Self::NodeUid,
         message: Self::Message,
-    ) -> Result<Step<NodeUid, T>> {
+    ) -> Result<Step<N, T>> {
         if !self.terminated {
             let CommonCoinMessage(share) = message;
             self.handle_share(sender_id, share)
@@ -120,12 +120,12 @@ where
     }
 }
 
-impl<NodeUid, T> CommonCoin<NodeUid, T>
+impl<N, T> CommonCoin<N, T>
 where
-    NodeUid: Clone + Debug + Ord,
+    N: NodeUidT,
     T: Clone + AsRef<[u8]>,
 {
-    pub fn new(netinfo: Arc<NetworkInfo<NodeUid>>, nonce: T) -> Self {
+    pub fn new(netinfo: Arc<NetworkInfo<N>>, nonce: T) -> Self {
         CommonCoin {
             netinfo,
             nonce,
@@ -135,7 +135,7 @@ where
         }
     }
 
-    fn get_coin(&mut self) -> Result<Step<NodeUid, T>> {
+    fn get_coin(&mut self) -> Result<Step<N, T>> {
         if !self.netinfo.is_validator() {
             return self.try_output();
         }
@@ -146,11 +146,7 @@ where
         Ok(step)
     }
 
-    fn handle_share(
-        &mut self,
-        sender_id: &NodeUid,
-        share: SignatureShare,
-    ) -> Result<Step<NodeUid, T>> {
+    fn handle_share(&mut self, sender_id: &N, share: SignatureShare) -> Result<Step<N, T>> {
         if let Some(pk_i) = self.netinfo.public_key_share(sender_id) {
             if !pk_i.verify(&share, &self.nonce) {
                 // Log the faulty node and ignore the invalid share.
@@ -164,7 +160,7 @@ where
         self.try_output()
     }
 
-    fn try_output(&mut self) -> Result<Step<NodeUid, T>> {
+    fn try_output(&mut self) -> Result<Step<N, T>> {
         debug!(
             "{:?} received {} shares, had_input = {}",
             self.netinfo.our_uid(),
