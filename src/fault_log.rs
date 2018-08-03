@@ -16,6 +16,8 @@ pub enum FaultKind {
     InvalidCiphertext,
     /// `HoneyBadger` was unable to decrypt a share received from a proposer.
     ShareDecryptionFailed,
+    /// `ThresholdDecryption` received multiple shares from the same sender.
+    MultipleDecryptionShares,
     /// `Broadcast` received a `Value` from a node other than the proposer.
     ReceivedValueFromNonProposer,
     /// `Broadcast` recevied an Echo message containing an invalid proof.

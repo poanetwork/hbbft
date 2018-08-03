@@ -4,20 +4,24 @@ use bincode;
 use failure::{Backtrace, Context, Fail};
 
 use common_subset;
+use threshold_decryption;
 
 /// Honey badger error variants.
 #[derive(Debug, Fail)]
 pub enum ErrorKind {
     #[fail(display = "ProposeBincode error: {}", _0)]
     ProposeBincode(bincode::ErrorKind),
-    #[fail(display = "ProposeCommonSubset0 error: {}", _0)]
-    ProposeCommonSubset0(common_subset::Error),
-    #[fail(display = "ProposeCommonSubset1 error: {}", _0)]
-    ProposeCommonSubset1(common_subset::Error),
-    #[fail(display = "HandleCommonMessageCommonSubset0 error: {}", _0)]
-    HandleCommonMessageCommonSubset0(common_subset::Error),
-    #[fail(display = "HandleCommonMessageCommonSubset1 error: {}", _0)]
-    HandleCommonMessageCommonSubset1(common_subset::Error),
+    #[fail(display = "Failed to instantiate Common Subset: {}", _0)]
+    CreateCommonSubset(common_subset::Error),
+    #[fail(
+        display = "Failed to input contribution to Common Subset: {}",
+        _0
+    )]
+    InputCommonSubset(common_subset::Error),
+    #[fail(display = "Failed to handle Common Subset message: {}", _0)]
+    HandleCommonSubsetMessage(common_subset::Error),
+    #[fail(display = "Threshold decryption error: {}", _0)]
+    ThresholdDecryption(threshold_decryption::Error),
     #[fail(display = "Unknown sender")]
     UnknownSender,
 }

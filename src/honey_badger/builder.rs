@@ -48,9 +48,8 @@ where
             common_subsets: BTreeMap::new(),
             max_future_epochs: self.max_future_epochs as u64,
             incoming_queue: BTreeMap::new(),
-            received_shares: BTreeMap::new(),
+            threshold_decryption: BTreeMap::new(),
             decrypted_contributions: BTreeMap::new(),
-            ciphertexts: BTreeMap::new(),
             _phantom: PhantomData,
         }
     }

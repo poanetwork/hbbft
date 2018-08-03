@@ -134,6 +134,7 @@ pub mod honey_badger;
 pub mod messaging;
 pub mod queueing_honey_badger;
 pub mod sync_key_gen;
+pub mod threshold_decryption;
 pub mod transaction_queue;
 
 /// Common supertraits.
