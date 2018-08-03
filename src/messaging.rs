@@ -194,7 +194,7 @@ pub trait DistAlgorithm {
     /// The messages that need to be exchanged between the instances in the participating nodes.
     type Message: Message;
     /// The errors that can occur during execution.
-    type Error: Debug;
+    type Error: Debug + Send + Sync;
 
     /// Handles an input provided by the user, and returns
     fn input(&mut self, input: Self::Input) -> Result<Step<Self>, Self::Error>
