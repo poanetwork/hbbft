@@ -86,7 +86,7 @@ where
 }
 
 // FIXME: Derive Fail
-#[derive(Debug)]
+// #[derive(Debug)]
 pub enum CrankError<D>
 where
     D: DistAlgorithm,
@@ -95,7 +95,7 @@ where
     CorrectNodeErr {
         msg: NetMessage<D>,
         // #[cause]
-        err: D::Error,
+        // err: D::Error,
     },
     // #[fail(display = "The node with ID {:?} is faulty, but no adversary is set.", _0)]
     FaultyNodeButNoAdversary(D::NodeUid),
@@ -103,6 +103,33 @@ where
     // display = "Node {} disappeared or never existed, while it still had incoming messages.", _0
     // )]
     NodeDisappeared(D::NodeUid),
+}
+
+use failure;
+use std::fmt;
+
+impl<D> fmt::Display for CrankError<D>
+where
+    D: DistAlgorithm,
+{
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        unimplemented!()
+    }
+}
+
+impl<D> fmt::Debug for CrankError<D>
+where
+    D: DistAlgorithm,
+{
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        unimplemented!()
+    }
+}
+
+impl<D> failure::Fail for CrankError<D>
+where
+    D: DistAlgorithm + 'static,
+{
 }
 
 impl<D> VirtualNet<D>
@@ -222,7 +249,9 @@ where
         let msg_copy = msg.clone();
         node.algorithm
             .handle_message(&msg.from, msg.payload)
-            .map_err(move |err| CrankError::CorrectNodeErr { msg: msg_copy, err })
+            .map_err(move |err| CrankError::CorrectNodeErr {
+                msg: msg_copy, /*err*/
+            })
     }
 
     #[inline]
