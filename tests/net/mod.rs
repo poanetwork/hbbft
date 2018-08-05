@@ -41,7 +41,7 @@ impl<D: DistAlgorithm> Node<D> {
     }
 
     #[inline]
-    pub fn node_id(&self) -> &D::NodeUid {
+    pub fn id(&self) -> &D::NodeUid {
         self.algorithm.our_id()
     }
 }
