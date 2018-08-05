@@ -12,7 +12,7 @@ pub mod err;
 #[macro_use]
 mod macros;
 
-use std::{collections, mem};
+use std::{collections, mem, ops};
 
 // pub use self::types::{FaultyMessageIdx, FaultyNodeIdx, MessageIdx, NetworkOp, NodeIdx, OpList};
 use hbbft::messaging::{self, DistAlgorithm, NetworkInfo, Step};
@@ -81,7 +81,6 @@ where
 impl<D> VirtualNet<D>
 where
     D: DistAlgorithm,
-    D::Message: Clone,
 {
     #[inline]
     pub fn new_with_adversary(nodes: NodeMap<D>, adversary: Box<dyn Adversary<D>>) -> Self {
@@ -135,6 +134,52 @@ where
     }
 
     #[inline]
+    pub fn nodes(&self) -> impl Iterator<Item = &Node<D>> {
+        self.nodes.values()
+    }
+
+    #[inline]
+    pub fn faulty_nodes(&self) -> impl Iterator<Item = &Node<D>> {
+        self.nodes().filter(|n| n.is_faulty())
+    }
+
+    #[inline]
+    pub fn correct_nodes(&self) -> impl Iterator<Item = &Node<D>> {
+        self.nodes().filter(|n| !n.is_faulty())
+    }
+
+    #[inline]
+    pub fn get<'a>(&'a self, id: D::NodeUid) -> Option<&'a Node<D>> {
+        self.nodes.get(&id)
+    }
+
+    #[inline]
+    pub fn get_mut<'a>(&'a mut self, id: D::NodeUid) -> Option<&'a mut Node<D>> {
+        self.nodes.get_mut(&id)
+    }
+}
+
+impl<D> VirtualNet<D>
+where
+    D: DistAlgorithm,
+    D::Message: Clone,
+{
+    #[inline]
+    fn handle_network_message(&mut self, msg: NetMessage<D>) -> Result<Step<D>, CrankError<D>> {
+        let node = self.nodes
+            .get_mut(&msg.to)
+            .ok_or_else(|| CrankError::NodeDisappeared(msg.to.clone()))?;
+
+        // Store a copy of the message, in case we need to pass it to the error variant.
+        // By reducing the information in `CrankError::AlgorithmError`, we could reduce overhead
+        // here if necessary.
+        let msg_copy = msg.clone();
+        node.algorithm
+            .handle_message(&msg.from, msg.payload)
+            .map_err(move |err| CrankError::AlgorithmError { msg: msg_copy, err })
+    }
+
+    #[inline]
     fn process_messages<'a, I>(&mut self, sender: D::NodeUid, messages: I)
     where
         D: 'a,
@@ -150,21 +195,6 @@ where
                 },
             }
         }
-    }
-
-    #[inline]
-    fn handle_network_message(&mut self, msg: NetMessage<D>) -> Result<Step<D>, CrankError<D>> {
-        let node = self.nodes
-            .get_mut(&msg.to)
-            .ok_or_else(|| CrankError::NodeDisappeared(msg.to.clone()))?;
-
-        // Store a copy of the message, in case we need to pass it to the error variant.
-        // By reducing the information in `CrankError::AlgorithmError`, we could reduce overhead
-        // here if necessary.
-        let msg_copy = msg.clone();
-        node.algorithm
-            .handle_message(&msg.from, msg.payload)
-            .map_err(move |err| CrankError::AlgorithmError { msg: msg_copy, err })
     }
 
     #[inline]
@@ -227,20 +257,27 @@ where
             None
         }
     }
+}
+
+impl<D> ops::Index<D::NodeUid> for VirtualNet<D>
+where
+    D: DistAlgorithm,
+{
+    type Output = Node<D>;
 
     #[inline]
-    pub fn nodes(&self) -> impl Iterator<Item = &Node<D>> {
-        self.nodes.values()
+    fn index(&self, index: D::NodeUid) -> &Self::Output {
+        self.get(index).expect("indexed node not found")
     }
+}
 
+impl<D> ops::IndexMut<D::NodeUid> for VirtualNet<D>
+where
+    D: DistAlgorithm,
+{
     #[inline]
-    pub fn faulty_nodes(&self) -> impl Iterator<Item = &Node<D>> {
-        self.nodes().filter(|n| n.is_faulty())
-    }
-
-    #[inline]
-    pub fn correct_nodes(&self) -> impl Iterator<Item = &Node<D>> {
-        self.nodes().filter(|n| !n.is_faulty())
+    fn index_mut(&mut self, index: D::NodeUid) -> &mut Self::Output {
+        self.get_mut(index).expect("indexed node not found")
     }
 }
 
