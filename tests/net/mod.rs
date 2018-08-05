@@ -242,64 +242,6 @@ where
     pub fn correct_nodes(&self) -> impl Iterator<Item = &Node<D>> {
         self.nodes().filter(|n| !n.is_faulty())
     }
-
-    // pub fn process_op(&mut self, op: NetworkOp<M>) {
-    //     match op {
-    //         NetworkOp::Swap(MessageIdx(i), MessageIdx(k)) => {
-    //             let mlen = self.messages.len();
-    //             self.messages.swap(i % mlen, k % mlen);
-    //         }
-    //         NetworkOp::DropFaulty(FaultyMessageIdx(f)) => {
-    //             self.nth_faulty_message_idx(f)
-    //                 .map(|idx| self.messages.remove(idx));
-    //         }
-    //         NetworkOp::InjectFaulty(FaultyNodeIdx(from), NodeIdx(to), msg) => {
-    //             // FIXME: We currently have quadratic complexity here, but we will optimize this
-    //             //        once access patterns are clear. But for this reason, it is desirable to
-    //             //        have short circuiting.
-
-    //             // First, we get the sender...
-    //             self.nth_faulty_node(from)
-    //                 .map(|n| n.node_id().clone())
-    //                 .and_then(|sender| {
-    //                     self.nodes
-    //                         .keys()
-    //                         .nth(to & self.nodes.len())
-    //                         .cloned()
-    //                         .map(|receiver| (sender, receiver))
-    //                 })
-    //                 .map(|(sender, receiver)| {
-    //                     /// A new message will be added at the end of the queue. To put it in a
-    //                     /// different position, a `Swap(...)` operation can be added afterwards.
-    //                     self.messages.push_back(messaging::SourcedMessage {
-    //                         source: sender,
-    //                         message: messaging::TargetedMessage {
-    //                             target: messaging::Target::Node(receiver),
-    //                             message: msg,
-    //                         },
-    //                     })
-    //                 });
-    //         }
-    //         NetworkOp::InjectFaultyBroadcast(FaultyNodeIdx(from), msg) => {
-    //             self.nth_faulty_node(from)
-    //                 .map(|n| n.node_id().clone())
-    //                 .map(|sender| {
-    //                     self.messages.push_back(messaging::SourcedMessage {
-    //                         source: sender,
-    //                         message: messaging::TargetedMessage {
-    //                             target: messaging::Target::All,
-    //                             message: msg,
-    //                         },
-    //                     })
-    //                 });
-    //         }
-    //         NetworkOp::ReplayFaulty(FaultyMessageIdx(fnode), NodeIdx(to)) => {
-    //             // self.nth_faulty_node(fnode)
-    //             unimplemented!()
-    //         }
-    //         _ => unimplemented!(),
-    //     }
-    // }
 }
 
 /// Convenient iterator implementation, calls crank repeatedly until the message queue is empty.
