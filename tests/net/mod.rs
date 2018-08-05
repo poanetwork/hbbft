@@ -228,9 +228,20 @@ where
         }
     }
 
-    // pub fn faulty_nodes(&self) -> impl Iterator<Item = &Node<N>> {
-    //     self.nodes.values().filter(|n| n.is_faulty())
-    // }
+    #[inline]
+    pub fn nodes(&self) -> impl Iterator<Item = &Node<D>> {
+        self.nodes.values()
+    }
+
+    #[inline]
+    pub fn faulty_nodes(&self) -> impl Iterator<Item = &Node<D>> {
+        self.nodes().filter(|n| n.is_faulty())
+    }
+
+    #[inline]
+    pub fn correct_nodes(&self) -> impl Iterator<Item = &Node<D>> {
+        self.nodes().filter(|n| !n.is_faulty())
+    }
 
     // fn nth_faulty_node(&self, n: usize) -> Option<&Node<N>> {
     //     let count = self.faulty_nodes().count();
