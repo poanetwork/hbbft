@@ -243,35 +243,6 @@ where
         self.nodes().filter(|n| !n.is_faulty())
     }
 
-    // fn nth_faulty_node(&self, n: usize) -> Option<&Node<N>> {
-    //     let count = self.faulty_nodes().count();
-    //     if count == 0 {
-    //         return None;
-    //     }
-    //     self.faulty_nodes().nth(n % count)
-    // }
-
-    // pub fn faulty_messages_idxs<'a>(&'a self) -> impl Iterator<Item = usize> + 'a {
-    //     self.messages
-    //         .iter()
-    //         .enumerate()
-    //         .filter_map(move |(idx, m)| {
-    //             if self.nodes.get(&m.source).expect("node missing").is_faulty() {
-    //                 Some(idx)
-    //             } else {
-    //                 None
-    //             }
-    //         })
-    // }
-
-    // fn nth_faulty_message_idx(&self, n: usize) -> Option<usize> {
-    //     let count = self.faulty_messages_idxs().count();
-    //     if count == 0 {
-    //         return None;
-    //     }
-    //     self.faulty_messages_idxs().nth(n % count)
-    // }
-
     // pub fn process_op(&mut self, op: NetworkOp<M>) {
     //     match op {
     //         NetworkOp::Swap(MessageIdx(i), MessageIdx(k)) => {
