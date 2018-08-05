@@ -165,7 +165,7 @@ where
     D::Message: Clone,
 {
     #[inline]
-    fn handle_network_message(&mut self, msg: NetMessage<D>) -> Result<Step<D>, CrankError<D>> {
+    fn dispatch_message(&mut self, msg: NetMessage<D>) -> Result<Step<D>, CrankError<D>> {
         let node = self.nodes
             .get_mut(&msg.to)
             .ok_or_else(|| CrankError::NodeDisappeared(msg.to.clone()))?;
@@ -174,9 +174,26 @@ where
         // By reducing the information in `CrankError::AlgorithmError`, we could reduce overhead
         // here if necessary.
         let msg_copy = msg.clone();
-        node.algorithm
+        let step = node.algorithm
             .handle_message(&msg.from, msg.payload)
-            .map_err(move |err| CrankError::AlgorithmError { msg: msg_copy, err })
+            .map_err(move |err| CrankError::AlgorithmError { msg: msg_copy, err })?;
+
+        Ok(step)
+    }
+
+    // # Panics
+    // ...
+    #[inline]
+    pub fn send_input(&mut self, id: D::NodeUid, input: D::Input) -> Result<Step<D>, D::Error> {
+        let step = self.nodes
+            .get_mut(&id)
+            .expect("cannot handle input on non-existing node")
+            .algorithm
+            .input(input)?;
+
+        self.process_messages(id, step.messages.iter());
+
+        Ok(step)
     }
 
     #[inline]
@@ -245,7 +262,7 @@ where
                 try_some!(tamper_result)
             } else {
                 // A correct node simply handles the message.
-                try_some!(self.handle_network_message(msg))
+                try_some!(self.dispatch_message(msg))
             };
 
             // All messages are expanded and added to the queue. We opt for copying them, so we can
@@ -256,6 +273,29 @@ where
             // There are no more network messages in the queue.
             None
         }
+    }
+}
+
+impl<D> VirtualNet<D>
+where
+    D: DistAlgorithm,
+    D::Message: Clone,
+    D::Input: Clone,
+{
+    #[inline]
+    pub fn broadcast_input<'a>(
+        &'a mut self,
+        input: &'a D::Input,
+    ) -> impl Iterator<Item = Result<Step<D>, D::Error>> + 'a {
+        // Note: The tricky lifetime annotation basically says that the input value given must
+        //       live as long as the iterator returned lives (because it is cloned on every step,
+        //       with steps only evaluated each time `next()` is called. For the same reason the
+        //       network should not go away ealier either.
+        self.nodes.values_mut().map(move |node| {
+            let step = node.algorithm.input(input.clone())?;
+            self.process_messages(*node.id(), step.messages.iter());
+            Ok(step)
+        })
     }
 }
 
