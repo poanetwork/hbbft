@@ -1,28 +1,20 @@
 use rand::Rng;
 
-use std::{collections, ops};
+use std::{cmp, collections, iter, ops, vec};
 
 // A quick reimplementation of dynamic honey badger utility functions.
 // FIXME: Why do we need `Sized` here, really?
-pub trait ChooseSubset: Sized {
-    type Idx;
+pub trait ChooseSubset<'a>: Sized {
+    type Iter: 'a;
 
     /// Choose a random subset of items with no duplicates.
-    fn choose_subset<'a, R: Rng>(
-        &'a self,
-        max_subset_size: usize,
-        rng: R,
-    ) -> IndexSubset<'a, Self, Self::Idx>;
+    fn choose_subset<R: Rng>(&'a self, max_subset_size: usize, rng: R) -> Self::Iter;
 }
 
-impl<T> ChooseSubset for Vec<T> {
-    type Idx = usize;
+impl<'a, T: 'a> ChooseSubset<'a> for Vec<T> {
+    type Iter = IndexSubset<'a, Self, usize>;
 
-    fn choose_subset<'a, R: Rng>(
-        &'a self,
-        max_subset_size: usize,
-        mut rng: R,
-    ) -> IndexSubset<'a, Self, Self::Idx> {
+    fn choose_subset<R: Rng>(&'a self, max_subset_size: usize, mut rng: R) -> Self::Iter {
         // Indices are always from 0..len, so we are safe using a range.
         let mut indices: Vec<_> = (0..max_subset_size).collect();
         rng.shuffle(&mut indices);
@@ -30,11 +22,90 @@ impl<T> ChooseSubset for Vec<T> {
     }
 }
 
-// impl<T> ChooseSubset for collections::BTreeSet<T> {
-//     fn choose_subset<'a, R: Rng>(&'a self, max_subset_size: usize, mut rng: R) -> Subset<'a, Self> {
-//         unimplemented!()
-//     }
-// }
+impl<'a, T: 'a> ChooseSubset<'a> for collections::BTreeSet<T> {
+    type Iter = iter::FilterMap<
+        iter::Zip<vec::IntoIter<usize>, iter::Enumerate<collections::btree_set::Iter<'a, T>>>,
+        for<'t> fn((usize, (usize, &'t T))) -> Option<&'t T>,
+    >;
+
+    fn choose_subset<R: Rng>(&'a self, max_subset_size: usize, mut rng: R) -> Self::Iter {
+        // Construct a list of indices into the sorted set.
+        let mut nidx: Vec<_> = (0..(self.len())).collect();
+        let mut indices: Vec<_> = nidx.choose_subset(max_subset_size, rng).cloned().collect();
+        indices.sort();
+
+        fn combine<'b, T>(arg: (usize, (usize, &'b T))) -> Option<&'b T> {
+            let (chosen, (idx, itemref)) = arg;
+
+            if idx == chosen {
+                Some(itemref)
+            } else {
+                None
+            }
+        }
+
+        /// We now have random indices in ascending order. We can now construct our iterator.
+        indices
+            .into_iter()
+            .zip(self.iter().enumerate())
+            .filter_map(combine)
+        //     |(chosen, (idx, itemref))| if idx == *chosen { Some(itemref) } else { None },
+        // )
+
+        // return refs;
+
+        // Selection{
+        //     rev_indices: indices,
+        //     cur: 0,
+        //     values: self.iter(),
+        // }
+
+        // We now have random indices in ascending order. We can now construct our iterator.
+        // indices
+        // .into_iter()
+        // .zip(self.iter().enumerate())
+        // .filter_map(combine)
+        // |(chosen, (idx, itemref))| if idx == *chosen { Some(itemref) } else { None },
+        // )
+
+        // let mut items = Vec::with_capacity(max_subset_size);
+        // while max_subset_size > 0/
+        // unimplemented!()
+    }
+}
+
+pub struct Selection<I> {
+    rev_indices: Vec<usize>,
+    cur: usize,
+    values: I,
+}
+
+impl<I> Iterator for Selection<I>
+where
+    I: Iterator,
+{
+    type Item = <I as Iterator>::Item;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if let Some(target_idx) = self.rev_indices.pop() {
+            while let Some(candidate) = self.values.next() {
+                if self.cur == target_idx {
+                    // We hit an index we want to return.
+                    self.cur += 1;
+                    return Some(candidate);
+                } else {
+                    // No hit.
+                    self.cur += 1;
+                }
+            }
+            // We ran out of items.
+            return None;
+        } else {
+            // No more indices to get, we are done.
+            None
+        }
+    }
+}
 
 /// A subset iterator.
 ///
