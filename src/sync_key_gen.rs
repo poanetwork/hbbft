@@ -75,7 +75,8 @@
 //! let mut nodes = BTreeMap::new();
 //! let mut parts = Vec::new();
 //! for (id, sk) in sec_keys.into_iter().enumerate() {
-//!     let (sync_key_gen, opt_part) = SyncKeyGen::new(id, sk, pub_keys.clone(), threshold);
+//!     let (sync_key_gen, opt_part) = SyncKeyGen::new(id, sk, pub_keys.clone(), threshold)
+//!         .unwrap_or_else(|_| panic!("Failed to create `SyncKeyGen` instance for node #{}", id));
 //!     nodes.insert(id, sync_key_gen);
 //!     parts.push((id, opt_part.unwrap())); // Would be `None` for observer nodes.
 //! }
@@ -100,11 +101,14 @@
 //! }
 //!
 //! // We have all the information and can generate the key sets.
-//! let pub_key_set = nodes[&0].generate().0; // The public key set: identical for all nodes.
+//! // Generate the public key set; which is identical for all nodes.
+//! let pub_key_set = nodes[&0].generate().expect("Failed to create `PublicKeySet` from node #0").0;
 //! let mut secret_key_shares = BTreeMap::new();
 //! for (&id, node) in &mut nodes {
 //!     assert!(node.is_ready());
-//!     let (pks, opt_sks) = node.generate();
+//!     let (pks, opt_sks) = node.generate().unwrap_or_else(|_|
+//!         panic!("Failed to create `PublicKeySet` and `SecretKeyShare` for node #{}", id)
+//!     );
 //!     assert_eq!(pks, pub_key_set); // All nodes now know the public keys and public key shares.
 //!     let sks = opt_sks.expect("Not an observer node: We receive a secret key share.");
 //!     secret_key_shares.insert(id, sks);
@@ -157,18 +161,31 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::{self, Debug, Formatter};
 
 use bincode;
+use crypto::poly::{BivarCommitment, BivarPoly, Poly};
+use crypto::serde_impl::field_vec::FieldWrap;
+use crypto::{self, Ciphertext, PublicKey, PublicKeySet, SecretKey, SecretKeyShare};
 use pairing::bls12_381::{Fr, G1Affine};
 use pairing::{CurveAffine, Field};
 use rand::OsRng;
 
-use crypto::poly::{BivarCommitment, BivarPoly, Poly};
-use crypto::serde_impl::field_vec::FieldWrap;
-use crypto::{Ciphertext, PublicKey, PublicKeySet, SecretKey, SecretKeyShare};
 use fault_log::{FaultKind, FaultLog};
 use messaging::NetworkInfo;
 use traits::NodeUidT;
 
 // TODO: No need to send our own row and value to ourselves.
+
+// A sync-key-gen error.
+#[derive(Clone, Eq, PartialEq, Debug, Fail)]
+pub enum Error {
+    #[fail(display = "Crypto error: {}", _0)]
+    Crypto(crypto::error::Error),
+}
+
+impl From<crypto::error::Error> for Error {
+    fn from(e: crypto::error::Error) -> Self {
+        Error::Crypto(e)
+    }
+}
 
 /// A submission by a validator for the key generation. It must to be sent to all participating
 /// nodes and handled by all of them, including the one that produced it.
@@ -270,7 +287,7 @@ impl<N: NodeUidT> SyncKeyGen<N> {
         sec_key: SecretKey,
         pub_keys: BTreeMap<N, PublicKey>,
         threshold: usize,
-    ) -> (SyncKeyGen<N>, Option<Part>) {
+    ) -> Result<(SyncKeyGen<N>, Option<Part>), Error> {
         let our_idx = pub_keys
             .keys()
             .position(|uid| *uid == our_uid)
@@ -284,18 +301,23 @@ impl<N: NodeUidT> SyncKeyGen<N> {
             threshold,
         };
         if our_idx.is_none() {
-            return (key_gen, None); // No part: we are an observer.
+            return Ok((key_gen, None)); // No part: we are an observer.
         }
         let mut rng = OsRng::new().expect("OS random number generator");
-        let our_part = BivarPoly::random(threshold, &mut rng);
+        let our_part = BivarPoly::random(threshold, &mut rng)?;
         let commit = our_part.commitment();
         let encrypt = |(i, pk): (usize, &PublicKey)| {
-            let row = our_part.row(i + 1);
+            let row = our_part.row(i + 1)?;
             let bytes = bincode::serialize(&row).expect("failed to serialize row");
-            pk.encrypt(&bytes)
+            Ok(pk.encrypt(&bytes))
         };
-        let rows: Vec<_> = key_gen.pub_keys.values().enumerate().map(encrypt).collect();
-        (key_gen, Some(Part(commit, rows)))
+        let rows = key_gen
+            .pub_keys
+            .values()
+            .enumerate()
+            .map(encrypt)
+            .collect::<Result<Vec<_>, Error>>()?;
+        Ok((key_gen, Some(Part(commit, rows))))
     }
 
     /// Handles a `Part` message. If it is valid, returns an `Ack` message to be broadcast.
@@ -393,19 +415,24 @@ impl<N: NodeUidT> SyncKeyGen<N> {
     ///
     /// All participating nodes must have handled the exact same sequence of `Part` and `Ack`
     /// messages before calling this method. Otherwise their key shares will not match.
-    pub fn generate(&self) -> (PublicKeySet, Option<SecretKeyShare>) {
-        let mut pk_commit = Poly::zero().commitment();
+    pub fn generate(&self) -> Result<(PublicKeySet, Option<SecretKeyShare>), Error> {
+        let mut pk_commit = Poly::zero()?.commitment();
         let mut opt_sk_val = self.our_idx.map(|_| Fr::zero());
         let is_complete = |part: &&ProposalState| part.is_complete(self.threshold);
         for part in self.parts.values().filter(is_complete) {
             pk_commit += part.commit.row(0);
             if let Some(sk_val) = opt_sk_val.as_mut() {
-                let row: Poly = Poly::interpolate(part.values.iter().take(self.threshold + 1));
+                let row = Poly::interpolate(part.values.iter().take(self.threshold + 1))?;
                 sk_val.add_assign(&row.evaluate(0));
             }
         }
-        let opt_sk = opt_sk_val.map(SecretKeyShare::from_value);
-        (pk_commit.into(), opt_sk)
+        let opt_sk = if let Some(mut fr) = opt_sk_val {
+            let sk = SecretKeyShare::from_mut_ptr(&mut fr as *mut Fr)?;
+            Some(sk)
+        } else {
+            None
+        };
+        Ok((pk_commit.into(), opt_sk))
     }
 
     /// Consumes the instance, generates the key set and returns a new `NetworkInfo` with the new
@@ -413,10 +440,11 @@ impl<N: NodeUidT> SyncKeyGen<N> {
     ///
     /// All participating nodes must have handled the exact same sequence of `Part` and `Ack`
     /// messages before calling this method. Otherwise their key shares will not match.
-    pub fn into_network_info(self) -> NetworkInfo<N> {
-        let (pk_set, opt_sk_share) = self.generate();
+    pub fn into_network_info(self) -> Result<NetworkInfo<N>, Error> {
+        let (pk_set, opt_sk_share) = self.generate()?;
         let sk_share = opt_sk_share.unwrap_or_default(); // TODO: Make this an option.
-        NetworkInfo::new(self.our_uid, sk_share, pk_set, self.sec_key, self.pub_keys)
+        let netinfo = NetworkInfo::new(self.our_uid, sk_share, pk_set, self.sec_key, self.pub_keys);
+        Ok(netinfo)
     }
 
     /// Handles an `Ack` message or returns an error string.
