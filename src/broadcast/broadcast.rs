@@ -71,7 +71,7 @@
 //!
 //!     // Create a random set of keys for testing.
 //!     let netinfos = NetworkInfo::generate_map(0..NUM_NODES)
-//!         .expect("Failed to create `NetworkInfo` map");
+//!         .expect("Failed to generate `NetworkInfo` map");
 //!
 //!     // Create initial nodes by instantiating a `Broadcast` for each.
 //!     let mut nodes = BTreeMap::new();
