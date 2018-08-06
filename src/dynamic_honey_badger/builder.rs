@@ -66,15 +66,15 @@ where
     }
 
     /// Creates a new `DynamicHoneyBadger` configured to start a new network as a single validator.
-    pub fn build_first_node(&self, our_uid: N) -> DynamicHoneyBadger<C, N> {
+    pub fn build_first_node(&self, our_uid: N) -> Result<DynamicHoneyBadger<C, N>> {
         let mut rng = rand::thread_rng();
-        let sk_set = SecretKeySet::random(0, &mut rng);
+        let sk_set = SecretKeySet::random(0, &mut rng)?;
         let pk_set = sk_set.public_keys();
-        let sks = sk_set.secret_key_share(0);
+        let sks = sk_set.secret_key_share(0)?;
         let sk: SecretKey = rng.gen();
         let pub_keys = once((our_uid.clone(), sk.public_key())).collect();
         let netinfo = NetworkInfo::new(our_uid, sks, pk_set, sk, pub_keys);
-        self.build(netinfo)
+        Ok(self.build(netinfo))
     }
 
     /// Creates a new `DynamicHoneyBadger` configured to join the network at the epoch specified in

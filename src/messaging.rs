@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fmt::Debug;
 use std::iter::once;
 
-use crypto::{PublicKey, PublicKeySet, PublicKeyShare, SecretKey, SecretKeyShare};
+use crypto::{self, PublicKey, PublicKeySet, PublicKeyShare, SecretKey, SecretKeyShare};
 use fault_log::{Fault, FaultLog};
 use traits::{Message, NodeUidT};
 
@@ -356,7 +356,7 @@ impl<N: NodeUidT> NetworkInfo<N> {
     }
 
     /// Generates a map of matching `NetworkInfo`s for testing.
-    pub fn generate_map<I>(uids: I) -> BTreeMap<N, NetworkInfo<N>>
+    pub fn generate_map<I>(uids: I) -> Result<BTreeMap<N, NetworkInfo<N>>, crypto::error::Error>
     where
         I: IntoIterator<Item = N>,
     {
@@ -370,7 +370,7 @@ impl<N: NodeUidT> NetworkInfo<N> {
         let num_faulty = (all_uids.len() - 1) / 3;
 
         // Generate the keys for threshold cryptography.
-        let sk_set = SecretKeySet::random(num_faulty, &mut rng);
+        let sk_set = SecretKeySet::random(num_faulty, &mut rng)?;
         let pk_set = sk_set.public_keys();
 
         // Generate keys for individually signing and encrypting messages.
@@ -385,12 +385,12 @@ impl<N: NodeUidT> NetworkInfo<N> {
         let create_netinfo = |(i, uid): (usize, N)| {
             let netinfo = NetworkInfo::new(
                 uid.clone(),
-                sk_set.secret_key_share(i),
+                sk_set.secret_key_share(i)?,
                 pk_set.clone(),
                 sec_keys[&uid].clone(),
                 pub_keys.clone(),
             );
-            (uid, netinfo)
+            Ok((uid, netinfo))
         };
         all_uids
             .into_iter()
