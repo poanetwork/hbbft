@@ -8,7 +8,6 @@
 
 // pub mod types;
 pub mod adversary;
-pub mod choose_subset;
 pub mod err;
 #[macro_use]
 mod macros;
