@@ -161,14 +161,17 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::{self, Debug, Formatter};
 
 use bincode;
-use crypto::poly::{BivarCommitment, BivarPoly, Poly};
-use crypto::serde_impl::field_vec::FieldWrap;
-use crypto::{self, Ciphertext, PublicKey, PublicKeySet, SecretKey, SecretKeyShare};
+use crypto::{
+    error::Error as CryptoError,
+    poly::{BivarCommitment, BivarPoly, Poly},
+    serde_impl::field_vec::FieldWrap,
+    Ciphertext, PublicKey, PublicKeySet, SecretKey, SecretKeyShare,
+};
 use pairing::bls12_381::{Fr, G1Affine};
 use pairing::{CurveAffine, Field};
 use rand::OsRng;
 
-use fault_log::{FaultKind, FaultLog};
+use fault_log::{AckMessageFault as Fault, FaultKind, FaultLog};
 use messaging::NetworkInfo;
 use traits::NodeUidT;
 
@@ -177,14 +180,12 @@ use traits::NodeUidT;
 // A sync-key-gen error.
 #[derive(Clone, Eq, PartialEq, Debug, Fail)]
 pub enum Error {
-    #[fail(display = "Crypto error: {}", _0)]
-    Crypto(crypto::error::Error),
-}
-
-impl From<crypto::error::Error> for Error {
-    fn from(e: crypto::error::Error) -> Self {
-        Error::Crypto(e)
-    }
+    #[fail(display = "Error creating SyncKeyGen: {}", _0)]
+    Creation(CryptoError),
+    #[fail(display = "Error generating keys: {}", _0)]
+    Generation(CryptoError),
+    #[fail(display = "Error acknowledging part: {}", _0)]
+    Ack(CryptoError),
 }
 
 /// A submission by a validator for the key generation. It must to be sent to all participating
@@ -304,10 +305,10 @@ impl<N: NodeUidT> SyncKeyGen<N> {
             return Ok((key_gen, None)); // No part: we are an observer.
         }
         let mut rng = OsRng::new().expect("OS random number generator");
-        let our_part = BivarPoly::random(threshold, &mut rng)?;
+        let our_part = BivarPoly::random(threshold, &mut rng).map_err(Error::Creation)?;
         let commit = our_part.commitment();
         let encrypt = |(i, pk): (usize, &PublicKey)| {
-            let row = our_part.row(i + 1)?;
+            let row = our_part.row(i + 1).map_err(Error::Creation)?;
             let bytes = bincode::serialize(&row).expect("failed to serialize row");
             Ok(pk.encrypt(&bytes))
         };
@@ -354,7 +355,7 @@ impl<N: NodeUidT> SyncKeyGen<N> {
             return Some(PartOutcome::Invalid(fault_log));
         };
         if row.commitment() != commit_row {
-            debug!("Invalid part from node {:?}.", sender_id);
+            error!("Invalid part from node {:?}.", sender_id);
             let fault_log = FaultLog::init(sender_id.clone(), FaultKind::InvalidPartMessage);
             return Some(PartOutcome::Invalid(fault_log));
         }
@@ -377,9 +378,9 @@ impl<N: NodeUidT> SyncKeyGen<N> {
     pub fn handle_ack(&mut self, sender_id: &N, ack: Ack) -> FaultLog<N> {
         let mut fault_log = FaultLog::new();
         if let Some(sender_idx) = self.node_index(sender_id) {
-            if let Err(err) = self.handle_ack_or_err(sender_idx, ack) {
-                debug!("Invalid ack from node {:?}: {}", sender_id, err);
-                fault_log.append(sender_id.clone(), FaultKind::InvalidAckMessage);
+            if let Err(fault) = self.handle_ack_or_err(sender_idx, ack) {
+                debug!("Invalid ack from node {:?}: {}", sender_id, fault);
+                fault_log.append(sender_id.clone(), FaultKind::AckMessage(fault));
             }
         }
         fault_log
@@ -416,18 +417,19 @@ impl<N: NodeUidT> SyncKeyGen<N> {
     /// All participating nodes must have handled the exact same sequence of `Part` and `Ack`
     /// messages before calling this method. Otherwise their key shares will not match.
     pub fn generate(&self) -> Result<(PublicKeySet, Option<SecretKeyShare>), Error> {
-        let mut pk_commit = Poly::zero()?.commitment();
+        let mut pk_commit = Poly::zero().map_err(Error::Generation)?.commitment();
         let mut opt_sk_val = self.our_idx.map(|_| Fr::zero());
         let is_complete = |part: &&ProposalState| part.is_complete(self.threshold);
         for part in self.parts.values().filter(is_complete) {
             pk_commit += part.commit.row(0);
             if let Some(sk_val) = opt_sk_val.as_mut() {
-                let row = Poly::interpolate(part.values.iter().take(self.threshold + 1))?;
+                let row = Poly::interpolate(part.values.iter().take(self.threshold + 1))
+                    .map_err(Error::Generation)?;
                 sk_val.add_assign(&row.evaluate(0));
             }
         }
         let opt_sk = if let Some(mut fr) = opt_sk_val {
-            let sk = SecretKeyShare::from_mut_ptr(&mut fr as *mut Fr)?;
+            let sk = SecretKeyShare::from_mut_ptr(&mut fr as *mut Fr).map_err(Error::Generation)?;
             Some(sk)
         } else {
             None
@@ -452,16 +454,16 @@ impl<N: NodeUidT> SyncKeyGen<N> {
         &mut self,
         sender_idx: u64,
         Ack(proposer_idx, values): Ack,
-    ) -> Result<(), String> {
+    ) -> Result<(), Fault> {
         if values.len() != self.pub_keys.len() {
-            return Err("wrong node count".to_string());
+            return Err(Fault::NodeCount);
         }
         let part = self
             .parts
             .get_mut(&proposer_idx)
-            .ok_or_else(|| "sender does not exist".to_string())?;
+            .ok_or_else(|| Fault::SenderExist)?;
         if !part.acks.insert(sender_idx) {
-            return Err("duplicate ack".to_string());
+            return Err(Fault::DuplicateAck);
         }
         let our_idx = match self.our_idx {
             Some(our_idx) => our_idx,
@@ -470,12 +472,18 @@ impl<N: NodeUidT> SyncKeyGen<N> {
         let ser_val: Vec<u8> = self
             .sec_key
             .decrypt(&values[our_idx as usize])
-            .ok_or_else(|| "value decryption failed".to_string())?;
+            .ok_or_else(|| Fault::ValueDecryption)?;
         let val = bincode::deserialize::<FieldWrap<Fr, Fr>>(&ser_val)
-            .map_err(|err| format!("deserialization failed: {:?}", err))?
+            .map_err(|err| {
+                error!(
+                    "Secure value deserialization failed while handling ack: {:?}",
+                    err
+                );
+                Fault::ValueDeserialization
+            })?
             .into_inner();
         if part.commit.evaluate(our_idx + 1, sender_idx + 1) != G1Affine::one().mul(val) {
-            return Err("wrong value".to_string());
+            return Err(Fault::ValueInvalid);
         }
         part.values.insert(sender_idx + 1, val);
         Ok(())
@@ -486,7 +494,7 @@ impl<N: NodeUidT> SyncKeyGen<N> {
         if let Some(node_idx) = self.pub_keys.keys().position(|uid| uid == node_id) {
             Some(node_idx as u64)
         } else {
-            debug!("Unknown node {:?}", node_id);
+            error!("Unknown node {:?}", node_id);
             None
         }
     }
