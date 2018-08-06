@@ -65,6 +65,37 @@ pub type NodeMap<D> = collections::BTreeMap<<D as DistAlgorithm>::NodeUid, Node<
 pub type NetMessage<D> =
     NetworkMessage<<D as DistAlgorithm>::Message, <D as DistAlgorithm>::NodeUid>;
 
+#[inline]
+fn expand_messages<'a, D, I>(
+    nodes: &'a collections::BTreeMap<D::NodeUid, Node<D>>,
+    sender: D::NodeUid,
+    messages: I,
+    dest: &mut collections::VecDeque<NetMessage<D>>,
+) where
+    D: DistAlgorithm + 'a,
+    D::Message: Clone,
+    I: Iterator<Item = &'a messaging::TargetedMessage<D::Message, D::NodeUid>>,
+{
+    for tmsg in messages {
+        match &tmsg.target {
+            messaging::Target::Node(to) => {
+                dest.push_back(NetworkMessage::new(
+                    sender.clone(),
+                    tmsg.message.clone(),
+                    to.clone(),
+                ));
+            }
+            messaging::Target::All => for to in nodes.keys() {
+                dest.push_back(NetworkMessage::new(
+                    sender.clone(),
+                    tmsg.message.clone(),
+                    to.clone(),
+                ));
+            },
+        }
+    }
+}
+
 pub struct VirtualNet<D>
 where
     D: DistAlgorithm,
@@ -191,27 +222,9 @@ where
             .algorithm
             .input(input)?;
 
-        self.process_messages(id, step.messages.iter());
+        expand_messages(&self.nodes, id, step.messages.iter(), &mut self.messages);
 
         Ok(step)
-    }
-
-    #[inline]
-    fn process_messages<'a, I>(&mut self, sender: D::NodeUid, messages: I)
-    where
-        D: 'a,
-        I: Iterator<Item = &'a messaging::TargetedMessage<D::Message, D::NodeUid>>,
-    {
-        for tmsg in messages {
-            match &tmsg.target {
-                messaging::Target::Node(to) => {
-                    NetworkMessage::new(sender.clone(), tmsg.message.clone(), to.clone());
-                }
-                messaging::Target::All => for to in self.nodes.keys() {
-                    NetworkMessage::new(sender.clone(), tmsg.message.clone(), to.clone());
-                },
-            }
-        }
     }
 
     #[inline]
@@ -267,7 +280,12 @@ where
 
             // All messages are expanded and added to the queue. We opt for copying them, so we can
             // return unaltered step later on for inspection.
-            self.process_messages(sender, step.messages.iter());
+            expand_messages(
+                &self.nodes,
+                sender,
+                step.messages.iter(),
+                &mut self.messages,
+            );
             Some(Ok(step))
         } else {
             // There are no more network messages in the queue.
@@ -286,16 +304,28 @@ where
     pub fn broadcast_input<'a>(
         &'a mut self,
         input: &'a D::Input,
-    ) -> impl Iterator<Item = Result<Step<D>, D::Error>> + 'a {
+    ) -> Result<Vec<(D::NodeUid, Step<D>)>, D::Error> {
         // Note: The tricky lifetime annotation basically says that the input value given must
         //       live as long as the iterator returned lives (because it is cloned on every step,
         //       with steps only evaluated each time `next()` is called. For the same reason the
         //       network should not go away ealier either.
-        self.nodes.values_mut().map(move |node| {
-            let step = node.algorithm.input(input.clone())?;
-            self.process_messages(*node.id(), step.messages.iter());
-            Ok(step)
-        })
+
+        let steps: Vec<_> = self.nodes
+            .values_mut()
+            .map(move |node| Ok((node.id().clone(), node.algorithm.input(input.clone())?)))
+            .collect::<Result<_, _>>()?;
+
+        // Process all messages from all steps in the queue.
+        steps.iter().for_each(|(id, step)| {
+            expand_messages(
+                &self.nodes,
+                id.clone(),
+                step.messages.iter(),
+                &mut self.messages,
+            );
+        });
+
+        Ok(steps)
     }
 }
 
