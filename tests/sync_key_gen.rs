@@ -15,7 +15,7 @@ use hbbft::sync_key_gen::{PartOutcome, SyncKeyGen};
 
 fn test_sync_key_gen_with(threshold: usize, node_num: usize) {
     // Generate individual key pairs for encryption. These are not suitable for threshold schemes.
-    let sec_keys: Vec<SecretKey> = (0..node_num).map(|_| rand::random()).collect();
+    let sec_keys: Vec<SecretKey> = (0..node_num).map(|_| SecretKey::random()).collect();
     let pub_keys: BTreeMap<usize, PublicKey> = sec_keys
         .iter()
         .map(SecretKey::public_key)
@@ -28,7 +28,8 @@ fn test_sync_key_gen_with(threshold: usize, node_num: usize) {
         .into_iter()
         .enumerate()
         .map(|(id, sk)| {
-            let (sync_key_gen, proposal) = SyncKeyGen::new(id, sk, pub_keys.clone(), threshold);
+            let (sync_key_gen, proposal) = SyncKeyGen::new(id, sk, pub_keys.clone(), threshold)
+                .unwrap_or_else(|_err| panic!("Failed to create `SyncKeyGen` instance #{}", id));
             nodes.push(sync_key_gen);
             proposal
         })
@@ -60,13 +61,21 @@ fn test_sync_key_gen_with(threshold: usize, node_num: usize) {
 
     // Compute the keys and test a threshold signature.
     let msg = "Help I'm trapped in a unit test factory";
-    let pub_key_set = nodes[0].generate().0;
+    let pub_key_set = nodes[0]
+        .generate()
+        .expect("Failed to generate `PublicKeySet` for node #0")
+        .0;
     let sig_shares: BTreeMap<_, _> = nodes
         .iter()
         .enumerate()
         .map(|(idx, node)| {
             assert!(node.is_ready());
-            let (pks, opt_sk) = node.generate();
+            let (pks, opt_sk) = node.generate().unwrap_or_else(|_| {
+                panic!(
+                    "Failed to generate `PublicKeySet` and `SecretKeyShare` for node #{}",
+                    idx
+                )
+            });
             let sk = opt_sk.expect("new secret key");
             assert_eq!(pks, pub_key_set);
             let sig = sk.sign(msg);
