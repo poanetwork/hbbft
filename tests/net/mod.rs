@@ -228,7 +228,7 @@ where
     }
 
     #[inline]
-    pub fn crank(&mut self) -> Option<Result<Step<D>, CrankError<D>>> {
+    pub fn crank(&mut self) -> Option<Result<(D::NodeUid, Step<D>), CrankError<D>>> {
         // Step 0: We give the Adversary a chance to affect the network.
 
         // Swap the adversary out with a dummy, to get around ownership restrictions.
@@ -242,6 +242,7 @@ where
         // Step 1: Pick a message from the queue and deliver it.
         if let Some(msg) = self.messages.pop_front() {
             let sender = msg.from.clone();
+            let receiver = msg.to.clone();
 
             // Unfortunately, we have to re-borrow the target node further down to make the borrow
             // checker happy. First, we check if the receiving node is faulty, so we can dispatch
@@ -253,8 +254,6 @@ where
             ).is_faulty();
 
             let step: Step<_> = if is_faulty {
-                let receiver = msg.to.clone();
-
                 // The swap-dance is painful here, as we are creating an `opt_step` just to avoid
                 // borrow issues.
                 let mut adv = mem::replace(&mut self.adversary, None);
@@ -266,7 +265,8 @@ where
 
                 // An error will be returned here, if the adversary was missing.
                 let tamper_result = try_some!(
-                    opt_tamper_result.ok_or_else(|| CrankError::FaultyNodeButNoAdversary(receiver))
+                    opt_tamper_result
+                        .ok_or_else(|| CrankError::FaultyNodeButNoAdversary(receiver.clone()))
                 );
 
                 // A missing adversary here could technically be a panic, as it is almost always
@@ -286,7 +286,7 @@ where
                 step.messages.iter(),
                 &mut self.messages,
             );
-            Some(Ok(step))
+            Some(Ok((receiver, step)))
         } else {
             // There are no more network messages in the queue.
             None
@@ -367,7 +367,7 @@ where
     D: DistAlgorithm,
     D::Message: Clone,
 {
-    type Item = Result<Step<D>, CrankError<D>>;
+    type Item = Result<(D::NodeUid, Step<D>), CrankError<D>>;
 
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
