@@ -5,6 +5,23 @@
 //! calling algorithm via `DistAlgorihm`'s `.input()` and
 //! `.handle_message()` trait methods.
 
+/// A fault log entry.
+#[derive(Clone, Copy, Eq, PartialEq, Debug, Fail)]
+pub enum AckMessageFault {
+    #[fail(display = "Wrong node count")]
+    NodeCount,
+    #[fail(display = "Sender does not exist")]
+    SenderExist,
+    #[fail(display = "Duplicate ack")]
+    DuplicateAck,
+    #[fail(display = "Value decryption failed")]
+    ValueDecryption,
+    #[fail(display = "Value deserialization failed")]
+    ValueDeserialization,
+    #[fail(display = "Invalid value")]
+    ValueInvalid,
+}
+
 /// Represents each reason why a node could be considered faulty.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum FaultKind {
@@ -39,7 +56,7 @@ pub enum FaultKind {
     /// with an invalid signature.
     IncorrectPayloadSignature,
     /// `DynamicHoneyBadger`/`SyncKeyGen` received an invalid Ack message.
-    InvalidAckMessage,
+    AckMessage(AckMessageFault),
     /// `DynamicHoneyBadger`/`SyncKeyGen` received an invalid Part message.
     InvalidPartMessage,
     /// `DynamicHoneyBadger` received a change vote with an invalid signature.
