@@ -52,10 +52,10 @@ fn dyn_hb_test() {
         .collect();
 
     // For each node, select 3 transactions randomly from the queue and propose them.
-    for (id, queue) in queues {
+    for (id, queue) in queues.iter_mut() {
         let proposal = rand::seq::sample_slice(&mut rng, queue.as_slice(), txs_to_send).to_vec();
         println!("Node {:?} will propose: {:?}", id, proposal);
-        net.send_input(id, Input::User(proposal));
+        net.send_input(*id, Input::User(proposal));
     }
 
     // Afterwards, remove a specific node from the dynamic honey badger network.
