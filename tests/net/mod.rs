@@ -143,15 +143,6 @@ impl<D> VirtualNet<D>
 where
     D: DistAlgorithm,
 {
-    #[inline]
-    pub fn new_with_adversary(nodes: NodeMap<D>, adversary: Box<dyn Adversary<D>>) -> Self {
-        VirtualNet {
-            nodes,
-            messages: collections::VecDeque::new(),
-            adversary: Some(adversary),
-        }
-    }
-
     pub fn new_with_step<F, I>(node_ids: I, faulty: usize, cons: F) -> Self
     where
         F: Fn(D::NodeUid, NetworkInfo<D::NodeUid>) -> (D, Step<D>),
