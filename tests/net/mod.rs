@@ -64,6 +64,11 @@ impl<D: DistAlgorithm> Node<D> {
     }
 
     #[inline]
+    pub fn algorithm(&self) -> &D {
+        &self.algorithm
+    }
+
+    #[inline]
     pub fn is_faulty(&self) -> bool {
         self.is_faulty
     }
