@@ -28,6 +28,7 @@ env:
     #       `beta` after the stable release of Rust 1.28; and finally migrating
     #       everything to `stable` at Rust 1.29.
     - RUST_NEXT=nightly-2018-07-13
+    - MLOCK_SECRETS=false
 script:
   - cargo +${RUST_NEXT} clippy -- --deny clippy
   - cargo +${RUST_NEXT} clippy --tests --examples -- --deny clippy
