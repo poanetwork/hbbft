@@ -331,7 +331,7 @@ where
         // return unaltered step later on for inspection.
         expand_messages(
             &self.nodes,
-            sender,
+            receiver.clone(),
             step.messages.iter(),
             &mut self.messages,
         );
