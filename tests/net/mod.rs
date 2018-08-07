@@ -12,13 +12,41 @@ pub mod err;
 #[macro_use]
 mod macros;
 
-use std::{collections, mem, ops};
+use std::io::Write;
+use std::{collections, env, fs, io, mem, ops, process};
+
+use rand;
+use rand::Rand;
 
 // pub use self::types::{FaultyMessageIdx, FaultyNodeIdx, MessageIdx, NetworkOp, NodeIdx, OpList};
 use hbbft::messaging::{self, DistAlgorithm, NetworkInfo, Step};
 
 pub use self::adversary::Adversary;
 pub use self::err::CrankError;
+
+macro_rules! net_trace {
+    ($self:expr, $fmt:expr, $($arg:tt)*) => (
+        if let Some(ref mut dest) = $self.trace {
+            write!(dest, $fmt, $($arg)*).expect("could not write to test's trace")
+    });
+}
+
+fn open_trace() -> Result<fs::File, io::Error> {
+    let mut rng = rand::thread_rng();
+
+    let exec_path = env::current_exe();
+    let name = format!(
+        "net-trace_{}_{}_{}.txt",
+        exec_path.map(|pb| pb.file_name()
+            .expect("could not get executable filename")
+            .to_string_lossy()
+            .into_owned())?,
+        process::id(),
+        u16::rand(&mut rng),
+    );
+
+    fs::File::create(name)
+}
 
 #[derive(Debug)]
 pub struct Node<D: DistAlgorithm> {
@@ -107,6 +135,8 @@ where
     /// An Adversary that controls the network delivery schedule and all faulty nodes. Optional
     /// only when no faulty nodes are defined.
     adversary: Option<Box<dyn Adversary<D>>>,
+    /// Trace output; if active, writes out a log of all messages.
+    trace: Option<fs::File>,
 }
 
 impl<D> VirtualNet<D>
@@ -151,6 +181,7 @@ where
             nodes,
             messages: collections::VecDeque::new(),
             adversary: None,
+            trace: Some(open_trace().expect("could not open trace file")),
         }
     }
 
