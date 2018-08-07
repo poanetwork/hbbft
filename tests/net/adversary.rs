@@ -21,7 +21,8 @@ where
         msg: NetMessage<D>,
     ) -> Result<Step<D>, CrankError<D>> {
         // By default, no tampering is done.
-        net.handle_network_message(msg)
+        net.dispatch_message(msg)
+        // FIXME: process `Step`?
     }
 }
 
