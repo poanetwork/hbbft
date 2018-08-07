@@ -124,6 +124,10 @@ fn expand_messages<'a, D, I>(
                 ));
             }
             messaging::Target::All => for to in nodes.keys() {
+                if *to == sender {
+                    continue;
+                }
+
                 dest.push_back(NetworkMessage::new(
                     sender.clone(),
                     tmsg.message.clone(),
