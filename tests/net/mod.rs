@@ -271,65 +271,62 @@ where
         }
         mem::replace(&mut self.adversary, adv);
 
-        // Step 1: Pick a message from the queue and deliver it.
-        if let Some(msg) = self.messages.pop_front() {
-            net_trace!(
-                self,
-                "[{:?}] -> [{:?}]: {:?}\n",
-                msg.from,
-                msg.to,
-                msg.payload
+        // Step 1: Pick a message from the queue and deliver it; returns `None` if queue is empty.
+        let msg = self.messages.pop_front()?;
+
+        net_trace!(
+            self,
+            "[{:?}] -> [{:?}]: {:?}\n",
+            msg.from,
+            msg.to,
+            msg.payload
+        );
+        let sender = msg.from.clone();
+        let receiver = msg.to.clone();
+
+        // Unfortunately, we have to re-borrow the target node further down to make the borrow
+        // checker happy. First, we check if the receiving node is faulty, so we can dispatch
+        // through the adversary if it is.
+        let is_faulty = try_some!(
+            self.nodes
+                .get(&msg.to)
+                .ok_or_else(|| CrankError::NodeDisappeared(msg.to.clone()))
+        ).is_faulty();
+
+        let step: Step<_> = if is_faulty {
+            // The swap-dance is painful here, as we are creating an `opt_step` just to avoid
+            // borrow issues.
+            let mut adv = mem::replace(&mut self.adversary, None);
+            let opt_tamper_result = adv.as_mut().map(|adversary| {
+                // If an adversary was set, we let it affect the network now.
+                adversary.tamper(self, msg)
+            });
+            mem::replace(&mut self.adversary, adv);
+
+            // An error will be returned here, if the adversary was missing.
+            let tamper_result = try_some!(
+                opt_tamper_result
+                    .ok_or_else(|| CrankError::FaultyNodeButNoAdversary(receiver.clone()))
             );
-            let sender = msg.from.clone();
-            let receiver = msg.to.clone();
 
-            // Unfortunately, we have to re-borrow the target node further down to make the borrow
-            // checker happy. First, we check if the receiving node is faulty, so we can dispatch
-            // through the adversary if it is.
-            let is_faulty = try_some!(
-                self.nodes
-                    .get(&msg.to)
-                    .ok_or_else(|| CrankError::NodeDisappeared(msg.to.clone()))
-            ).is_faulty();
-
-            let step: Step<_> = if is_faulty {
-                // The swap-dance is painful here, as we are creating an `opt_step` just to avoid
-                // borrow issues.
-                let mut adv = mem::replace(&mut self.adversary, None);
-                let opt_tamper_result = adv.as_mut().map(|adversary| {
-                    // If an adversary was set, we let it affect the network now.
-                    adversary.tamper(self, msg)
-                });
-                mem::replace(&mut self.adversary, adv);
-
-                // An error will be returned here, if the adversary was missing.
-                let tamper_result = try_some!(
-                    opt_tamper_result
-                        .ok_or_else(|| CrankError::FaultyNodeButNoAdversary(receiver.clone()))
-                );
-
-                // A missing adversary here could technically be a panic, as it is almost always
-                // a programming error. Since it can occur fairly far down the stack, it's
-                // reported using as a regular `Err` here, to allow carrying more context.
-                try_some!(tamper_result)
-            } else {
-                // A correct node simply handles the message.
-                try_some!(self.dispatch_message(msg))
-            };
-
-            // All messages are expanded and added to the queue. We opt for copying them, so we can
-            // return unaltered step later on for inspection.
-            expand_messages(
-                &self.nodes,
-                sender,
-                step.messages.iter(),
-                &mut self.messages,
-            );
-            Some(Ok((receiver, step)))
+            // A missing adversary here could technically be a panic, as it is almost always
+            // a programming error. Since it can occur fairly far down the stack, it's
+            // reported using as a regular `Err` here, to allow carrying more context.
+            try_some!(tamper_result)
         } else {
-            // There are no more network messages in the queue.
-            None
-        }
+            // A correct node simply handles the message.
+            try_some!(self.dispatch_message(msg))
+        };
+
+        // All messages are expanded and added to the queue. We opt for copying them, so we can
+        // return unaltered step later on for inspection.
+        expand_messages(
+            &self.nodes,
+            sender,
+            step.messages.iter(),
+            &mut self.messages,
+        );
+        Some(Ok((receiver, step)))
     }
 }
 
