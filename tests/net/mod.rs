@@ -268,6 +268,13 @@ where
 
         // Step 1: Pick a message from the queue and deliver it.
         if let Some(msg) = self.messages.pop_front() {
+            net_trace!(
+                self,
+                "[{:?}] -> [{:?}]: {:?}\n",
+                msg.from,
+                msg.to,
+                msg.payload
+            );
             let sender = msg.from.clone();
             let receiver = msg.to.clone();
 
