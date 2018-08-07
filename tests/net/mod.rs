@@ -187,6 +187,11 @@ where
     }
 
     #[inline]
+    pub fn set_adversary(&mut self, adversary: Box<dyn Adversary<D>>) {
+        self.adversary = Some(adversary);
+    }
+
+    #[inline]
     pub fn nodes(&self) -> impl Iterator<Item = &Node<D>> {
         self.nodes.values()
     }
