@@ -1,7 +1,7 @@
 //! # Collaborative Threshold Decryption
 //!
 //! Each node inputs the same encrypted data, and after at least _f + 1_ correct validators have
-//! don seo, each node outputs the decrypted data.
+//! done so, each node outputs the decrypted data.
 //!
 //! ## How it works
 //!

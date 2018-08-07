@@ -3,7 +3,6 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use bincode;
-use itertools::Itertools;
 use rand::Rand;
 use serde::{Deserialize, Serialize};
 
@@ -47,20 +46,7 @@ where
     }
 
     fn handle_message(&mut self, sender_id: &N, message: Self::Message) -> Result<Step<C, N>> {
-        if !self.netinfo.is_node_validator(sender_id) {
-            return Err(ErrorKind::UnknownSender.into());
-        }
-        let Message { epoch, content } = message;
-        if epoch > self.epoch + self.max_future_epochs {
-            // Postpone handling this message.
-            self.incoming_queue
-                .entry(epoch)
-                .or_insert_with(Vec::new)
-                .push((sender_id.clone(), content));
-        } else if epoch == self.epoch {
-            return self.handle_message_content(sender_id, epoch, content);
-        } // And ignore all messages from past epochs.
-        Ok(Step::default())
+        self.handle_message(sender_id, message)
     }
 
     fn terminated(&self) -> bool {
@@ -89,16 +75,35 @@ where
             return Ok(Step::default());
         }
         self.has_input = true;
-        let epoch = self.epoch;
         let ser_prop =
             bincode::serialize(&proposal).map_err(|err| ErrorKind::ProposeBincode(*err))?;
         let ciphertext = self.netinfo.public_key_set().public_key().encrypt(ser_prop);
-        let mut step = match self.epochs.entry(epoch) {
-            Entry::Occupied(entry) => entry.into_mut(),
-            Entry::Vacant(entry) => entry.insert(EpochState::new(self.netinfo.clone(), epoch)?),
-        }.propose(&ciphertext)?;
+        let epoch = self.epoch;
+        let mut step = self.epoch_state_mut(epoch)?.propose(&ciphertext)?;
         step.extend(self.try_output_batches()?);
         Ok(step)
+    }
+
+    /// Handles a message received from `sender_id`.
+    fn handle_message(&mut self, sender_id: &N, message: Message<N>) -> Result<Step<C, N>> {
+        if !self.netinfo.is_node_validator(sender_id) {
+            return Err(ErrorKind::UnknownSender.into());
+        }
+        let Message { epoch, content } = message;
+        if epoch > self.epoch + self.max_future_epochs {
+            // Postpone handling this message.
+            self.incoming_queue
+                .entry(epoch)
+                .or_insert_with(Vec::new)
+                .push((sender_id.clone(), content));
+        } else if epoch == self.epoch {
+            let mut step = self
+                .epoch_state_mut(epoch)?
+                .handle_message_content(sender_id, content)?;
+            step.extend(self.try_output_batches()?);
+            return Ok(step);
+        } // And ignore all messages from past epochs.
+        Ok(Step::default())
     }
 
     /// Returns `true` if input for the current epoch has already been provided.
@@ -114,23 +119,6 @@ where
             .map_or(0, EpochState::received_proposals)
     }
 
-    /// Handles a message for the given epoch.
-    fn handle_message_content(
-        &mut self,
-        sender_id: &N,
-        epoch: u64,
-        content: MessageContent<N>,
-    ) -> Result<Step<C, N>> {
-        let mut step = match self.epochs.entry(epoch) {
-            Entry::Occupied(entry) => entry.into_mut(),
-            Entry::Vacant(entry) => {
-                entry.insert(EpochState::new(self.netinfo.clone(), self.epoch)?)
-            }
-        }.handle_message_content(sender_id, content)?;
-        step.extend(self.try_output_batches()?);
-        Ok(step)
-    }
-
     /// Increments the epoch number and clears any state that is local to the finished epoch.
     fn update_epoch(&mut self) -> Result<Step<C, N>> {
         // Clear the state of the old epoch.
@@ -139,14 +127,12 @@ where
         self.has_input = false;
         let max_epoch = self.epoch + self.max_future_epochs;
         let mut step = Step::default();
-        // TODO: Once stable, use `Iterator::flatten`.
-        for (sender_id, content) in
-            Itertools::flatten(self.incoming_queue.remove(&max_epoch).into_iter())
-        {
-            step.extend(self.handle_message_content(&sender_id, max_epoch, content)?);
+        if let Some(messages) = self.incoming_queue.remove(&max_epoch) {
+            let epoch_state = self.epoch_state_mut(max_epoch)?;
+            for (sender_id, content) in messages {
+                step.extend(epoch_state.handle_message_content(&sender_id, content)?);
+            }
         }
-        // Handle any decryption shares received for the new epoch.
-        step.extend(self.try_output_batches()?);
         Ok(step)
     }
 
@@ -164,5 +150,14 @@ where
             step.extend(self.update_epoch()?);
         }
         Ok(step)
+    }
+
+    /// Returns a mutable reference to the state of the given `epoch`. Initializes a new one, if it
+    /// doesn't exist yet.
+    fn epoch_state_mut(&mut self, epoch: u64) -> Result<&mut EpochState<C, N>> {
+        Ok(match self.epochs.entry(epoch) {
+            Entry::Occupied(entry) => entry.into_mut(),
+            Entry::Vacant(entry) => entry.insert(EpochState::new(self.netinfo.clone(), epoch)?),
+        })
     }
 }
