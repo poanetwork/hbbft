@@ -69,6 +69,11 @@ impl<D: DistAlgorithm> Node<D> {
     }
 
     #[inline]
+    pub fn algorithm_mut(&mut self) -> &mut D {
+        &mut self.algorithm
+    }
+
+    #[inline]
     pub fn is_faulty(&self) -> bool {
         self.is_faulty
     }
