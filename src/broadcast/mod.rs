@@ -151,6 +151,7 @@
 
 mod broadcast;
 mod error;
+pub mod merkle;
 
 pub use self::broadcast::{Broadcast, Message, Step};
 pub use self::error::{Error, Result};

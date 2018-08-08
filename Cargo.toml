@@ -24,7 +24,6 @@ failure = "0.1"
 init_with = "1.1.0"
 itertools = "0.7"
 log = "0.4.1"
-merkle = { git = "https://github.com/afck/merkle.rs", branch = "public-proof", features = [ "serialization-serde" ] }
 pairing = { version = "0.14.2", features = ["u128-support"] }
 rand = "0.4.2"
 rand_derive = "0.3.1"

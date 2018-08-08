@@ -111,7 +111,6 @@ extern crate init_with;
 #[macro_use]
 extern crate log;
 extern crate itertools;
-extern crate merkle;
 extern crate pairing;
 extern crate rand;
 #[macro_use]
