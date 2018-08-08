@@ -9,7 +9,7 @@ use rand::Rand;
 use serde::{Deserialize, Serialize};
 
 use super::{Batch, ErrorKind, MessageContent, Result, Step};
-use common_subset::{self, CommonSubset};
+use common_subset::{self as cs, CommonSubset};
 use fault_log::{Fault, FaultKind, FaultLog};
 use messaging::{DistAlgorithm, NetworkInfo};
 use threshold_decryption::{self as td, ThresholdDecryption};
@@ -67,6 +67,44 @@ enum SubsetState<N: Rand> {
     Complete(BTreeSet<N>),
 }
 
+impl<N> SubsetState<N>
+where
+    N: NodeUidT + Rand,
+{
+    /// Provides input to the Subset instance, unless it has already completed.
+    fn input(&mut self, proposal: Vec<u8>) -> Result<cs::Step<N>> {
+        match self {
+            SubsetState::Ongoing(ref mut cs) => cs.input(proposal),
+            SubsetState::Complete(_) => return Ok(cs::Step::default()),
+        }.map_err(|err| ErrorKind::InputCommonSubset(err).into())
+    }
+
+    /// Handles a message in the Subset instance, unless it has already completed.
+    fn handle_message(&mut self, sender_id: &N, msg: cs::Message<N>) -> Result<cs::Step<N>> {
+        match self {
+            SubsetState::Ongoing(ref mut cs) => cs.handle_message(sender_id, msg),
+            SubsetState::Complete(_) => return Ok(cs::Step::default()),
+        }.map_err(|err| ErrorKind::HandleCommonSubsetMessage(err).into())
+    }
+
+    /// Returns the number of contributions that we have already received or, after completion, how
+    /// many have been accepted.
+    pub fn received_proposals(&self) -> usize {
+        match self {
+            SubsetState::Ongoing(ref cs) => cs.received_proposals(),
+            SubsetState::Complete(ref proposer_ids) => proposer_ids.len(),
+        }
+    }
+
+    /// Returns the IDs of the accepted proposers, if that has already been decided.
+    pub fn accepted_ids(&self) -> Option<&BTreeSet<N>> {
+        match self {
+            SubsetState::Ongoing(_) => None,
+            SubsetState::Complete(ref ids) => Some(ids),
+        }
+    }
+}
+
 /// The sub-algorithms and their intermediate results for a single epoch.
 #[derive(Debug)]
 pub struct EpochState<C, N: Rand> {
@@ -101,19 +139,14 @@ where
     /// If the instance hasn't terminated yet, inputs our encrypted contribution.
     pub fn propose(&mut self, ciphertext: &Ciphertext) -> Result<Step<C, N>> {
         let ser_ct = bincode::serialize(ciphertext).map_err(|err| ErrorKind::ProposeBincode(*err))?;
-        let cs_step = match self.subset {
-            SubsetState::Ongoing(ref mut cs) => cs.input(ser_ct),
-            SubsetState::Complete(_) => return Ok(Step::default()),
-        }.map_err(ErrorKind::InputCommonSubset)?;
+        let cs_step = self.subset.input(ser_ct)?;
         self.process_subset(cs_step)
     }
 
-    /// Returns the number of contributions that we have already received.
+    /// Returns the number of contributions that we have already received or, after completion, how
+    /// many have been accepted.
     pub fn received_proposals(&self) -> usize {
-        match self.subset {
-            SubsetState::Ongoing(ref cs) => cs.received_proposals(),
-            SubsetState::Complete(_) => self.netinfo.num_nodes(),
-        }
+        self.subset.received_proposals()
     }
 
     /// Handles a message for the Common Subset or a Threshold Decryption instance.
@@ -124,15 +157,12 @@ where
     ) -> Result<Step<C, N>> {
         match content {
             MessageContent::CommonSubset(cs_msg) => {
-                let cs_step = match self.subset {
-                    SubsetState::Ongoing(ref mut cs) => cs.handle_message(sender_id, cs_msg),
-                    SubsetState::Complete(_) => return Ok(Step::default()),
-                }.map_err(ErrorKind::HandleCommonSubsetMessage)?;
+                let cs_step = self.subset.handle_message(sender_id, cs_msg)?;
                 self.process_subset(cs_step)
             }
             MessageContent::DecryptionShare { proposer_id, share } => {
-                if let SubsetState::Complete(ref subset) = self.subset {
-                    if !subset.contains(&proposer_id) {
+                if let Some(ref ids) = self.subset.accepted_ids() {
+                    if !ids.contains(&proposer_id) {
                         let fault_kind = FaultKind::UnexpectedDecryptionShare;
                         return Ok(Fault::new(sender_id.clone(), fault_kind).into());
                     }
@@ -152,10 +182,7 @@ where
     /// When contributions of transactions have been decrypted for all valid proposers in this
     /// epoch, moves those contributions into a batch, outputs the batch and updates the epoch.
     pub fn try_output_batch(&self) -> Option<(Batch<C, N>, FaultLog<N>)> {
-        let proposer_ids = match self.subset {
-            SubsetState::Ongoing(_) => return None, // The set is not yet decided.
-            SubsetState::Complete(ref proposer_ids) => proposer_ids,
-        };
+        let proposer_ids = self.subset.accepted_ids()?;
         let plaintexts: BTreeMap<N, &[u8]> = self
             .decryption
             .iter()
@@ -189,7 +216,7 @@ where
     }
 
     /// Checks whether the subset has output, and if it does, sends out our decryption shares.
-    fn process_subset(&mut self, cs_step: common_subset::Step<N>) -> Result<Step<C, N>> {
+    fn process_subset(&mut self, cs_step: cs::Step<N>) -> Result<Step<C, N>> {
         let mut step = Step::default();
         let mut cs_outputs = step.extend_with(cs_step, |cs_msg| {
             MessageContent::CommonSubset(cs_msg).with_epoch(self.epoch)
