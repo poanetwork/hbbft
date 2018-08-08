@@ -1,15 +1,14 @@
 use std::collections::BTreeMap;
 use std::fmt::{self, Debug};
-use std::iter::once;
 use std::sync::Arc;
 
 use byteorder::{BigEndian, ByteOrder};
-use merkle::{MerkleTree, Proof};
+use itertools::Itertools;
 use rand;
 use reed_solomon_erasure as rse;
 use reed_solomon_erasure::ReedSolomon;
-use ring::digest;
 
+use super::merkle::{MerkleTree, Proof};
 use super::{Error, Result};
 use fault_log::{Fault, FaultKind};
 use fmt::{HexBytes, HexList, HexProof};
@@ -36,8 +35,8 @@ impl rand::Rand for Message {
         rng.fill_bytes(&mut buffer);
 
         // Generate a dummy proof to fill broadcast messages with.
-        let tree = MerkleTree::from_vec(&digest::SHA256, vec![buffer.to_vec()]);
-        let proof = tree.gen_proof(buffer.to_vec()).unwrap();
+        let tree = MerkleTree::from_vec(vec![buffer.to_vec()]);
+        let proof = tree.proof(0).unwrap();
 
         match message_type {
             "value" => Message::Value(proof),
@@ -188,28 +187,17 @@ impl<N: NodeUidT> Broadcast<N> {
 
         debug!("Shards: {:?}", HexList(&shards));
 
-        // TODO: `MerkleTree` generates the wrong proof if a leaf occurs more than once, so we
-        // prepend an "index byte" to each shard. Consider using the `merkle_light` crate instead.
-        let shards_t: Vec<Vec<u8>> = shards
-            .into_iter()
-            .enumerate()
-            .map(|(i, s)| once(i as u8).chain(s.iter().cloned()).collect())
-            .collect();
+        // Create a Merkle tree from the shards.
+        let mtree = MerkleTree::from_vec(shards.into_iter().map(|shard| shard.to_vec()).collect());
 
-        // Convert the Merkle tree into a partial binary tree for later
-        // deconstruction into compound branches.
-        let mtree = MerkleTree::from_vec(&digest::SHA256, shards_t);
-
-        // Default result in case of `gen_proof` error.
+        // Default result in case of `proof` error.
         let mut result = Err(Error::ProofConstructionFailed);
-        assert_eq!(self.netinfo.num_nodes(), mtree.iter().count());
+        assert_eq!(self.netinfo.num_nodes(), mtree.values().len());
 
         let mut step = Step::default();
         // Send each proof to a node.
-        for (leaf_value, uid) in mtree.iter().zip(self.netinfo.all_uids()) {
-            let proof = mtree
-                .gen_proof(leaf_value.to_vec())
-                .ok_or(Error::ProofConstructionFailed)?;
+        for (index, uid) in self.netinfo.all_uids().enumerate() {
+            let proof = mtree.proof(index).ok_or(Error::ProofConstructionFailed)?;
             if *uid == *self.netinfo.our_uid() {
                 // The proof is addressed to this node.
                 result = Ok(proof);
@@ -272,7 +260,7 @@ impl<N: NodeUidT> Broadcast<N> {
             return Ok(Fault::new(sender_id.clone(), FaultKind::InvalidProof).into());
         }
 
-        let hash = p.root_hash.clone();
+        let hash = p.root_hash().to_vec();
 
         // Save the proof for reconstructing the tree later.
         self.echos.insert(sender_id.clone(), p);
@@ -352,8 +340,8 @@ impl<N: NodeUidT> Broadcast<N> {
             .all_uids()
             .map(|id| {
                 self.echos.get(id).and_then(|p| {
-                    if p.root_hash.as_slice() == hash {
-                        Some(p.value.clone().into_boxed_slice())
+                    if p.root_hash() == hash {
+                        Some(p.value().clone().into_boxed_slice())
                     } else {
                         None
                     }
@@ -373,16 +361,14 @@ impl<N: NodeUidT> Broadcast<N> {
     /// Returns `true` if the proof is valid and has the same index as the node ID. Otherwise
     /// logs an info message.
     fn validate_proof(&self, p: &Proof<Vec<u8>>, id: &N) -> bool {
-        if !p.validate(&p.root_hash) {
+        if !p.validate(self.netinfo.num_nodes()) {
             info!(
                 "Node {:?} received invalid proof: {:?}",
                 self.netinfo.our_uid(),
                 HexProof(&p)
             );
             false
-        } else if self.netinfo.node_index(id) != Some(p.value[0] as usize)
-            || p.index(self.netinfo.num_nodes()) != p.value[0] as usize
-        {
+        } else if self.netinfo.node_index(id) != Some(p.index()) {
             info!(
                 "Node {:?} received proof for wrong position: {:?}.",
                 self.netinfo.our_uid(),
@@ -398,7 +384,7 @@ impl<N: NodeUidT> Broadcast<N> {
     fn count_echos(&self, hash: &[u8]) -> usize {
         self.echos
             .values()
-            .filter(|p| p.root_hash.as_slice() == hash)
+            .filter(|p| p.root_hash() == hash)
             .count()
     }
 
@@ -500,10 +486,10 @@ fn decode_from_shards(
     debug!("Reconstructed shards: {:?}", HexList(&shards));
 
     // Construct the Merkle tree.
-    let mtree = MerkleTree::from_vec(&digest::SHA256, shards);
+    let mtree = MerkleTree::from_vec(shards);
     // If the root hash of the reconstructed tree does not match the one
     // received with proofs then abort.
-    if &mtree.root_hash()[..] != root_hash {
+    if mtree.root_hash() != root_hash {
         None // The proposer is faulty.
     } else {
         // Reconstruct the value from the data shards.
@@ -516,7 +502,7 @@ fn decode_from_shards(
 /// and forgetting the leaves that contain parity information.
 fn glue_shards(m: MerkleTree<Vec<u8>>, n: usize) -> Option<Vec<u8>> {
     // Create an iterator over the shard payload, drop the index bytes.
-    let mut bytes = m.into_iter().take(n).flat_map(|s| s.into_iter().skip(1));
+    let mut bytes = Itertools::flatten(m.into_values().into_iter().take(n));
     let payload_len = match (bytes.next(), bytes.next(), bytes.next(), bytes.next()) {
         (Some(b0), Some(b1), Some(b2), Some(b3)) => BigEndian::read_u32(&[b0, b1, b2, b3]) as usize,
         _ => return None, // The proposing node is faulty: no payload size.

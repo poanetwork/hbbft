@@ -1,4 +1,4 @@
-use merkle::Proof;
+use broadcast::merkle::Proof;
 use std::fmt;
 
 /// Wrapper for a byte array, whose `Debug` implementation outputs shortened hexadecimal strings.
@@ -40,10 +40,10 @@ impl<'a, T: AsRef<[u8]>> fmt::Debug for HexProof<'a, T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
-            "Proof {{ algorithm: {:?}, root_hash: {:?}, value: {:?}, .. }}",
-            self.0.algorithm,
-            HexBytes(&self.0.root_hash),
-            HexBytes(&self.0.value.as_ref())
+            "Proof {{ #{}, root_hash: {:?}, value: {:?}, .. }}",
+            &self.0.index(),
+            HexBytes(&self.0.root_hash()),
+            HexBytes(&self.0.value().as_ref())
         )
     }
 }
