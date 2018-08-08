@@ -5,7 +5,7 @@ use itertools::Itertools;
 
 use super::bool_multimap::BoolMultimap;
 use super::sbv_broadcast::{self, SbvBroadcast};
-use super::{AgreementContent, AgreementMessage, Error, Nonce, Result, Step};
+use super::{AgreementContent, Error, Message, Nonce, Result, Step};
 use agreement::bool_set::BoolSet;
 use common_coin::{self, CommonCoin, CommonCoinMessage};
 use messaging::{DistAlgorithm, NetworkInfo, Target};
@@ -76,7 +76,7 @@ impl<N: NodeUidT> DistAlgorithm for Agreement<N> {
     type NodeUid = N;
     type Input = bool;
     type Output = bool;
-    type Message = AgreementMessage;
+    type Message = Message;
     type Error = Error;
 
     fn input(&mut self, input: Self::Input) -> Result<Step<N>> {
@@ -84,11 +84,8 @@ impl<N: NodeUidT> DistAlgorithm for Agreement<N> {
     }
 
     /// Receive input from a remote node.
-    fn handle_message(
-        &mut self,
-        sender_id: &Self::NodeUid,
-        AgreementMessage { epoch, content }: Self::Message,
-    ) -> Result<Step<N>> {
+    fn handle_message(&mut self, sender_id: &Self::NodeUid, msg: Message) -> Result<Step<N>> {
+        let Message { epoch, content } = msg;
         if self.decision.is_some() || (epoch < self.epoch && content.can_expire()) {
             // Message is obsolete: We are already in a later epoch or terminated.
             Ok(Step::default())

@@ -21,7 +21,7 @@ use std::sync::Arc;
 
 use rand::Rng;
 
-use hbbft::broadcast::{Broadcast, BroadcastMessage};
+use hbbft::broadcast::{Broadcast, Message};
 use hbbft::messaging::{DistAlgorithm, NetworkInfo, Target, TargetedMessage};
 use network::{
     Adversary, MessageScheduler, MessageWithSender, NodeUid, RandomAdversary, SilentAdversary,
@@ -57,7 +57,7 @@ impl Adversary<Broadcast<NodeUid>> for ProposeAdversary {
         self.scheduler.pick_node(nodes)
     }
 
-    fn push_message(&mut self, _: NodeUid, _: TargetedMessage<BroadcastMessage, NodeUid>) {
+    fn push_message(&mut self, _: NodeUid, _: TargetedMessage<Message, NodeUid>) {
         // All messages are ignored.
     }
 

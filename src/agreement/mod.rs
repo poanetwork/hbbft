@@ -108,8 +108,8 @@ pub enum AgreementContent {
 
 impl AgreementContent {
     /// Creates an message with a given epoch number.
-    pub fn with_epoch(self, epoch: u32) -> AgreementMessage {
-        AgreementMessage {
+    pub fn with_epoch(self, epoch: u32) -> Message {
+        Message {
             epoch,
             content: self,
         }
@@ -126,7 +126,7 @@ impl AgreementContent {
 
 /// Messages sent during the binary Byzantine agreement stage.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Rand)]
-pub struct AgreementMessage {
+pub struct Message {
     pub epoch: u32,
     pub content: AgreementContent,
 }
