@@ -213,6 +213,14 @@ fn dyn_hb_test() {
             println!("Unhandled change: {:?}", change);
         }
 
+        // Record whether or not we received some output.
+        let has_output = !step.output.is_empty();
+
+        // Find the node's input queue.
+        let queue: &mut Vec<_> = queues
+            .get_mut(&node_id)
+            .expect("queue for node disappeared");
+
         // Examine potential algorithm output.
         for batch in step.output.into_iter() {
             println!(
@@ -222,11 +230,6 @@ fn dyn_hb_test() {
             );
 
             for tx in batch.iter() {
-                // Find the node's input queue.
-                let queue: &mut Vec<_> = queues
-                    .get_mut(&node_id)
-                    .expect("queue for node disappeared");
-
                 // Remove the confirmed contribution from the input queue.
                 let index = queue.iter().position(|v| v == tx);
                 if let Some(idx) = index {
@@ -245,23 +248,6 @@ fn dyn_hb_test() {
                     //     node_id,
                     //     expected_outputs.get(&node_id).unwrap()
                     // );
-                }
-
-                // Now check if we still want to propose something.
-                if !queue.is_empty() {
-                    // println!("More to propose: {:?}", queue);
-
-                    // Out of the remaining transaction, select a suitable amount.
-                    let proposal = rand::seq::sample_slice(
-                        &mut rng,
-                        // FIXME: Use better numbers.
-                        queue.as_slice().subslice(0..10),
-                        10.min(3.min(queue.len())),
-                    );
-                    // println!("Selected: {:?}", proposal);
-
-                    let _ = net.send_input(node_id, Input::User(proposal))
-                        .expect("could not send follow-up transaction");
                 }
             }
         }
@@ -282,6 +268,28 @@ fn dyn_hb_test() {
                 "All outputs are empty all nodes have removed and added the single dynamic node."
             );
             break;
+        }
+
+        // Now check if we still want to propose something.
+        if has_output {
+            if !queue.is_empty() {
+                // println!("More to propose: {:?}", queue);
+
+                // Out of the remaining transaction, select a suitable amount.
+                let proposal = rand::seq::sample_slice(
+                    &mut rng,
+                    // FIXME: Use better numbers.
+                    queue.as_slice().subslice(0..10),
+                    10.min(3.min(queue.len())),
+                );
+                // println!("Selected: {:?}", proposal);
+
+                let _ = net.send_input(node_id, Input::User(proposal))
+                    .expect("could not send follow-up transaction");
+            } else {
+                net.send_input(node_id, Input::User(Vec::new()))
+                    .expect("could not send follow-up transaction");
+            }
         }
 
         //
