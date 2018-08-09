@@ -27,8 +27,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::result;
 use std::sync::Arc;
 
-use agreement::{self, Agreement, AgreementMessage};
-use broadcast::{self, Broadcast, BroadcastMessage};
+use agreement::{self, Agreement};
+use broadcast::{self, Broadcast};
 use fmt::HexBytes;
 use messaging::{self, DistAlgorithm, NetworkInfo};
 use rand::Rand;
@@ -65,10 +65,10 @@ type ProposedValue = Vec<u8>;
 #[derive(Serialize, Deserialize, Clone, Debug, Rand)]
 pub enum Message<N: Rand> {
     /// A message for the broadcast algorithm concerning the set element proposed by the given node.
-    Broadcast(N, BroadcastMessage),
+    Broadcast(N, broadcast::Message),
     /// A message for the agreement algorithm concerning the set element proposed by the given
     /// node.
-    Agreement(N, AgreementMessage),
+    Agreement(N, agreement::Message),
 }
 
 /// Asynchronous Common Subset algorithm instance
@@ -175,7 +175,7 @@ impl<N: NodeUidT + Rand> CommonSubset<N> {
         &mut self,
         sender_id: &N,
         proposer_id: &N,
-        bmessage: BroadcastMessage,
+        bmessage: broadcast::Message,
     ) -> Result<Step<N>> {
         self.process_broadcast(proposer_id, |bc| bc.handle_message(sender_id, bmessage))
     }
@@ -186,7 +186,7 @@ impl<N: NodeUidT + Rand> CommonSubset<N> {
         &mut self,
         sender_id: &N,
         proposer_id: &N,
-        amessage: AgreementMessage,
+        amessage: agreement::Message,
     ) -> Result<Step<N>> {
         // Send the message to the local instance of Agreement
         self.process_agreement(proposer_id, |agreement| {

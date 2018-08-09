@@ -45,7 +45,7 @@ use crossbeam;
 use crypto::poly::Poly;
 use crypto::{SecretKey, SecretKeySet};
 
-use hbbft::broadcast::{Broadcast, BroadcastMessage};
+use hbbft::broadcast::{Broadcast, Message};
 use hbbft::messaging::{DistAlgorithm, NetworkInfo, SourcedMessage};
 use network::commst;
 use network::connection;
@@ -122,7 +122,7 @@ impl<T: Clone + Debug + AsRef<[u8]> + PartialEq + Send + Sync + From<Vec<u8>> + 
         }
 
         // Initialise the message delivery system and obtain TX and RX handles.
-        let messaging: Messaging<BroadcastMessage> = Messaging::new(all_ids.len());
+        let messaging: Messaging<Message> = Messaging::new(all_ids.len());
         let rxs_to_comms = messaging.rxs_to_comms();
         let tx_from_comms = messaging.tx_from_comms();
         let rx_to_algo = messaging.rx_to_algo();
@@ -182,7 +182,7 @@ impl<T: Clone + Debug + AsRef<[u8]> + PartialEq + Send + Sync + From<Vec<u8>> + 
                 let rx_to_comms = &rxs_to_comms[node_index];
 
                 scope.spawn(move || {
-                    match commst::CommsTask::<BroadcastMessage>::new(
+                    match commst::CommsTask::<Message>::new(
                         tx_from_comms,
                         rx_to_comms,
                         // FIXME: handle error
