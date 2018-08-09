@@ -1,8 +1,8 @@
 use std::mem;
 
-use ring::digest::{self, Digest, SHA256};
+use tiny_keccak::sha3_256;
 
-type DigestBytes = Vec<u8>;
+pub type Digest = [u8; 32];
 
 /// A Merkle tree: The leaves are values and their hashes. Each level consists of the hashes of
 /// pairs of values on the previous level. The root is the value in the first level with only one
@@ -39,7 +39,7 @@ impl<T: AsRef<[u8]> + Clone> MerkleTree<T> {
         for level in &self.levels {
             // Insert the sibling hash if there is one.
             if let Some(digest) = level.get(lvl_i ^ 1) {
-                digests.push(digest.as_ref().to_vec());
+                digests.push(*digest);
             }
             lvl_i /= 2;
         }
@@ -47,13 +47,13 @@ impl<T: AsRef<[u8]> + Clone> MerkleTree<T> {
             index,
             digests,
             value,
-            root_hash: self.root_hash.as_ref().to_vec(),
+            root_hash: self.root_hash,
         })
     }
 
     /// Returns the root hash of the tree.
-    pub fn root_hash(&self) -> &[u8] {
-        self.root_hash.as_ref()
+    pub fn root_hash(&self) -> &Digest {
+        &self.root_hash
     }
 
     /// Returns a the slice containing all leaf values.
@@ -72,8 +72,8 @@ impl<T: AsRef<[u8]> + Clone> MerkleTree<T> {
 pub struct Proof<T> {
     value: T,
     index: usize,
-    digests: Vec<DigestBytes>,
-    root_hash: DigestBytes,
+    digests: Vec<Digest>,
+    root_hash: Digest,
 }
 
 impl<T: AsRef<[u8]>> Proof<T> {
@@ -98,7 +98,7 @@ impl<T: AsRef<[u8]>> Proof<T> {
         if digest_itr.next().is_some() {
             return false; // Too many levels in the proof.
         }
-        digest.as_ref() == &self.root_hash[..]
+        digest == self.root_hash
     }
 
     /// Returns the index of this proof's value in the tree.
@@ -107,8 +107,8 @@ impl<T: AsRef<[u8]>> Proof<T> {
     }
 
     /// Returns the tree's root hash.
-    pub fn root_hash(&self) -> &[u8] {
-        self.root_hash.as_ref()
+    pub fn root_hash(&self) -> &Digest {
+        &self.root_hash
     }
 
     /// Returns the leaf value.
@@ -140,7 +140,7 @@ fn hash_pair<T0: AsRef<[u8]>, T1: AsRef<[u8]>>(v0: &T0, v1: &T1) -> Digest {
 
 /// Returns the SHA-256 hash of the value's `[u8]` representation.
 fn hash<T: AsRef<[u8]>>(value: T) -> Digest {
-    digest::digest(&SHA256, value.as_ref())
+    sha3_256(value.as_ref())
 }
 
 #[cfg(test)]

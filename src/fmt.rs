@@ -42,8 +42,8 @@ impl<'a, T: AsRef<[u8]>> fmt::Debug for HexProof<'a, T> {
             f,
             "Proof {{ #{}, root_hash: {:?}, value: {:?}, .. }}",
             &self.0.index(),
-            HexBytes(&self.0.root_hash()),
-            HexBytes(&self.0.value().as_ref())
+            HexBytes(self.0.root_hash().as_ref()),
+            HexBytes(self.0.value().as_ref())
         )
     }
 }
