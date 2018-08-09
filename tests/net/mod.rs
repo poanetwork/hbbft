@@ -361,7 +361,6 @@ where
 
         // Process all messages from all steps in the queue.
         steps.iter().for_each(|(id, step)| {
-            println!("Processing messages: {:?}", step.messages);
             expand_messages(
                 &self.nodes,
                 id.clone(),
