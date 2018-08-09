@@ -4,7 +4,7 @@ extern crate rand;
 
 pub mod net;
 
-use std::collections;
+use std::{collections, ops};
 
 use hbbft::dynamic_honey_badger::{Change, ChangeState, DynamicHoneyBadger, Input};
 use hbbft::messaging::DistAlgorithm;
@@ -12,7 +12,41 @@ use hbbft::messaging::DistAlgorithm;
 use net::adversary::NullAdversary;
 use net::VirtualNet;
 
-// FIXME: No observers yet.
+trait SubSlice
+where
+    Self: ops::Index<ops::Range<usize>>,
+{
+    #[inline]
+    fn subslice(
+        &self,
+        mut range: ops::Range<usize>,
+    ) -> &<Self as ops::Index<ops::Range<usize>>>::Output;
+}
+
+impl<T> SubSlice for [T] {
+    #[inline]
+    fn subslice(
+        &self,
+        mut range: ops::Range<usize>,
+    ) -> &<Self as ops::Index<ops::Range<usize>>>::Output {
+        if range.end > self.len() {
+            range.end = self.len();
+        }
+
+        &self[range]
+    }
+}
+
+fn choose_approx<R: ?Sized + rand::Rng, T: Clone>(
+    rng: &mut R,
+    mut slice: &[T],
+    mut n: usize,
+    out_of_first: usize,
+) {
+    slice = &slice[..(out_of_first.min(slice.len()))];
+}
+
+// FIXME: User better batch size, etc.
 
 #[test]
 fn dyn_hb_test() {
@@ -27,8 +61,8 @@ fn dyn_hb_test() {
     // Number of transactions to run in test.
     let total_txs = 10;
 
-    // Initial number of transactions to send
-    let txs_to_send = 3;
+    // Number of transaction to propose.
+    let proposals_per_epoch = 3;
 
     const NEW_OBSERVER_NODE_ID: usize = 0;
 
@@ -53,7 +87,8 @@ fn dyn_hb_test() {
 
     // For each node, select 3 transactions randomly from the queue and propose them.
     for (id, queue) in queues.iter_mut() {
-        let proposal = rand::seq::sample_slice(&mut rng, queue.as_slice(), txs_to_send).to_vec();
+        let proposal =
+            rand::seq::sample_slice(&mut rng, queue.as_slice(), proposals_per_epoch).to_vec();
         println!("Node {:?} will propose: {:?}", id, proposal);
 
         // The step will have its messages added to the queue automatically, we ignore the output.
@@ -120,6 +155,9 @@ fn dyn_hb_test() {
         net.correct_nodes().map(|n| n.id().clone()).collect();
     let mut awaiting_addition: collections::BTreeSet<_> =
         net.correct_nodes().map(|n| n.id().clone()).collect();
+    let mut expected_outputs: collections::BTreeMap<_, collections::BTreeSet<_>> = net.correct_nodes(
+    ).map(|n| (n.id().clone(), (0..10).into_iter().collect()))
+        .collect();
 
     // Run the network:
     loop {
@@ -142,10 +180,6 @@ fn dyn_hb_test() {
             .expect("network queue emptied unexpectedly")
             .expect("node failed to process step");
 
-        // Examine potential algorithm output.
-        if !step.output.is_empty() {
-            println!("Non-empty step: {:?}", step);
-        }
         for change in step.output.iter().map(|output| output.change()) {
             if let ChangeState::Complete(Change::Remove(NEW_OBSERVER_NODE_ID)) = change {
                 println!("Node {:?} done removing.", node_id);
@@ -175,30 +209,82 @@ fn dyn_hb_test() {
                 }
                 awaiting_addition.remove(&node_id);
             }
+
+            println!("Unhandled change: {:?}", change);
         }
-        // batch.change();
 
-        // for (cid, contrib) in step.output.iter().flat_map(|output| output.contributions.iter()) {
-        //     for contrib in output.contributions {
+        // Examine potential algorithm output.
+        for batch in step.output.into_iter() {
+            println!(
+                "Received epoch {} batch on node {:?}.",
+                batch.epoch(),
+                node_id,
+            );
 
-        //     }
-        // }
+            for tx in batch.iter() {
+                // Find the node's input queue.
+                let queue: &mut Vec<_> = queues
+                    .get_mut(&node_id)
+                    .expect("queue for node disappeared");
 
-        // if ! step.outputs.is_empty() {
-        //     // A: contains Remove  -> remove from outstanding removes
-        //     // B: contains Add     -> remove from outstanding add
+                // Remove the confirmed contribution from the input queue.
+                let index = queue.iter().position(|v| v == tx);
+                if let Some(idx) = index {
+                    assert_eq!(queue.remove(idx), *tx);
+                }
 
-        // }
+                // Add it to the set of received outputs.
+                if !net[node_id].is_faulty() {
+                    expected_outputs
+                        .get_mut(&node_id)
+                        .expect("output set disappeared")
+                        .remove(tx);
+                    // println!(
+                    //     "Removed {} from output set of node {}, remaining: {:?}",
+                    //     tx,
+                    //     node_id,
+                    //     expected_outputs.get(&node_id).unwrap()
+                    // );
+                }
 
-        // provide new input iff
+                // Now check if we still want to propose something.
+                if !queue.is_empty() {
+                    // println!("More to propose: {:?}", queue);
+
+                    // Out of the remaining transaction, select a suitable amount.
+                    let proposal = rand::seq::sample_slice(
+                        &mut rng,
+                        // FIXME: Use better numbers.
+                        queue.as_slice().subslice(0..10),
+                        10.min(3.min(queue.len())),
+                    );
+                    // println!("Selected: {:?}", proposal);
+
+                    let _ = net.send_input(node_id, Input::User(proposal))
+                        .expect("could not send follow-up transaction");
+                }
+            }
+        }
+
+        // println!(
+        //     "Expect: {:?} ({:?}), R/A: {}/{}",
+        //     expected_outputs,
+        //     expected_outputs.values().all(|s| s.is_empty()),
+        //     awaiting_removal.len(),
+        //     awaiting_addition.len()
+        // );
+        // Finally, check if we are done.
+        if expected_outputs.values().all(|s| s.is_empty())
+            && awaiting_addition.is_empty()
+            && awaiting_removal.is_empty()
+        {
+            println!(
+                "All outputs are empty all nodes have removed and added the single dynamic node."
+            );
+            break;
+        }
+
         //
-        // * N not in AwaitingRemove
-        // * N not in AwaitingAdd
-
-        // note: hide output of faulty nodes?
-
-        // on A empty -> ...
-        // on B empty -> ...
     }
 
     // // Handle messages in random order until all nodes have output all transactions.
