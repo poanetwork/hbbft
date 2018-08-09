@@ -8,7 +8,7 @@ use rand;
 use reed_solomon_erasure as rse;
 use reed_solomon_erasure::ReedSolomon;
 
-use super::merkle::{MerkleTree, Proof};
+use super::merkle::{Digest, MerkleTree, Proof};
 use super::{Error, Result};
 use fault_log::{Fault, FaultKind};
 use fmt::{HexBytes, HexList, HexProof};
@@ -21,7 +21,7 @@ use traits::NodeUidT;
 pub enum Message {
     Value(Proof<Vec<u8>>),
     Echo(Proof<Vec<u8>>),
-    Ready(Vec<u8>),
+    Ready(Digest),
 }
 
 // A random generation impl is provided for test cases. Unfortunately `#[cfg(test)]` does not work
@@ -41,7 +41,7 @@ impl rand::Rand for Message {
         match message_type {
             "value" => Message::Value(proof),
             "echo" => Message::Echo(proof),
-            "ready" => Message::Ready(b"dummy-ready".to_vec()),
+            "ready" => Message::Ready([b'r'; 32]),
             _ => unreachable!(),
         }
     }
@@ -260,7 +260,7 @@ impl<N: NodeUidT> Broadcast<N> {
             return Ok(Fault::new(sender_id.clone(), FaultKind::InvalidProof).into());
         }
 
-        let hash = p.root_hash().to_vec();
+        let hash = *p.root_hash();
 
         // Save the proof for reconstructing the tree later.
         self.echos.insert(sender_id.clone(), p);
@@ -274,7 +274,7 @@ impl<N: NodeUidT> Broadcast<N> {
     }
 
     /// Handles a received `Ready` message.
-    fn handle_ready(&mut self, sender_id: &N, hash: &[u8]) -> Result<Step<N>> {
+    fn handle_ready(&mut self, sender_id: &N, hash: &Digest) -> Result<Step<N>> {
         // If the sender has already sent a `Ready` before, ignore.
         if self.readys.contains_key(sender_id) {
             info!(
@@ -312,12 +312,12 @@ impl<N: NodeUidT> Broadcast<N> {
     }
 
     /// Sends a `Ready` message and handles it. Does nothing if we are only an observer.
-    fn send_ready(&mut self, hash: &[u8]) -> Result<Step<N>> {
+    fn send_ready(&mut self, hash: &Digest) -> Result<Step<N>> {
         self.ready_sent = true;
         if !self.netinfo.is_validator() {
             return Ok(Step::default());
         }
-        let ready_msg = Message::Ready(hash.to_vec());
+        let ready_msg = Message::Ready(*hash);
         let mut step: Step<_> = Target::All.message(ready_msg).into();
         let our_uid = &self.netinfo.our_uid().clone();
         step.extend(self.handle_ready(our_uid, hash)?);
@@ -326,7 +326,7 @@ impl<N: NodeUidT> Broadcast<N> {
 
     /// Checks whether the conditions for output are met for this hash, and if so, sets the output
     /// value.
-    fn compute_output(&mut self, hash: &[u8]) -> Result<Step<N>> {
+    fn compute_output(&mut self, hash: &Digest) -> Result<Step<N>> {
         if self.decided
             || self.count_readys(hash) <= 2 * self.netinfo.num_faulty()
             || self.count_echos(hash) < self.coding.data_shard_count()
@@ -381,7 +381,7 @@ impl<N: NodeUidT> Broadcast<N> {
     }
 
     /// Returns the number of nodes that have sent us an `Echo` message with this hash.
-    fn count_echos(&self, hash: &[u8]) -> usize {
+    fn count_echos(&self, hash: &Digest) -> usize {
         self.echos
             .values()
             .filter(|p| p.root_hash() == hash)
@@ -389,7 +389,7 @@ impl<N: NodeUidT> Broadcast<N> {
     }
 
     /// Returns the number of nodes that have sent us a `Ready` message with this hash.
-    fn count_readys(&self, hash: &[u8]) -> usize {
+    fn count_readys(&self, hash: &Digest) -> usize {
         self.readys
             .values()
             .filter(|h| h.as_slice() == hash)
@@ -467,7 +467,7 @@ fn decode_from_shards(
     leaf_values: &mut [Option<Box<[u8]>>],
     coding: &Coding,
     data_shard_num: usize,
-    root_hash: &[u8],
+    root_hash: &Digest,
 ) -> Option<Vec<u8>> {
     // Try to interpolate the Merkle tree using the Reed-Solomon erasure coding scheme.
     if let Err(err) = coding.reconstruct_shards(leaf_values) {

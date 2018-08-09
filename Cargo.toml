@@ -28,16 +28,16 @@ pairing = { version = "0.14.2", features = ["u128-support"] }
 rand = "0.4.2"
 rand_derive = "0.3.1"
 reed-solomon-erasure = "3.1.0"
-ring = "^0.12"
 serde = "1.0.55"
 serde_derive = "1.0.55"
 threshold_crypto = { git = "https://github.com/poanetwork/threshold_crypto" }
+tiny-keccak = "1.4"
 
 [dev-dependencies]
 colored = "1.6"
 crossbeam = "0.3.2"
 crossbeam-channel = "0.1"
-docopt = "0.8"
+docopt = "1.0"
 serde_derive = "1.0.55"
 signifix = "0.9"
 

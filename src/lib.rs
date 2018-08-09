@@ -116,11 +116,11 @@ extern crate rand;
 #[macro_use]
 extern crate rand_derive;
 extern crate reed_solomon_erasure;
-extern crate ring;
 extern crate serde;
 #[macro_use]
 extern crate serde_derive;
 pub extern crate threshold_crypto as crypto;
+extern crate tiny_keccak;
 
 pub mod agreement;
 pub mod broadcast;
