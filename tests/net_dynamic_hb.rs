@@ -55,14 +55,15 @@ fn dyn_hb_test() {
     for (id, queue) in queues.iter_mut() {
         let proposal = rand::seq::sample_slice(&mut rng, queue.as_slice(), txs_to_send).to_vec();
         println!("Node {:?} will propose: {:?}", id, proposal);
-        net.send_input(*id, Input::User(proposal));
+
+        // The step will have its messages added to the queue automatically, we ignore the output.
+        let _ = net.send_input(*id, Input::User(proposal))
+            .expect("could not send initial transaction");
     }
 
     // Afterwards, remove a specific node from the dynamic honey badger network.
-    println!(
-        "BROADCAST: {:?}",
-        net.broadcast_input(&Input::Change(Change::Remove(NEW_OBSERVER_NODE_ID)))
-    );
+    net.broadcast_input(&Input::Change(Change::Remove(NEW_OBSERVER_NODE_ID)))
+        .expect("broadcasting failed");
 
     // [
 
@@ -157,9 +158,10 @@ fn dyn_hb_test() {
                     .netinfo()
                     .secret_key()
                     .public_key();
-                net[node_id]
+                let _ = net[node_id]
                     .algorithm_mut()
-                    .input(Input::Change(Change::Add(NEW_OBSERVER_NODE_ID, pk)));
+                    .input(Input::Change(Change::Add(NEW_OBSERVER_NODE_ID, pk)))
+                    .expect("failed to send `Add` input");
             }
 
             if let ChangeState::Complete(Change::Add(NEW_OBSERVER_NODE_ID, _)) = change {
