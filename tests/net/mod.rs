@@ -290,7 +290,6 @@ where
             msg.to,
             msg.payload
         );
-        let sender = msg.from.clone();
         let receiver = msg.to.clone();
 
         // Unfortunately, we have to re-borrow the target node further down to make the borrow
