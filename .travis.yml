@@ -18,6 +18,12 @@ before_install:
   - rustup component add --toolchain=${RUST_NEXT} rustfmt-preview clippy-preview
   # Some symlinking is still necessary for clippy to function properly.
   - ln -sf ${HOME}/.rustup/toolchains/${RUST_NEXT}-x86_64-unknown-linux-gnu/bin/clippy-driver ${HOME}/.rustup/toolchains/${RUST_NEXT}-x86_64-unknown-linux-gnu/bin/cargo-clippy $HOME/.cargo/bin/
+# after_failure:
+#   # Outputs the syslog after a failed build, e.g. to debug `SIGILL` occurrences.
+#   # Unfortunately this is likely to disable container-based travis images,
+#   # causing a CI slowdown, so this option is commented out by default. It can
+#   # be enabled per-branch to debug issues.
+#   - sudo tail -n 250 /var/log/syslog
 env:
   global:
     - RUST_BACKTRACE=1
