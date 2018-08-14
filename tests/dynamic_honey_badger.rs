@@ -78,6 +78,8 @@ where
                 node_busy(*node)
                     && !node.instance().has_input()
                     && node.instance().netinfo().is_validator()
+                    // Wait until all nodes have completed removing 0, before inputting `Add`.
+                    && (input_add || !has_remove(node))
                     // If there's only one node, it will immediately output on input. Make sure we
                     // first process all incoming messages before providing input again.
                     && (network.nodes.len() > 2 || node.queue.is_empty())
