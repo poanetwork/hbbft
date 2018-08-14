@@ -7,18 +7,18 @@ use super::bool_multimap::BoolMultimap;
 use super::sbv_broadcast::{self, SbvBroadcast};
 use super::{AgreementContent, Error, Message, Nonce, Result, Step};
 use agreement::bool_set::BoolSet;
-use common_coin::{self, CommonCoin, CommonCoinMessage};
+use coin::{self, Coin, CoinMessage};
 use messaging::{DistAlgorithm, NetworkInfo, Target};
 use traits::NodeUidT;
 
-/// The state of the current epoch's common coin. In some epochs this is fixed, in others it starts
+/// The state of the current epoch's coin. In some epochs this is fixed, in others it starts
 /// with in `InProgress`.
 #[derive(Debug)]
 enum CoinState<N> {
     /// The value was fixed in the current epoch, or the coin has already terminated.
     Decided(bool),
     /// The coin value is not known yet.
-    InProgress(CommonCoin<N, Nonce>),
+    InProgress(Coin<N, Nonce>),
 }
 
 impl<N> CoinState<N> {
@@ -68,7 +68,7 @@ pub struct Agreement<N> {
     incoming_queue: BTreeMap<u32, Vec<(N, AgreementContent)>>,
     /// The values we found in the first _N - f_ `Aux` messages that were in `bin_values`.
     conf_values: Option<BoolSet>,
-    /// The state of this epoch's common coin.
+    /// The state of this epoch's coin.
     coin_state: CoinState<N>,
 }
 
@@ -182,7 +182,7 @@ impl<N: NodeUidT> Agreement<N> {
             return Ok(step); // The `Conf` round has already started.
         }
         if let Some(aux_vals) = output.into_iter().next() {
-            // Execute the Common Coin schedule `false, true, get_coin(), false, true, get_coin(), ...`
+            // Execute the Coin schedule `false, true, get_coin(), false, true, get_coin(), ...`
             match self.coin_state {
                 CoinState::Decided(_) => {
                     self.conf_values = Some(aux_vals);
@@ -224,14 +224,14 @@ impl<N: NodeUidT> Agreement<N> {
         }
     }
 
-    /// Handles a Common Coin message. If there is output from Common Coin, starts the next
+    /// Handles a Coin message. If there is output from Coin, starts the next
     /// epoch. The function may output a decision value.
-    fn handle_coin(&mut self, sender_id: &N, msg: CommonCoinMessage) -> Result<Step<N>> {
+    fn handle_coin(&mut self, sender_id: &N, msg: CoinMessage) -> Result<Step<N>> {
         let coin_step = match self.coin_state {
             CoinState::Decided(_) => return Ok(Step::default()), // Coin value is already decided.
-            CoinState::InProgress(ref mut common_coin) => common_coin
+            CoinState::InProgress(ref mut coin) => coin
                 .handle_message(sender_id, msg)
-                .map_err(Error::HandleCoinCommonCoin)?,
+                .map_err(Error::HandleCoin)?,
         };
         self.on_coin_step(coin_step)
     }
@@ -266,8 +266,8 @@ impl<N: NodeUidT> Agreement<N> {
         Ok(step)
     }
 
-    /// Handles a step returned from the `CommonCoin`.
-    fn on_coin_step(&mut self, coin_step: common_coin::Step<N, Nonce>) -> Result<Step<N>> {
+    /// Handles a step returned from the `Coin`.
+    fn on_coin_step(&mut self, coin_step: coin::Step<N, Nonce>) -> Result<Step<N>> {
         let mut step = Step::default();
         let epoch = self.epoch;
         let to_msg = |c_msg| AgreementContent::Coin(Box::new(c_msg)).with_epoch(epoch);
@@ -307,7 +307,7 @@ impl<N: NodeUidT> Agreement<N> {
     }
 
     /// Creates the initial coin state for the current epoch, i.e. sets it to the predetermined
-    /// value, or initializes a `CommonCoin` instance.
+    /// value, or initializes a `Coin` instance.
     fn coin_state(&self) -> CoinState<N> {
         match self.epoch % 3 {
             0 => CoinState::Decided(true),
@@ -319,7 +319,7 @@ impl<N: NodeUidT> Agreement<N> {
                     self.netinfo.node_index(&self.proposer_id).unwrap(),
                     self.epoch,
                 );
-                CoinState::InProgress(CommonCoin::new(self.netinfo.clone(), nonce))
+                CoinState::InProgress(Coin::new(self.netinfo.clone(), nonce))
             }
         }
     }
@@ -354,12 +354,12 @@ impl<N: NodeUidT> Agreement<N> {
             return Ok(Step::default());
         }
 
-        // Invoke the common coin.
+        // Invoke the coin.
         let coin_step = match self.coin_state {
             CoinState::Decided(_) => return Ok(Step::default()), // Coin has already decided.
-            CoinState::InProgress(ref mut common_coin) => common_coin
-                .input(())
-                .map_err(Error::TryFinishConfRoundCommonCoin)?,
+            CoinState::InProgress(ref mut coin) => {
+                coin.input(()).map_err(Error::TryFinishConfRoundCoin)?
+            }
         };
         let mut step = self.on_coin_step(coin_step)?;
         step.extend(self.try_update_epoch()?);

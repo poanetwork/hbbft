@@ -25,7 +25,7 @@ pub enum AckMessageFault {
 /// Represents each reason why a node could be considered faulty.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum FaultKind {
-    /// `CommonCoin` received a signature share from an unverified sender.
+    /// `Coin` received a signature share from an unverified sender.
     UnverifiedSignatureShareSender,
     /// `HoneyBadger` received a decryption share from an unverified sender.
     UnverifiedDecryptionShareSender,

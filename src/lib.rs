@@ -85,7 +85,7 @@
 //! This is used in Subset to decide whether each node's proposal should be included in the subset
 //! or not.
 //!
-//! [**Common Coin**](common_coin/index.html)
+//! [**Coin**](coin/index.html)
 //!
 //! Each node inputs `()` to initiate a coin flip. Once _f + 1_ nodes have input, either all nodes
 //! receive `true` or all nodes receive `false`. The outcome cannot be known by the adversary
@@ -124,7 +124,7 @@ extern crate tiny_keccak;
 
 pub mod agreement;
 pub mod broadcast;
-pub mod common_coin;
+pub mod coin;
 pub mod common_subset;
 pub mod dynamic_honey_badger;
 pub mod fault_log;
