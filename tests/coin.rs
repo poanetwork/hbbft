@@ -1,5 +1,5 @@
 #![deny(unused_must_use)]
-//! Common Coin tests
+//! Coin tests
 
 extern crate env_logger;
 extern crate hbbft;
@@ -19,15 +19,15 @@ use std::iter::once;
 
 use rand::Rng;
 
-use hbbft::common_coin::CommonCoin;
+use hbbft::coin::Coin;
 
 use network::{Adversary, MessageScheduler, NodeUid, SilentAdversary, TestNetwork, TestNode};
 
-/// Tests a network of Common Coin instances with an optional expected value. Outputs the computed
-/// common coin value if the test is successful.
-fn test_common_coin<A>(mut network: TestNetwork<A, CommonCoin<NodeUid, String>>) -> bool
+/// Tests a network of Coin instances with an optional expected value. Outputs the computed
+/// coin value if the test is successful.
+fn test_coin<A>(mut network: TestNetwork<A, Coin<NodeUid, String>>) -> bool
 where
-    A: Adversary<CommonCoin<NodeUid, String>>,
+    A: Adversary<Coin<NodeUid, String>>,
 {
     network.input_all(());
     network.observer.input(()); // Observer will only return after `input` was called.
@@ -72,9 +72,9 @@ fn check_coin_distribution(num_samples: usize, count_true: usize, count_false: u
     assert!(count_false > min_throws);
 }
 
-fn test_common_coin_different_sizes<A, F>(new_adversary: F, num_samples: usize)
+fn test_coin_different_sizes<A, F>(new_adversary: F, num_samples: usize)
 where
-    A: Adversary<CommonCoin<NodeUid, String>>,
+    A: Adversary<Coin<NodeUid, String>>,
     F: Fn(usize, usize) -> A,
 {
     assert!(num_samples > 0);
@@ -106,10 +106,9 @@ where
             let adversary = |_| new_adversary(num_good_nodes, num_faulty_nodes);
             let nonce = format!("My very unique nonce {:x}:{}", unique_id, i);
             info!("Nonce: {}", nonce);
-            let new_common_coin = |netinfo: _| CommonCoin::new(netinfo, nonce.clone());
-            let network =
-                TestNetwork::new(num_good_nodes, num_faulty_nodes, adversary, new_common_coin);
-            let coin = test_common_coin(network);
+            let new_coin = |netinfo: _| Coin::new(netinfo, nonce.clone());
+            let network = TestNetwork::new(num_good_nodes, num_faulty_nodes, adversary, new_coin);
+            let coin = test_coin(network);
             if coin {
                 count_true += 1;
             } else {
@@ -121,13 +120,13 @@ where
 }
 
 #[test]
-fn test_common_coin_random_silent_200_samples() {
+fn test_coin_random_silent_200_samples() {
     let new_adversary = |_: usize, _: usize| SilentAdversary::new(MessageScheduler::Random);
-    test_common_coin_different_sizes(new_adversary, 200);
+    test_coin_different_sizes(new_adversary, 200);
 }
 
 #[test]
-fn test_common_coin_first_silent_50_samples() {
+fn test_coin_first_silent_50_samples() {
     let new_adversary = |_: usize, _: usize| SilentAdversary::new(MessageScheduler::First);
-    test_common_coin_different_sizes(new_adversary, 50);
+    test_coin_different_sizes(new_adversary, 50);
 }

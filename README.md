@@ -37,7 +37,7 @@ In addition to **validators**, the algorithms support **observers**: These don't
 
 - [x] **[Binary Agreement](https://github.com/poanetwork/hbbft/blob/master/src/agreement/mod.rs):** Each node inputs a binary value. The nodes agree on a value that was input by at least one correct node. 
 
-- [x] **[Coin](https://github.com/poanetwork/hbbft/blob/master/src/common_coin.rs):** A pseudorandom binary value used by the Binary Agreement protocol.
+- [x] **[Coin](https://github.com/poanetwork/hbbft/blob/master/src/coin.rs):** A pseudorandom binary value used by the Binary Agreement protocol.
 
 - [x] **[Synchronous Key Generation](https://github.com/poanetwork/hbbft/blob/master/src/sync_key_gen.rs)** A dealerless algorithm that generates keys for threshold encryption and signing. Unlike the other algorithms, this one is _completely synchronous_ and should run on top of Honey Badger (or another consensus algorithm)
 

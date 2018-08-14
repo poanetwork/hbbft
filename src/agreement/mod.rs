@@ -45,7 +45,7 @@
 //!   * If both values are candidates, we set `e = s` and proceed to the next epoch.
 //!
 //! In epochs that are 0 modulo 3, the value `s` is `true`. In 1 modulo 3, it is `false`. In the
-//! case 2 modulo 3, we flip a common coin to determine a pseudorandom `s`.
+//! case 2 modulo 3, we flip a coin to determine a pseudorandom `s`.
 //!
 //! An adversary that knows each coin value, controls a few validators and controls network
 //! scheduling can delay the delivery of `Aux` and `BVal` messages to influence which candidate
@@ -58,7 +58,7 @@
 //!
 //! * Since every good node believes in all values it puts into its `Conf` message, we will
 //! eventually receive _N - f_ `Conf` messages containing only values we believe in. Then we
-//! trigger the common coin.
+//! trigger the coin.
 //!
 //! * After _f + 1_ nodes have sent us their coin shares, we receive the coin output and assign it
 //! to `s`.
@@ -71,7 +71,7 @@ mod sbv_broadcast;
 use rand;
 
 use self::bool_set::BoolSet;
-use common_coin::{self, CommonCoinMessage};
+use coin::{self, CoinMessage};
 use messaging;
 
 pub use self::agreement::Agreement;
@@ -79,10 +79,10 @@ pub use self::agreement::Agreement;
 /// An agreement error.
 #[derive(Clone, Eq, PartialEq, Debug, Fail)]
 pub enum Error {
-    #[fail(display = "HandleCoinCommonCoin error: {}", _0)]
-    HandleCoinCommonCoin(common_coin::Error),
-    #[fail(display = "TryFinishConfRoundCommonCoin error: {}", _0)]
-    TryFinishConfRoundCommonCoin(common_coin::Error),
+    #[fail(display = "HandleCoin error: {}", _0)]
+    HandleCoin(coin::Error),
+    #[fail(display = "TryFinishConfRoundCoin error: {}", _0)]
+    TryFinishConfRoundCoin(coin::Error),
     #[fail(display = "Unknown proposer")]
     UnknownProposer,
     #[fail(display = "Input not accepted")]
@@ -102,8 +102,8 @@ pub enum AgreementContent {
     Conf(BoolSet),
     /// `Term` message.
     Term(bool),
-    /// Common Coin message,
-    Coin(Box<CommonCoinMessage>),
+    /// Coin message,
+    Coin(Box<CoinMessage>),
 }
 
 impl AgreementContent {

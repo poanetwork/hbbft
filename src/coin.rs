@@ -1,9 +1,9 @@
-//! # A Cryptographic Common Coin
+//! # A Cryptographic Coin
 //!
-//! The Common Coin produces a pseudorandom binary value that the correct nodes agree on, and that
+//! The Coin produces a pseudorandom binary value that the correct nodes agree on, and that
 //! cannot be known beforehand.
 //!
-//! Every Common Coin instance has a _nonce_ that determines the value, without giving it away: It
+//! Every Coin instance has a _nonce_ that determines the value, without giving it away: It
 //! is not feasible to compute the output from the nonce alone, and the output is uniformly
 //! distributed.
 //!
@@ -30,7 +30,7 @@ use fault_log::{Fault, FaultKind};
 use messaging::{self, DistAlgorithm, NetworkInfo, Target};
 use traits::NodeUidT;
 
-/// A common coin error.
+/// A coin error.
 #[derive(Clone, Eq, PartialEq, Debug, Fail)]
 pub enum Error {
     #[fail(display = "CombineAndVerifySigCrypto error: {}", _0)]
@@ -41,15 +41,15 @@ pub enum Error {
     VerificationFailed,
 }
 
-/// A common coin result.
+/// A coin result.
 pub type Result<T> = ::std::result::Result<T, Error>;
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Rand)]
-pub struct CommonCoinMessage(SignatureShare);
+pub struct CoinMessage(SignatureShare);
 
-impl CommonCoinMessage {
+impl CoinMessage {
     pub fn new(sig: SignatureShare) -> Self {
-        CommonCoinMessage(sig)
+        CoinMessage(sig)
     }
 
     pub fn to_sig(&self) -> &SignatureShare {
@@ -57,25 +57,25 @@ impl CommonCoinMessage {
     }
 }
 
-/// A common coin algorithm instance. On input, broadcasts our threshold signature share. Upon
+/// A coin algorithm instance. On input, broadcasts our threshold signature share. Upon
 /// receiving at least `num_faulty + 1` shares, attempts to combine them into a signature. If that
 /// signature is valid, the instance outputs it and terminates; otherwise the instance aborts.
 #[derive(Debug)]
-pub struct CommonCoin<N, T> {
+pub struct Coin<N, T> {
     netinfo: Arc<NetworkInfo<N>>,
-    /// The name of this common coin. It is required to be unique for each common coin round.
+    /// The name of this coin. It is required to be unique for each coin round.
     nonce: T,
     /// All received threshold signature shares.
     received_shares: BTreeMap<N, SignatureShare>,
-    /// Whether we provided input to the common coin.
+    /// Whether we provided input to the coin.
     had_input: bool,
     /// Termination flag.
     terminated: bool,
 }
 
-pub type Step<N, T> = messaging::Step<CommonCoin<N, T>>;
+pub type Step<N, T> = messaging::Step<Coin<N, T>>;
 
-impl<N, T> DistAlgorithm for CommonCoin<N, T>
+impl<N, T> DistAlgorithm for Coin<N, T>
 where
     N: NodeUidT,
     T: Clone + AsRef<[u8]>,
@@ -83,7 +83,7 @@ where
     type NodeUid = N;
     type Input = ();
     type Output = bool;
-    type Message = CommonCoinMessage;
+    type Message = CoinMessage;
     type Error = Error;
 
     /// Sends our threshold signature share if not yet sent.
@@ -103,7 +103,7 @@ where
         message: Self::Message,
     ) -> Result<Step<N, T>> {
         if !self.terminated {
-            let CommonCoinMessage(share) = message;
+            let CoinMessage(share) = message;
             self.handle_share(sender_id, share)
         } else {
             Ok(Step::default())
@@ -120,13 +120,13 @@ where
     }
 }
 
-impl<N, T> CommonCoin<N, T>
+impl<N, T> Coin<N, T>
 where
     N: NodeUidT,
     T: Clone + AsRef<[u8]>,
 {
     pub fn new(netinfo: Arc<NetworkInfo<N>>, nonce: T) -> Self {
-        CommonCoin {
+        Coin {
             netinfo,
             nonce,
             received_shares: BTreeMap::new(),
@@ -140,7 +140,7 @@ where
             return self.try_output();
         }
         let share = self.netinfo.secret_key_share().sign(&self.nonce);
-        let mut step: Step<_, _> = Target::All.message(CommonCoinMessage(share.clone())).into();
+        let mut step: Step<_, _> = Target::All.message(CoinMessage(share.clone())).into();
         let id = self.netinfo.our_uid().clone();
         step.extend(self.handle_share(&id, share)?);
         Ok(step)
