@@ -11,15 +11,15 @@
 //! ## How it works
 //!
 //! In every epoch, every validator encrypts their contribution and proposes it to the others.
-//! A `CommonSubset` instance determines which proposals are accepted and will be part of the new
+//! A `Subset` instance determines which proposals are accepted and will be part of the new
 //! batch. Using threshold encryption, the nodes collaboratively decrypt all accepted
 //! contributions. Invalid contributions (that e.g. cannot be deserialized) are discarded - their
 //! proposers must be faulty -, and the remaining ones are output as the new batch. The next epoch
 //! begins as soon as the validators propose new contributions again.
 //!
-//! So it is essentially an endlessly repeating `CommonSubset`, but with the proposed values
+//! So it is essentially an endlessly repeating `Subset`, but with the proposed values
 //! encrypted. The encryption makes it harder for an attacker to try and censor a particular value
-//! by influencing the set of proposals that make it into the common subset, because they don't
+//! by influencing the set of proposals that make it into the subset, because they don't
 //! know the decrypted values before the subset is determined.
 
 mod batch;

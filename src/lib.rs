@@ -59,13 +59,13 @@
 //! number of _transactions_, and output a sequence of batches. Each batch contains a set of
 //! transactions that were input by the nodes, and usually multiple transactions from each node.
 //!
-//! [**Common Subset**](common_subset/index.html)
+//! [**Subset**](subset/index.html)
 //!
 //! Each node inputs one item. The output is a set of at least _N - f_ nodes' IDs, together with
 //! their items, and will be the same in every correct node.
 //!
 //! This is the main building block of Honey Badger: In each epoch, every node proposes a number of
-//! transactions. Using the Common Subset protocol, they agree on at least _N - f_ of those
+//! transactions. Using the Subset protocol, they agree on at least _N - f_ of those
 //! proposals. The batch contains the union of these sets of transactions.
 //!
 //! [**Reliable Broadcast**](broadcast/index.html)
@@ -74,7 +74,7 @@
 //! if the proposer is faulty it is guaranteed that either none of the correct nodes output
 //! anything, or all of them have the same output.
 //!
-//! This is used in Common Subset to send each node's proposal to the other nodes.
+//! This is used in Subset to send each node's proposal to the other nodes.
 //!
 //! [**Binary Agreement**](agreement/index.html)
 //!
@@ -125,13 +125,13 @@ extern crate tiny_keccak;
 pub mod agreement;
 pub mod broadcast;
 pub mod coin;
-pub mod common_subset;
 pub mod dynamic_honey_badger;
 pub mod fault_log;
 mod fmt;
 pub mod honey_badger;
 pub mod messaging;
 pub mod queueing_honey_badger;
+pub mod subset;
 pub mod sync_key_gen;
 pub mod threshold_decryption;
 pub mod transaction_queue;

@@ -3,7 +3,7 @@ use std::fmt::{self, Display, Formatter};
 use bincode;
 use failure::{Backtrace, Context, Fail};
 
-use common_subset;
+use subset;
 use threshold_decryption;
 
 /// Honey badger error variants.
@@ -11,15 +11,12 @@ use threshold_decryption;
 pub enum ErrorKind {
     #[fail(display = "ProposeBincode error: {}", _0)]
     ProposeBincode(bincode::ErrorKind),
-    #[fail(display = "Failed to instantiate Common Subset: {}", _0)]
-    CreateCommonSubset(common_subset::Error),
-    #[fail(
-        display = "Failed to input contribution to Common Subset: {}",
-        _0
-    )]
-    InputCommonSubset(common_subset::Error),
-    #[fail(display = "Failed to handle Common Subset message: {}", _0)]
-    HandleCommonSubsetMessage(common_subset::Error),
+    #[fail(display = "Failed to instantiate Subset: {}", _0)]
+    CreateSubset(subset::Error),
+    #[fail(display = "Failed to input contribution to Subset: {}", _0)]
+    InputSubset(subset::Error),
+    #[fail(display = "Failed to handle Subset message: {}", _0)]
+    HandleSubsetMessage(subset::Error),
     #[fail(display = "Threshold decryption error: {}", _0)]
     ThresholdDecryption(threshold_decryption::Error),
     #[fail(display = "Unknown sender")]

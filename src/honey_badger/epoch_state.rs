@@ -9,9 +9,9 @@ use rand::Rand;
 use serde::{Deserialize, Serialize};
 
 use super::{Batch, ErrorKind, MessageContent, Result, Step};
-use common_subset::{self as cs, CommonSubset};
 use fault_log::{Fault, FaultKind, FaultLog};
 use messaging::{DistAlgorithm, NetworkInfo};
+use subset::{self as cs, Subset};
 use threshold_decryption::{self as td, ThresholdDecryption};
 use traits::{Contribution, NodeUidT};
 
@@ -62,7 +62,7 @@ where
 #[derive(Debug)]
 enum SubsetState<N: Rand> {
     /// The algorithm is ongoing: the set of accepted contributions is still undecided.
-    Ongoing(CommonSubset<N>),
+    Ongoing(Subset<N>),
     /// The algorithm is complete. This contains the set of accepted proposers.
     Complete(BTreeSet<N>),
 }
@@ -76,7 +76,7 @@ where
         match self {
             SubsetState::Ongoing(ref mut cs) => cs.input(proposal),
             SubsetState::Complete(_) => return Ok(cs::Step::default()),
-        }.map_err(|err| ErrorKind::InputCommonSubset(err).into())
+        }.map_err(|err| ErrorKind::InputSubset(err).into())
     }
 
     /// Handles a message in the Subset instance, unless it has already completed.
@@ -84,7 +84,7 @@ where
         match self {
             SubsetState::Ongoing(ref mut cs) => cs.handle_message(sender_id, msg),
             SubsetState::Complete(_) => return Ok(cs::Step::default()),
-        }.map_err(|err| ErrorKind::HandleCommonSubsetMessage(err).into())
+        }.map_err(|err| ErrorKind::HandleSubsetMessage(err).into())
     }
 
     /// Returns the number of contributions that we have already received or, after completion, how
@@ -124,9 +124,9 @@ where
     C: Contribution + Serialize + for<'r> Deserialize<'r>,
     N: NodeUidT + Rand,
 {
-    /// Creates a new `CommonSubset` instance.
+    /// Creates a new `Subset` instance.
     pub fn new(netinfo: Arc<NetworkInfo<N>>, epoch: u64) -> Result<Self> {
-        let cs = CommonSubset::new(netinfo.clone(), epoch).map_err(ErrorKind::CreateCommonSubset)?;
+        let cs = Subset::new(netinfo.clone(), epoch).map_err(ErrorKind::CreateSubset)?;
         Ok(EpochState {
             epoch,
             netinfo,
@@ -149,14 +149,14 @@ where
         self.subset.received_proposals()
     }
 
-    /// Handles a message for the Common Subset or a Threshold Decryption instance.
+    /// Handles a message for the Subset or a Threshold Decryption instance.
     pub fn handle_message_content(
         &mut self,
         sender_id: &N,
         content: MessageContent<N>,
     ) -> Result<Step<C, N>> {
         match content {
-            MessageContent::CommonSubset(cs_msg) => {
+            MessageContent::Subset(cs_msg) => {
                 let cs_step = self.subset.handle_message(sender_id, cs_msg)?;
                 self.process_subset(cs_step)
             }
@@ -219,14 +219,14 @@ where
     fn process_subset(&mut self, cs_step: cs::Step<N>) -> Result<Step<C, N>> {
         let mut step = Step::default();
         let mut cs_outputs = step.extend_with(cs_step, |cs_msg| {
-            MessageContent::CommonSubset(cs_msg).with_epoch(self.epoch)
+            MessageContent::Subset(cs_msg).with_epoch(self.epoch)
         });
         if let Some(cs_output) = cs_outputs.pop_front() {
             self.subset = SubsetState::Complete(cs_output.keys().cloned().collect());
             step.extend(self.send_decryption_shares(cs_output)?);
         }
         if !cs_outputs.is_empty() {
-            error!("Multiple outputs from a single Common Subset instance.");
+            error!("Multiple outputs from a single Subset instance.");
         }
         Ok(step)
     }

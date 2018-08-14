@@ -31,7 +31,7 @@ In addition to **validators**, the algorithms support **observers**: These don't
 
 - [x] **[Queueing Honey Badger](https://github.com/poanetwork/hbbft/blob/master/src/queueing_honey_badger.rs):** Works exactly like Dynamic Honey Badger, but includes a built in transaction queue.
 
-- [x] **[Subset](https://github.com/poanetwork/hbbft/blob/master/src/common_subset.rs):** Each node inputs data. The nodes agree on a subset of suggested data. 
+- [x] **[Subset](https://github.com/poanetwork/hbbft/blob/master/src/subset.rs):** Each node inputs data. The nodes agree on a subset of suggested data. 
 
 - [x] **[Broadcast](https://github.com/poanetwork/hbbft/blob/master/src/broadcast.rs):** A proposer node inputs data and every node receives this output.
 
