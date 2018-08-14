@@ -1,10 +1,10 @@
-//! # Asynchronous Common Subset algorithm.
+//! # Asynchronous Subset algorithm.
 //!
-//! The Asynchronous Common Subset protocol assumes a network of _N_ nodes that send signed
+//! The Asynchronous Subset protocol assumes a network of _N_ nodes that send signed
 //! messages to each other, with at most _f_ of them malicious, where _3 f < N_. Handling the
 //! networking and signing is the responsibility of the user: only when a message has been
 //! verified to be "from node i" (e.g. using cryptographic signatures), it can be handed to the
-//! `CommonSubset` instance.
+//! `Subset` instance.
 //!
 //! Each node proposes an element for inclusion. Under the above conditions, the protocol
 //! guarantees that all correct nodes output the same set, consisting of at least _N - f_ of the
@@ -12,15 +12,15 @@
 //!
 //! ## How it works
 //!
-//! * `CommonSubset` instantiates one `Broadcast` algorithm for each of the participating nodes.
+//! * `Subset` instantiates one `Broadcast` algorithm for each of the participating nodes.
 //! At least _N - f_ of these - the ones whose proposer is not faulty - will eventually output
 //! the element proposed by that node.
 //! * It also instantiates Binary Agreement for each participating node, to decide whether
-//! that node's proposed element should be included in the common set. Whenever an element is
+//! that node's proposed element should be included in the set. Whenever an element is
 //! received via broadcast, we input "yes" (`true`) into the corresponding `Agreement` instance.
 //! * When _N - f_ `Agreement` instances have decided "yes", we input "no" (`false`) into the
 //! remaining ones, where we haven't provided input yet.
-//! * Once all `Agreement` instances have decided, `CommonSubset` returns the set of all proposed
+//! * Once all `Agreement` instances have decided, `Subset` returns the set of all proposed
 //! values for which the decision was "yes".
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -34,7 +34,7 @@ use messaging::{self, DistAlgorithm, NetworkInfo};
 use rand::Rand;
 use traits::NodeUidT;
 
-/// A common subset error.
+/// A subset error.
 #[derive(Clone, PartialEq, Debug, Fail)]
 pub enum Error {
     #[fail(display = "NewAgreement error: {}", _0)]
@@ -55,13 +55,13 @@ pub enum Error {
     NoSuchBroadcastInstance,
 }
 
-/// A common subset result.
+/// A subset result.
 pub type Result<T> = ::std::result::Result<T, Error>;
 
-// TODO: Make this a generic argument of `CommonSubset`.
+// TODO: Make this a generic argument of `Subset`.
 type ProposedValue = Vec<u8>;
 
-/// Message from Common Subset to remote nodes.
+/// Message from Subset to remote nodes.
 #[derive(Serialize, Deserialize, Clone, Debug, Rand)]
 pub enum Message<N: Rand> {
     /// A message for the broadcast algorithm concerning the set element proposed by the given node.
@@ -71,9 +71,9 @@ pub enum Message<N: Rand> {
     Agreement(N, agreement::Message),
 }
 
-/// Asynchronous Common Subset algorithm instance
+/// Asynchronous Subset algorithm instance
 #[derive(Debug)]
-pub struct CommonSubset<N: Rand> {
+pub struct Subset<N: Rand> {
     /// Shared network information.
     netinfo: Arc<NetworkInfo<N>>,
     broadcast_instances: BTreeMap<N, Broadcast<N>>,
@@ -84,9 +84,9 @@ pub struct CommonSubset<N: Rand> {
     decided: bool,
 }
 
-pub type Step<N> = messaging::Step<CommonSubset<N>>;
+pub type Step<N> = messaging::Step<Subset<N>>;
 
-impl<N: NodeUidT + Rand> DistAlgorithm for CommonSubset<N> {
+impl<N: NodeUidT + Rand> DistAlgorithm for Subset<N> {
     type NodeUid = N;
     type Input = ProposedValue;
     type Output = BTreeMap<N, ProposedValue>;
@@ -122,7 +122,7 @@ impl<N: NodeUidT + Rand> DistAlgorithm for CommonSubset<N> {
     }
 }
 
-impl<N: NodeUidT + Rand> CommonSubset<N> {
+impl<N: NodeUidT + Rand> Subset<N> {
     pub fn new(netinfo: Arc<NetworkInfo<N>>, session_id: u64) -> Result<Self> {
         // Create all broadcast instances.
         let mut broadcast_instances: BTreeMap<N, Broadcast<N>> = BTreeMap::new();
@@ -143,7 +143,7 @@ impl<N: NodeUidT + Rand> CommonSubset<N> {
             );
         }
 
-        Ok(CommonSubset {
+        Ok(Subset {
             netinfo,
             broadcast_instances,
             agreement_instances,
@@ -153,7 +153,7 @@ impl<N: NodeUidT + Rand> CommonSubset<N> {
         })
     }
 
-    /// Common Subset input message handler. It receives a value for broadcast
+    /// Subset input message handler. It receives a value for broadcast
     /// and redirects it to the corresponding broadcast instance.
     pub fn send_proposed_value(&mut self, value: ProposedValue) -> Result<Step<N>> {
         if !self.netinfo.is_validator() {

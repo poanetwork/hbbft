@@ -22,7 +22,7 @@ pub struct HoneyBadger<C, N: Rand> {
     pub(super) has_input: bool,
     /// The subalgorithms for ongoing epochs.
     pub(super) epochs: BTreeMap<u64, EpochState<C, N>>,
-    /// The maximum number of `CommonSubset` instances that we run simultaneously.
+    /// The maximum number of `Subset` instances that we run simultaneously.
     pub(super) max_future_epochs: u64,
     /// Messages for future epochs that couldn't be handled yet.
     pub(super) incoming_queue: BTreeMap<u64, Vec<(N, MessageContent<N>)>>,

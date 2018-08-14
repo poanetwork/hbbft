@@ -1,5 +1,5 @@
 #![deny(unused_must_use)]
-//! Integration tests of the Asynchronous Common Subset protocol.
+//! Integration tests of the Asynchronous Subset protocol.
 
 extern crate env_logger;
 extern crate hbbft;
@@ -19,15 +19,15 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::iter::once;
 use std::sync::Arc;
 
-use hbbft::common_subset::CommonSubset;
 use hbbft::messaging::NetworkInfo;
+use hbbft::subset::Subset;
 
 use network::{Adversary, MessageScheduler, NodeUid, SilentAdversary, TestNetwork, TestNode};
 
 type ProposedValue = Vec<u8>;
 
-fn test_common_subset<A: Adversary<CommonSubset<NodeUid>>>(
-    mut network: TestNetwork<A, CommonSubset<NodeUid>>,
+fn test_subset<A: Adversary<Subset<NodeUid>>>(
+    mut network: TestNetwork<A, Subset<NodeUid>>,
     inputs: &BTreeMap<NodeUid, ProposedValue>,
 ) {
     let ids: Vec<NodeUid> = network.nodes.keys().cloned().collect();
@@ -54,7 +54,7 @@ fn test_common_subset<A: Adversary<CommonSubset<NodeUid>>>(
     }
     let output = expected.unwrap();
     assert!(once(&output).eq(network.observer.outputs()));
-    // The Common Subset algorithm guarantees that more than two thirds of the proposed elements
+    // The Subset algorithm guarantees that more than two thirds of the proposed elements
     // are in the set.
     assert!(output.len() * 3 > inputs.len() * 2);
     // Verify that the set's elements match the proposed values.
@@ -67,22 +67,21 @@ fn new_network<A, F>(
     good_num: usize,
     bad_num: usize,
     adversary: F,
-) -> TestNetwork<A, CommonSubset<NodeUid>>
+) -> TestNetwork<A, Subset<NodeUid>>
 where
-    A: Adversary<CommonSubset<NodeUid>>,
+    A: Adversary<Subset<NodeUid>>,
     F: Fn(BTreeMap<NodeUid, Arc<NetworkInfo<NodeUid>>>) -> A,
 {
     // This returns an error in all but the first test.
     let _ = env_logger::try_init();
 
-    let new_common_subset = |netinfo: Arc<NetworkInfo<NodeUid>>| {
-        CommonSubset::new(netinfo, 0).expect("new Common Subset instance")
-    };
-    TestNetwork::new(good_num, bad_num, adversary, new_common_subset)
+    let new_subset =
+        |netinfo: Arc<NetworkInfo<NodeUid>>| Subset::new(netinfo, 0).expect("new Subset instance");
+    TestNetwork::new(good_num, bad_num, adversary, new_subset)
 }
 
 #[test]
-fn test_common_subset_3_out_of_4_nodes_propose() {
+fn test_subset_3_out_of_4_nodes_propose() {
     let proposed_value = Vec::from("Fake news");
     let proposing_ids: BTreeSet<NodeUid> = (0..3).map(NodeUid).collect();
     let proposals: BTreeMap<NodeUid, ProposedValue> = proposing_ids
@@ -91,11 +90,11 @@ fn test_common_subset_3_out_of_4_nodes_propose() {
         .collect();
     let adversary = |_| SilentAdversary::new(MessageScheduler::First);
     let network = new_network(3, 1, adversary);
-    test_common_subset(network, &proposals);
+    test_subset(network, &proposals);
 }
 
 #[test]
-fn test_common_subset_5_nodes_different_proposed_values() {
+fn test_subset_5_nodes_different_proposed_values() {
     let proposed_values = vec![
         Vec::from("Alpha"),
         Vec::from("Bravo"),
@@ -110,14 +109,14 @@ fn test_common_subset_5_nodes_different_proposed_values() {
         .collect();
     let adversary = |_| SilentAdversary::new(MessageScheduler::Random);
     let network = new_network(5, 0, adversary);
-    test_common_subset(network, &proposals);
+    test_subset(network, &proposals);
 }
 
 #[test]
-fn test_common_subset_1_node() {
+fn test_subset_1_node() {
     let proposals: BTreeMap<NodeUid, ProposedValue> =
         once((NodeUid(0), Vec::from("Node 0 is the greatest!"))).collect();
     let adversary = |_| SilentAdversary::new(MessageScheduler::Random);
     let network = new_network(1, 0, adversary);
-    test_common_subset(network, &proposals);
+    test_subset(network, &proposals);
 }

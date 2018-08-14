@@ -1,13 +1,13 @@
 use rand::Rand;
 
-use common_subset;
+use subset;
 use threshold_decryption;
 
 /// The content of a `HoneyBadger` message. It should be further annotated with an epoch.
 #[derive(Clone, Debug, Deserialize, Rand, Serialize)]
 pub enum MessageContent<N: Rand> {
-    /// A message belonging to the common subset algorithm in the given epoch.
-    CommonSubset(common_subset::Message<N>),
+    /// A message belonging to the subset algorithm in the given epoch.
+    Subset(subset::Message<N>),
     /// A decrypted share of the output of `proposer_id`.
     DecryptionShare {
         proposer_id: N,
