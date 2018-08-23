@@ -167,8 +167,9 @@ use crypto::{
     serde_impl::field_vec::FieldWrap,
     Ciphertext, PublicKey, PublicKeySet, SecretKey, SecretKeyShare,
 };
+use ff::Field;
 use pairing::bls12_381::{Fr, G1Affine};
-use pairing::{CurveAffine, Field};
+use pairing::CurveAffine;
 use rand::OsRng;
 
 use fault_log::{AckMessageFault as Fault, FaultKind, FaultLog};
