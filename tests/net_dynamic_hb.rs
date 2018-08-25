@@ -82,7 +82,8 @@ fn dyn_hb_test() {
 
     // We generate a list of transaction we want to propose, for each node. All nodes will propose
     // a number between 0..total_txs, chosen randomly.
-    let mut queues: collections::BTreeMap<_, Vec<usize>> = net.nodes()
+    let mut queues: collections::BTreeMap<_, Vec<usize>> = net
+        .nodes()
         .map(|node| (node.id().clone(), (0..total_txs).collect()))
         .collect();
 
@@ -93,7 +94,8 @@ fn dyn_hb_test() {
         println!("Node {:?} will propose: {:?}", id, proposal);
 
         // The step will have its messages added to the queue automatically, we ignore the output.
-        let _ = net.send_input(*id, Input::User(proposal))
+        let _ = net
+            .send_input(*id, Input::User(proposal))
             .expect("could not send initial transaction");
     }
 
@@ -106,13 +108,15 @@ fn dyn_hb_test() {
         net.correct_nodes().map(|n| n.id().clone()).collect();
     let mut awaiting_addition: collections::BTreeSet<_> =
         net.correct_nodes().map(|n| n.id().clone()).collect();
-    let mut expected_outputs: collections::BTreeMap<_, collections::BTreeSet<_>> = net.correct_nodes(
-    ).map(|n| (n.id().clone(), (0..10).into_iter().collect()))
+    let mut expected_outputs: collections::BTreeMap<_, collections::BTreeSet<_>> = net
+        .correct_nodes()
+        .map(|n| (n.id().clone(), (0..10).into_iter().collect()))
         .collect();
 
     // Run the network:
     loop {
-        let (node_id, step) = net.crank()
+        let (node_id, step) = net
+            .crank()
             .expect("network queue emptied unexpectedly")
             .expect("node failed to process step");
 
@@ -213,7 +217,8 @@ fn dyn_hb_test() {
                 );
                 // println!("Selected: {:?}", proposal);
 
-                let _ = net.send_input(node_id, Input::User(proposal))
+                let _ = net
+                    .send_input(node_id, Input::User(proposal))
                     .expect("could not send follow-up transaction");
             } else {
                 net.send_input(node_id, Input::User(Vec::new()))

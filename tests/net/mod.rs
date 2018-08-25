@@ -38,7 +38,8 @@ fn open_trace() -> Result<fs::File, io::Error> {
     let exec_path = env::current_exe();
     let name = format!(
         "net-trace_{}_{}_{}.txt",
-        exec_path.map(|pb| pb.file_name()
+        exec_path.map(|pb| pb
+            .file_name()
             .expect("could not get executable filename")
             .to_string_lossy()
             .into_owned())?,
@@ -243,7 +244,8 @@ where
 {
     #[inline]
     fn dispatch_message(&mut self, msg: NetMessage<D>) -> Result<Step<D>, CrankError<D>> {
-        let node = self.nodes
+        let node = self
+            .nodes
             .get_mut(&msg.to)
             .ok_or_else(|| CrankError::NodeDisappeared(msg.to.clone()))?;
 
@@ -251,7 +253,8 @@ where
         // By reducing the information in `CrankError::AlgorithmError`, we could reduce overhead
         // here if necessary.
         let msg_copy = msg.clone();
-        let step = node.algorithm
+        let step = node
+            .algorithm
             .handle_message(&msg.from, msg.payload)
             .map_err(move |err| CrankError::AlgorithmError { msg: msg_copy, err })?;
 
@@ -262,7 +265,8 @@ where
     // ...
     #[inline]
     pub fn send_input(&mut self, id: D::NodeUid, input: D::Input) -> Result<Step<D>, D::Error> {
-        let step = self.nodes
+        let step = self
+            .nodes
             .get_mut(&id)
             .expect("cannot handle input on non-existing node")
             .algorithm
@@ -359,7 +363,8 @@ where
         //       with steps only evaluated each time `next()` is called. For the same reason the
         //       network should not go away ealier either.
 
-        let steps: Vec<_> = self.nodes
+        let steps: Vec<_> = self
+            .nodes
             .values_mut()
             .map(move |node| Ok((node.id().clone(), node.algorithm.input(input.clone())?)))
             .collect::<Result<_, _>>()?;
