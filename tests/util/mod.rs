@@ -5,8 +5,6 @@
 
 use std::ops;
 
-use rand;
-
 /// Subslicing
 pub trait SubSlice
 where
