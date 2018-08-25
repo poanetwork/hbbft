@@ -1,11 +1,21 @@
+//! Test utility functions
+//!
+//! A collection miscellaneous functions that are used in the tests, but are generic enough to be
+//! factored out.
+
 use std::ops;
 
 use rand;
 
+/// Subslicing
 pub trait SubSlice
 where
     Self: ops::Index<ops::Range<usize>>,
 {
+    /// Create new subslice of given size or smaller.
+    ///
+    /// Functions similar to `&sl[a..b]`, but while regular slicing will panic if `b` is out of
+    /// range, a shorter slice will be returned.
     #[inline]
     fn subslice(
         &self,
@@ -25,4 +35,30 @@ impl<T> SubSlice for [T] {
 
         &self[range]
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::SubSlice;
+
+    #[test]
+    fn subslice_regular() {
+        let vals = vec![
+            'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o',
+        ];
+
+        assert_eq!(&['a', 'b', 'c'], vals.subslice(0..3));
+        assert_eq!(&['d', 'e', 'f', 'g'], vals.subslice(3..7));
+    }
+
+    #[test]
+    fn subslice_out_of_bounds() {
+        let vals = vec![
+            'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o',
+        ];
+
+        assert_eq!(&['m', 'n', 'o'], vals.subslice(12..17));
+        assert_eq!(vals.as_slice(), vals.subslice(0..1000));
+    }
+
 }
