@@ -148,8 +148,10 @@ where
     nodes: NodeMap<D>,
     /// A collection of all network messages queued up for delivery.
     messages: collections::VecDeque<NetMessage<D>>,
-    /// An Adversary that controls the network delivery schedule and all faulty nodes. Optional
-    /// only when no faulty nodes are defined.
+    /// An Adversary that controls the network delivery schedule and all faulty nodes.
+    /// Always present (initialized to `NullAdversary` by default), but an `Option` to be swappable
+    /// during execution, allowing a `&mut self` to be passed to the adversary without running afoul
+    /// of the borrow checker.
     adversary: Option<Box<dyn Adversary<D>>>,
     /// Trace output; if active, writes out a log of all messages.
     trace: Option<fs::File>,
@@ -354,16 +356,11 @@ where
             });
             mem::replace(&mut self.adversary, adv);
 
-            // An error will be returned here, if the adversary was missing.
-            let tamper_result = try_some!(
-                opt_tamper_result
-                    .ok_or_else(|| CrankError::FaultyNodeButNoAdversary(receiver.clone()))
-            );
-
-            // A missing adversary here could technically be a panic, as it is almost always
-            // a programming error. Since it can occur fairly far down the stack, it's
-            // reported using as a regular `Err` here, to allow carrying more context.
-            try_some!(tamper_result)
+            // A missing adversary here could technically be a panic, but is impossible since we
+            // initialize with a `NullAdversary` upon construction.
+            try_some!(
+                opt_tamper_result.expect("No adversary defined (expected at least NullAdversary)")
+            )
         } else {
             // A correct node simply handles the message.
             try_some!(self.dispatch_message(msg))
