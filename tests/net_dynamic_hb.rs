@@ -19,7 +19,7 @@ where
     #[inline]
     fn subslice(
         &self,
-        mut range: ops::Range<usize>,
+        range: ops::Range<usize>,
     ) -> &<Self as ops::Index<ops::Range<usize>>>::Output;
 }
 
