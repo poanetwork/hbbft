@@ -1,6 +1,7 @@
 extern crate failure;
 extern crate hbbft;
 extern crate rand;
+extern crate threshold_crypto;
 
 pub mod net;
 
@@ -74,7 +75,7 @@ fn dyn_hb_test() {
             println!("Constructing new dynamic honey badger node #{}", id);
 
             DynamicHoneyBadger::builder().build(netinfo)
-        });
+        }).expect("could not construct test network");
 
     // Our test network includes faulty nodes, so we need an adversary.
     net.set_adversary(Box::new(NullAdversary::new()));
