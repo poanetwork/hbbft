@@ -50,20 +50,25 @@ fn choose_approx<R: ?Sized + rand::Rng, T: Clone>(
 // FIXME: User better batch size, etc.
 
 #[test]
-fn dyn_hb_test() {
+fn drop_and_readd() {
+    // Currently fixed settings; to be replace by proptest later on.
+    do_drop_and_readd(3, 10, 10, 3)
+}
+
+/// Dynamic honey badger: Drop a validator node, demoting it to observer, then re-add it.
+///
+/// * `num_faulty`: The number of faulty nodes.
+/// * `total`: Total number of nodes. Must be >= `3 * num_faulty + 1`.
+/// * `total_txs`: The total number of transactions each node will propose. All nodes will propose
+///                the same transactions, albeit in random order.
+/// * `proposals_per_epoch`: The number of transaction to propose, per epoch.
+fn do_drop_and_readd(
+    num_faulty: usize,
+    total: usize,
+    total_txs: usize,
+    proposals_per_epoch: usize,
+) {
     let mut rng = rand::thread_rng();
-
-    // Number of faulty nodes.
-    let num_faulty = 3;
-
-    // Total number of nodes.
-    let total = 10;
-
-    // Number of transactions to run in test.
-    let total_txs = 10;
-
-    // Number of transaction to propose.
-    let proposals_per_epoch = 3;
 
     const NEW_OBSERVER_NODE_ID: usize = 0;
 
@@ -87,7 +92,7 @@ fn dyn_hb_test() {
         .map(|node| (node.id().clone(), (0..total_txs).collect()))
         .collect();
 
-    // For each node, select 3 transactions randomly from the queue and propose them.
+    // For each node, select transactions randomly from the queue and propose them.
     for (id, queue) in queues.iter_mut() {
         let proposal =
             rand::seq::sample_slice(&mut rng, queue.as_slice(), proposals_per_epoch).to_vec();
