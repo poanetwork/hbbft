@@ -17,6 +17,7 @@ use std::{collections, env, fs, io, mem, ops, process};
 
 use rand;
 use rand::Rand;
+use threshold_crypto as crypto;
 
 // pub use self::types::{FaultyMessageIdx, FaultyNodeIdx, MessageIdx, NetworkOp, NodeIdx, OpList};
 use hbbft::messaging::{self, DistAlgorithm, NetworkInfo, Step};
@@ -157,12 +158,16 @@ impl<D> VirtualNet<D>
 where
     D: DistAlgorithm,
 {
-    pub fn new_with_step<F, I>(node_ids: I, faulty: usize, cons: F) -> Self
+    pub fn new_with_step<F, I>(
+        node_ids: I,
+        faulty: usize,
+        cons: F,
+    ) -> Result<Self, crypto::error::Error>
     where
         F: Fn(D::NodeUid, NetworkInfo<D::NodeUid>) -> (D, Step<D>),
         I: IntoIterator<Item = D::NodeUid>,
     {
-        let net_infos = messaging::NetworkInfo::generate_map(node_ids);
+        let net_infos = messaging::NetworkInfo::generate_map(node_ids)?;
 
         assert!(
             faulty * 3 < net_infos.len(),
@@ -182,15 +187,15 @@ where
 
         // TODO: Handle steps.
 
-        VirtualNet {
+        Ok(VirtualNet {
             nodes,
             messages: collections::VecDeque::new(),
             adversary: None,
             trace: Some(open_trace().expect("could not open trace file")),
-        }
+        })
     }
 
-    pub fn new<F, I>(node_ids: I, faulty: usize, cons: F) -> Self
+    pub fn new<F, I>(node_ids: I, faulty: usize, cons: F) -> Result<Self, crypto::error::Error>
     where
         F: Fn(D::NodeUid, NetworkInfo<D::NodeUid>) -> D,
         I: IntoIterator<Item = D::NodeUid>,
