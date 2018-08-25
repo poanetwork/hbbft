@@ -26,12 +26,3 @@ impl<T> SubSlice for [T] {
         &self[range]
     }
 }
-
-fn choose_approx<R: ?Sized + rand::Rng, T: Clone>(
-    rng: &mut R,
-    mut slice: &[T],
-    mut n: usize,
-    out_of_first: usize,
-) {
-    slice = &slice[..(out_of_first.min(slice.len()))];
-}
