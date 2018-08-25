@@ -16,7 +16,6 @@ use net::VirtualNet;
 use util::SubSlice;
 
 // FIXME: User better batch size, etc.
-
 #[test]
 fn drop_and_readd() {
     // Currently fixed settings; to be replace by proptest later on.

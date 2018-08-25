@@ -13,7 +13,7 @@ where
     /// Create new subslice of given size or smaller.
     ///
     /// Functions similar to `&sl[a..b]`, but while regular slicing will panic if `b` is out of
-    /// range, a shorter slice will be returned.
+    /// range, `subslice` will return the longest possible slice.
     #[inline]
     fn subslice(
         &self,
