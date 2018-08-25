@@ -150,50 +150,40 @@ fn do_drop_and_readd(
                         .get_mut(&node_id)
                         .expect("output set disappeared")
                         .remove(tx);
-                    // println!(
-                    //     "Removed {} from output set of node {}, remaining: {:?}",
-                    //     tx,
-                    //     node_id,
-                    //     expected_outputs.get(&node_id).unwrap()
-                    // );
                 }
             }
         }
 
-        // Finally, check if we are done.
+        // Check if we are done.
         if expected_outputs.values().all(|s| s.is_empty())
             && awaiting_addition.is_empty()
             && awaiting_removal.is_empty()
         {
-            println!(
-                "All outputs are empty all nodes have removed and added the single dynamic node."
-            );
+            // All outputs are empty all nodes have removed and added the single dynamic node.
             break;
         }
 
-        // Now check if we still want to propose something.
+        // If not done, check if we still want to propose something.
         if has_output {
             if !queue.is_empty() {
-                // println!("More to propose: {:?}", queue);
-
-                // Out of the remaining transaction, select a suitable amount.
+                // Out of the remaining transactions, select a suitable amount.
                 let proposal = rand::seq::sample_slice(
                     &mut rng,
                     // FIXME: Use better numbers.
                     queue.as_slice().subslice(0..10),
                     10.min(3.min(queue.len())),
                 );
-                // println!("Selected: {:?}", proposal);
 
                 let _ = net
                     .send_input(node_id, Input::User(proposal))
                     .expect("could not send follow-up transaction");
             } else {
-                net.send_input(node_id, Input::User(Vec::new()))
+                let _ = net
+                    .send_input(node_id, Input::User(Vec::new()))
                     .expect("could not send follow-up transaction");
             }
         }
     }
 
-    // FIXME: Ensure output order is the same.
+    // FIXME: Ensure output order is the same for all node.
 }

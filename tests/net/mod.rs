@@ -297,8 +297,14 @@ where
         Ok(step)
     }
 
-    // # Panics
-    // ...
+    /// Send input to a specific node
+    ///
+    /// Sends the specified `input` to the respective node identified by `id`. The messages of the
+    /// resulting `step` are added to the network's queue.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `id` does not name a valid node.
     #[inline]
     pub fn send_input(&mut self, id: D::NodeUid, input: D::Input) -> Result<Step<D>, D::Error> {
         let step = self
@@ -313,6 +319,13 @@ where
         Ok(step)
     }
 
+    /// Advance the network.
+    ///
+    /// Picks a message to deliver, delivers it and returns the handling node's ID and the result
+    /// of the message handling. If the network message queue is empty, returns `None`.
+    ///
+    /// If a successful `Step` was generated, all of its messages are queued on the network and the
+    /// `Step` is returned.
     #[inline]
     pub fn crank(&mut self) -> Option<Result<(D::NodeUid, Step<D>), CrankError<D>>> {
         // Step 0: We give the Adversary a chance to affect the network.
@@ -384,6 +397,12 @@ where
     D::Message: Clone,
     D::Input: Clone,
 {
+    /// Send input to all nodes.
+    ///
+    /// Equivalent to sending the same input to all nodes in order. Returns a vector of the
+    /// resulting `Step`s, which have had their messages queued already.
+    ///
+    /// If an error occurs, the first error will be returned and broadcasting aborted.
     #[inline]
     pub fn broadcast_input<'a>(
         &'a mut self,
@@ -443,7 +462,7 @@ where
 /// a `while let` loop:
 ///
 /// ```rust,no_run
-/// while let Some(rstep) = net.step() {
+/// while let Some(rstep) = net.crank() {
 ///     // `net` can still be mutable borrowed here.
 /// }
 /// ```
