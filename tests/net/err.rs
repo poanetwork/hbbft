@@ -31,8 +31,6 @@ where
         /// Error produced by `D`.
         err: D::Error,
     },
-    /// A node was marked as faulty and sent a message, but no adversary was defined.
-    FaultyNodeButNoAdversary(D::NodeUid),
     /// A node unexpectly disappeared from the list of notes. Note that this is likely a bug in
     /// the network framework code.
     NodeDisappeared(D::NodeUid),
@@ -57,11 +55,6 @@ where
                 "The Underyling algorithm could not process network message {:?}. Error: {:?}",
                 msg, err
             ),
-            CrankError::FaultyNodeButNoAdversary(id) => write!(
-                f,
-                "The node with ID {:?} is faulty, but no adversary is set.",
-                id
-            ),
             CrankError::NodeDisappeared(id) => write!(
                 f,
                 "Node {:?} disappeared or never existed, while it still had incoming messages.",
@@ -77,13 +70,11 @@ where
 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            CrankError::AlgorithmError { msg, err } => f.debug_struct("AlgorithmError")
+            CrankError::AlgorithmError { msg, err } => f
+                .debug_struct("AlgorithmError")
                 .field("msg", msg)
                 .field("err", err)
                 .finish(),
-            CrankError::FaultyNodeButNoAdversary(id) => {
-                f.debug_tuple("FaultyNodeButNoAdversary").field(id).finish()
-            }
             CrankError::NodeDisappeared(id) => f.debug_tuple("NodeDisappeared").field(id).finish(),
         }
     }
