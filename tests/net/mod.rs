@@ -155,57 +155,18 @@ where
     trace: Option<fs::File>,
 }
 
+/// A virtual network
+///
+/// Virtual networks host a number of nodes that are marked either correct or faulty. Each time the
+/// node emits a `Step`, the contained messages are queued for delivery, which happens whenever
+/// `crank()` is called.
+///
+/// An adversary can be hooked into the network to affect the order of message delivery or the
+/// behaviour of faulty nodes.
 impl<D> VirtualNet<D>
 where
     D: DistAlgorithm,
 {
-    pub fn new_with_step<F, I>(
-        node_ids: I,
-        faulty: usize,
-        cons: F,
-    ) -> Result<Self, crypto::error::Error>
-    where
-        F: Fn(D::NodeUid, NetworkInfo<D::NodeUid>) -> (D, Step<D>),
-        I: IntoIterator<Item = D::NodeUid>,
-    {
-        let net_infos = messaging::NetworkInfo::generate_map(node_ids)?;
-
-        assert!(
-            faulty * 3 < net_infos.len(),
-            "Too many faulty nodes requested, `f` must satisfy `3f < total_nodes`."
-        );
-
-        let mut steps = collections::BTreeMap::new();
-        let nodes = net_infos
-            .into_iter()
-            .enumerate()
-            .map(move |(idx, (id, netinfo))| {
-                let (algorithm, step) = cons(id.clone(), netinfo);
-                steps.insert(id.clone(), step);
-                (id, Node::new(algorithm, idx < faulty))
-            })
-            .collect();
-
-        // TODO: Handle steps.
-
-        Ok(VirtualNet {
-            nodes,
-            messages: collections::VecDeque::new(),
-            adversary: None,
-            trace: Some(open_trace().expect("could not open trace file")),
-        })
-    }
-
-    pub fn new<F, I>(node_ids: I, faulty: usize, cons: F) -> Result<Self, crypto::error::Error>
-    where
-        F: Fn(D::NodeUid, NetworkInfo<D::NodeUid>) -> D,
-        I: IntoIterator<Item = D::NodeUid>,
-    {
-        Self::new_with_step(node_ids, faulty, |id, netinfo| {
-            (cons(id, netinfo), Default::default())
-        })
-    }
-
     #[inline]
     pub fn set_adversary(&mut self, adversary: Box<dyn Adversary<D>>) {
         self.adversary = Some(adversary);
@@ -242,6 +203,79 @@ where
     D: DistAlgorithm,
     D::Message: Clone,
 {
+    /// Create new virtual network with step constructor.
+    ///
+    /// Creates a new network from `node_ids`, with the first `faulty` nodes marked faulty. To
+    /// construct nodes, the `cons` function is passed the ID and the generated `NetworkInfo` and
+    /// expected to return a (`DistAlgorithm`, `Step`) tuple.
+    ///
+    /// All messages from the resulting step are queued for delivery.
+    ///
+    /// # Panics
+    ///
+    /// The total number of nodes, that is `node_ids.count()` must be `> 3 * faulty`, otherwise
+    /// the construction function will panic.
+    pub fn new_with_step<F, I>(
+        node_ids: I,
+        faulty: usize,
+        cons: F,
+    ) -> Result<Self, crypto::error::Error>
+    where
+        F: Fn(D::NodeUid, NetworkInfo<D::NodeUid>) -> (D, Step<D>),
+        I: IntoIterator<Item = D::NodeUid>,
+    {
+        // Generate a new set of cryptographic keys for threshold cryptography.
+        let net_infos = messaging::NetworkInfo::generate_map(node_ids)?;
+
+        assert!(
+            faulty * 3 < net_infos.len(),
+            "Too many faulty nodes requested, `f` must satisfy `3f < total_nodes`."
+        );
+
+        let mut steps = collections::BTreeMap::new();
+        let mut messages = collections::VecDeque::new();
+
+        let nodes = net_infos
+            .into_iter()
+            .enumerate()
+            .map(|(idx, (id, netinfo))| {
+                let (algorithm, step) = cons(id.clone(), netinfo);
+                steps.insert(id.clone(), step);
+                (id, Node::new(algorithm, idx < faulty))
+            })
+            .collect();
+
+        // For every recorded step, apply it.
+        for (sender, step) in steps {
+            expand_messages(&nodes, sender, step.messages.iter(), &mut messages);
+        }
+
+        Ok(VirtualNet {
+            nodes,
+            messages,
+            adversary: None,
+            trace: Some(open_trace().expect("could not open trace file")),
+        })
+    }
+
+    /// Create new virtual network with stepless constructor.
+    ///
+    /// Functions similar to `new_with_step`, but instead of a tuple of `(DistAlgorithm, Step)`,
+    /// only expects a `DistAlgorithm` instance instead.
+    ///
+    /// # Panics
+    ///
+    /// See `new_with_step`.
+    pub fn new<F, I>(node_ids: I, faulty: usize, cons: F) -> Result<Self, crypto::error::Error>
+    where
+        F: Fn(D::NodeUid, NetworkInfo<D::NodeUid>) -> D,
+        I: IntoIterator<Item = D::NodeUid>,
+    {
+        Self::new_with_step(node_ids, faulty, |id, netinfo| {
+            (cons(id, netinfo), Default::default())
+        })
+    }
+
     #[inline]
     fn dispatch_message(&mut self, msg: NetMessage<D>) -> Result<Step<D>, CrankError<D>> {
         let node = self
