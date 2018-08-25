@@ -253,7 +253,7 @@ where
         Ok(VirtualNet {
             nodes,
             messages,
-            adversary: None,
+            adversary: Some(Box::new(adversary::NullAdversary::new())),
             trace: Some(open_trace().expect("could not open trace file")),
         })
     }

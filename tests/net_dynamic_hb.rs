@@ -11,7 +11,6 @@ use std::collections;
 use hbbft::dynamic_honey_badger::{Change, ChangeState, DynamicHoneyBadger, Input};
 use hbbft::messaging::DistAlgorithm;
 
-use net::adversary::NullAdversary;
 use net::VirtualNet;
 use util::SubSlice;
 
@@ -48,9 +47,6 @@ fn do_drop_and_readd(
 
             DynamicHoneyBadger::builder().build(netinfo)
         }).expect("could not construct test network");
-
-    // Our test network includes faulty nodes, so we need an adversary.
-    net.set_adversary(Box::new(NullAdversary::new()));
 
     // We generate a list of transaction we want to propose, for each node. All nodes will propose
     // a number between 0..total_txs, chosen randomly.
