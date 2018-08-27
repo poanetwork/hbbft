@@ -34,8 +34,10 @@ where
     /// A node unexpectly disappeared from the list of notes. Note that this is likely a bug in
     /// the network framework code.
     NodeDisappeared(D::NodeUid),
-    /// We've reached the maximum number of cranks set.
+    /// Maximum number of cranks reached.
     CrankLimitExceeded(usize),
+    /// Maximum number of messages reached.
+    MessageLimitExceeded(usize),
 }
 
 // Note: Deriving [Debug](std::fmt::Debug), [Fail](failure::Fail) and through that,
@@ -65,6 +67,9 @@ where
             CrankError::CrankLimitExceeded(max) => {
                 write!(f, "Maximum number of cranks exceeded: {}", max)
             }
+            CrankError::MessageLimitExceeded(max) => {
+                write!(f, "Maximum number of messages exceeded: {}", max)
+            }
         }
     }
 }
@@ -83,6 +88,9 @@ where
             CrankError::NodeDisappeared(id) => f.debug_tuple("NodeDisappeared").field(id).finish(),
             CrankError::CrankLimitExceeded(max) => {
                 f.debug_tuple("CrankLimitExceeded").field(max).finish()
+            }
+            CrankError::MessageLimitExceeded(max) => {
+                f.debug_tuple("MessageLimitExceeded").field(max).finish()
             }
         }
     }

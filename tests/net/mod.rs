@@ -138,6 +138,8 @@ pub type NetMessage<D> =
 /// and appends them to the network queue. Additionally, saves a copy of each output to the output
 /// buffer of the `sender` node.
 ///
+/// At the end, the number of additional messages created by non-faulty nodes will be returned.
+///
 /// # Panics
 ///
 /// The function will panic if the `sender` ID is not a valid node ID in `nodes`.
@@ -149,15 +151,27 @@ fn process_step<'a, D>(
     sender: D::NodeUid,
     step: &Step<D>,
     dest: &mut collections::VecDeque<NetMessage<D>>,
-) where
+) -> usize
+where
     D: DistAlgorithm + 'a,
     D::Message: Clone,
     D::Output: Clone,
 {
+    // For non-faulty nodes, we count the number of messages.
+    let faulty = nodes
+        .get(&sender)
+        .expect("Trying to process a step with non-existing node ID")
+        .is_faulty();
+    let mut message_count: usize = 0;
+
     // First, queue all messages for processing.
     for tmsg in step.messages.iter() {
         match &tmsg.target {
             messaging::Target::Node(to) => {
+                if !faulty {
+                    message_count = message_count.saturating_add(1);
+                }
+
                 dest.push_back(NetworkMessage::new(
                     sender.clone(),
                     tmsg.message.clone(),
@@ -167,6 +181,10 @@ fn process_step<'a, D>(
             messaging::Target::All => for to in nodes.keys() {
                 if *to == sender {
                     continue;
+                }
+
+                if !faulty {
+                    message_count = message_count.saturating_add(1);
                 }
 
                 dest.push_back(NetworkMessage::new(
@@ -184,6 +202,8 @@ fn process_step<'a, D>(
         .expect("Trying to process a step with non-existing node ID")
         .outputs
         .extend(step.output.iter().cloned());
+
+    message_count
 }
 
 pub struct NetBuilder<D, I>
@@ -196,6 +216,7 @@ where
     adversary: Option<Box<dyn Adversary<D>>>,
     trace: Option<bool>,
     crank_limit: Option<usize>,
+    message_limit: Option<usize>,
 }
 
 impl<D, I> NetBuilder<D, I>
@@ -214,6 +235,7 @@ where
             adversary: None,
             trace: None,
             crank_limit: None,
+            message_limit: None,
         }
     }
 
@@ -229,6 +251,12 @@ where
     #[inline]
     pub fn crank_limit(mut self, crank_limit: usize) -> Self {
         self.crank_limit = Some(crank_limit);
+        self
+    }
+
+    #[inline]
+    pub fn message_limit(mut self, message_limit: usize) -> Self {
+        self.message_limit = Some(message_limit);
         self
     }
 
@@ -287,6 +315,7 @@ where
         }
 
         net.crank_limit = self.crank_limit;
+        net.message_limit = self.message_limit;
 
         Ok(net)
     }
@@ -311,6 +340,10 @@ where
     crank_count: usize,
     /// The limit set for cranking the network.
     crank_limit: Option<usize>,
+    /// The number of messages seen by the network.
+    message_count: usize,
+    /// The limit set for the number of messages.
+    message_limit: Option<usize>,
 }
 
 /// A virtual network
@@ -394,9 +427,15 @@ where
                 (id, Node::new(algorithm, idx < faulty))
             }).collect();
 
+        let mut message_count: usize = 0;
         // For every recorded step, apply it.
         for (sender, step) in steps {
-            process_step(&mut nodes, sender, &step, &mut messages);
+            message_count = message_count.saturating_add(process_step(
+                &mut nodes,
+                sender,
+                &step,
+                &mut messages,
+            ));
         }
 
         Ok(VirtualNet {
@@ -406,6 +445,8 @@ where
             trace: None,
             crank_count: 0,
             crank_limit: None,
+            message_count,
+            message_limit: None,
         })
     }
 
@@ -445,7 +486,12 @@ where
             .algorithm
             .input(input)?;
 
-        process_step(&mut self.nodes, id, &step, &mut self.messages);
+        self.message_count = self.message_count.saturating_add(process_step(
+            &mut self.nodes,
+            id,
+            &step,
+            &mut self.messages,
+        ));
 
         Ok(step)
     }
@@ -459,9 +505,16 @@ where
     /// `Step` is returned.
     #[inline]
     pub fn crank(&mut self) -> Option<Result<(D::NodeUid, Step<D>), CrankError<D>>> {
+        // Check limits.
         if let Some(limit) = self.crank_limit {
-            if limit == self.crank_count {
+            if self.crank_count >= limit {
                 return Some(Err(CrankError::CrankLimitExceeded(limit)));
+            }
+        }
+
+        if let Some(limit) = self.message_limit {
+            if self.message_count >= limit {
+                return Some(Err(CrankError::MessageLimitExceeded(limit)));
             }
         }
 
@@ -518,7 +571,12 @@ where
 
         // All messages are expanded and added to the queue. We opt for copying them, so we can
         // return unaltered step later on for inspection.
-        process_step(&mut self.nodes, receiver.clone(), &step, &mut self.messages);
+        self.message_count = self.message_count.saturating_add(process_step(
+            &mut self.nodes,
+            receiver.clone(),
+            &step,
+            &mut self.messages,
+        ));
 
         // Increase the crank count.
         self.crank_count += 1;
@@ -558,7 +616,12 @@ where
 
         // Process all messages from all steps in the queue.
         steps.iter().for_each(|(id, step)| {
-            process_step(&mut self.nodes, id.clone(), step, &mut self.messages);
+            self.message_count = self.message_count.saturating_add(process_step(
+                &mut self.nodes,
+                id.clone(),
+                step,
+                &mut self.messages,
+            ));
         });
 
         Ok(steps)
