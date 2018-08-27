@@ -6,7 +6,6 @@
 //! Networks are "cranked" to move things forward; each crank of a network causes one message to be
 //! delivered to a node.
 
-// pub mod types;
 pub mod adversary;
 pub mod err;
 #[macro_use]
@@ -19,7 +18,6 @@ use rand;
 use rand::Rand;
 use threshold_crypto as crypto;
 
-// pub use self::types::{FaultyMessageIdx, FaultyNodeIdx, MessageIdx, NetworkOp, NodeIdx, OpList};
 use hbbft::messaging::{self, DistAlgorithm, NetworkInfo, Step};
 
 pub use self::adversary::Adversary;
