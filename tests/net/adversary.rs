@@ -11,6 +11,7 @@ pub trait Adversary<D>
 where
     D: DistAlgorithm,
     D::Message: Clone,
+    D::Output: Clone,
 {
     fn pre_crank(&mut self, _net: &mut VirtualNet<D>) {
         // The default implementation does not alter anything.
@@ -36,7 +37,7 @@ impl NullAdversary {
 
 impl<D> Adversary<D> for NullAdversary
 where
-    D::Message: Clone,
     D: DistAlgorithm,
-{
-}
+    D::Message: Clone,
+    D::Output: Clone,
+{}

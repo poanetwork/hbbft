@@ -70,6 +70,8 @@ pub struct Node<D: DistAlgorithm> {
     algorithm: D,
     /// Whether or not the node is faulty.
     is_faulty: bool,
+    /// Captured algorithm outputs, in order.
+    outputs: Vec<D::Output>,
 }
 
 impl<D: DistAlgorithm> Node<D> {
@@ -79,6 +81,7 @@ impl<D: DistAlgorithm> Node<D> {
         Node {
             algorithm,
             is_faulty,
+            outputs: Vec::new(),
         }
     }
 
@@ -107,6 +110,13 @@ impl<D: DistAlgorithm> Node<D> {
     pub fn id(&self) -> &D::NodeUid {
         self.algorithm.our_id()
     }
+
+    /// List outputs so far.
+    ///
+    /// Any output made by a node is captured by the node for easy comparison.
+    pub fn outputs(&self) -> &[D::Output] {
+        self.outputs.as_slice()
+    }
 }
 
 // Note: We do not use `messaging::TargetedMessage` and `messaging::SourceMessage` here, since we
@@ -128,18 +138,30 @@ pub type NodeMap<D> = collections::BTreeMap<<D as DistAlgorithm>::NodeUid, Node<
 pub type NetMessage<D> =
     NetworkMessage<<D as DistAlgorithm>::Message, <D as DistAlgorithm>::NodeUid>;
 
+/// Process a step.
+///
+/// Expands every message in the step by turning all broadcast-messages into peer-to-peer messages,
+/// and appends them to the network queue. Additionally, saves a copy of each output to the output
+/// buffer of the `sender` node.
+///
+/// # Panics
+///
+/// The function will panic if the `sender` ID is not a valid node ID in `nodes`.
+// This function is defined outside `VirtualNet` and takes arguments "piecewise" to work around
+// borrow-checker restrictions.
 #[inline]
-fn expand_messages<'a, D, I>(
-    nodes: &'a collections::BTreeMap<D::NodeUid, Node<D>>,
+fn process_step<'a, D>(
+    nodes: &'a mut collections::BTreeMap<D::NodeUid, Node<D>>,
     sender: D::NodeUid,
-    messages: I,
+    step: &Step<D>,
     dest: &mut collections::VecDeque<NetMessage<D>>,
 ) where
     D: DistAlgorithm + 'a,
     D::Message: Clone,
-    I: Iterator<Item = &'a messaging::TargetedMessage<D::Message, D::NodeUid>>,
+    D::Output: Clone,
 {
-    for tmsg in messages {
+    // First, queue all messages for processing.
+    for tmsg in step.messages.iter() {
         match &tmsg.target {
             messaging::Target::Node(to) => {
                 dest.push_back(NetworkMessage::new(
@@ -161,6 +183,13 @@ fn expand_messages<'a, D, I>(
             },
         }
     }
+
+    // Collect all outputs (not required for network operation) as a convenience for the user.
+    nodes
+        .get_mut(&sender)
+        .expect("Trying to process a step with non-existing node ID")
+        .outputs
+        .extend(step.output.iter().cloned());
 }
 
 pub struct VirtualNet<D>
@@ -227,6 +256,7 @@ impl<D> VirtualNet<D>
 where
     D: DistAlgorithm,
     D::Message: Clone,
+    D::Output: Clone,
 {
     /// Create new virtual network with step constructor.
     ///
@@ -260,19 +290,18 @@ where
         let mut steps = collections::BTreeMap::new();
         let mut messages = collections::VecDeque::new();
 
-        let nodes = net_infos
+        let mut nodes = net_infos
             .into_iter()
             .enumerate()
             .map(|(idx, (id, netinfo))| {
                 let (algorithm, step) = cons(id.clone(), netinfo);
                 steps.insert(id.clone(), step);
                 (id, Node::new(algorithm, idx < faulty))
-            })
-            .collect();
+            }).collect();
 
         // For every recorded step, apply it.
         for (sender, step) in steps {
-            expand_messages(&nodes, sender, step.messages.iter(), &mut messages);
+            process_step(&mut nodes, sender, &step, &mut messages);
         }
 
         Ok(VirtualNet {
@@ -337,7 +366,7 @@ where
             .algorithm
             .input(input)?;
 
-        expand_messages(&self.nodes, id, step.messages.iter(), &mut self.messages);
+        process_step(&mut self.nodes, id, &step, &mut self.messages);
 
         Ok(step)
     }
@@ -404,12 +433,7 @@ where
 
         // All messages are expanded and added to the queue. We opt for copying them, so we can
         // return unaltered step later on for inspection.
-        expand_messages(
-            &self.nodes,
-            receiver.clone(),
-            step.messages.iter(),
-            &mut self.messages,
-        );
+        process_step(&mut self.nodes, receiver.clone(), &step, &mut self.messages);
         Some(Ok((receiver, step)))
     }
 }
@@ -419,6 +443,7 @@ where
     D: DistAlgorithm,
     D::Message: Clone,
     D::Input: Clone,
+    D::Output: Clone,
 {
     /// Send input to all nodes.
     ///
@@ -444,12 +469,7 @@ where
 
         // Process all messages from all steps in the queue.
         steps.iter().for_each(|(id, step)| {
-            expand_messages(
-                &self.nodes,
-                id.clone(),
-                step.messages.iter(),
-                &mut self.messages,
-            );
+            process_step(&mut self.nodes, id.clone(), step, &mut self.messages);
         });
 
         Ok(steps)
@@ -493,6 +513,7 @@ impl<D> Iterator for VirtualNet<D>
 where
     D: DistAlgorithm,
     D::Message: Clone,
+    D::Output: Clone,
 {
     type Item = Result<(D::NodeUid, Step<D>), CrankError<D>>;
 
