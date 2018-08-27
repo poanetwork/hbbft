@@ -195,6 +195,7 @@ where
     cons: Option<Box<Fn(D::NodeUid, NetworkInfo<D::NodeUid>) -> (D, Step<D>)>>,
     adversary: Option<Box<dyn Adversary<D>>>,
     trace: Option<bool>,
+    crank_limit: Option<usize>,
 }
 
 impl<D, I> NetBuilder<D, I>
@@ -212,6 +213,7 @@ where
             cons: None,
             adversary: None,
             trace: None,
+            crank_limit: None,
         }
     }
 
@@ -221,6 +223,12 @@ where
         A: Adversary<D> + 'static,
     {
         self.adversary = Some(Box::new(adversary));
+        self
+    }
+
+    #[inline]
+    pub fn crank_limit(mut self, crank_limit: usize) -> Self {
+        self.crank_limit = Some(crank_limit);
         self
     }
 
@@ -278,6 +286,8 @@ where
             net.trace = Some(open_trace().expect("could not open trace file"));
         }
 
+        net.crank_limit = self.crank_limit;
+
         Ok(net)
     }
 }
@@ -297,6 +307,10 @@ where
     adversary: Option<Box<dyn Adversary<D>>>,
     /// Trace output; if active, writes out a log of all messages.
     trace: Option<fs::File>,
+    /// The number of times the network has been cranked.
+    crank_count: usize,
+    /// The limit set for cranking the network.
+    crank_limit: Option<usize>,
 }
 
 /// A virtual network
@@ -390,6 +404,8 @@ where
             messages,
             adversary: Some(Box::new(adversary::NullAdversary::new())),
             trace: None,
+            crank_count: 0,
+            crank_limit: None,
         })
     }
 
@@ -443,6 +459,12 @@ where
     /// `Step` is returned.
     #[inline]
     pub fn crank(&mut self) -> Option<Result<(D::NodeUid, Step<D>), CrankError<D>>> {
+        if let Some(limit) = self.crank_limit {
+            if limit == self.crank_count {
+                return Some(Err(CrankError::CrankLimitExceeded(limit)));
+            }
+        }
+
         // Step 0: We give the Adversary a chance to affect the network.
 
         // Swap the adversary out with a dummy, to get around ownership restrictions.
@@ -497,6 +519,10 @@ where
         // All messages are expanded and added to the queue. We opt for copying them, so we can
         // return unaltered step later on for inspection.
         process_step(&mut self.nodes, receiver.clone(), &step, &mut self.messages);
+
+        // Increase the crank count.
+        self.crank_count += 1;
+
         Some(Ok((receiver, step)))
     }
 }
