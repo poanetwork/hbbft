@@ -82,6 +82,18 @@ while let Some(res) = net.crank() {
 }
 ```
 
+### Inspecting the network
+
+In addition to the returned `Step`s, the network and nodes can be queried through various methods: `VirtualNet::{nodes, faulty_nodes, correct_nodes, get, get_mut}`.
+
+### Adversaries
+
+Adversaries can be introduced through the `.adversary` method on the constructor and are expected to implement the `net::adversary::Adversay` trait. Generic adversaries are available in the same module, while algorithm-specific ones should live next to each test case.
+
+```rust
+// Missing example.
+```
+
 ### Tracing
 
 By default, all network tests write traces of every network message into logfiles, named `net-trace_*.txt`. Each log stores one message per line, in the format of `[SENDER] -> [RECEIVER]: MSG`.
