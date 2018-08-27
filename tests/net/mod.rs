@@ -25,6 +25,9 @@ use hbbft::messaging::{self, DistAlgorithm, NetworkInfo, Step};
 pub use self::adversary::Adversary;
 pub use self::err::CrankError;
 
+/// Helper macro for tracing.
+///
+/// If tracing is enabled (that is the `Option` is not `None`), writes out a traced packet.
 macro_rules! net_trace {
     ($self:expr, $fmt:expr, $($arg:tt)*) => (
         if let Some(ref mut dest) = $self.trace {
@@ -32,6 +35,10 @@ macro_rules! net_trace {
     });
 }
 
+/// Open trace file for writing.
+///
+/// If not supressed through the `HBBFT_TEST_TRACE` environment variable, opens a logfile for
+/// tracing packets.
 fn open_trace() -> Result<Option<fs::File>, io::Error> {
     let setting = env::var("HBBFT_TEST_TRACE").unwrap_or("true".to_string());
 
@@ -56,36 +63,46 @@ fn open_trace() -> Result<Option<fs::File>, io::Error> {
     Ok(Some(fs::File::create(name)?))
 }
 
+/// A node in the test network.
 #[derive(Debug)]
 pub struct Node<D: DistAlgorithm> {
+    /// Algorithm instance of node.
     algorithm: D,
+    /// Whether or not the node is faulty.
     is_faulty: bool,
 }
 
 impl<D: DistAlgorithm> Node<D> {
+    /// Create a new node.
     #[inline]
-    pub fn new(algorithm: D, is_faulty: bool) -> Self {
+    fn new(algorithm: D, is_faulty: bool) -> Self {
         Node {
             algorithm,
             is_faulty,
         }
     }
 
+    /// Get algorithm instance.
     #[inline]
     pub fn algorithm(&self) -> &D {
         &self.algorithm
     }
 
+    /// Get mutable algorithm instance.
     #[inline]
     pub fn algorithm_mut(&mut self) -> &mut D {
         &mut self.algorithm
     }
 
+    /// Check whether or not node is marked faulty.
     #[inline]
     pub fn is_faulty(&self) -> bool {
         self.is_faulty
     }
 
+    /// Get nodes ID.
+    ///
+    /// A node's ID is equal to its underlying algorithm instance's ID.
     #[inline]
     pub fn id(&self) -> &D::NodeUid {
         self.algorithm.our_id()
