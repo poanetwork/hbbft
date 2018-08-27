@@ -1,16 +1,14 @@
-Honey-badger tests
-==================
+# Honey-badger tests
 
-The `hbbft` comes with a toolkit for testing its various algorithms in simulated network environments.
+The `hbbft` crate comes with a toolkit for testing its various algorithms in simulated network environments.
 
 ## Old vs new
 
 The old testing code can be found inside the `network` module and `.rs` files in the `tests` subdirectory that are not prefixed with `net_`. The newer networking code is contained inside the `net` module and the remaining `.rs` files.
 
-
 ## VirtualNet
 
-Core of most tests is the `net::VirtualNet` struct, which simulates a network of nodes all running their instance of a distributed algorithm. Messages sent by these nodes are queued by the network. Every time the network is "cranked", a buffered message is delivered to its destination node and processed.
+Core of most tests is the `net::VirtualNet` struct, which simulates a network of nodes all running an instance of a distributed algorithm. Messages sent by these nodes are queued by the network. Every time the network is "cranked", a buffered message is delivered to its destination node and processed.
 
 Virtual networks can also host an adversary that can affect faulty nodes (which are tracked automatically) or reorder queued messages.
 
@@ -37,7 +35,7 @@ let input = ...;
 let _step = net.send_input(123, input).expect("algorithm failed");
 ```
 
-While the resulting step is returned, it needn't be processed to keep the network going, as its message are automatically added to the queue.
+While the resulting step is returned, it needn't be processed to keep the network going, as its messages are automatically added to the queue.
 
 Instead of targeting a node in particular, the same input can be sent to all nodes:
 
@@ -73,7 +71,7 @@ for res in net {
 }
 ```
 
-This has the drawback that access to the network is not available between cranks. A common workaround is using a while loop instead:
+This has the drawback that access to the network is not available between cranks, since it will be borrowed inside the for-loop. A common workaround is using a while loop instead:
 
 ```rust
 while let Some(res) = net.crank() {
