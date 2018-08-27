@@ -18,11 +18,8 @@ To create a new network, the `NetBuilder` should be used:
 // Create a network of 10 nodes, out of which 3 are faulty.
 let mut net = NetBuilder::new(0..10)
     .num_faulty(3)
-    .using(move |id, netinfo| {
-        println!("Constructing new dynamic honey badger node #{}", id);
-
-        DynamicHoneyBadger::builder().build(netinfo)
-    }).build()
+    .using(move |node| { DynamicHoneyBadger::builder().build(node.netinfo) })
+    .build()
     .expect("could not construct test network");
 ```
 

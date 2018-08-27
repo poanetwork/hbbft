@@ -212,6 +212,20 @@ where
     message_count
 }
 
+/// New network node construction information.
+///
+/// Helper structure passed to node constructors when constructing virtual networks.
+#[derive(Debug)]
+pub struct NewNodeInfo<D>
+where
+    D: DistAlgorithm,
+{
+    /// The node ID for the new node.
+    pub id: D::NodeUid,
+    /// Network info struct, containing keys and other information.
+    pub netinfo: NetworkInfo<D::NodeUid>,
+}
+
 /// Virtual network builder.
 ///
 /// The `NetBuilder` is used to create `VirtualNet` instances and offers convenient methods to
@@ -228,7 +242,7 @@ where
     /// Number of faulty nodes in the network.
     num_faulty: usize,
     /// Constructor function.
-    cons: Option<Box<Fn(D::NodeUid, NetworkInfo<D::NodeUid>) -> (D, Step<D>)>>,
+    cons: Option<Box<Fn(NewNodeInfo<D>) -> (D, Step<D>)>>,
     /// Network adversary.
     adversary: Option<Box<dyn Adversary<D>>>,
     /// Trace-enabling flag. `None` means use environment.
@@ -326,7 +340,7 @@ where
     #[inline]
     pub fn using_step<F>(mut self, cons: F) -> Self
     where
-        F: Fn(D::NodeUid, NetworkInfo<D::NodeUid>) -> (D, Step<D>) + 'static,
+        F: Fn(NewNodeInfo<D>) -> (D, Step<D>) + 'static,
     {
         self.cons = Some(Box::new(cons));
         self
@@ -339,9 +353,9 @@ where
     #[inline]
     pub fn using<F>(self, cons_simple: F) -> Self
     where
-        F: Fn(D::NodeUid, NetworkInfo<D::NodeUid>) -> D + 'static,
+        F: Fn(NewNodeInfo<D>) -> D + 'static,
     {
-        self.using_step(move |id, netinfo| (cons_simple(id, netinfo), Default::default()))
+        self.using_step(move |node| (cons_simple(node), Default::default()))
     }
 
     /// Create the network.
@@ -358,9 +372,7 @@ where
             .as_ref()
             .expect("cannot build network without a constructor function for the nodes");
 
-        let mut net = VirtualNet::new(self.node_ids, self.num_faulty, move |id, info| {
-            cons(id, info)
-        })?;
+        let mut net = VirtualNet::new(self.node_ids, self.num_faulty, move |node| cons(node))?;
 
         if self.adversary.is_some() {
             net.adversary = self.adversary;
@@ -478,7 +490,7 @@ where
     /// the construction function will panic.
     fn new<F, I>(node_ids: I, faulty: usize, cons: F) -> Result<Self, crypto::error::Error>
     where
-        F: Fn(D::NodeUid, NetworkInfo<D::NodeUid>) -> (D, Step<D>),
+        F: Fn(NewNodeInfo<D>) -> (D, Step<D>),
         I: IntoIterator<Item = D::NodeUid>,
     {
         // Generate a new set of cryptographic keys for threshold cryptography.
@@ -496,7 +508,10 @@ where
             .into_iter()
             .enumerate()
             .map(|(idx, (id, netinfo))| {
-                let (algorithm, step) = cons(id.clone(), netinfo);
+                let (algorithm, step) = cons(NewNodeInfo {
+                    id: id.clone(),
+                    netinfo,
+                });
                 steps.insert(id.clone(), step);
                 (id, Node::new(algorithm, idx < faulty))
             }).collect();

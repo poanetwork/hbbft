@@ -43,10 +43,10 @@ fn do_drop_and_readd(
     let mut net = NetBuilder::new(0..total)
         .num_faulty(num_faulty)
         .message_limit(200_000)  // Limited to two million messages for now.
-        .using(move |id, netinfo| {
-            println!("Constructing new dynamic honey badger node #{}", id);
+        .using(move |node| {
+            println!("Constructing new dynamic honey badger node #{}", node.id);
 
-            DynamicHoneyBadger::builder().build(netinfo)
+            DynamicHoneyBadger::builder().build(node.netinfo)
         }).build()
         .expect("could not construct test network");
 
