@@ -224,6 +224,8 @@ where
     pub id: D::NodeUid,
     /// Network info struct, containing keys and other information.
     pub netinfo: NetworkInfo<D::NodeUid>,
+    /// Whether or not the node is marked faulty.
+    pub faulty: bool,
 }
 
 /// Virtual network builder.
@@ -508,12 +510,14 @@ where
             .into_iter()
             .enumerate()
             .map(|(idx, (id, netinfo))| {
+                let is_faulty = idx < faulty;
                 let (algorithm, step) = cons(NewNodeInfo {
                     id: id.clone(),
                     netinfo,
+                    faulty: is_faulty,
                 });
                 steps.insert(id.clone(), step);
-                (id, Node::new(algorithm, idx < faulty))
+                (id, Node::new(algorithm, is_faulty))
             }).collect();
 
         let mut message_count: usize = 0;
