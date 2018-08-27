@@ -10,8 +10,8 @@ use std::collections;
 use hbbft::dynamic_honey_badger::{Change, ChangeState, DynamicHoneyBadger, Input};
 use hbbft::messaging::DistAlgorithm;
 
-use net::VirtualNet;
 use net::util::SubSlice;
+use net::VirtualNet;
 
 // FIXME: User better batch size, etc.
 #[test]
@@ -184,5 +184,9 @@ fn do_drop_and_readd(
         }
     }
 
-    // FIXME: Ensure output order is the same for all node.
+    // As a final step, we verify that all nodes have arrived at the same conclusion.
+    let first = net.correct_nodes().nth(0).unwrap().outputs();
+    assert!(net.nodes().all(|node| node.outputs() == first));
+
+    println!("End result: {:?}", first);
 }
