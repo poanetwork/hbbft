@@ -279,7 +279,7 @@ where
         let trace = self.trace.unwrap_or_else(|| {
             // If the trace setting is not overriden, we use the setting from the environment.
             let setting = env::var("HBBFT_TEST_TRACE").unwrap_or("true".to_string());
-            setting == "false" || setting == "0"
+            !(setting == "false" || setting == "0")
         });
 
         if trace {
