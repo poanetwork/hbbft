@@ -1,5 +1,5 @@
 #![deny(unused_must_use)]
-//! Integration tests of the Asynchronous Subset protocol.
+//! Integration tests of the Subset protocol.
 
 extern crate env_logger;
 extern crate hbbft;

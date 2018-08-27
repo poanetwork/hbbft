@@ -68,7 +68,7 @@
 //! transactions. Using the Subset protocol, they agree on at least _N - f_ of those
 //! proposals. The batch contains the union of these sets of transactions.
 //!
-//! [**Reliable Broadcast**](broadcast/index.html)
+//! [**Broadcast**](broadcast/index.html)
 //!
 //! One node, the _proposer_, inputs an item, and every node receives that item as an output. Even
 //! if the proposer is faulty it is guaranteed that either none of the correct nodes output
@@ -91,6 +91,21 @@
 //! receive `true` or all nodes receive `false`. The outcome cannot be known by the adversary
 //! before at least one correct node has provided input, and is uniformly distributed and
 //! pseudorandom.
+//!
+//! [**Threshold Decryption**](threshold_decryption/index.html)
+//!
+//! Each node inputs the same ciphertext, encrypted to the public master key. Once _f + 1_
+//! validators have received input, all nodes output the decrypted data.
+//!
+//! [**Synchronous Key Generation**](sync_key_gen/index.html)
+//!
+//! The participating nodes collaboratively generate a key set for threshold cryptography, such
+//! that each node learns its own secret key share, as well as everyone's public key share and the
+//! public master key. No single trusted dealer is involved and no node ever learns the secret
+//! master key or another node's secret key share.
+//!
+//! Unlike the other algorithms, this one is _not_ asynchronous: All nodes must handle the same
+//! messages, in the same order.
 //!
 //! ## Serialization
 //!
