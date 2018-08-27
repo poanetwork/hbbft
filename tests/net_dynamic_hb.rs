@@ -42,6 +42,7 @@ fn do_drop_and_readd(
     // function:
     let mut net = NetBuilder::new(0..total)
         .num_faulty(num_faulty)
+        .crank_limit(2_000_000)  // Limited to two million messages for now.
         .using(move |id, netinfo| {
             println!("Constructing new dynamic honey badger node #{}", id);
 
