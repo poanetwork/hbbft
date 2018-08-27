@@ -36,9 +36,6 @@ macro_rules! net_trace {
 }
 
 /// Open trace file for writing.
-///
-/// If not supressed through the `HBBFT_TEST_TRACE` environment variable, opens a logfile for
-/// tracing packets.
 fn open_trace() -> Result<fs::File, io::Error> {
     let mut rng = rand::thread_rng();
 
