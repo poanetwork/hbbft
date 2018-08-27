@@ -94,36 +94,39 @@ fn do_drop_and_readd(
         let (node_id, step) = net.crank_expect();
 
         for change in step.output.iter().map(|output| output.change()) {
-            if let ChangeState::Complete(Change::Remove(pivot_node_id)) = change {
-                println!("Node {:?} done removing.", node_id);
-                // Removal complete, tally:
-                awaiting_removal.remove(&node_id);
+            match change {
+                ChangeState::Complete(Change::Remove(pivot_node_id)) => {
+                    println!("Node {:?} done removing.", node_id);
+                    // Removal complete, tally:
+                    awaiting_removal.remove(&node_id);
 
-                // Now we can add the node again. Public keys will be reused.
-                let pk = net[*pivot_node_id]
-                    .algorithm()
-                    .netinfo()
-                    .secret_key()
-                    .public_key();
-                let _ = net[node_id]
-                    .algorithm_mut()
-                    .input(Input::Change(Change::Add(*pivot_node_id, pk)))
-                    .expect("failed to send `Add` input");
-            }
-
-            if let ChangeState::Complete(Change::Add(pivot_node_id, _)) = change {
-                println!("Node {:?} done adding.", node_id);
-                // Node added, ensure it has been removed first.
-                if awaiting_removal.contains(&node_id) {
-                    panic!(
-                        "Node {:?} reported a success `Add({}, _)` before `Remove({})`",
-                        node_id, pivot_node_id, pivot_node_id
-                    );
+                    // Now we can add the node again. Public keys will be reused.
+                    let pk = net[*pivot_node_id]
+                        .algorithm()
+                        .netinfo()
+                        .secret_key()
+                        .public_key();
+                    let _ = net[node_id]
+                        .algorithm_mut()
+                        .input(Input::Change(Change::Add(*pivot_node_id, pk)))
+                        .expect("failed to send `Add` input");
                 }
-                awaiting_addition.remove(&node_id);
-            }
 
-            println!("Unhandled change: {:?}", change);
+                ChangeState::Complete(Change::Add(pivot_node_id, _)) => {
+                    println!("Node {:?} done adding.", node_id);
+                    // Node added, ensure it has been removed first.
+                    if awaiting_removal.contains(&node_id) {
+                        panic!(
+                            "Node {:?} reported a success `Add({}, _)` before `Remove({})`",
+                            node_id, pivot_node_id, pivot_node_id
+                        );
+                    }
+                    awaiting_addition.remove(&node_id);
+                }
+                _ => {
+                    println!("Unhandled change: {:?}", change);
+                }
+            }
         }
 
         // Record whether or not we received some output.
@@ -164,7 +167,7 @@ fn do_drop_and_readd(
             && awaiting_addition.is_empty()
             && awaiting_removal.is_empty()
         {
-            // All outputs are empty all nodes have removed and added the single dynamic node.
+            // All outputs are empty and all nodes have removed and added the single pivot node.
             break;
         }
 
@@ -174,7 +177,7 @@ fn do_drop_and_readd(
                 // Out of the remaining transactions, select a suitable amount.
                 let proposal = rand::seq::sample_slice(
                     &mut rng,
-                    // FIXME: Use better numbers.
+                    // FIXME: Use better numbers and proptest.
                     queue.as_slice().subslice(0..10),
                     10.min(3.min(queue.len())),
                 );
