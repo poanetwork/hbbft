@@ -12,19 +12,21 @@ Core of most tests is the `net::VirtualNet` struct, which simulates a network of
 
 Virtual networks can also host an adversary that can affect faulty nodes (which are tracked automatically) or reorder queued messages.
 
-To create a new network, one of the constructor methods must be used:
+To create a new network, the `NetBuilder` should be used:
 
 ```rust
-let num_faulty = 3;
-let total = 10;
+// Create a network of 10 nodes, out of which 3 are faulty.
+let mut net = NetBuilder::new(0..10)
+    .num_faulty(3)
+    .using(move |id, netinfo| {
+        println!("Constructing new dynamic honey badger node #{}", id);
 
-let mut net: VirtualNet<DynamicHoneyBadger<Vec<usize>, _>> =
-    VirtualNet::new(0..total, num_faulty, |id, netinfo|
         DynamicHoneyBadger::builder().build(netinfo)
-    ).expect("could not construct test network");
+    }).build()
+    .expect("could not construct test network");
 ```
 
-Algorithms that return a `Step` upon construction should use `new_with_step` instead.
+Algorithms that return a `Step` upon construction should use `using_step` instead.
 
 ### Sending input
 

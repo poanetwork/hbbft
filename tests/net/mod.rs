@@ -192,6 +192,84 @@ fn process_step<'a, D>(
         .extend(step.output.iter().cloned());
 }
 
+pub struct NetBuilder<D, I>
+where
+    D: DistAlgorithm,
+{
+    node_ids: I,
+    num_faulty: usize,
+    cons: Option<Box<Fn(D::NodeUid, NetworkInfo<D::NodeUid>) -> (D, Step<D>)>>,
+    adversary: Option<Box<dyn Adversary<D>>>,
+}
+
+impl<D, I> NetBuilder<D, I>
+where
+    D: DistAlgorithm,
+    D::Message: Clone,
+    D::Output: Clone,
+    I: IntoIterator<Item = D::NodeUid>,
+{
+    #[inline]
+    pub fn new(node_ids: I) -> Self {
+        NetBuilder {
+            node_ids: node_ids,
+            num_faulty: 0,
+            cons: None,
+            adversary: None,
+        }
+    }
+
+    #[inline]
+    pub fn using_step<F>(mut self, cons: F) -> Self
+    where
+        F: Fn(D::NodeUid, NetworkInfo<D::NodeUid>) -> (D, Step<D>) + 'static,
+    {
+        self.cons = Some(Box::new(cons));
+        self
+    }
+
+    #[inline]
+    pub fn using<F>(self, cons_simple: F) -> Self
+    where
+        F: Fn(D::NodeUid, NetworkInfo<D::NodeUid>) -> D + 'static,
+    {
+        self.using_step(move |id, netinfo| (cons_simple(id, netinfo), Default::default()))
+    }
+
+    #[inline]
+    pub fn num_faulty(mut self, num_faulty: usize) -> Self {
+        self.num_faulty = num_faulty;
+        self
+    }
+
+    #[inline]
+    pub fn adversary<A>(mut self, adversary: A) -> Self
+    where
+        A: Adversary<D> + 'static,
+    {
+        self.adversary = Some(Box::new(adversary));
+        self
+    }
+
+    #[inline]
+    pub fn build(self) -> Result<VirtualNet<D>, crypto::error::Error> {
+        let cons = self
+            .cons
+            .as_ref()
+            .expect("cannot build network without a constructor function for the nodes");
+
+        let mut net = VirtualNet::new(self.node_ids, self.num_faulty, move |id, info| {
+            cons(id, info)
+        })?;
+
+        if self.adversary.is_some() {
+            net.adversary = self.adversary;
+        }
+
+        Ok(net)
+    }
+}
+
 pub struct VirtualNet<D>
 where
     D: DistAlgorithm,
@@ -221,11 +299,6 @@ impl<D> VirtualNet<D>
 where
     D: DistAlgorithm,
 {
-    #[inline]
-    pub fn set_adversary(&mut self, adversary: Box<dyn Adversary<D>>) {
-        self.adversary = Some(adversary);
-    }
-
     #[inline]
     pub fn nodes(&self) -> impl Iterator<Item = &Node<D>> {
         self.nodes.values()
@@ -270,11 +343,7 @@ where
     ///
     /// The total number of nodes, that is `node_ids.count()` must be `> 3 * faulty`, otherwise
     /// the construction function will panic.
-    pub fn new_with_step<F, I>(
-        node_ids: I,
-        faulty: usize,
-        cons: F,
-    ) -> Result<Self, crypto::error::Error>
+    fn new<F, I>(node_ids: I, faulty: usize, cons: F) -> Result<Self, crypto::error::Error>
     where
         F: Fn(D::NodeUid, NetworkInfo<D::NodeUid>) -> (D, Step<D>),
         I: IntoIterator<Item = D::NodeUid>,
@@ -309,24 +378,6 @@ where
             messages,
             adversary: Some(Box::new(adversary::NullAdversary::new())),
             trace: open_trace().expect("could not open trace file"),
-        })
-    }
-
-    /// Create new virtual network with stepless constructor.
-    ///
-    /// Functions similar to `new_with_step`, but instead of a tuple of `(DistAlgorithm, Step)`,
-    /// only expects a `DistAlgorithm` instance instead.
-    ///
-    /// # Panics
-    ///
-    /// See `new_with_step`.
-    pub fn new<F, I>(node_ids: I, faulty: usize, cons: F) -> Result<Self, crypto::error::Error>
-    where
-        F: Fn(D::NodeUid, NetworkInfo<D::NodeUid>) -> D,
-        I: IntoIterator<Item = D::NodeUid>,
-    {
-        Self::new_with_step(node_ids, faulty, |id, netinfo| {
-            (cons(id, netinfo), Default::default())
         })
     }
 
