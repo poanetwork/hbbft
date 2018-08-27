@@ -679,6 +679,16 @@ where
 
         Some(Ok((receiver, step)))
     }
+
+    /// Convenience function for cranking.
+    ///
+    /// Shortcut for cranking the network, expecting both progress to be made as well as processing
+    /// to proceed.
+    pub fn crank_expect(&mut self) -> (D::NodeUid, Step<D>) {
+        self.crank()
+            .expect("crank: network queue empty")
+            .expect("crank: node failed to process step")
+    }
 }
 
 impl<D> VirtualNet<D>

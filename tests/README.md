@@ -59,6 +59,9 @@ Cranking can be done manually:
 let step = net.crank()
               .expect("expected at least one messages")
               .expect("algorithm error");
+
+// Shorthand:
+let step = net.crank_expect();
 ```
 
 For convenience, an iterator interface is also available:

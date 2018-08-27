@@ -91,10 +91,7 @@ fn do_drop_and_readd(
 
     // Run the network:
     loop {
-        let (node_id, step) = net
-            .crank()
-            .expect("network queue emptied unexpectedly")
-            .expect("node failed to process step");
+        let (node_id, step) = net.crank_expect();
 
         for change in step.output.iter().map(|output| output.change()) {
             if let ChangeState::Complete(Change::Remove(pivot_node_id)) = change {
