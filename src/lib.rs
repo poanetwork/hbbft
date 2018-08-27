@@ -107,6 +107,7 @@ extern crate bincode;
 extern crate byteorder;
 #[macro_use]
 extern crate failure;
+extern crate ff;
 extern crate init_with;
 #[macro_use]
 extern crate log;

@@ -20,11 +20,12 @@ travis-ci = { repository = "poanetwork/hbbft" }
 bincode = "1.0.0"
 byteorder = "1.2.3"
 env_logger = "0.5.10"
+ff = "0.4.0"
 failure = "0.1"
 init_with = "1.1.0"
 itertools = "0.7"
 log = "0.4.1"
-pairing = { version = "0.14.2", features = ["u128-support"] }
+pairing = { git = "https://github.com/zkcrypto/pairing", rev = "183a64b08e9dc7067f78624ec161371f1829623e" }
 rand = "0.4.2"
 rand_derive = "0.3.1"
 reed-solomon-erasure = "3.1.0"
