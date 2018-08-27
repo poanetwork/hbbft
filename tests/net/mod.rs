@@ -36,7 +36,7 @@ macro_rules! net_trace {
 }
 
 /// Open trace file for writing.
-fn open_trace() -> Result<fs::File, io::Error> {
+fn open_trace() -> Result<io::BufWriter<fs::File>, io::Error> {
     let mut rng = rand::thread_rng();
 
     let exec_path = env::current_exe();
@@ -51,7 +51,7 @@ fn open_trace() -> Result<fs::File, io::Error> {
         u16::rand(&mut rng),
     );
 
-    fs::File::create(name)
+    Ok(io::BufWriter::new(fs::File::create(name)?))
 }
 
 /// A node in the test network.
@@ -347,7 +347,7 @@ where
     /// of the borrow checker.
     adversary: Option<Box<dyn Adversary<D>>>,
     /// Trace output; if active, writes out a log of all messages.
-    trace: Option<fs::File>,
+    trace: Option<io::BufWriter<fs::File>>,
     /// The number of times the network has been cranked.
     crank_count: usize,
     /// The limit set for cranking the network.
