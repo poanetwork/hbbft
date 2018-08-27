@@ -110,22 +110,31 @@ impl<D: DistAlgorithm> Node<D> {
     }
 }
 
+/// A network message on the virtual network.
 // Note: We do not use `messaging::TargetedMessage` and `messaging::SourceMessage` here, since we
 //       the nesting is inconvenient and we do not want to support broadcasts at this level.
 #[derive(Clone, Debug)]
 pub struct NetworkMessage<M, N> {
+    /// Message sender.
     from: N,
+    /// Destined receiver.
     to: N,
+    /// The actual message contents.
     payload: M,
 }
 
 impl<M, N> NetworkMessage<M, N> {
+    /// Create a new network message.
+    #[inline]
     fn new(from: N, payload: M, to: N) -> NetworkMessage<M, N> {
         NetworkMessage { from, to, payload }
     }
 }
 
+/// Mapping from node IDs to actual node instances.
 pub type NodeMap<D> = collections::BTreeMap<<D as DistAlgorithm>::NodeUid, Node<D>>;
+
+/// A virtual network message tied to a distributed algorithm.
 pub type NetMessage<D> =
     NetworkMessage<<D as DistAlgorithm>::Message, <D as DistAlgorithm>::NodeUid>;
 
@@ -161,9 +170,10 @@ where
         .is_faulty();
     let mut message_count: usize = 0;
 
-    // First, queue all messages for processing.
+    // Queue all messages for processing.
     for tmsg in step.messages.iter() {
         match &tmsg.target {
+            /// Single target message.
             messaging::Target::Node(to) => {
                 if !faulty {
                     message_count = message_count.saturating_add(1);
@@ -175,6 +185,7 @@ where
                     to.clone(),
                 ));
             }
+            /// Broadcast messages get expanded into multiple direct messages.
             messaging::Target::All => for to in nodes.keys() {
                 if *to == sender {
                     continue;
@@ -203,12 +214,16 @@ where
     message_count
 }
 
+/// Virtual network builder.
 pub struct NetBuilder<D, I>
 where
     D: DistAlgorithm,
 {
+    /// Iterator used to create node ids.
     node_ids: I,
+    /// Number of faulty nodes in the network.
     num_faulty: usize,
+    /// Constructor function.
     cons: Option<Box<Fn(D::NodeUid, NetworkInfo<D::NodeUid>) -> (D, Step<D>)>>,
     adversary: Option<Box<dyn Adversary<D>>>,
     trace: Option<bool>,
