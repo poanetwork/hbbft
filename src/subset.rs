@@ -1,6 +1,6 @@
-//! # Asynchronous Subset algorithm.
+//! # Subset algorithm.
 //!
-//! The Asynchronous Subset protocol assumes a network of _N_ nodes that send signed
+//! The Subset protocol assumes a network of _N_ nodes that send signed
 //! messages to each other, with at most _f_ of them malicious, where _3 f < N_. Handling the
 //! networking and signing is the responsibility of the user: only when a message has been
 //! verified to be "from node i" (e.g. using cryptographic signatures), it can be handed to the
@@ -71,7 +71,7 @@ pub enum Message<N: Rand> {
     Agreement(N, agreement::Message),
 }
 
-/// Asynchronous Subset algorithm instance
+/// Subset algorithm instance
 #[derive(Debug)]
 pub struct Subset<N: Rand> {
     /// Shared network information.

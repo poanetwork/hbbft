@@ -1,6 +1,6 @@
 //! # Broadcast
 //!
-//! The Reliable Broadcast Protocol assumes a network of _N_ nodes that send signed messages to
+//! The Broadcast Protocol assumes a network of _N_ nodes that send signed messages to
 //! each other, with at most _f_ of them faulty, where _3 f < N_. Handling the networking and
 //! signing is the responsibility of this crate's user; a message is only handed to the Broadcast
 //! instance after it has been verified to be "from node i". One of the nodes is the "proposer"
@@ -151,7 +151,7 @@
 
 mod broadcast;
 mod error;
-pub mod merkle;
+pub(crate) mod merkle;
 
 pub use self::broadcast::{Broadcast, Message, Step};
 pub use self::error::{Error, Result};

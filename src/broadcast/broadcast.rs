@@ -57,7 +57,7 @@ impl Debug for Message {
     }
 }
 
-/// Reliable Broadcast algorithm instance.
+/// Broadcast algorithm instance.
 #[derive(Debug)]
 pub struct Broadcast<N> {
     /// Shared network data.
