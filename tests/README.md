@@ -85,3 +85,14 @@ while let Some(res) = net.crank() {
 By default, all network tests write traces of every network message into logfiles, named `net-trace_*.txt`. Each log stores one message per line, in the format of `[SENDER] -> [RECEIVER]: MSG`.
 
 This behavior can be controlled using the `HBBFT_TEST_TRACE` environment variable; if set and equal to `0` or `false`, this functionality is disabled. Tracing is enabled by default.
+
+### Checking outputs
+
+As a convenience, all nodes capture any generated output during operation for inspection. The following code fragment demonstrates how to use this to verify the end result:
+
+```rust
+let first = net.correct_nodes().nth(0).unwrap().outputs();
+assert!(net.nodes().all(|node| node.outputs() == first));
+
+println!("End result: {:?}", first);
+```
