@@ -1,11 +1,11 @@
-//! Test utility functions
+//! Utility functions
 //!
 //! A collection miscellaneous functions that are used in the tests, but are generic enough to be
 //! factored out.
 
 use std::ops;
 
-/// Subslicing
+/// Subslicing.
 pub trait SubSlice
 where
     Self: ops::Index<ops::Range<usize>>,

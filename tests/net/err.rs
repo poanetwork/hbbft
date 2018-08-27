@@ -2,9 +2,6 @@
 //!
 //! The error implementation for the test networking code is slightly involved and has been factored
 //! into its own module for this reason.
-//!
-//! The most commonly used error type is [CrankError<D>], which wraps errors from the algorithms,
-//! as well as rarely triggered violations of invariants. See the type description for more details.
 
 use std::fmt;
 
@@ -13,14 +10,14 @@ use hbbft::messaging::DistAlgorithm;
 
 use super::NetMessage;
 
-/// Single crank error
+/// Network crank error.
 ///
-/// Errors of the test network, resulting from processing a single message ("cranking").
+/// Errors resulting from processing a single message ("cranking").
 pub enum CrankError<D>
 where
     D: DistAlgorithm,
 {
-    /// The algorithm ran by the node produced a [`DistAlgorithm::Error`] while processing input.
+    /// The algorithm ran by the node produced a `DistAlgorithm::Error` while processing input.
     AlgorithmError {
         /// Network message that triggered the error.
         msg: NetMessage<D>,
@@ -34,9 +31,9 @@ where
     /// A node unexpectly disappeared from the list of notes. Note that this is likely a bug in
     /// the network framework code.
     NodeDisappeared(D::NodeUid),
-    /// Maximum number of cranks reached.
+    /// The configured maximum number of cranks has been reached or exceeded.
     CrankLimitExceeded(usize),
-    /// Maximum number of messages reached.
+    /// The configured maximum number of messages has been reached or exceeded.
     MessageLimitExceeded(usize),
 }
 
@@ -103,7 +100,7 @@ where
     fn cause(&self) -> Option<&failure::Fail> {
         match self {
             CrankError::AlgorithmError { err: _, .. } => {
-                // As soon as the necessary Trait bounds are on DistAlgorithm, this implementation
+                // As soon as the necessary Trait bounds are on `DistAlgorithm`, this implementation
                 // can be commented in:
                 // Some(err)
                 None

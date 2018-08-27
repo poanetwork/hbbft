@@ -105,6 +105,7 @@ impl<D: DistAlgorithm> Node<D> {
     /// List outputs so far.
     ///
     /// Any output made by a node is captured by the node for easy comparison.
+    #[inline]
     pub fn outputs(&self) -> &[D::Output] {
         self.outputs.as_slice()
     }
@@ -151,7 +152,6 @@ pub type NetMessage<D> =
 /// The function will panic if the `sender` ID is not a valid node ID in `nodes`.
 // This function is defined outside `VirtualNet` and takes arguments "piecewise" to work around
 // borrow-checker restrictions.
-#[inline]
 fn process_step<'a, D>(
     nodes: &'a mut collections::BTreeMap<D::NodeUid, Node<D>>,
     sender: D::NodeUid,
@@ -173,7 +173,7 @@ where
     // Queue all messages for processing.
     for tmsg in step.messages.iter() {
         match &tmsg.target {
-            /// Single target message.
+            // Single target message.
             messaging::Target::Node(to) => {
                 if !faulty {
                     message_count = message_count.saturating_add(1);
@@ -185,7 +185,7 @@ where
                     to.clone(),
                 ));
             }
-            /// Broadcast messages get expanded into multiple direct messages.
+            // Broadcast messages get expanded into multiple direct messages.
             messaging::Target::All => for to in nodes.keys() {
                 if *to == sender {
                     continue;
@@ -215,6 +215,12 @@ where
 }
 
 /// Virtual network builder.
+///
+/// The `NetBuilder` is used to create `VirtualNet` instances and offers convenient methods to
+/// configure the construction process.
+///
+/// Note that, in addition to the constructor `new`, either `using` or `using_step` must be called,
+/// otherwise the construction will fail and panic.
 pub struct NetBuilder<D, I>
 where
     D: DistAlgorithm,
@@ -225,9 +231,13 @@ where
     num_faulty: usize,
     /// Constructor function.
     cons: Option<Box<Fn(D::NodeUid, NetworkInfo<D::NodeUid>) -> (D, Step<D>)>>,
+    /// Network adversary.
     adversary: Option<Box<dyn Adversary<D>>>,
+    /// Trace-enabling flag. `None` means use environment.
     trace: Option<bool>,
+    /// Optional crank limit.
     crank_limit: Option<usize>,
+    /// Optional message limit.
     message_limit: Option<usize>,
 }
 
@@ -238,6 +248,14 @@ where
     D::Output: Clone,
     I: IntoIterator<Item = D::NodeUid>,
 {
+    /// Construct a new network builder.
+    ///
+    /// `node_ids` must be an iterator of the node ids to use for the new node. In many test cases,
+    /// a `Range(usize)` is a convenient value:
+    ///
+    /// ```rust,ignore
+    /// let builder = NetBuilder::new(0..10) // ...
+    /// ```
     #[inline]
     pub fn new(node_ids: I) -> Self {
         NetBuilder {
@@ -251,6 +269,9 @@ where
         }
     }
 
+    /// Set an adversary.
+    ///
+    /// If not set, the virtual network will be constructed with a `NullAdversary`.
     #[inline]
     pub fn adversary<A>(mut self, adversary: A) -> Self
     where
@@ -260,30 +281,50 @@ where
         self
     }
 
+    /// Set a crank limit.
+    ///
+    /// Crank limits are useful to limit execution time and reign in adversary. Otherwise, message
+    /// limits are typically more useful. After the limit is hit, any call to `crank` will return a
+    /// `CrankError::CrankLimitExceeded`.
     #[inline]
     pub fn crank_limit(mut self, crank_limit: usize) -> Self {
         self.crank_limit = Some(crank_limit);
         self
     }
 
+    /// Message limit.
+    ///
+    /// Limit the number of messages, as soon as the limit of messages is exceeded (regardless of
+    /// whether they have been processed yet), the `crank` function will return a
+    /// `CrankError::MessageLimitExceeded`.
     #[inline]
     pub fn message_limit(mut self, message_limit: usize) -> Self {
         self.message_limit = Some(message_limit);
         self
     }
 
+    /// Number of faulty nodes.
+    ///
+    /// Indicates the number of nodes that should be marked faulty.
     #[inline]
     pub fn num_faulty(mut self, num_faulty: usize) -> Self {
         self.num_faulty = num_faulty;
         self
     }
 
+    /// Override tracing.
+    ///
+    /// If set, overrides the environment setting of whether or not tracing should be enabled.
     #[inline]
     pub fn trace(mut self, trace: bool) -> Self {
         self.trace = Some(trace);
         self
     }
 
+    /// Constructor function (with step).
+    ///
+    /// The constructor function is used to construct each node in the network. Any step returned
+    /// will be processed normally.
     #[inline]
     pub fn using_step<F>(mut self, cons: F) -> Self
     where
@@ -293,6 +334,10 @@ where
         self
     }
 
+    /// Constructor function.
+    ///
+    /// Convenience function for algorithms that do not require an initial `Step`, calls
+    /// `using_step` with a default/empty `Step` instance.
     #[inline]
     pub fn using<F>(self, cons_simple: F) -> Self
     where
@@ -301,6 +346,13 @@ where
         self.using_step(move |id, netinfo| (cons_simple(id, netinfo), Default::default()))
     }
 
+    /// Create the network.
+    ///
+    /// Finalizes the builder and creates the network.
+    ///
+    /// # Panic
+    ///
+    /// If the total number of nodes is not `> 3 * num_faulty`, construction will panic.
     #[inline]
     pub fn build(self) -> Result<VirtualNet<D>, crypto::error::Error> {
         let cons = self
@@ -333,6 +385,7 @@ where
     }
 }
 
+/// Virtual network instance.
 pub struct VirtualNet<D>
 where
     D: DistAlgorithm,
@@ -360,9 +413,9 @@ where
 
 /// A virtual network
 ///
-/// Virtual networks host a number of nodes that are marked either correct or faulty. Each time the
+/// Virtual networks host a number of nodes that are marked either correct or faulty. Each time a
 /// node emits a `Step`, the contained messages are queued for delivery, which happens whenever
-/// `crank()` is called.
+/// `crank()` is called. Additionally, inputs (see `DistAlgorithm::Input`) can be sent to any node.
 ///
 /// An adversary can be hooked into the network to affect the order of message delivery or the
 /// behaviour of faulty nodes.
@@ -370,26 +423,35 @@ impl<D> VirtualNet<D>
 where
     D: DistAlgorithm,
 {
+    /// Iterator over *all* nodes in the network.
     #[inline]
     pub fn nodes(&self) -> impl Iterator<Item = &Node<D>> {
         self.nodes.values()
     }
 
+    /// Iterator over all faulty nodes in the network.
     #[inline]
     pub fn faulty_nodes(&self) -> impl Iterator<Item = &Node<D>> {
         self.nodes().filter(|n| n.is_faulty())
     }
 
+    /// Iterator over all correct nodes in the network.
     #[inline]
     pub fn correct_nodes(&self) -> impl Iterator<Item = &Node<D>> {
         self.nodes().filter(|n| !n.is_faulty())
     }
 
+    /// Retrieve a node by ID.
+    ///
+    /// Returns `None` if the node ID is not part of the network.
     #[inline]
     pub fn get<'a>(&'a self, id: D::NodeUid) -> Option<&'a Node<D>> {
         self.nodes.get(&id)
     }
 
+    /// Retrieve a node mutably by ID.
+    ///
+    /// Returns `None` if the node ID is not part of the network.
     #[inline]
     pub fn get_mut<'a>(&'a mut self, id: D::NodeUid) -> Option<&'a mut Node<D>> {
         self.nodes.get_mut(&id)
@@ -409,6 +471,8 @@ where
     /// expected to return a (`DistAlgorithm`, `Step`) tuple.
     ///
     /// All messages from the resulting step are queued for delivery.
+    ///
+    /// This function is not used directly, instead the `NetBuilder` should be used.
     ///
     /// # Panics
     ///
@@ -462,8 +526,11 @@ where
         })
     }
 
+    /// Helper function to dispatch messages.
+    ///
+    /// Retrieves the receiving node for a `msg` and hands over the payload.
     #[inline]
-    fn dispatch_message(&mut self, msg: NetMessage<D>) -> Result<Step<D>, CrankError<D>> {
+    pub fn dispatch_message(&mut self, msg: NetMessage<D>) -> Result<Step<D>, CrankError<D>> {
         let node = self
             .nodes
             .get_mut(&msg.to)

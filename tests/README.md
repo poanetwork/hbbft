@@ -49,10 +49,10 @@ net.broadcast_input(input).expect("algorithm failed");
 
 The network advances through the `crank()` function, on every call
 
-0. the adversary is given a chance to re-order the message queue,
-0. the next message in the queue is delivered to its destination node (if the node is non-faulty) or the adversary (if the node is faulty),
-0. all messages from the resulting step are queued again,
-0. and the resulting step (or error) is returned.
+1. the adversary is given a chance to re-order the message queue,
+1. the next message in the queue is delivered to its destination node (if the node is non-faulty) or the adversary (if the node is faulty),
+1. all messages from the resulting step are queued again,
+1. and the resulting step (or error) is returned.
 
 If there were no messages to begin with, `None` is returned instead.
 
