@@ -32,7 +32,13 @@ macro_rules! net_trace {
     });
 }
 
-fn open_trace() -> Result<fs::File, io::Error> {
+fn open_trace() -> Result<Option<fs::File>, io::Error> {
+    let setting = env::var("HBBFT_TEST_TRACE").unwrap_or("true".to_string());
+
+    if setting == "false" || setting == "0" {
+        return Ok(None);
+    }
+
     let mut rng = rand::thread_rng();
 
     let exec_path = env::current_exe();
@@ -47,7 +53,7 @@ fn open_trace() -> Result<fs::File, io::Error> {
         u16::rand(&mut rng),
     );
 
-    fs::File::create(name)
+    Ok(Some(fs::File::create(name)?))
 }
 
 #[derive(Debug)]
@@ -256,7 +262,7 @@ where
             nodes,
             messages,
             adversary: Some(Box::new(adversary::NullAdversary::new())),
-            trace: Some(open_trace().expect("could not open trace file")),
+            trace: open_trace().expect("could not open trace file"),
         })
     }
 
