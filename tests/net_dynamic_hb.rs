@@ -37,14 +37,11 @@ fn do_drop_and_readd(
     let mut rng = rand::thread_rng();
 
     // First, we create a new test network with Honey Badger instances.
-    // Dynamic honey badger does not output an initial step, so we use a regular construction
-    // function:
     let mut net = NetBuilder::new(0..total)
         .num_faulty(num_faulty)
-        .message_limit(200_000)  // Limited to two million messages for now.
+        .message_limit(200_000)  // Limited to 200k messages for now.
         .using(move |node| {
             println!("Constructing new dynamic honey badger node #{}", node.id);
-
             DynamicHoneyBadger::builder().build(node.netinfo)
         }).build()
         .expect("could not construct test network");
