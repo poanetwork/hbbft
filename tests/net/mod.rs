@@ -9,6 +9,8 @@
 // pub mod types;
 pub mod adversary;
 pub mod err;
+#[macro_use]
+pub mod util;
 
 use std::io::Write;
 use std::{collections, env, fs, io, mem, ops, process};
@@ -22,8 +24,6 @@ use hbbft::messaging::{self, DistAlgorithm, NetworkInfo, Step};
 
 pub use self::adversary::Adversary;
 pub use self::err::CrankError;
-#[macro_use]
-use util;
 
 macro_rules! net_trace {
     ($self:expr, $fmt:expr, $($arg:tt)*) => (

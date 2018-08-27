@@ -3,8 +3,6 @@ extern crate hbbft;
 extern crate rand;
 extern crate threshold_crypto;
 
-#[macro_use]
-pub mod util;
 pub mod net;
 
 use std::collections;
@@ -13,7 +11,7 @@ use hbbft::dynamic_honey_badger::{Change, ChangeState, DynamicHoneyBadger, Input
 use hbbft::messaging::DistAlgorithm;
 
 use net::VirtualNet;
-use util::SubSlice;
+use net::util::SubSlice;
 
 // FIXME: User better batch size, etc.
 #[test]
