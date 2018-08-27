@@ -88,6 +88,14 @@ By default, all network tests write traces of every network message into logfile
 
 This behavior can be controlled using the `HBBFT_TEST_TRACE` environment variable; if set and equal to `0` or `false`, this functionality is disabled. Tracing is enabled by default.
 
+The `NetBuilder` allows hard-coding the trace setting, any value passed will override environment environment settings:
+
+```rust
+let net = NetBuilder(0..10)
+  .trace(false)   // Never log network messages.
+  // ...
+```
+
 ### Checking outputs
 
 As a convenience, all nodes capture any generated output during operation for inspection. The following code fragment demonstrates how to use this to verify the end result:

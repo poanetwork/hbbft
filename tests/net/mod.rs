@@ -39,13 +39,7 @@ macro_rules! net_trace {
 ///
 /// If not supressed through the `HBBFT_TEST_TRACE` environment variable, opens a logfile for
 /// tracing packets.
-fn open_trace() -> Result<Option<fs::File>, io::Error> {
-    let setting = env::var("HBBFT_TEST_TRACE").unwrap_or("true".to_string());
-
-    if setting == "false" || setting == "0" {
-        return Ok(None);
-    }
-
+fn open_trace() -> Result<fs::File, io::Error> {
     let mut rng = rand::thread_rng();
 
     let exec_path = env::current_exe();
@@ -60,7 +54,7 @@ fn open_trace() -> Result<Option<fs::File>, io::Error> {
         u16::rand(&mut rng),
     );
 
-    Ok(Some(fs::File::create(name)?))
+    fs::File::create(name)
 }
 
 /// A node in the test network.
@@ -200,6 +194,7 @@ where
     num_faulty: usize,
     cons: Option<Box<Fn(D::NodeUid, NetworkInfo<D::NodeUid>) -> (D, Step<D>)>>,
     adversary: Option<Box<dyn Adversary<D>>>,
+    trace: Option<bool>,
 }
 
 impl<D, I> NetBuilder<D, I>
@@ -216,7 +211,29 @@ where
             num_faulty: 0,
             cons: None,
             adversary: None,
+            trace: None,
         }
+    }
+
+    #[inline]
+    pub fn adversary<A>(mut self, adversary: A) -> Self
+    where
+        A: Adversary<D> + 'static,
+    {
+        self.adversary = Some(Box::new(adversary));
+        self
+    }
+
+    #[inline]
+    pub fn num_faulty(mut self, num_faulty: usize) -> Self {
+        self.num_faulty = num_faulty;
+        self
+    }
+
+    #[inline]
+    pub fn trace(mut self, trace: bool) -> Self {
+        self.trace = Some(trace);
+        self
     }
 
     #[inline]
@@ -237,21 +254,6 @@ where
     }
 
     #[inline]
-    pub fn num_faulty(mut self, num_faulty: usize) -> Self {
-        self.num_faulty = num_faulty;
-        self
-    }
-
-    #[inline]
-    pub fn adversary<A>(mut self, adversary: A) -> Self
-    where
-        A: Adversary<D> + 'static,
-    {
-        self.adversary = Some(Box::new(adversary));
-        self
-    }
-
-    #[inline]
     pub fn build(self) -> Result<VirtualNet<D>, crypto::error::Error> {
         let cons = self
             .cons
@@ -264,6 +266,16 @@ where
 
         if self.adversary.is_some() {
             net.adversary = self.adversary;
+        }
+
+        let trace = self.trace.unwrap_or_else(|| {
+            // If the trace setting is not overriden, we use the setting from the environment.
+            let setting = env::var("HBBFT_TEST_TRACE").unwrap_or("true".to_string());
+            setting == "false" || setting == "0"
+        });
+
+        if trace {
+            net.trace = Some(open_trace().expect("could not open trace file"));
         }
 
         Ok(net)
@@ -377,7 +389,7 @@ where
             nodes,
             messages,
             adversary: Some(Box::new(adversary::NullAdversary::new())),
-            trace: open_trace().expect("could not open trace file"),
+            trace: None,
         })
     }
 
