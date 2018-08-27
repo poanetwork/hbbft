@@ -13,10 +13,11 @@ use hbbft::messaging::DistAlgorithm;
 use net::util::SubSlice;
 use net::NetBuilder;
 
-// FIXME: User better batch size, etc.
+// Note: Still pending: Better batch sizes (configurable).
 #[test]
 fn drop_and_readd() {
-    // Currently fixed settings; to be replace by proptest later on.
+    // Currently fixed settings; to be replace by proptest later on. This wrapper function is
+    // already in place, to avoid with rustfmt not formatting the inside of macros.
     do_drop_and_readd(3, 10, 10, 3)
 }
 
@@ -35,8 +36,6 @@ fn do_drop_and_readd(
 ) {
     let mut rng = rand::thread_rng();
 
-    const NEW_OBSERVER_NODE_ID: usize = 0;
-
     // First, we create a new test network with Honey Badger instances.
     // Dynamic honey badger does not output an initial step, so we use a regular construction
     // function:
@@ -49,6 +48,16 @@ fn do_drop_and_readd(
             DynamicHoneyBadger::builder().build(node.netinfo)
         }).build()
         .expect("could not construct test network");
+
+    // We will use the first correct node as the node we will remove from and re-add to the network.
+    // Note: This should be randomized using proptest.
+    let pivot_node_id: usize = net
+        .correct_nodes()
+        .nth(0)
+        .expect("expected at least one correct node")
+        .id()
+        .clone();
+    println!("Will remove and readd node #{}", pivot_node_id);
 
     // We generate a list of transaction we want to propose, for each node. All nodes will propose
     // a number between 0..total_txs, chosen randomly.
@@ -70,7 +79,7 @@ fn do_drop_and_readd(
     }
 
     // Afterwards, remove a specific node from the dynamic honey badger network.
-    net.broadcast_input(&Input::Change(Change::Remove(NEW_OBSERVER_NODE_ID)))
+    net.broadcast_input(&Input::Change(Change::Remove(pivot_node_id)))
         .expect("broadcasting failed");
 
     // We are tracking (correct) nodes' state through the process by ticking them off individually.
@@ -91,30 +100,30 @@ fn do_drop_and_readd(
             .expect("node failed to process step");
 
         for change in step.output.iter().map(|output| output.change()) {
-            if let ChangeState::Complete(Change::Remove(NEW_OBSERVER_NODE_ID)) = change {
+            if let ChangeState::Complete(Change::Remove(pivot_node_id)) = change {
                 println!("Node {:?} done removing.", node_id);
                 // Removal complete, tally:
                 awaiting_removal.remove(&node_id);
 
                 // Now we can add the node again. Public keys will be reused.
-                let pk = net[NEW_OBSERVER_NODE_ID]
+                let pk = net[*pivot_node_id]
                     .algorithm()
                     .netinfo()
                     .secret_key()
                     .public_key();
                 let _ = net[node_id]
                     .algorithm_mut()
-                    .input(Input::Change(Change::Add(NEW_OBSERVER_NODE_ID, pk)))
+                    .input(Input::Change(Change::Add(*pivot_node_id, pk)))
                     .expect("failed to send `Add` input");
             }
 
-            if let ChangeState::Complete(Change::Add(NEW_OBSERVER_NODE_ID, _)) = change {
+            if let ChangeState::Complete(Change::Add(pivot_node_id, _)) = change {
                 println!("Node {:?} done adding.", node_id);
                 // Node added, ensure it has been removed first.
                 if awaiting_removal.contains(&node_id) {
                     panic!(
                         "Node {:?} reported a success `Add({}, _)` before `Remove({})`",
-                        node_id, NEW_OBSERVER_NODE_ID, NEW_OBSERVER_NODE_ID
+                        node_id, pivot_node_id, pivot_node_id
                     );
                 }
                 awaiting_addition.remove(&node_id);
