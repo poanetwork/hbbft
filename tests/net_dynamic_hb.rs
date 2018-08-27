@@ -11,7 +11,7 @@ use hbbft::dynamic_honey_badger::{Change, ChangeState, DynamicHoneyBadger, Input
 use hbbft::messaging::DistAlgorithm;
 
 use net::util::SubSlice;
-use net::VirtualNet;
+use net::NetBuilder;
 
 // FIXME: User better batch size, etc.
 #[test]
@@ -40,12 +40,14 @@ fn do_drop_and_readd(
     // First, we create a new test network with Honey Badger instances.
     // Dynamic honey badger does not output an initial step, so we use a regular construction
     // function:
-    let mut net: VirtualNet<DynamicHoneyBadger<Vec<usize>, _>> =
-        VirtualNet::new(0..total, num_faulty, |id, netinfo| {
+    let mut net = NetBuilder::new(0..total)
+        .num_faulty(num_faulty)
+        .using(move |id, netinfo| {
             println!("Constructing new dynamic honey badger node #{}", id);
 
             DynamicHoneyBadger::builder().build(netinfo)
-        }).expect("could not construct test network");
+        }).build()
+        .expect("could not construct test network");
 
     // We generate a list of transaction we want to propose, for each node. All nodes will propose
     // a number between 0..total_txs, chosen randomly.
