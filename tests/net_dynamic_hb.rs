@@ -3,8 +3,9 @@ extern crate hbbft;
 extern crate rand;
 extern crate threshold_crypto;
 
-pub mod net;
+#[macro_use]
 pub mod util;
+pub mod net;
 
 use std::collections;
 
