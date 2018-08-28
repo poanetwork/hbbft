@@ -48,12 +48,14 @@ net.broadcast_input(input).expect("algorithm failed");
 
 The network advances through the `crank()` function, on every call
 
-1. the adversary is given a chance to re-order the message queue,
+1. the adversary is given a chance to re-order<sup>1</sup> the message queue,
 1. the next message in the queue is delivered to its destination node (if the node is non-faulty) or the adversary (if the node is faulty),
 1. all messages from the resulting step are queued again,
 1. and the resulting step (or error) is returned.
 
 If there were no messages to begin with, `None` is returned instead.
+
+<sup>1</sup>: Due to some implementation deficiencies it is possible for an adversary to mutate any part of VirtualNet (i.e. to change things beyond the scope of our adversary model). While this will be addressed in future versions, it is currently up to the test implementor to ensure that adversaries are not more powerful than they are supposed to be.
 
 Cranking can be done manually:
 
