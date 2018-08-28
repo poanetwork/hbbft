@@ -1,7 +1,7 @@
 //! A test network.
 //!
-//! Test networks simulate a real networking that includes an adversary as well as the plumbing to
-//! pass messages back and forth between nodes.
+//! Test networks simulate a real networking environment that includes an adversary as well as the
+//! plumbing to pass messages back and forth between nodes.
 //!
 //! Networks are "cranked" to move things forward; each crank of a network causes one message to be
 //! delivered to a node.
@@ -92,7 +92,7 @@ impl<D: DistAlgorithm> Node<D> {
         self.is_faulty
     }
 
-    /// Get nodes ID.
+    /// Get node's ID.
     ///
     /// A node's ID is equal to its underlying algorithm instance's ID.
     #[inline]
@@ -110,8 +110,8 @@ impl<D: DistAlgorithm> Node<D> {
 }
 
 /// A network message on the virtual network.
-// Note: We do not use `messaging::TargetedMessage` and `messaging::SourceMessage` here, since we
-//       the nesting is inconvenient and we do not want to support broadcasts at this level.
+// Note: We do not use `messaging::TargetedMessage` and `messaging::SourceMessage` here, the nesting
+//       is inconvenient and we do not want to support broadcasts at this level.
 #[derive(Clone, Debug)]
 pub struct NetworkMessage<M, N> {
     /// Message sender.
@@ -139,11 +139,11 @@ pub type NetMessage<D> =
 
 /// Process a step.
 ///
-/// Expands every message in the step by turning all broadcast-messages into peer-to-peer messages,
+/// Expands every message in the step by turning all broadcast messages into peer-to-peer messages,
 /// and appends them to the network queue. Additionally, saves a copy of each output to the output
 /// buffer of the `sender` node.
 ///
-/// At the end, the number of additional messages created by non-faulty nodes will be returned.
+/// At the end, the number of additional messages created by non-faulty nodes is returned.
 ///
 /// # Panics
 ///
@@ -214,7 +214,7 @@ where
 
 /// New network node construction information.
 ///
-/// Helper structure passed to node constructors when constructing virtual networks.
+/// Helper structure passed to node constructors when building virtual networks.
 #[derive(Debug)]
 pub struct NewNodeInfo<D>
 where
@@ -285,7 +285,7 @@ where
 
     /// Set an adversary.
     ///
-    /// If not set, the virtual network will be constructed with a `NullAdversary`.
+    /// If not set, the virtual network is constructed with a `NullAdversary`.
     #[inline]
     pub fn adversary<A>(mut self, adversary: A) -> Self
     where
@@ -338,7 +338,7 @@ where
     /// Constructor function (with step).
     ///
     /// The constructor function is used to construct each node in the network. Any step returned
-    /// will be processed normally.
+    /// is processed normally.
     #[inline]
     pub fn using_step<F>(mut self, cons: F) -> Self
     where
@@ -703,7 +703,7 @@ where
     /// Equivalent to sending the same input to all nodes in order. Returns a vector of the
     /// resulting `Step`s, which have had their messages queued already.
     ///
-    /// If an error occurs, the first error will be returned and broadcasting aborted.
+    /// If an error occurs, the first error is returned and broadcasting aborted.
     #[inline]
     pub fn broadcast_input<'a>(
         &'a mut self,

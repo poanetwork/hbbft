@@ -14,7 +14,7 @@ Core of most tests is the `net::VirtualNet` struct, which simulates a network of
 
 Virtual networks can also host an adversary that can affect faulty nodes (which are tracked automatically) or reorder queued messages.
 
-To create a new network, the `NetBuilder` should be used:
+Use the `NetBuilder` to create a new network:
 
 ```rust
 // Create a network of 10 nodes, out of which 3 are faulty.
@@ -29,7 +29,7 @@ Algorithms that return a `Step` upon construction should use `using_step` instea
 
 ### Sending input
 
-`Input` can be sent to any node of the `VirtualNet` using the `send_input` method:
+Send `Input` to any `VirtualNet` node using the `send_input` method:
 
 ```rust
 let input = ...;
@@ -50,7 +50,7 @@ The network advances through the `crank()` function, on every call
 
 1. the adversary is given a chance to re-order<sup>1</sup> the message queue,
 1. the next message in the queue is delivered to its destination node (if the node is non-faulty) or the adversary (if the node is faulty),
-1. all messages from the resulting step are queued again,
+1. all messages from the resulting step are queued,
 1. and the resulting step (or error) is returned.
 
 If there were no messages to begin with, `None` is returned instead.
@@ -77,7 +77,7 @@ for res in net {
 }
 ```
 
-This has the drawback that access to the network is not available between cranks, since it will be borrowed inside the for-loop. A common workaround is using a while loop instead:
+This has the drawback that access to the network is not available between cranks, as it is borrowed inside the for-loop. A common workaround is using a while loop instead:
 
 ```rust
 while let Some(res) = net.crank() {
@@ -92,7 +92,7 @@ In addition to the returned `Step`s, the network and nodes can be queried throug
 
 ### Adversaries
 
-Adversaries can be introduced through the `.adversary` method on the constructor and are expected to implement the `net::adversary::Adversay` trait. Generic adversaries are available in the same module, while algorithm-specific ones should live next to each test case.
+Adversaries can be introduced through the `.adversary` method on the constructor and are expected to implement the `net::adversary::Adversary` trait. Generic adversaries are available in the same module, while algorithm-specific ones should live next to each test case.
 
 ```rust
 // Missing example.
@@ -100,11 +100,11 @@ Adversaries can be introduced through the `.adversary` method on the constructor
 
 ### Tracing
 
-By default, all network tests write traces of every network message into logfiles, named `net-trace_*.txt`. Each log stores one message per line, in the format of `[SENDER] -> [RECEIVER]: MSG`.
+By default, all network tests write traces of every network message into logfiles, named `net-trace_*.txt` in the current working directory. Each log stores one message per line, in the format of `[SENDER] -> [RECEIVER]: MSG`.
 
 This behavior can be controlled using the `HBBFT_TEST_TRACE` environment variable; if set and equal to `0` or `false`, this functionality is disabled. Tracing is enabled by default.
 
-The `NetBuilder` allows hard-coding the trace setting, any value passed will override environment environment settings:
+The `NetBuilder` allows hard-coding the trace setting, any value passed will override environment settings:
 
 ```rust
 let net = NetBuilder(0..10)
@@ -114,7 +114,7 @@ let net = NetBuilder(0..10)
 
 ### Checking outputs
 
-As a convenience, all nodes capture any generated output during operation for inspection. The following code fragment demonstrates how to use this to verify the end result:
+As a convenience, all nodes capture any generated output during operation for inspection. The following code fragment demonstrates how to verify that all non-faulty nodes have output the same thing:
 
 ```rust
 let first = net.correct_nodes().nth(0).unwrap().outputs();

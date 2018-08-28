@@ -1,7 +1,4 @@
 //! Test network errors
-//!
-//! The error implementation for the test networking code is slightly involved and has been factored
-//! into its own module for this reason.
 
 use std::fmt;
 
@@ -17,7 +14,7 @@ pub enum CrankError<D>
 where
     D: DistAlgorithm,
 {
-    /// The algorithm ran by the node produced a `DistAlgorithm::Error` while processing input.
+    /// The algorithm run by the node produced a `DistAlgorithm::Error` while processing input.
     AlgorithmError {
         /// Network message that triggered the error.
         msg: NetMessage<D>,
