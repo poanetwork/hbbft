@@ -10,15 +10,41 @@ use std::collections;
 use hbbft::dynamic_honey_badger::{Change, ChangeState, DynamicHoneyBadger, Input};
 use hbbft::messaging::DistAlgorithm;
 
-use net::util::SubSlice;
 use net::NetBuilder;
+
+/// Choose a node's contribution for an epoch.
+///
+/// Selects randomly out of a slice, according to chosen batch and contribution sizes. The function
+/// will not fail to do so, even if the queue is empty, returning a smaller or empty slice
+/// `Vec` accordingly.
+///
+/// # Panics
+///
+/// The function asserts that `batch_size >= contribution_size`.
+fn choose_contribution<R, T>(
+    rng: &mut R,
+    queue: &[T],
+    batch_size: usize,
+    contribution_size: usize,
+) -> Vec<T>
+where
+    R: rand::Rng,
+    T: Clone,
+{
+    assert!(batch_size >= contribution_size);
+
+    let n = queue.len().min(batch_size);
+    let k = queue.len().min(contribution_size);
+
+    rand::seq::sample_slice(rng, &queue[0..n], k)
+}
 
 // Note: Still pending: Better batch sizes (configurable).
 #[test]
 fn drop_and_readd() {
     // Currently fixed settings; to be replace by proptest later on. This wrapper function is
     // already in place, to avoid with rustfmt not formatting the inside of macros.
-    do_drop_and_readd(3, 10, 10, 3)
+    do_drop_and_readd(3, 10, 20, 10, 3)
 }
 
 /// Dynamic honey badger: Drop a validator node, demoting it to observer, then re-add it.
@@ -27,12 +53,14 @@ fn drop_and_readd() {
 /// * `total`: Total number of nodes. Must be >= `3 * num_faulty + 1`.
 /// * `total_txs`: The total number of transactions each node will propose. All nodes will propose
 ///                the same transactions, albeit in random order.
-/// * `proposals_per_epoch`: The number of transaction to propose, per epoch.
+/// * `batch_size`: The number of transaction per epoch, total.
+/// * `contribution_size`: A single nodes contribution to the batch.
 fn do_drop_and_readd(
     num_faulty: usize,
     total: usize,
     total_txs: usize,
-    proposals_per_epoch: usize,
+    batch_size: usize,
+    contribution_size: usize,
 ) {
     let mut rng = rand::thread_rng();
 
@@ -64,8 +92,7 @@ fn do_drop_and_readd(
 
     // For each node, select transactions randomly from the queue and propose them.
     for (id, queue) in &mut queues {
-        let proposal =
-            rand::seq::sample_slice(&mut rng, queue.as_slice(), proposals_per_epoch).to_vec();
+        let proposal = choose_contribution(&mut rng, queue, batch_size, contribution_size);
         println!("Node {:?} will propose: {:?}", id, proposal);
 
         // The step will have its messages added to the queue automatically, we ignore the output.
@@ -172,23 +199,12 @@ fn do_drop_and_readd(
 
         // If not done, check if we still want to propose something.
         if has_output {
-            if !queue.is_empty() {
-                // Out of the remaining transactions, select a suitable amount.
-                let proposal = rand::seq::sample_slice(
-                    &mut rng,
-                    // FIXME: Use better numbers and proptest.
-                    queue.as_slice().subslice(0..10),
-                    10.min(3.min(queue.len())),
-                );
+            // Out of the remaining transactions, select a suitable amount.
+            let proposal = choose_contribution(&mut rng, queue, batch_size, contribution_size);
 
-                let _ = net
-                    .send_input(node_id, Input::User(proposal))
-                    .expect("could not send follow-up transaction");
-            } else {
-                let _ = net
-                    .send_input(node_id, Input::User(Vec::new()))
-                    .expect("could not send follow-up transaction");
-            }
+            let _ = net
+                .send_input(node_id, Input::User(proposal))
+                .expect("could not send follow-up transaction");
         }
     }
 
