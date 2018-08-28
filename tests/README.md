@@ -6,6 +6,8 @@ The `hbbft` crate comes with a toolkit for testing its various algorithms in sim
 
 The old testing code can be found inside the `network` module and `.rs` files in the `tests` subdirectory that are not prefixed with `net_`. The newer networking code is contained inside the `net` module and the remaining `.rs` files.
 
+The new implementation offers many advantages, such as better abstractions for adversaries, easier implementations influencing the message delivery order, better reporting of failed tests, packet recording and more convenience functions. The old tests continue to work, but will be migrated step-by-step to take advantage of the newer features.
+
 ## VirtualNet
 
 Core of most tests is the `net::VirtualNet` struct, which simulates a network of nodes all running an instance of a distributed algorithm. Messages sent by these nodes are queued by the network. Every time the network is "cranked", a buffered message is delivered to its destination node and processed.
