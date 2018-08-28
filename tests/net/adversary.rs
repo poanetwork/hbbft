@@ -34,16 +34,19 @@ where
         // The default implementation does not alter anything.
     }
 
-    /// Tamper with a faulty nodes operation.
+    /// Tamper with a faulty node's operation.
     ///
-    /// Faulty nodes can (but are not required to) be run like regular nodes. A core difference is
-    /// that instead of passing the message directly to the node, if the destination is marked
-    /// faulty, the message will be handed to `tamper` instead. The return value replaces whatever
-    /// processing would have taken place otherwise.
+    /// You can (but are not required to) run faulty nodes like regular nodes. However, if a node
+    /// is marked faulty, a message is not passed directly to the node. It is handed to 'tamper'
+    /// instead.
+    ///
+    /// The return value replaces what would otherwise have been output by the algorithm, the
+    /// returned step is processed normally by the network (messages are queued and outputs
+    /// are recorded).
     ///
     /// The default implementation does not perform any tampering, but instead calls
-    /// `VirtualNet::dispatch_message`, which results in the message being processed as if it wasn't
-    /// faulty.
+    /// `VirtualNet::dispatch_message`, which results in the message being processed as if the node
+    /// was not faulty.
     #[inline]
     fn tamper(
         &mut self,
