@@ -43,10 +43,10 @@ macro_rules! net_trace {
 fn open_trace() -> Result<io::BufWriter<fs::File>, io::Error> {
     let mut rng = rand::thread_rng();
 
-    let exec_path = env::current_exe();
+    let exec_path = env::current_exe()?;
     let name = format!(
         "net-trace_{}_{}_{}.txt",
-        exec_path?
+        exec_path
             .file_name()
             .expect("could not get executable filename")
             .to_string_lossy()
