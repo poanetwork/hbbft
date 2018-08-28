@@ -18,11 +18,6 @@ where
     AlgorithmError {
         /// Network message that triggered the error.
         msg: NetMessage<D>,
-        // Note: Currently, neither [Error](std::error::Error) nor [Fail](failure::Fail) are
-        //       implemented for [`D::Error`].
-        //       Either would be preferable, and would enable a [`failure::Fail::cause`]
-        //       implementation.
-        /// Error produced by `D`.
         err: D::Error,
     },
     /// A node unexpectly disappeared from the list of nodes. Note that this is likely a bug in
@@ -35,8 +30,9 @@ where
 }
 
 // Note: Deriving [Debug](std::fmt::Debug), [Fail](failure::Fail) and through that,
-//       [Debug](std::fmt::Debug) automatically does not work due to the trait bound of
-//       `D: DistAlgorithm`. For this reason, these three traits are implemented manually.
+//       [Debug](std::fmt::Debug) automatically does not work due to the wrongly required trait
+//       bound of `D: DistAlgorithm` implementing the respective Trait. For this reason, these
+//       three traits are implemented manually.
 //
 //       More details at
 //
@@ -96,12 +92,7 @@ where
 {
     fn cause(&self) -> Option<&failure::Fail> {
         match self {
-            CrankError::AlgorithmError { .. } => {
-                // As soon as the necessary Trait bounds are on `DistAlgorithm`, this implementation
-                // can be commented in:
-                // Some(err)
-                None
-            }
+            CrankError::AlgorithmError { err, .. } => Some(err),
             _ => None,
         }
     }
