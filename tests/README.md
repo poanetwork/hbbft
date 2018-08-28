@@ -10,7 +10,7 @@ The new implementation offers many advantages, such as better abstractions for a
 
 ## VirtualNet
 
-Core of most tests is the `net::VirtualNet` struct, which simulates a network of nodes all running an instance of a distributed algorithm. Messages sent by these nodes are queued by the network. Every time the network is "cranked", a buffered message is delivered to its destination node and processed.
+Core of most tests is the `net::VirtualNet` struct, which simulates a network of nodes all running an instance of a distributed algorithm. Messages sent by these nodes are queued by the network and dispatched each time the network is advancing one iteration, commonly referred to as being "cranked". Each time the network is cranked, a buffered message is delivered to its destination node and processed.
 
 Virtual networks can also host an adversary that can affect faulty nodes (which are tracked automatically) or reorder queued messages.
 
