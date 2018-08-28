@@ -7,10 +7,10 @@
 //! delivered to a node.
 
 // We need to allow writes with newlines, resulting from `net_trace!` calls.
-#![allow(write_with_newline)]
+#![cfg_attr(feature = "cargo-clippy", allow(write_with_newline))]
 // Almost all of our types are fairly readable, but trigger the type complexity checks, probably
 // due to associated types.
-#![allow(type_complexity)]
+#![cfg_attr(feature = "cargo-clippy", allow(type_complexity))]
 
 pub mod adversary;
 pub mod err;
@@ -156,7 +156,7 @@ pub type NetMessage<D> =
 /// The function will panic if the `sender` ID is not a valid node ID in `nodes`.
 // This function is defined outside `VirtualNet` and takes arguments "piecewise" to work around
 // borrow-checker restrictions.
-#[allow(needless_pass_by_value)]
+#[cfg_attr(feature = "cargo-clippy", allow(needless_pass_by_value))]
 fn process_step<'a, D>(
     nodes: &'a mut collections::BTreeMap<D::NodeUid, Node<D>>,
     sender: D::NodeUid,
@@ -382,7 +382,7 @@ where
             .expect("cannot build network without a constructor function for the nodes");
 
         // Note: Closure is not redundant, won't compile without it.
-        #[allow(redundant_closure)]
+        #[cfg_attr(feature = "cargo-clippy", allow(redundant_closure))]
         let mut net = VirtualNet::new(self.node_ids, self.num_faulty, move |node| cons(node))?;
 
         if self.adversary.is_some() {
@@ -466,7 +466,7 @@ where
     ///
     /// Returns `None` if the node ID is not part of the network.
     #[inline]
-    #[allow(needless_pass_by_value)]
+    #[cfg_attr(feature = "cargo-clippy", allow(needless_pass_by_value))]
     pub fn get<'a>(&'a self, id: D::NodeUid) -> Option<&'a Node<D>> {
         self.nodes.get(&id)
     }
@@ -475,7 +475,7 @@ where
     ///
     /// Returns `None` if the node ID is not part of the network.
     #[inline]
-    #[allow(needless_pass_by_value)]
+    #[cfg_attr(feature = "cargo-clippy", allow(needless_pass_by_value))]
     pub fn get_mut<'a>(&'a mut self, id: D::NodeUid) -> Option<&'a mut Node<D>> {
         self.nodes.get_mut(&id)
     }
