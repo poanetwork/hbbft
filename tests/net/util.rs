@@ -26,6 +26,13 @@ impl<T> SubSlice for [T] {
         &self,
         mut range: ops::Range<usize>,
     ) -> &<Self as ops::Index<ops::Range<usize>>>::Output {
+        if range.start > self.len() {
+            range.start = self.len();
+            // If `range.start` is `> self.len()`, `range.end` will also be `>= self.len()`,
+            // since `ops::Range` enforces `start <= end`. We do not need to be worry about
+            // `range.end`, as it will be set to `self.len()` below.
+        }
+
         if range.end > self.len() {
             range.end = self.len();
         }
@@ -58,6 +65,14 @@ mod tests {
         assert_eq!(vals.as_slice(), vals.subslice(0..1000));
     }
 
+    #[test]
+    fn subslice_start_out_of_bounds() {
+        let vals = vec![
+            'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o',
+        ];
+
+        assert_eq!(vals.subslice(120..170).len(), 0);
+    }
 }
 
 /// Try-return a result, wrapped in `Some`.
