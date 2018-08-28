@@ -25,7 +25,7 @@ where
         /// Error produced by `D`.
         err: D::Error,
     },
-    /// A node unexpectly disappeared from the list of notes. Note that this is likely a bug in
+    /// A node unexpectly disappeared from the list of nodes. Note that this is likely a bug in
     /// the network framework code.
     NodeDisappeared(D::NodeUid),
     /// The configured maximum number of cranks has been reached or exceeded.
@@ -50,7 +50,7 @@ where
         match self {
             CrankError::AlgorithmError { msg, err } => write!(
                 f,
-                "The Underyling algorithm could not process network message {:?}. Error: {:?}",
+                "The algorithm could not process network message {:?}. Error: {:?}",
                 msg, err
             ),
             CrankError::NodeDisappeared(id) => write!(

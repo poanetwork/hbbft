@@ -1,4 +1,4 @@
-# Honey-badger tests
+# Honey Badger tests
 
 The `hbbft` crate comes with a toolkit for testing its various algorithms in simulated network environments.
 
@@ -82,7 +82,7 @@ This has the drawback that access to the network is not available between cranks
 ```rust
 while let Some(res) = net.crank() {
     let (node_id, step) = res.expect("algorithm error");
-    // `net` can still be mutable borrowed here.
+    // `net` can still be mutably borrowed here.
 }
 ```
 

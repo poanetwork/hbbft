@@ -1,6 +1,6 @@
 //! Utility functions
 //!
-//! A collection miscellaneous functions that are used in the tests, but are generic enough to be
+//! A collection of miscellaneous functions that are used in the tests, but are generic enough to be
 //! factored out.
 
 use std::ops;

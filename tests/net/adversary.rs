@@ -1,6 +1,6 @@
 //! Adversaries for test networks
 //!
-//! Adversaries can alter message ordering, inject messages and control the behaviour of any faulty
+//! Adversaries can alter message ordering, inject messages and control the behavior of any faulty
 //! node. These functions are handled through callbacks, implemented individually by each adversary.
 //!
 //! This module contains algorithm-agnostic adversaries, which should work for (or rather, against)
@@ -30,9 +30,7 @@ where
     ///
     /// The default implementation does not alter the passed network in any way.
     #[inline]
-    fn pre_crank(&mut self, _net: &mut VirtualNet<D>) {
-        // The default implementation does not alter anything.
-    }
+    fn pre_crank(&mut self, _net: &mut VirtualNet<D>) {}
 
     /// Tamper with a faulty node's operation.
     ///
@@ -53,7 +51,6 @@ where
         net: &mut VirtualNet<D>,
         msg: NetMessage<D>,
     ) -> Result<Step<D>, CrankError<D>> {
-        // By default, no tampering is done.
         net.dispatch_message(msg)
     }
 }

@@ -18,7 +18,7 @@ pub mod err;
 pub mod util;
 
 use std::io::Write;
-use std::{collections, env, fs, io, mem, ops, process};
+use std::{collections, env, fs, io, ops, process};
 
 use rand;
 use rand::Rand;
@@ -46,11 +46,11 @@ fn open_trace() -> Result<io::BufWriter<fs::File>, io::Error> {
     let exec_path = env::current_exe();
     let name = format!(
         "net-trace_{}_{}_{}.txt",
-        exec_path.map(|pb| pb
+        exec_path?
             .file_name()
             .expect("could not get executable filename")
             .to_string_lossy()
-            .into_owned())?,
+            .into_owned(),
         process::id(),
         u16::rand(&mut rng),
     );
@@ -250,7 +250,7 @@ where
     node_ids: I,
     /// Number of faulty nodes in the network.
     num_faulty: usize,
-    /// Constructor function.
+    /// Dist-algorithm constructor function.
     cons: Option<Box<Fn(NewNodeInfo<D>) -> (D, Step<D>)>>,
     /// Network adversary.
     adversary: Option<Box<dyn Adversary<D>>>,
@@ -371,7 +371,7 @@ where
     ///
     /// Finalizes the builder and creates the network.
     ///
-    /// # Panic
+    /// # Panics
     ///
     /// If the total number of nodes is not `> 3 * num_faulty`, construction will panic.
     #[inline]
@@ -628,13 +628,13 @@ where
 
         // Step 0: We give the Adversary a chance to affect the network.
 
-        // Swap the adversary out with a dummy, to get around ownership restrictions.
-        let mut adv = mem::replace(&mut self.adversary, None);
+        // We need to swap out the adversary, to avoid ownership/borrowing issues.
+        let mut adv = self.adversary.take();
         if let Some(ref mut adversary) = adv {
             // If an adversary was set, we let it affect the network now.
-            adversary.pre_crank(self)
+            adversary.pre_crank(self);
         }
-        mem::replace(&mut self.adversary, adv);
+        self.adversary = adv;
 
         // Step 1: Pick a message from the queue and deliver it; returns `None` if queue is empty.
         let msg = self.messages.pop_front()?;
@@ -660,12 +660,12 @@ where
         let step: Step<_> = if is_faulty {
             // The swap-dance is painful here, as we are creating an `opt_step` just to avoid
             // borrow issues.
-            let mut adv = mem::replace(&mut self.adversary, None);
+            let mut adv = self.adversary.take();
             let opt_tamper_result = adv.as_mut().map(|adversary| {
                 // If an adversary was set, we let it affect the network now.
                 adversary.tamper(self, msg)
             });
-            mem::replace(&mut self.adversary, adv);
+            self.adversary = adv;
 
             // A missing adversary here could technically be a panic, but is impossible since we
             // initialize with a `NullAdversary` upon construction.
@@ -725,6 +725,8 @@ where
         //       live as long as the iterator returned lives (because it is cloned on every step,
         //       with steps only evaluated each time `next()` is called. For the same reason the
         //       network should not go away ealier either.
+
+        // Note: It's unfortunately not possible to loop and call `send_input`,
 
         let steps: Vec<_> = self
             .nodes
