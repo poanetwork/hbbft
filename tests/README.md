@@ -55,7 +55,7 @@ The network advances through the `crank()` function, on every call
 
 If there were no messages to begin with, `None` is returned instead.
 
-<sup>1</sup>: Due to some implementation deficiencies it is possible for an adversary to mutate any part of VirtualNet (i.e. to change things beyond the scope of our adversary model). While this will be addressed in future versions, it is currently up to the test implementor to ensure that adversaries are not more powerful than they are supposed to be.
+<sup>1</sup>: Due to some implementation deficiencies it is possible for an adversary to mutate any part of `VirtualNet` (i.e. to change things beyond the scope of our adversary model). While this will be addressed in future versions, it is currently up to the test implementor to ensure that adversaries are not more powerful than they are supposed to be.
 
 Cranking can be done manually:
 
@@ -77,7 +77,7 @@ for res in net {
 }
 ```
 
-This has the drawback that access to the network is not available between cranks, as it is borrowed inside the for-loop. A common workaround is using a while loop instead:
+This has the drawback that access to the network is not available inside the loop, as it is borrowed. A common workaround is using a while loop instead:
 
 ```rust
 while let Some(res) = net.crank() {

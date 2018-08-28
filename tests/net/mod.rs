@@ -577,7 +577,7 @@ where
         Ok(step)
     }
 
-    /// Send input to a specific node
+    /// Send input to a specific node.
     ///
     /// Sends the specified `input` to the respective node identified by `id`. The messages of the
     /// resulting `step` are added to the network's queue.
