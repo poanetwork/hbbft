@@ -14,7 +14,6 @@ where
     ///
     /// Functions similar to `&sl[a..b]`, but while regular slicing will panic if `b` is out of
     /// range, `subslice` will return the longest possible slice.
-    #[inline]
     fn subslice(
         &self,
         range: ops::Range<usize>,

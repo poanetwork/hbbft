@@ -96,7 +96,7 @@ where
 {
     fn cause(&self) -> Option<&failure::Fail> {
         match self {
-            CrankError::AlgorithmError { err: _, .. } => {
+            CrankError::AlgorithmError { .. } => {
                 // As soon as the necessary Trait bounds are on `DistAlgorithm`, this implementation
                 // can be commented in:
                 // Some(err)

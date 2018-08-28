@@ -48,23 +48,22 @@ fn do_drop_and_readd(
 
     // We will use the first correct node as the node we will remove from and re-add to the network.
     // Note: This should be randomized using proptest.
-    let pivot_node_id: usize = net
+    let pivot_node_id: usize = *(net
         .correct_nodes()
         .nth(0)
         .expect("expected at least one correct node")
-        .id()
-        .clone();
+        .id());
     println!("Will remove and readd node #{}", pivot_node_id);
 
     // We generate a list of transaction we want to propose, for each node. All nodes will propose
     // a number between 0..total_txs, chosen randomly.
     let mut queues: collections::BTreeMap<_, Vec<usize>> = net
         .nodes()
-        .map(|node| (node.id().clone(), (0..total_txs).collect()))
+        .map(|node| (*node.id(), (0..total_txs).collect()))
         .collect();
 
     // For each node, select transactions randomly from the queue and propose them.
-    for (id, queue) in queues.iter_mut() {
+    for (id, queue) in &mut queues {
         let proposal =
             rand::seq::sample_slice(&mut rng, queue.as_slice(), proposals_per_epoch).to_vec();
         println!("Node {:?} will propose: {:?}", id, proposal);
@@ -81,12 +80,12 @@ fn do_drop_and_readd(
 
     // We are tracking (correct) nodes' state through the process by ticking them off individually.
     let mut awaiting_removal: collections::BTreeSet<_> =
-        net.correct_nodes().map(|n| n.id().clone()).collect();
+        net.correct_nodes().map(|n| *n.id()).collect();
     let mut awaiting_addition: collections::BTreeSet<_> =
-        net.correct_nodes().map(|n| n.id().clone()).collect();
+        net.correct_nodes().map(|n| *n.id()).collect();
     let mut expected_outputs: collections::BTreeMap<_, collections::BTreeSet<_>> = net
         .correct_nodes()
-        .map(|n| (n.id().clone(), (0..10).into_iter().collect()))
+        .map(|n| (*n.id(), (0..10).into_iter().collect()))
         .collect();
 
     // Run the network:
@@ -138,7 +137,7 @@ fn do_drop_and_readd(
             .expect("queue for node disappeared");
 
         // Examine potential algorithm output.
-        for batch in step.output.into_iter() {
+        for batch in step.output {
             println!(
                 "Received epoch {} batch on node {:?}.",
                 batch.epoch(),

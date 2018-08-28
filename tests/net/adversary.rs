@@ -62,6 +62,7 @@ where
 ///
 /// The `NullAdversary` does not interfere with operation in any way, it neither reorders messages
 /// nor tampers with message, passing them through unchanged instead.
+#[derive(Debug, Default)]
 pub struct NullAdversary {}
 
 impl NullAdversary {

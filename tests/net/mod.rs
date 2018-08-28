@@ -6,6 +6,12 @@
 //! Networks are "cranked" to move things forward; each crank of a network causes one message to be
 //! delivered to a node.
 
+// We need to allow writes with newlines, resulting from `net_trace!` calls.
+#![allow(write_with_newline)]
+// Almost all of our types are fairly readable, but trigger the type complexity checks, probably
+// due to associated types.
+#![allow(type_complexity)]
+
 pub mod adversary;
 pub mod err;
 #[macro_use]
@@ -150,6 +156,7 @@ pub type NetMessage<D> =
 /// The function will panic if the `sender` ID is not a valid node ID in `nodes`.
 // This function is defined outside `VirtualNet` and takes arguments "piecewise" to work around
 // borrow-checker restrictions.
+#[allow(needless_pass_by_value)]
 fn process_step<'a, D>(
     nodes: &'a mut collections::BTreeMap<D::NodeUid, Node<D>>,
     sender: D::NodeUid,
@@ -169,7 +176,7 @@ where
     let mut message_count: usize = 0;
 
     // Queue all messages for processing.
-    for tmsg in step.messages.iter() {
+    for tmsg in &step.messages {
         match &tmsg.target {
             // Single target message.
             messaging::Target::Node(to) => {
@@ -273,7 +280,7 @@ where
     #[inline]
     pub fn new(node_ids: I) -> Self {
         NetBuilder {
-            node_ids: node_ids,
+            node_ids,
             num_faulty: 0,
             cons: None,
             adversary: None,
@@ -374,6 +381,8 @@ where
             .as_ref()
             .expect("cannot build network without a constructor function for the nodes");
 
+        // Note: Closure is not redundant, won't compile without it.
+        #[allow(redundant_closure)]
         let mut net = VirtualNet::new(self.node_ids, self.num_faulty, move |node| cons(node))?;
 
         if self.adversary.is_some() {
@@ -382,7 +391,7 @@ where
 
         let trace = self.trace.unwrap_or_else(|| {
             // If the trace setting is not overriden, we use the setting from the environment.
-            let setting = env::var("HBBFT_TEST_TRACE").unwrap_or("true".to_string());
+            let setting = env::var("HBBFT_TEST_TRACE").unwrap_or_else(|_| "true".to_string());
             !(setting == "false" || setting == "0")
         });
 
@@ -457,6 +466,7 @@ where
     ///
     /// Returns `None` if the node ID is not part of the network.
     #[inline]
+    #[allow(needless_pass_by_value)]
     pub fn get<'a>(&'a self, id: D::NodeUid) -> Option<&'a Node<D>> {
         self.nodes.get(&id)
     }
@@ -465,6 +475,7 @@ where
     ///
     /// Returns `None` if the node ID is not part of the network.
     #[inline]
+    #[allow(needless_pass_by_value)]
     pub fn get_mut<'a>(&'a mut self, id: D::NodeUid) -> Option<&'a mut Node<D>> {
         self.nodes.get_mut(&id)
     }
