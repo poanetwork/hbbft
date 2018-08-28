@@ -1,5 +1,4 @@
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
-use std::fmt::Debug;
 use std::iter::once;
 
 use failure::Fail;
