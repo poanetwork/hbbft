@@ -191,11 +191,7 @@ where
                 ));
             }
             // Broadcast messages get expanded into multiple direct messages.
-            messaging::Target::All => for to in nodes.keys() {
-                if *to == sender {
-                    continue;
-                }
-
+            messaging::Target::All => for to in nodes.keys().filter(|&to| to != &sender) {
                 if !faulty {
                     message_count = message_count.saturating_add(1);
                 }
