@@ -198,7 +198,7 @@ pub trait DistAlgorithm {
     type Error: Fail;
 
     /// Handles an input provided by the user, and returns
-    fn input(&mut self, input: Self::Input) -> Result<Step<Self>, Self::Error>
+    fn handle_input(&mut self, input: Self::Input) -> Result<Step<Self>, Self::Error>
     where
         Self: Sized;
 

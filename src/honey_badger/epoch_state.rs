@@ -44,7 +44,7 @@ where
     /// Handles a ciphertext input.
     fn set_ciphertext(&mut self, ciphertext: Ciphertext) -> td::Result<td::Step<N>> {
         match self {
-            DecryptionState::Ongoing(ref mut td) => td.input(ciphertext),
+            DecryptionState::Ongoing(ref mut td) => td.handle_input(ciphertext),
             DecryptionState::Complete(_) => Ok(td::Step::default()),
         }
     }
@@ -72,9 +72,9 @@ where
     N: NodeUidT + Rand,
 {
     /// Provides input to the Subset instance, unless it has already completed.
-    fn input(&mut self, proposal: Vec<u8>) -> Result<cs::Step<N>> {
+    fn handle_input(&mut self, proposal: Vec<u8>) -> Result<cs::Step<N>> {
         match self {
-            SubsetState::Ongoing(ref mut cs) => cs.input(proposal),
+            SubsetState::Ongoing(ref mut cs) => cs.handle_input(proposal),
             SubsetState::Complete(_) => return Ok(cs::Step::default()),
         }.map_err(|err| ErrorKind::InputSubset(err).into())
     }
@@ -139,7 +139,7 @@ where
     /// If the instance hasn't terminated yet, inputs our encrypted contribution.
     pub fn propose(&mut self, ciphertext: &Ciphertext) -> Result<Step<C, N>> {
         let ser_ct = bincode::serialize(ciphertext).map_err(|err| ErrorKind::ProposeBincode(*err))?;
-        let cs_step = self.subset.input(ser_ct)?;
+        let cs_step = self.subset.handle_input(ser_ct)?;
         self.process_subset(cs_step)
     }
 

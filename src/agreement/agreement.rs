@@ -79,8 +79,8 @@ impl<N: NodeUidT> DistAlgorithm for Agreement<N> {
     type Message = Message;
     type Error = Error;
 
-    fn input(&mut self, input: Self::Input) -> Result<Step<N>> {
-        self.set_input(input)
+    fn handle_input(&mut self, input: Self::Input) -> Result<Step<N>> {
+        self.handle_input(input)
     }
 
     /// Receive input from a remote node.
@@ -131,14 +131,14 @@ impl<N: NodeUidT> Agreement<N> {
     }
 
     /// Sets the input value for agreement.
-    fn set_input(&mut self, input: bool) -> Result<Step<N>> {
+    fn handle_input(&mut self, input: bool) -> Result<Step<N>> {
         if self.epoch != 0 || self.estimated.is_some() {
             return Err(Error::InputNotAccepted);
         }
         // Set the initial estimated value to the input value.
         self.estimated = Some(input);
         debug!("{:?}/{:?} Input {}", self.our_id(), self.proposer_id, input);
-        let sbvb_step = self.sbv_broadcast.input(input)?;
+        let sbvb_step = self.sbv_broadcast.handle_input(input)?;
         self.handle_sbvb_step(sbvb_step)
     }
 
@@ -357,9 +357,9 @@ impl<N: NodeUidT> Agreement<N> {
         // Invoke the coin.
         let coin_step = match self.coin_state {
             CoinState::Decided(_) => return Ok(Step::default()), // Coin has already decided.
-            CoinState::InProgress(ref mut coin) => {
-                coin.input(()).map_err(Error::TryFinishConfRoundCoin)?
-            }
+            CoinState::InProgress(ref mut coin) => coin
+                .handle_input(())
+                .map_err(Error::TryFinishConfRoundCoin)?,
         };
         let mut step = self.on_coin_step(coin_step)?;
         step.extend(self.try_update_epoch()?);
@@ -391,7 +391,7 @@ impl<N: NodeUidT> Agreement<N> {
         );
 
         self.estimated = Some(b);
-        let sbvb_step = self.sbv_broadcast.input(b)?;
+        let sbvb_step = self.sbv_broadcast.handle_input(b)?;
         let mut step = self.handle_sbvb_step(sbvb_step)?;
         let queued_msgs = Itertools::flatten(self.incoming_queue.remove(&self.epoch).into_iter());
         for (sender_id, content) in queued_msgs {

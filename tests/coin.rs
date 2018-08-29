@@ -30,7 +30,7 @@ where
     A: Adversary<Coin<NodeUid, String>>,
 {
     network.input_all(());
-    network.observer.input(()); // Observer will only return after `input` was called.
+    network.observer.handle_input(()); // Observer will only return after `input` was called.
 
     // Handle messages until all good nodes have terminated.
     while !network.nodes.values().all(TestNode::terminated) {

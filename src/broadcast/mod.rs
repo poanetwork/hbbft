@@ -111,7 +111,7 @@
 //!     // Now we can start the algorithm, its input is the payload.
 //!     let initial_step = {
 //!         let proposer = nodes.get_mut(&PROPOSER_ID).unwrap();
-//!         proposer.input(payload.clone()).unwrap()
+//!         proposer.handle_input(payload.clone()).unwrap()
 //!     };
 //!     on_step(
 //!         PROPOSER_ID,

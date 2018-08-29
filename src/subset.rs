@@ -93,7 +93,7 @@ impl<N: NodeUidT + Rand> DistAlgorithm for Subset<N> {
     type Message = Message<N>;
     type Error = Error;
 
-    fn input(&mut self, input: Self::Input) -> Result<Step<N>> {
+    fn handle_input(&mut self, input: Self::Input) -> Result<Step<N>> {
         debug!(
             "{:?} Proposing {:?}",
             self.netinfo.our_uid(),
@@ -161,7 +161,7 @@ impl<N: NodeUidT + Rand> Subset<N> {
         }
         let uid = self.netinfo.our_uid().clone();
         // Upon receiving input v_i , input v_i to RBC_i. See Figure 2.
-        self.process_broadcast(&uid, |bc| bc.input(value))
+        self.process_broadcast(&uid, |bc| bc.handle_input(value))
     }
 
     /// Returns the number of validators from which we have already received a proposal.
@@ -220,7 +220,7 @@ impl<N: NodeUidT + Rand> Subset<N> {
         self.broadcast_results.insert(proposer_id.clone(), value);
         let set_agreement_input = |agreement: &mut Agreement<N>| {
             if agreement.accepts_input() {
-                agreement.input(true)
+                agreement.handle_input(true)
             } else {
                 Ok(agreement::Step::default())
             }
@@ -276,7 +276,7 @@ impl<N: NodeUidT + Rand> Subset<N> {
                     let to_msg = |a_msg| Message::Agreement(uid.clone(), a_msg);
                     for output in step.extend_with(
                         agreement
-                            .input(false)
+                            .handle_input(false)
                             .map_err(Error::ProcessAgreementAgreement1)?,
                         to_msg,
                     ) {

@@ -86,7 +86,7 @@ impl Adversary<Broadcast<NodeUid>> for ProposeAdversary {
         );
         let mut bc = Broadcast::new(netinfo, id).expect("broadcast instance");
         // FIXME: Use the output.
-        let step = bc.input(b"Fake news".to_vec()).expect("propose");
+        let step = bc.handle_input(b"Fake news".to_vec()).expect("propose");
         step.messages
             .into_iter()
             .map(|msg| MessageWithSender::new(id, msg))

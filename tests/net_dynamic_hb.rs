@@ -134,7 +134,7 @@ fn do_drop_and_readd(
                         .public_key();
                     let _ = net[node_id]
                         .algorithm_mut()
-                        .input(Input::Change(Change::Add(*pivot_node_id, pk)))
+                        .handle_input(Input::Change(Change::Add(*pivot_node_id, pk)))
                         .expect("failed to send `Add` input");
                 }
 

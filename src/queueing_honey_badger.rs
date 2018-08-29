@@ -185,7 +185,7 @@ where
     type Message = Message<N>;
     type Error = Error;
 
-    fn input(&mut self, input: Self::Input) -> Result<Step<T, N>> {
+    fn handle_input(&mut self, input: Self::Input) -> Result<Step<T, N>> {
         // User transactions are forwarded to `HoneyBadger` right away. Internal messages are
         // in addition signed and broadcast.
         let mut step = match input {
@@ -195,7 +195,7 @@ where
             }
             Input::Change(change) => self
                 .dyn_hb
-                .input(Input::Change(change))
+                .handle_input(Input::Change(change))
                 .map_err(ErrorKind::Input)?
                 .convert(),
         };
@@ -259,7 +259,7 @@ where
             let proposal = self.queue.choose(amount, self.batch_size);
             step.extend(
                 self.dyn_hb
-                    .input(Input::User(proposal))
+                    .handle_input(Input::User(proposal))
                     .map_err(ErrorKind::Propose)?
                     .convert(),
             );
