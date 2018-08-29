@@ -5,7 +5,7 @@ use failure::Fail;
 
 use crypto::{self, PublicKey, PublicKeySet, PublicKeyShare, SecretKey, SecretKeyShare};
 use fault_log::{Fault, FaultLog};
-use traits::{Message, NodeUidT};
+use traits::{Message, NodeIdT};
 
 /// Message sent by a given source.
 #[derive(Clone, Debug)]
@@ -59,17 +59,17 @@ impl<M, N> TargetedMessage<M, N> {
 pub struct Step<D>
 where
     D: DistAlgorithm,
-    <D as DistAlgorithm>::NodeUid: NodeUidT,
+    <D as DistAlgorithm>::NodeId: NodeIdT,
 {
     pub output: VecDeque<D::Output>,
-    pub fault_log: FaultLog<D::NodeUid>,
-    pub messages: VecDeque<TargetedMessage<D::Message, D::NodeUid>>,
+    pub fault_log: FaultLog<D::NodeId>,
+    pub messages: VecDeque<TargetedMessage<D::Message, D::NodeId>>,
 }
 
 impl<D> Default for Step<D>
 where
     D: DistAlgorithm,
-    <D as DistAlgorithm>::NodeUid: NodeUidT,
+    <D as DistAlgorithm>::NodeId: NodeIdT,
 {
     fn default() -> Step<D> {
         Step {
@@ -82,13 +82,13 @@ where
 
 impl<D: DistAlgorithm> Step<D>
 where
-    <D as DistAlgorithm>::NodeUid: NodeUidT,
+    <D as DistAlgorithm>::NodeId: NodeIdT,
 {
     /// Creates a new `Step` from the given collections.
     pub fn new(
         output: VecDeque<D::Output>,
-        fault_log: FaultLog<D::NodeUid>,
-        messages: VecDeque<TargetedMessage<D::Message, D::NodeUid>>,
+        fault_log: FaultLog<D::NodeId>,
+        messages: VecDeque<TargetedMessage<D::Message, D::NodeId>>,
     ) -> Self {
         Step {
             output,
@@ -107,7 +107,7 @@ where
     /// messages.
     pub fn map<D2, FO, FM>(self, f_out: FO, f_msg: FM) -> Step<D2>
     where
-        D2: DistAlgorithm<NodeUid = D::NodeUid>,
+        D2: DistAlgorithm<NodeId = D::NodeId>,
         FO: Fn(D::Output) -> D2::Output,
         FM: Fn(D::Message) -> D2::Message,
     {
@@ -121,7 +121,7 @@ where
     /// Extends `self` with `other`s messages and fault logs, and returns `other.output`.
     pub fn extend_with<D2, FM>(&mut self, other: Step<D2>, f_msg: FM) -> VecDeque<D2::Output>
     where
-        D2: DistAlgorithm<NodeUid = D::NodeUid>,
+        D2: DistAlgorithm<NodeId = D::NodeId>,
         FM: Fn(D2::Message) -> D::Message,
     {
         self.fault_log.extend(other.fault_log);
@@ -141,7 +141,7 @@ where
     // This cannot be a `From` impl, because it would conflict with `impl From<T> for T`.
     pub fn convert<D2>(self) -> Step<D2>
     where
-        D2: DistAlgorithm<NodeUid = D::NodeUid, Output = D::Output, Message = D::Message>,
+        D2: DistAlgorithm<NodeId = D::NodeId, Output = D::Output, Message = D::Message>,
     {
         Step {
             output: self.output,
@@ -156,8 +156,8 @@ where
     }
 }
 
-impl<D: DistAlgorithm> From<FaultLog<D::NodeUid>> for Step<D> {
-    fn from(fault_log: FaultLog<D::NodeUid>) -> Self {
+impl<D: DistAlgorithm> From<FaultLog<D::NodeId>> for Step<D> {
+    fn from(fault_log: FaultLog<D::NodeId>) -> Self {
         Step {
             fault_log,
             ..Step::default()
@@ -165,8 +165,8 @@ impl<D: DistAlgorithm> From<FaultLog<D::NodeUid>> for Step<D> {
     }
 }
 
-impl<D: DistAlgorithm> From<Fault<D::NodeUid>> for Step<D> {
-    fn from(fault: Fault<D::NodeUid>) -> Self {
+impl<D: DistAlgorithm> From<Fault<D::NodeId>> for Step<D> {
+    fn from(fault: Fault<D::NodeId>) -> Self {
         Step {
             fault_log: fault.into(),
             ..Step::default()
@@ -174,8 +174,8 @@ impl<D: DistAlgorithm> From<Fault<D::NodeUid>> for Step<D> {
     }
 }
 
-impl<D: DistAlgorithm> From<TargetedMessage<D::Message, D::NodeUid>> for Step<D> {
-    fn from(msg: TargetedMessage<D::Message, D::NodeUid>) -> Self {
+impl<D: DistAlgorithm> From<TargetedMessage<D::Message, D::NodeId>> for Step<D> {
+    fn from(msg: TargetedMessage<D::Message, D::NodeId>) -> Self {
         Step {
             messages: once(msg).collect(),
             ..Step::default()
@@ -186,7 +186,7 @@ impl<D: DistAlgorithm> From<TargetedMessage<D::Message, D::NodeUid>> for Step<D>
 /// A distributed algorithm that defines a message flow.
 pub trait DistAlgorithm {
     /// Unique node identifier.
-    type NodeUid: NodeUidT;
+    type NodeId: NodeIdT;
     /// The input provided by the user.
     type Input;
     /// The output type. Some algorithms return an output exactly once, others return multiple
@@ -205,7 +205,7 @@ pub trait DistAlgorithm {
     /// Handles a message received from node `sender_id`.
     fn handle_message(
         &mut self,
-        sender_id: &Self::NodeUid,
+        sender_id: &Self::NodeId,
         message: Self::Message,
     ) -> Result<Step<Self>, Self::Error>
     where
@@ -215,13 +215,13 @@ pub trait DistAlgorithm {
     fn terminated(&self) -> bool;
 
     /// Returns this node's own ID.
-    fn our_id(&self) -> &Self::NodeUid;
+    fn our_id(&self) -> &Self::NodeId;
 }
 
 /// Common data shared between algorithms: the nodes' IDs and key shares.
 #[derive(Debug, Clone)]
 pub struct NetworkInfo<N> {
-    our_uid: N,
+    our_id: N,
     num_nodes: usize,
     num_faulty: usize,
     is_validator: bool,
@@ -234,16 +234,16 @@ pub struct NetworkInfo<N> {
     node_indices: BTreeMap<N, usize>,
 }
 
-impl<N: NodeUidT> NetworkInfo<N> {
+impl<N: NodeIdT> NetworkInfo<N> {
     pub fn new(
-        our_uid: N,
+        our_id: N,
         secret_key_share: SecretKeyShare,
         public_key_set: PublicKeySet,
         secret_key: SecretKey,
         public_keys: BTreeMap<N, PublicKey>,
     ) -> Self {
         let num_nodes = public_keys.len();
-        let is_validator = public_keys.contains_key(&our_uid);
+        let is_validator = public_keys.contains_key(&our_id);
         let node_indices: BTreeMap<N, usize> = public_keys
             .keys()
             .enumerate()
@@ -254,7 +254,7 @@ impl<N: NodeUidT> NetworkInfo<N> {
             .map(|(id, idx)| (id.clone(), public_key_set.public_key_share(*idx)))
             .collect();
         NetworkInfo {
-            our_uid,
+            our_id,
             num_nodes,
             num_faulty: (num_nodes - 1) / 3,
             is_validator,
@@ -268,12 +268,12 @@ impl<N: NodeUidT> NetworkInfo<N> {
     }
 
     /// The ID of the node the algorithm runs on.
-    pub fn our_uid(&self) -> &N {
-        &self.our_uid
+    pub fn our_id(&self) -> &N {
+        &self.our_id
     }
 
     /// ID of all nodes in the network.
-    pub fn all_uids(&self) -> impl Iterator<Item = &N> {
+    pub fn all_ids(&self) -> impl Iterator<Item = &N> {
         self.public_keys.keys()
     }
 
@@ -352,12 +352,12 @@ impl<N: NodeUidT> NetworkInfo<N> {
 
     /// Returns `true` if the given node takes part in the consensus itself. If not, it is only an
     /// observer.
-    pub fn is_node_validator(&self, uid: &N) -> bool {
-        self.public_keys.contains_key(uid)
+    pub fn is_node_validator(&self, id: &N) -> bool {
+        self.public_keys.contains_key(id)
     }
 
     /// Generates a map of matching `NetworkInfo`s for testing.
-    pub fn generate_map<I>(uids: I) -> Result<BTreeMap<N, NetworkInfo<N>>, crypto::error::Error>
+    pub fn generate_map<I>(ids: I) -> Result<BTreeMap<N, NetworkInfo<N>>, crypto::error::Error>
     where
         I: IntoIterator<Item = N>,
     {
@@ -367,8 +367,8 @@ impl<N: NodeUidT> NetworkInfo<N> {
 
         let mut rng = rand::thread_rng();
 
-        let all_uids: BTreeSet<N> = uids.into_iter().collect();
-        let num_faulty = (all_uids.len() - 1) / 3;
+        let all_ids: BTreeSet<N> = ids.into_iter().collect();
+        let num_faulty = (all_ids.len() - 1) / 3;
 
         // Generate the keys for threshold cryptography.
         let sk_set = SecretKeySet::random(num_faulty, &mut rng)?;
@@ -376,24 +376,24 @@ impl<N: NodeUidT> NetworkInfo<N> {
 
         // Generate keys for individually signing and encrypting messages.
         let sec_keys: BTreeMap<_, SecretKey> =
-            all_uids.iter().map(|id| (id.clone(), rng.gen())).collect();
+            all_ids.iter().map(|id| (id.clone(), rng.gen())).collect();
         let pub_keys: BTreeMap<_, PublicKey> = sec_keys
             .iter()
             .map(|(id, sk)| (id.clone(), sk.public_key()))
             .collect();
 
         // Create the corresponding `NetworkInfo` for each node.
-        let create_netinfo = |(i, uid): (usize, N)| {
+        let create_netinfo = |(i, id): (usize, N)| {
             let netinfo = NetworkInfo::new(
-                uid.clone(),
+                id.clone(),
                 sk_set.secret_key_share(i)?,
                 pk_set.clone(),
-                sec_keys[&uid].clone(),
+                sec_keys[&id].clone(),
                 pub_keys.clone(),
             );
-            Ok((uid, netinfo))
+            Ok((id, netinfo))
         };
-        all_uids
+        all_ids
             .into_iter()
             .enumerate()
             .map(create_netinfo)

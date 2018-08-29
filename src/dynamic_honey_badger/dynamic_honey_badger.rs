@@ -15,7 +15,7 @@ use fault_log::{Fault, FaultKind, FaultLog};
 use honey_badger::{self, HoneyBadger, Message as HbMessage};
 use messaging::{DistAlgorithm, NetworkInfo, Target};
 use sync_key_gen::{Ack, Part, PartOutcome, SyncKeyGen};
-use traits::{Contribution, NodeUidT};
+use traits::{Contribution, NodeIdT};
 
 /// A Honey Badger instance that can handle adding and removing nodes.
 #[derive(Debug)]
@@ -41,9 +41,9 @@ pub struct DynamicHoneyBadger<C, N: Rand> {
 impl<C, N> DistAlgorithm for DynamicHoneyBadger<C, N>
 where
     C: Contribution + Serialize + for<'r> Deserialize<'r>,
-    N: NodeUidT + Serialize + for<'r> Deserialize<'r> + Rand,
+    N: NodeIdT + Serialize + for<'r> Deserialize<'r> + Rand,
 {
-    type NodeUid = N;
+    type NodeId = N;
     type Input = Input<C, N>;
     type Output = Batch<C, N>;
     type Message = Message<N>;
@@ -89,14 +89,14 @@ where
     }
 
     fn our_id(&self) -> &N {
-        self.netinfo.our_uid()
+        self.netinfo.our_id()
     }
 }
 
 impl<C, N> DynamicHoneyBadger<C, N>
 where
     C: Contribution + Serialize + for<'r> Deserialize<'r>,
-    N: NodeUidT + Serialize + for<'r> Deserialize<'r> + Rand,
+    N: NodeIdT + Serialize + for<'r> Deserialize<'r> + Rand,
 {
     /// Returns a new `DynamicHoneyBadgerBuilder`.
     pub fn builder() -> DynamicHoneyBadgerBuilder<C, N> {
@@ -315,8 +315,8 @@ where
         // `NetworkInfo` if the change goes through. It would be safer to deduplicate.
         let threshold = (pub_keys.len() - 1) / 3;
         let sk = self.netinfo.secret_key().clone();
-        let our_uid = self.our_id().clone();
-        let (key_gen, part) = SyncKeyGen::new(our_uid, sk, pub_keys, threshold)?;
+        let our_id = self.our_id().clone();
+        let (key_gen, part) = SyncKeyGen::new(our_id, sk, pub_keys, threshold)?;
         self.key_gen_state = Some(KeyGenState::new(key_gen, change.clone()));
         if let Some(part) = part {
             self.send_transaction(KeyGenMessage::Part(part))
@@ -362,9 +362,9 @@ where
             bincode::serialize(&kg_msg).map_err(|err| ErrorKind::SendTransactionBincode(*err))?;
         let sig = Box::new(self.netinfo.secret_key().sign(ser));
         if self.netinfo.is_validator() {
-            let our_uid = self.netinfo.our_uid().clone();
+            let our_id = self.netinfo.our_id().clone();
             let signed_msg =
-                SignedKeyGenMsg(self.start_epoch, our_uid, kg_msg.clone(), *sig.clone());
+                SignedKeyGenMsg(self.start_epoch, our_id, kg_msg.clone(), *sig.clone());
             self.key_gen_msg_buffer.push(signed_msg);
         }
         let msg = Message::KeyGen(self.start_epoch, kg_msg, sig);

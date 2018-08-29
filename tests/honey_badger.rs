@@ -29,17 +29,17 @@ use hbbft::threshold_decryption;
 use hbbft::transaction_queue::TransactionQueue;
 
 use network::{
-    Adversary, MessageScheduler, MessageWithSender, NodeUid, RandomAdversary, SilentAdversary,
+    Adversary, MessageScheduler, MessageWithSender, NodeId, RandomAdversary, SilentAdversary,
     TestNetwork, TestNode,
 };
 
-type UsizeHoneyBadger = HoneyBadger<Vec<usize>, NodeUid>;
+type UsizeHoneyBadger = HoneyBadger<Vec<usize>, NodeId>;
 
 /// An adversary whose nodes only send messages with incorrect decryption shares.
 pub struct FaultyShareAdversary {
     num_good: usize,
     num_adv: usize,
-    adv_nodes: BTreeMap<NodeUid, Arc<NetworkInfo<NodeUid>>>,
+    adv_nodes: BTreeMap<NodeId, Arc<NetworkInfo<NodeId>>>,
     scheduler: MessageScheduler,
     share_triggers: BTreeMap<u64, bool>,
 }
@@ -49,7 +49,7 @@ impl FaultyShareAdversary {
     pub fn new(
         num_good: usize,
         num_adv: usize,
-        adv_nodes: BTreeMap<NodeUid, Arc<NetworkInfo<NodeUid>>>,
+        adv_nodes: BTreeMap<NodeId, Arc<NetworkInfo<NodeId>>>,
         scheduler: MessageScheduler,
     ) -> FaultyShareAdversary {
         FaultyShareAdversary {
@@ -63,16 +63,16 @@ impl FaultyShareAdversary {
 }
 
 impl Adversary<UsizeHoneyBadger> for FaultyShareAdversary {
-    fn pick_node(&self, nodes: &BTreeMap<NodeUid, TestNode<UsizeHoneyBadger>>) -> NodeUid {
+    fn pick_node(&self, nodes: &BTreeMap<NodeId, TestNode<UsizeHoneyBadger>>) -> NodeId {
         self.scheduler.pick_node(nodes)
     }
 
     fn push_message(
         &mut self,
-        sender_id: NodeUid,
-        msg: TargetedMessage<honey_badger::Message<NodeUid>, NodeUid>,
+        sender_id: NodeId,
+        msg: TargetedMessage<honey_badger::Message<NodeId>, NodeId>,
     ) {
-        let NodeUid(sender_id) = sender_id;
+        let NodeId(sender_id) = sender_id;
         if sender_id < self.num_good {
             if let TargetedMessage {
                 target: Target::All,
@@ -96,7 +96,7 @@ impl Adversary<UsizeHoneyBadger> for FaultyShareAdversary {
                 *trigger_set = false;
                 // Broadcast fake decryption shares from all adversarial nodes.
                 for sender_id in self.num_good..self.num_adv {
-                    let adv_node = &self.adv_nodes[&NodeUid(sender_id)];
+                    let adv_node = &self.adv_nodes[&NodeId(sender_id)];
                     let fake_ciphertext = (*adv_node)
                         .public_key_set()
                         .public_key()
@@ -108,10 +108,10 @@ impl Adversary<UsizeHoneyBadger> for FaultyShareAdversary {
                     // Send the share to remote nodes.
                     for proposer_id in 0..self.num_good + self.num_adv {
                         outgoing.push(MessageWithSender::new(
-                            NodeUid(sender_id),
+                            NodeId(sender_id),
                             Target::All.message(
                                 MessageContent::DecryptionShare {
-                                    proposer_id: NodeUid(proposer_id),
+                                    proposer_id: NodeId(proposer_id),
                                     share: threshold_decryption::Message(share.clone()),
                                 }.with_epoch(*epoch),
                             ),
@@ -129,7 +129,7 @@ fn test_honey_badger<A>(mut network: TestNetwork<A, UsizeHoneyBadger>, num_txs: 
 where
     A: Adversary<UsizeHoneyBadger>,
 {
-    let new_queue = |id: &NodeUid| (*id, TransactionQueue((0..num_txs).collect()));
+    let new_queue = |id: &NodeId| (*id, TransactionQueue((0..num_txs).collect()));
     let mut queues: BTreeMap<_, _> = network.nodes.keys().map(new_queue).collect();
 
     // Returns `true` if the node has not output all transactions yet.
@@ -168,7 +168,7 @@ where
     let mut expected: Option<BTreeMap<&_, &_>> = None;
     for node in network.nodes.values() {
         assert!(!node.outputs().is_empty());
-        let outputs: BTreeMap<&u64, &BTreeMap<NodeUid, Vec<usize>>> = node
+        let outputs: BTreeMap<&u64, &BTreeMap<NodeId, Vec<usize>>> = node
             .outputs()
             .iter()
             .map(
@@ -186,14 +186,14 @@ where
     }
 }
 
-fn new_honey_badger(netinfo: Arc<NetworkInfo<NodeUid>>) -> UsizeHoneyBadger {
+fn new_honey_badger(netinfo: Arc<NetworkInfo<NodeId>>) -> UsizeHoneyBadger {
     HoneyBadger::builder(netinfo).build()
 }
 
 fn test_honey_badger_different_sizes<A, F>(new_adversary: F, num_txs: usize)
 where
     A: Adversary<UsizeHoneyBadger>,
-    F: Fn(usize, usize, BTreeMap<NodeUid, Arc<NetworkInfo<NodeUid>>>) -> A,
+    F: Fn(usize, usize, BTreeMap<NodeId, Arc<NetworkInfo<NodeId>>>) -> A,
 {
     // This returns an error in all but the first test.
     let _ = env_logger::try_init();

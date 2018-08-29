@@ -26,37 +26,37 @@ use hbbft::queueing_honey_badger::{Batch, Change, ChangeState, Input, QueueingHo
 use itertools::Itertools;
 use rand::Rng;
 
-use network::{Adversary, MessageScheduler, NodeUid, SilentAdversary, TestNetwork, TestNode};
+use network::{Adversary, MessageScheduler, NodeId, SilentAdversary, TestNetwork, TestNode};
 
 /// Proposes `num_txs` values and expects nodes to output and order them.
 fn test_queueing_honey_badger<A>(
-    mut network: TestNetwork<A, QueueingHoneyBadger<usize, NodeUid>>,
+    mut network: TestNetwork<A, QueueingHoneyBadger<usize, NodeId>>,
     num_txs: usize,
 ) where
-    A: Adversary<QueueingHoneyBadger<usize, NodeUid>>,
+    A: Adversary<QueueingHoneyBadger<usize, NodeId>>,
 {
     // The second half of the transactions will be input only after a node has been removed.
-    network.input_all(Input::Change(Change::Remove(NodeUid(0))));
+    network.input_all(Input::Change(Change::Remove(NodeId(0))));
     for tx in 0..(num_txs / 2) {
         network.input_all(Input::User(tx));
     }
 
-    fn has_remove(node: &TestNode<QueueingHoneyBadger<usize, NodeUid>>) -> bool {
+    fn has_remove(node: &TestNode<QueueingHoneyBadger<usize, NodeId>>) -> bool {
         node.outputs()
             .iter()
-            .any(|batch| *batch.change() == ChangeState::Complete(Change::Remove(NodeUid(0))))
+            .any(|batch| *batch.change() == ChangeState::Complete(Change::Remove(NodeId(0))))
     }
 
-    fn has_add(node: &TestNode<QueueingHoneyBadger<usize, NodeUid>>) -> bool {
+    fn has_add(node: &TestNode<QueueingHoneyBadger<usize, NodeId>>) -> bool {
         node.outputs().iter().any(|batch| match *batch.change() {
-            ChangeState::Complete(Change::Add(ref id, _)) => *id == NodeUid(0),
+            ChangeState::Complete(Change::Add(ref id, _)) => *id == NodeId(0),
             _ => false,
         })
     }
 
     // Returns `true` if the node has not output all transactions yet.
     // If it has, and has advanced another epoch, it clears all messages for later epochs.
-    let node_busy = |node: &mut TestNode<QueueingHoneyBadger<usize, NodeUid>>| {
+    let node_busy = |node: &mut TestNode<QueueingHoneyBadger<usize, NodeId>>| {
         if !has_remove(node) || !has_add(node) {
             return true;
         }
@@ -74,13 +74,13 @@ fn test_queueing_honey_badger<A>(
             for tx in (num_txs / 2)..num_txs {
                 network.input_all(Input::User(tx));
             }
-            let pk = network.nodes[&NodeUid(0)]
+            let pk = network.nodes[&NodeId(0)]
                 .instance()
                 .dyn_hb()
                 .netinfo()
                 .secret_key()
                 .public_key();
-            network.input_all(Input::Change(Change::Add(NodeUid(0), pk)));
+            network.input_all(Input::Change(Change::Add(NodeId(0), pk)));
             input_add = true;
         }
     }
@@ -90,11 +90,11 @@ fn test_queueing_honey_badger<A>(
 /// Verifies that all instances output the same sequence of batches. We already know that all of
 /// them have output all transactions and events, but some may have advanced a few empty batches
 /// more than others, so we ignore those.
-fn verify_output_sequence<A>(network: &TestNetwork<A, QueueingHoneyBadger<usize, NodeUid>>)
+fn verify_output_sequence<A>(network: &TestNetwork<A, QueueingHoneyBadger<usize, NodeId>>)
 where
-    A: Adversary<QueueingHoneyBadger<usize, NodeUid>>,
+    A: Adversary<QueueingHoneyBadger<usize, NodeId>>,
 {
-    let expected = network.nodes[&NodeUid(0)].outputs().to_vec();
+    let expected = network.nodes[&NodeId(0)].outputs().to_vec();
     assert!(!expected.is_empty());
     for node in network.nodes.values() {
         let len = cmp::min(expected.len(), node.outputs().len());
@@ -105,16 +105,16 @@ where
 // Allow passing `netinfo` by value. `TestNetwork` expects this function signature.
 #[cfg_attr(feature = "cargo-clippy", allow(needless_pass_by_value))]
 fn new_queueing_hb(
-    netinfo: Arc<NetworkInfo<NodeUid>>,
-) -> (QueueingHoneyBadger<usize, NodeUid>, Step<usize, NodeUid>) {
+    netinfo: Arc<NetworkInfo<NodeId>>,
+) -> (QueueingHoneyBadger<usize, NodeId>, Step<usize, NodeId>) {
     let dyn_hb = DynamicHoneyBadger::builder().build((*netinfo).clone());
     QueueingHoneyBadger::builder(dyn_hb).batch_size(3).build()
 }
 
 fn test_queueing_honey_badger_different_sizes<A, F>(new_adversary: F, num_txs: usize)
 where
-    A: Adversary<QueueingHoneyBadger<usize, NodeUid>>,
-    F: Fn(usize, usize, BTreeMap<NodeUid, Arc<NetworkInfo<NodeUid>>>) -> A,
+    A: Adversary<QueueingHoneyBadger<usize, NodeId>>,
+    F: Fn(usize, usize, BTreeMap<NodeId, Arc<NetworkInfo<NodeId>>>) -> A,
 {
     // This returns an error in all but the first test.
     let _ = env_logger::try_init();

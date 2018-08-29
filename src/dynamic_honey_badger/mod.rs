@@ -70,7 +70,7 @@ use self::votes::{SignedVote, VoteCounter};
 use honey_badger::Message as HbMessage;
 use messaging;
 use sync_key_gen::{Ack, Part, SyncKeyGen};
-use traits::NodeUidT;
+use traits::NodeIdT;
 
 pub use self::batch::Batch;
 pub use self::builder::DynamicHoneyBadgerBuilder;
@@ -156,7 +156,7 @@ struct KeyGenState<N> {
     candidate_msg_count: usize,
 }
 
-impl<N: NodeUidT> KeyGenState<N> {
+impl<N: NodeIdT> KeyGenState<N> {
     fn new(key_gen: SyncKeyGen<N>, change: Change<N>) -> Self {
         KeyGenState {
             key_gen,

@@ -27,32 +27,32 @@ use hbbft::dynamic_honey_badger::{Batch, Change, ChangeState, DynamicHoneyBadger
 use hbbft::messaging::NetworkInfo;
 use hbbft::transaction_queue::TransactionQueue;
 
-use network::{Adversary, MessageScheduler, NodeUid, SilentAdversary, TestNetwork, TestNode};
+use network::{Adversary, MessageScheduler, NodeId, SilentAdversary, TestNetwork, TestNode};
 
-type UsizeDhb = DynamicHoneyBadger<Vec<usize>, NodeUid>;
+type UsizeDhb = DynamicHoneyBadger<Vec<usize>, NodeId>;
 
 /// Proposes `num_txs` values and expects nodes to output and order them.
 fn test_dynamic_honey_badger<A>(mut network: TestNetwork<A, UsizeDhb>, num_txs: usize)
 where
     A: Adversary<UsizeDhb>,
 {
-    let new_queue = |id: &NodeUid| (*id, TransactionQueue((0..num_txs).collect()));
+    let new_queue = |id: &NodeId| (*id, TransactionQueue((0..num_txs).collect()));
     let mut queues: BTreeMap<_, _> = network.nodes.keys().map(new_queue).collect();
     for (id, queue) in &queues {
         network.input(*id, Input::User(queue.choose(3, 10)));
     }
 
-    network.input_all(Input::Change(Change::Remove(NodeUid(0))));
+    network.input_all(Input::Change(Change::Remove(NodeId(0))));
 
     fn has_remove(node: &TestNode<UsizeDhb>) -> bool {
         node.outputs()
             .iter()
-            .any(|batch| *batch.change() == ChangeState::Complete(Change::Remove(NodeUid(0))))
+            .any(|batch| *batch.change() == ChangeState::Complete(Change::Remove(NodeId(0))))
     }
 
     fn has_add(node: &TestNode<UsizeDhb>) -> bool {
         node.outputs().iter().any(|batch| match *batch.change() {
-            ChangeState::Complete(Change::Add(ref id, _)) => *id == NodeUid(0),
+            ChangeState::Complete(Change::Add(ref id, _)) => *id == NodeId(0),
             _ => false,
         })
     }
@@ -94,12 +94,12 @@ where
         network.step();
         // Once all nodes have processed the removal of node 0, add it again.
         if !input_add && network.nodes.values().all(has_remove) {
-            let pk = network.nodes[&NodeUid(0)]
+            let pk = network.nodes[&NodeId(0)]
                 .instance()
                 .netinfo()
                 .secret_key()
                 .public_key();
-            network.input_all(Input::Change(Change::Add(NodeUid(0), pk)));
+            network.input_all(Input::Change(Change::Add(NodeId(0), pk)));
             input_add = true;
         }
     }
@@ -113,7 +113,7 @@ fn verify_output_sequence<A>(network: &TestNetwork<A, UsizeDhb>)
 where
     A: Adversary<UsizeDhb>,
 {
-    let expected = network.nodes[&NodeUid(0)].outputs().to_vec();
+    let expected = network.nodes[&NodeId(0)].outputs().to_vec();
     assert!(!expected.is_empty());
     for node in network.nodes.values() {
         let len = cmp::min(expected.len(), node.outputs().len());
@@ -123,14 +123,14 @@ where
 
 // Allow passing `netinfo` by value. `TestNetwork` expects this function signature.
 #[cfg_attr(feature = "cargo-clippy", allow(needless_pass_by_value))]
-fn new_dynamic_hb(netinfo: Arc<NetworkInfo<NodeUid>>) -> UsizeDhb {
+fn new_dynamic_hb(netinfo: Arc<NetworkInfo<NodeId>>) -> UsizeDhb {
     DynamicHoneyBadger::builder().build((*netinfo).clone())
 }
 
 fn test_dynamic_honey_badger_different_sizes<A, F>(new_adversary: F, num_txs: usize)
 where
     A: Adversary<UsizeDhb>,
-    F: Fn(usize, usize, BTreeMap<NodeUid, Arc<NetworkInfo<NodeUid>>>) -> A,
+    F: Fn(usize, usize, BTreeMap<NodeId, Arc<NetworkInfo<NodeId>>>) -> A,
 {
     // This returns an error in all but the first test.
     let _ = env_logger::try_init();

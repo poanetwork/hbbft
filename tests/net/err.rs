@@ -22,7 +22,7 @@ where
     },
     /// A node unexpectly disappeared from the list of nodes. Note that this is likely a bug in
     /// the network framework code.
-    NodeDisappeared(D::NodeUid),
+    NodeDisappeared(D::NodeId),
     /// The configured maximum number of cranks has been reached or exceeded.
     CrankLimitExceeded(usize),
     /// The configured maximum number of messages has been reached or exceeded.

@@ -17,7 +17,7 @@ use super::bool_set::{self, BoolSet};
 use super::{Error, Result};
 use fault_log::{Fault, FaultKind};
 use messaging::{self, DistAlgorithm, NetworkInfo, Target};
-use traits::NodeUidT;
+use traits::NodeIdT;
 
 pub type Step<N> = messaging::Step<SbvBroadcast<N>>;
 
@@ -58,8 +58,8 @@ pub struct SbvBroadcast<N> {
     terminated: bool,
 }
 
-impl<N: NodeUidT> DistAlgorithm for SbvBroadcast<N> {
-    type NodeUid = N;
+impl<N: NodeIdT> DistAlgorithm for SbvBroadcast<N> {
+    type NodeId = N;
     type Input = bool;
     type Output = BoolSet;
     type Message = Message;
@@ -69,7 +69,7 @@ impl<N: NodeUidT> DistAlgorithm for SbvBroadcast<N> {
         self.send_bval(input)
     }
 
-    fn handle_message(&mut self, sender_id: &Self::NodeUid, msg: Self::Message) -> Result<Step<N>> {
+    fn handle_message(&mut self, sender_id: &Self::NodeId, msg: Self::Message) -> Result<Step<N>> {
         match msg {
             Message::BVal(b) => self.handle_bval(sender_id, b),
             Message::Aux(b) => self.handle_aux(sender_id, b),
@@ -80,12 +80,12 @@ impl<N: NodeUidT> DistAlgorithm for SbvBroadcast<N> {
         self.terminated
     }
 
-    fn our_id(&self) -> &Self::NodeUid {
-        self.netinfo.our_uid()
+    fn our_id(&self) -> &Self::NodeId {
+        self.netinfo.our_id()
     }
 }
 
-impl<N: NodeUidT> SbvBroadcast<N> {
+impl<N: NodeIdT> SbvBroadcast<N> {
     pub fn new(netinfo: Arc<NetworkInfo<N>>) -> Self {
         SbvBroadcast {
             netinfo,
@@ -149,8 +149,8 @@ impl<N: NodeUidT> SbvBroadcast<N> {
             return Ok(Step::default());
         }
         let mut step: Step<_> = Target::All.message(msg.clone()).into();
-        let our_uid = &self.netinfo.our_uid().clone();
-        step.extend(self.handle_message(our_uid, msg)?);
+        let our_id = &self.netinfo.our_id().clone();
+        step.extend(self.handle_message(our_id, msg)?);
         Ok(step)
     }
 

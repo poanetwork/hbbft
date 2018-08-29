@@ -22,15 +22,15 @@ use std::sync::Arc;
 use hbbft::messaging::NetworkInfo;
 use hbbft::subset::Subset;
 
-use network::{Adversary, MessageScheduler, NodeUid, SilentAdversary, TestNetwork, TestNode};
+use network::{Adversary, MessageScheduler, NodeId, SilentAdversary, TestNetwork, TestNode};
 
 type ProposedValue = Vec<u8>;
 
-fn test_subset<A: Adversary<Subset<NodeUid>>>(
-    mut network: TestNetwork<A, Subset<NodeUid>>,
-    inputs: &BTreeMap<NodeUid, ProposedValue>,
+fn test_subset<A: Adversary<Subset<NodeId>>>(
+    mut network: TestNetwork<A, Subset<NodeId>>,
+    inputs: &BTreeMap<NodeId, ProposedValue>,
 ) {
-    let ids: Vec<NodeUid> = network.nodes.keys().cloned().collect();
+    let ids: Vec<NodeId> = network.nodes.keys().cloned().collect();
 
     for id in ids {
         if let Some(value) = inputs.get(&id) {
@@ -67,24 +67,24 @@ fn new_network<A, F>(
     good_num: usize,
     bad_num: usize,
     adversary: F,
-) -> TestNetwork<A, Subset<NodeUid>>
+) -> TestNetwork<A, Subset<NodeId>>
 where
-    A: Adversary<Subset<NodeUid>>,
-    F: Fn(BTreeMap<NodeUid, Arc<NetworkInfo<NodeUid>>>) -> A,
+    A: Adversary<Subset<NodeId>>,
+    F: Fn(BTreeMap<NodeId, Arc<NetworkInfo<NodeId>>>) -> A,
 {
     // This returns an error in all but the first test.
     let _ = env_logger::try_init();
 
     let new_subset =
-        |netinfo: Arc<NetworkInfo<NodeUid>>| Subset::new(netinfo, 0).expect("new Subset instance");
+        |netinfo: Arc<NetworkInfo<NodeId>>| Subset::new(netinfo, 0).expect("new Subset instance");
     TestNetwork::new(good_num, bad_num, adversary, new_subset)
 }
 
 #[test]
 fn test_subset_3_out_of_4_nodes_propose() {
     let proposed_value = Vec::from("Fake news");
-    let proposing_ids: BTreeSet<NodeUid> = (0..3).map(NodeUid).collect();
-    let proposals: BTreeMap<NodeUid, ProposedValue> = proposing_ids
+    let proposing_ids: BTreeSet<NodeId> = (0..3).map(NodeId).collect();
+    let proposals: BTreeMap<NodeId, ProposedValue> = proposing_ids
         .iter()
         .map(|id| (*id, proposed_value.clone()))
         .collect();
@@ -102,9 +102,9 @@ fn test_subset_5_nodes_different_proposed_values() {
         Vec::from("Delta"),
         Vec::from("Echo"),
     ];
-    let proposals: BTreeMap<NodeUid, ProposedValue> = (0..5)
+    let proposals: BTreeMap<NodeId, ProposedValue> = (0..5)
         .into_iter()
-        .map(NodeUid)
+        .map(NodeId)
         .zip(proposed_values)
         .collect();
     let adversary = |_| SilentAdversary::new(MessageScheduler::Random);
@@ -114,8 +114,8 @@ fn test_subset_5_nodes_different_proposed_values() {
 
 #[test]
 fn test_subset_1_node() {
-    let proposals: BTreeMap<NodeUid, ProposedValue> =
-        once((NodeUid(0), Vec::from("Node 0 is the greatest!"))).collect();
+    let proposals: BTreeMap<NodeId, ProposedValue> =
+        once((NodeId(0), Vec::from("Node 0 is the greatest!"))).collect();
     let adversary = |_| SilentAdversary::new(MessageScheduler::Random);
     let network = new_network(1, 0, adversary);
     test_subset(network, &proposals);

@@ -9,7 +9,7 @@ use super::{AgreementContent, Error, Message, Nonce, Result, Step};
 use agreement::bool_set::BoolSet;
 use coin::{self, Coin, CoinMessage};
 use messaging::{DistAlgorithm, NetworkInfo, Target};
-use traits::NodeUidT;
+use traits::NodeIdT;
 
 /// The state of the current epoch's coin. In some epochs this is fixed, in others it starts
 /// with in `InProgress`.
@@ -72,8 +72,8 @@ pub struct Agreement<N> {
     coin_state: CoinState<N>,
 }
 
-impl<N: NodeUidT> DistAlgorithm for Agreement<N> {
-    type NodeUid = N;
+impl<N: NodeIdT> DistAlgorithm for Agreement<N> {
+    type NodeId = N;
     type Input = bool;
     type Output = bool;
     type Message = Message;
@@ -84,7 +84,7 @@ impl<N: NodeUidT> DistAlgorithm for Agreement<N> {
     }
 
     /// Receive input from a remote node.
-    fn handle_message(&mut self, sender_id: &Self::NodeUid, msg: Message) -> Result<Step<N>> {
+    fn handle_message(&mut self, sender_id: &Self::NodeId, msg: Message) -> Result<Step<N>> {
         let Message { epoch, content } = msg;
         if self.decision.is_some() || (epoch < self.epoch && content.can_expire()) {
             // Message is obsolete: We are already in a later epoch or terminated.
@@ -104,12 +104,12 @@ impl<N: NodeUidT> DistAlgorithm for Agreement<N> {
         self.decision.is_some()
     }
 
-    fn our_id(&self) -> &Self::NodeUid {
-        self.netinfo.our_uid()
+    fn our_id(&self) -> &Self::NodeId {
+        self.netinfo.our_id()
     }
 }
 
-impl<N: NodeUidT> Agreement<N> {
+impl<N: NodeIdT> Agreement<N> {
     pub fn new(netinfo: Arc<NetworkInfo<N>>, session_id: u64, proposer_id: N) -> Result<Self> {
         if !netinfo.is_node_validator(&proposer_id) {
             return Err(Error::UnknownProposer);
@@ -261,8 +261,8 @@ impl<N: NodeUidT> Agreement<N> {
         let mut step: Step<_> = Target::All
             .message(content.clone().with_epoch(self.epoch))
             .into();
-        let our_uid = &self.netinfo.our_uid().clone();
-        step.extend(self.handle_message_content(our_uid, content)?);
+        let our_id = &self.netinfo.our_id().clone();
+        step.extend(self.handle_message_content(our_id, content)?);
         Ok(step)
     }
 
@@ -336,7 +336,7 @@ impl<N: NodeUidT> Agreement<N> {
         self.decision = Some(b);
         debug!(
             "{:?}/{:?} (is_validator: {}) decision: {}",
-            self.netinfo.our_uid(),
+            self.netinfo.our_id(),
             self.proposer_id,
             self.netinfo.is_validator(),
             b
@@ -384,7 +384,7 @@ impl<N: NodeUidT> Agreement<N> {
         self.coin_state = self.coin_state();
         debug!(
             "{:?} Agreement instance {:?} started epoch {}, {} terminated",
-            self.netinfo.our_uid(),
+            self.netinfo.our_id(),
             self.proposer_id,
             self.epoch,
             self.received_conf.len(),

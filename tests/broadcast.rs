@@ -24,15 +24,15 @@ use rand::Rng;
 use hbbft::broadcast::{Broadcast, Message};
 use hbbft::messaging::{DistAlgorithm, NetworkInfo, Target, TargetedMessage};
 use network::{
-    Adversary, MessageScheduler, MessageWithSender, NodeUid, RandomAdversary, SilentAdversary,
+    Adversary, MessageScheduler, MessageWithSender, NodeId, RandomAdversary, SilentAdversary,
     TestNetwork, TestNode,
 };
 
 /// An adversary that inputs an alternate value.
 struct ProposeAdversary {
     scheduler: MessageScheduler,
-    good_nodes: BTreeSet<NodeUid>,
-    adv_nodes: BTreeSet<NodeUid>,
+    good_nodes: BTreeSet<NodeId>,
+    adv_nodes: BTreeSet<NodeId>,
     has_sent: bool,
 }
 
@@ -40,8 +40,8 @@ impl ProposeAdversary {
     /// Creates a new replay adversary with the given message scheduler.
     fn new(
         scheduler: MessageScheduler,
-        good_nodes: BTreeSet<NodeUid>,
-        adv_nodes: BTreeSet<NodeUid>,
+        good_nodes: BTreeSet<NodeId>,
+        adv_nodes: BTreeSet<NodeId>,
     ) -> ProposeAdversary {
         ProposeAdversary {
             scheduler,
@@ -52,21 +52,21 @@ impl ProposeAdversary {
     }
 }
 
-impl Adversary<Broadcast<NodeUid>> for ProposeAdversary {
-    fn pick_node(&self, nodes: &BTreeMap<NodeUid, TestNode<Broadcast<NodeUid>>>) -> NodeUid {
+impl Adversary<Broadcast<NodeId>> for ProposeAdversary {
+    fn pick_node(&self, nodes: &BTreeMap<NodeId, TestNode<Broadcast<NodeId>>>) -> NodeId {
         self.scheduler.pick_node(nodes)
     }
 
-    fn push_message(&mut self, _: NodeUid, _: TargetedMessage<Message, NodeUid>) {
+    fn push_message(&mut self, _: NodeId, _: TargetedMessage<Message, NodeId>) {
         // All messages are ignored.
     }
 
-    fn step(&mut self) -> Vec<MessageWithSender<Broadcast<NodeUid>>> {
+    fn step(&mut self) -> Vec<MessageWithSender<Broadcast<NodeId>>> {
         if self.has_sent {
             return vec![];
         }
         self.has_sent = true;
-        let node_ids: BTreeSet<NodeUid> = self
+        let node_ids: BTreeSet<NodeId> = self
             .adv_nodes
             .iter()
             .chain(self.good_nodes.iter())
@@ -95,15 +95,15 @@ impl Adversary<Broadcast<NodeUid>> for ProposeAdversary {
 }
 
 /// Broadcasts a value from node 0 and expects all good nodes to receive it.
-fn test_broadcast<A: Adversary<Broadcast<NodeUid>>>(
-    mut network: TestNetwork<A, Broadcast<NodeUid>>,
+fn test_broadcast<A: Adversary<Broadcast<NodeId>>>(
+    mut network: TestNetwork<A, Broadcast<NodeId>>,
     proposed_value: &[u8],
 ) {
     // This returns an error in all but the first test.
     let _ = env_logger::try_init();
 
     // Make node 0 propose the value.
-    network.input(NodeUid(0), proposed_value.to_vec());
+    network.input(NodeId(0), proposed_value.to_vec());
 
     // Handle messages in random order until all nodes have output the proposed value.
     while !network.nodes.values().all(TestNode::terminated) {
@@ -116,13 +116,13 @@ fn test_broadcast<A: Adversary<Broadcast<NodeUid>>>(
     assert!(once(&proposed_value.to_vec()).eq(network.observer.outputs()));
 }
 
-fn new_broadcast(netinfo: Arc<NetworkInfo<NodeUid>>) -> Broadcast<NodeUid> {
-    Broadcast::new(netinfo, NodeUid(0)).expect("Instantiate broadcast")
+fn new_broadcast(netinfo: Arc<NetworkInfo<NodeId>>) -> Broadcast<NodeId> {
+    Broadcast::new(netinfo, NodeId(0)).expect("Instantiate broadcast")
 }
 
 fn test_broadcast_different_sizes<A, F>(new_adversary: F, proposed_value: &[u8])
 where
-    A: Adversary<Broadcast<NodeUid>>,
+    A: Adversary<Broadcast<NodeId>>,
     F: Fn(usize, usize) -> A,
 {
     let mut rng = rand::thread_rng();
@@ -168,9 +168,9 @@ fn test_broadcast_first_delivery_silent() {
 #[test]
 fn test_broadcast_random_delivery_adv_propose() {
     let new_adversary = |num_good_nodes: usize, num_faulty_nodes: usize| {
-        let good_nodes: BTreeSet<NodeUid> = (0..num_good_nodes).map(NodeUid).collect();
-        let adv_nodes: BTreeSet<NodeUid> = (num_good_nodes..(num_good_nodes + num_faulty_nodes))
-            .map(NodeUid)
+        let good_nodes: BTreeSet<NodeId> = (0..num_good_nodes).map(NodeId).collect();
+        let adv_nodes: BTreeSet<NodeId> = (num_good_nodes..(num_good_nodes + num_faulty_nodes))
+            .map(NodeId)
             .collect();
         ProposeAdversary::new(MessageScheduler::Random, good_nodes, adv_nodes)
     };
@@ -180,9 +180,9 @@ fn test_broadcast_random_delivery_adv_propose() {
 #[test]
 fn test_broadcast_first_delivery_adv_propose() {
     let new_adversary = |num_good_nodes: usize, num_faulty_nodes: usize| {
-        let good_nodes: BTreeSet<NodeUid> = (0..num_good_nodes).map(NodeUid).collect();
-        let adv_nodes: BTreeSet<NodeUid> = (num_good_nodes..(num_good_nodes + num_faulty_nodes))
-            .map(NodeUid)
+        let good_nodes: BTreeSet<NodeId> = (0..num_good_nodes).map(NodeId).collect();
+        let adv_nodes: BTreeSet<NodeId> = (num_good_nodes..(num_good_nodes + num_faulty_nodes))
+            .map(NodeId)
             .collect();
         ProposeAdversary::new(MessageScheduler::First, good_nodes, adv_nodes)
     };

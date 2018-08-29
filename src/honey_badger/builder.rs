@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use super::HoneyBadger;
 use messaging::NetworkInfo;
-use traits::{Contribution, NodeUidT};
+use traits::{Contribution, NodeIdT};
 
 /// A Honey Badger builder, to configure the parameters and create new instances of `HoneyBadger`.
 pub struct HoneyBadgerBuilder<C, N> {
@@ -21,7 +21,7 @@ pub struct HoneyBadgerBuilder<C, N> {
 impl<C, N> HoneyBadgerBuilder<C, N>
 where
     C: Contribution + Serialize + for<'r> Deserialize<'r>,
-    N: NodeUidT + Rand,
+    N: NodeIdT + Rand,
 {
     /// Returns a new `HoneyBadgerBuilder` configured to use the node IDs and cryptographic keys
     /// specified by `netinfo`.

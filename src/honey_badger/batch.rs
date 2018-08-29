@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use traits::NodeUidT;
+use traits::NodeIdT;
 
 /// A batch of contributions the algorithm has output.
 #[derive(Clone, Debug)]
@@ -9,7 +9,7 @@ pub struct Batch<C, N> {
     pub contributions: BTreeMap<N, C>,
 }
 
-impl<C, N: NodeUidT> Batch<C, N> {
+impl<C, N: NodeIdT> Batch<C, N> {
     /// Returns an iterator over references to all transactions included in the batch.
     pub fn iter<'a>(&'a self) -> impl Iterator<Item = <&'a C as IntoIterator>::Item>
     where

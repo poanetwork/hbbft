@@ -21,13 +21,13 @@ use rand::Rng;
 
 use hbbft::coin::Coin;
 
-use network::{Adversary, MessageScheduler, NodeUid, SilentAdversary, TestNetwork, TestNode};
+use network::{Adversary, MessageScheduler, NodeId, SilentAdversary, TestNetwork, TestNode};
 
 /// Tests a network of Coin instances with an optional expected value. Outputs the computed
 /// coin value if the test is successful.
-fn test_coin<A>(mut network: TestNetwork<A, Coin<NodeUid, String>>) -> bool
+fn test_coin<A>(mut network: TestNetwork<A, Coin<NodeId, String>>) -> bool
 where
-    A: Adversary<Coin<NodeUid, String>>,
+    A: Adversary<Coin<NodeId, String>>,
 {
     network.input_all(());
     network.observer.handle_input(()); // Observer will only return after `input` was called.
@@ -74,7 +74,7 @@ fn check_coin_distribution(num_samples: usize, count_true: usize, count_false: u
 
 fn test_coin_different_sizes<A, F>(new_adversary: F, num_samples: usize)
 where
-    A: Adversary<Coin<NodeUid, String>>,
+    A: Adversary<Coin<NodeId, String>>,
     F: Fn(usize, usize) -> A,
 {
     assert!(num_samples > 0);

@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use super::{Change, ErrorKind, Result};
 use fault_log::{FaultKind, FaultLog};
 use messaging::NetworkInfo;
-use traits::NodeUidT;
+use traits::NodeIdT;
 
 /// A buffer and counter collecting pending and committed votes for validator set changes.
 ///
@@ -29,7 +29,7 @@ pub struct VoteCounter<N> {
 
 impl<N> VoteCounter<N>
 where
-    N: NodeUidT + Serialize + for<'r> Deserialize<'r>,
+    N: NodeIdT + Serialize + for<'r> Deserialize<'r>,
 {
     /// Creates a new `VoteCounter` object with empty buffer and counter.
     pub fn new(netinfo: Arc<NetworkInfo<N>>, era: u64) -> Self {
@@ -43,7 +43,7 @@ where
 
     /// Creates a signed vote for the given change, and inserts it into the pending votes buffer.
     pub fn sign_vote_for(&mut self, change: Change<N>) -> Result<&SignedVote<N>> {
-        let voter = self.netinfo.our_uid().clone();
+        let voter = self.netinfo.our_id().clone();
         let vote = Vote {
             change,
             era: self.era,

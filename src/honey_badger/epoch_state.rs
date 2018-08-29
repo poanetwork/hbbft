@@ -13,7 +13,7 @@ use fault_log::{Fault, FaultKind, FaultLog};
 use messaging::{DistAlgorithm, NetworkInfo};
 use subset::{self as cs, Subset};
 use threshold_decryption::{self as td, ThresholdDecryption};
-use traits::{Contribution, NodeUidT};
+use traits::{Contribution, NodeIdT};
 
 /// The status of an encrypted contribution.
 #[derive(Debug)]
@@ -26,7 +26,7 @@ enum DecryptionState<N> {
 
 impl<N> DecryptionState<N>
 where
-    N: NodeUidT + Rand,
+    N: NodeIdT + Rand,
 {
     /// Creates a new `ThresholdDecryption` instance, waiting for shares and a ciphertext.
     fn new(netinfo: Arc<NetworkInfo<N>>) -> Self {
@@ -69,7 +69,7 @@ enum SubsetState<N: Rand> {
 
 impl<N> SubsetState<N>
 where
-    N: NodeUidT + Rand,
+    N: NodeIdT + Rand,
 {
     /// Provides input to the Subset instance, unless it has already completed.
     fn handle_input(&mut self, proposal: Vec<u8>) -> Result<cs::Step<N>> {
@@ -122,7 +122,7 @@ pub struct EpochState<C, N: Rand> {
 impl<C, N> EpochState<C, N>
 where
     C: Contribution + Serialize + for<'r> Deserialize<'r>,
-    N: NodeUidT + Rand,
+    N: NodeIdT + Rand,
 {
     /// Creates a new `Subset` instance.
     pub fn new(netinfo: Arc<NetworkInfo<N>>, epoch: u64) -> Result<Self> {
@@ -208,7 +208,7 @@ where
         }
         debug!(
             "{:?} Epoch {} output {:?}",
-            self.netinfo.our_uid(),
+            self.netinfo.our_id(),
             self.epoch,
             batch.contributions.keys().collect::<Vec<_>>()
         );
