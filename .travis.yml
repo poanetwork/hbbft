@@ -27,7 +27,8 @@ before_install:
 env:
   global:
     - RUST_BACKTRACE=1
-    - RUSTFLAGS="-D warnings"
+    # Enables additional cpu-specific optimizations.
+    - RUSTFLAGS="-D warnings -C target-cpu=native"
     # Note: `beta` should be removed along with `RUST_NEXT` after the 1.28
     #       stable release on 2018-09-13.
     - RUST_NEXT=beta
