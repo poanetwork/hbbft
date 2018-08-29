@@ -49,7 +49,7 @@ where
     type Message = Message<N>;
     type Error = Error;
 
-    fn input(&mut self, input: Self::Input) -> Result<Step<C, N>> {
+    fn handle_input(&mut self, input: Self::Input) -> Result<Step<C, N>> {
         // User contributions are forwarded to `HoneyBadger` right away. Votes are signed and
         // broadcast.
         match input {
@@ -112,7 +112,7 @@ where
     pub fn propose(&mut self, contrib: C) -> Result<Step<C, N>> {
         let step = self
             .honey_badger
-            .input(InternalContrib {
+            .handle_input(InternalContrib {
                 contrib,
                 key_gen_messages: self.key_gen_msg_buffer.clone(),
                 votes: self.vote_counter.pending_votes().cloned().collect(),

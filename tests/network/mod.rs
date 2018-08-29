@@ -39,8 +39,8 @@ impl<D: DistAlgorithm> TestNode<D> {
     }
 
     /// Inputs a value into the instance.
-    pub fn input(&mut self, input: D::Input) {
-        let step = self.algo.input(input).expect("input");
+    pub fn handle_input(&mut self, input: D::Input) {
+        let step = self.algo.handle_input(input).expect("input");
         self.outputs.extend(step.output);
         self.messages.extend(step.messages);
     }
@@ -523,7 +523,7 @@ where
     pub fn input(&mut self, id: NodeUid, value: D::Input) {
         let msgs: Vec<_> = {
             let mut node = self.nodes.get_mut(&id).expect("input instance");
-            node.input(value);
+            node.handle_input(value);
             node.messages.drain(..).collect()
         };
         self.dispatch_messages(id, msgs);

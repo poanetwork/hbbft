@@ -61,7 +61,7 @@ impl<N: NodeUidT> DistAlgorithm for ThresholdDecryption<N> {
     type Message = Message;
     type Error = Error;
 
-    fn input(&mut self, input: Ciphertext) -> Result<Step<N>> {
+    fn handle_input(&mut self, input: Ciphertext) -> Result<Step<N>> {
         self.set_ciphertext(input)
     }
 

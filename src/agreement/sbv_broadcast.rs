@@ -65,7 +65,7 @@ impl<N: NodeUidT> DistAlgorithm for SbvBroadcast<N> {
     type Message = Message;
     type Error = Error;
 
-    fn input(&mut self, input: Self::Input) -> Result<Step<N>> {
+    fn handle_input(&mut self, input: Self::Input) -> Result<Step<N>> {
         self.send_bval(input)
     }
 

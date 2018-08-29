@@ -588,7 +588,7 @@ where
             .get_mut(&id)
             .expect("cannot handle input on non-existing node")
             .algorithm
-            .input(input)?;
+            .handle_input(input)?;
 
         self.message_count = self.message_count.saturating_add(process_step(
             &mut self.nodes,
@@ -727,7 +727,12 @@ where
         let steps: Vec<_> = self
             .nodes
             .values_mut()
-            .map(move |node| Ok((node.id().clone(), node.algorithm.input(input.clone())?)))
+            .map(move |node| {
+                Ok((
+                    node.id().clone(),
+                    node.algorithm.handle_input(input.clone())?,
+                ))
+            })
             .collect::<Result<_, _>>()?;
 
         // Process all messages from all steps in the queue.

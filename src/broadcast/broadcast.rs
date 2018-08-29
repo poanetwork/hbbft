@@ -89,7 +89,7 @@ impl<N: NodeUidT> DistAlgorithm for Broadcast<N> {
     type Message = Message;
     type Error = Error;
 
-    fn input(&mut self, input: Self::Input) -> Result<Step<N>> {
+    fn handle_input(&mut self, input: Self::Input) -> Result<Step<N>> {
         if *self.netinfo.our_uid() != self.proposer_id {
             return Err(Error::InstanceCannotPropose);
         }

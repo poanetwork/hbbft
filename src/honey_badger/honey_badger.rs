@@ -41,7 +41,7 @@ where
     type Message = Message<N>;
     type Error = Error;
 
-    fn input(&mut self, input: Self::Input) -> Result<Step<C, N>> {
+    fn handle_input(&mut self, input: Self::Input) -> Result<Step<C, N>> {
         self.propose(&input)
     }
 

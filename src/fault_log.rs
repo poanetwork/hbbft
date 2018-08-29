@@ -2,7 +2,7 @@
 //! algorithm.
 //!
 //! Each algorithm can propogate their faulty node logs upwards to a
-//! calling algorithm via `DistAlgorihm`'s `.input()` and
+//! calling algorithm via `DistAlgorihm`'s `.handle_input()` and
 //! `.handle_message()` trait methods.
 
 /// A fault log entry.

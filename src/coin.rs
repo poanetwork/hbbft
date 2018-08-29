@@ -87,7 +87,7 @@ where
     type Error = Error;
 
     /// Sends our threshold signature share if not yet sent.
-    fn input(&mut self, _input: Self::Input) -> Result<Step<N, T>> {
+    fn handle_input(&mut self, _input: Self::Input) -> Result<Step<N, T>> {
         if !self.had_input {
             self.had_input = true;
             self.get_coin()
@@ -173,7 +173,7 @@ where
             let parity = sig.parity();
             debug!("{:?} output {}", self.netinfo.our_uid(), parity);
             self.terminated = true;
-            let step = self.input(())?; // Before terminating, make sure we sent our share.
+            let step = self.handle_input(())?; // Before terminating, make sure we sent our share.
             Ok(step.with_output(parity))
         } else {
             Ok(Step::default())
