@@ -1,6 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
-use std::fmt::Debug;
 use std::iter::once;
+
+use failure::Fail;
 
 use crypto::{self, PublicKey, PublicKeySet, PublicKeyShare, SecretKey, SecretKeyShare};
 use fault_log::{Fault, FaultLog};
@@ -194,7 +195,7 @@ pub trait DistAlgorithm {
     /// The messages that need to be exchanged between the instances in the participating nodes.
     type Message: Message;
     /// The errors that can occur during execution.
-    type Error: Debug;
+    type Error: Fail;
 
     /// Handles an input provided by the user, and returns
     fn input(&mut self, input: Self::Input) -> Result<Step<Self>, Self::Error>
