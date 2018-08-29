@@ -28,7 +28,7 @@ use crypto::error as cerror;
 use crypto::{Signature, SignatureShare};
 use fault_log::{Fault, FaultKind};
 use messaging::{self, DistAlgorithm, NetworkInfo, Target};
-use traits::NodeUidT;
+use traits::NodeIdT;
 
 /// A coin error.
 #[derive(Clone, Eq, PartialEq, Debug, Fail)]
@@ -77,10 +77,10 @@ pub type Step<N, T> = messaging::Step<Coin<N, T>>;
 
 impl<N, T> DistAlgorithm for Coin<N, T>
 where
-    N: NodeUidT,
+    N: NodeIdT,
     T: Clone + AsRef<[u8]>,
 {
-    type NodeUid = N;
+    type NodeId = N;
     type Input = ();
     type Output = bool;
     type Message = CoinMessage;
@@ -99,7 +99,7 @@ where
     /// Receives input from a remote node.
     fn handle_message(
         &mut self,
-        sender_id: &Self::NodeUid,
+        sender_id: &Self::NodeId,
         message: Self::Message,
     ) -> Result<Step<N, T>> {
         if !self.terminated {
@@ -115,14 +115,14 @@ where
         self.terminated
     }
 
-    fn our_id(&self) -> &Self::NodeUid {
-        self.netinfo.our_uid()
+    fn our_id(&self) -> &Self::NodeId {
+        self.netinfo.our_id()
     }
 }
 
 impl<N, T> Coin<N, T>
 where
-    N: NodeUidT,
+    N: NodeIdT,
     T: Clone + AsRef<[u8]>,
 {
     pub fn new(netinfo: Arc<NetworkInfo<N>>, nonce: T) -> Self {
@@ -141,7 +141,7 @@ where
         }
         let share = self.netinfo.secret_key_share().sign(&self.nonce);
         let mut step: Step<_, _> = Target::All.message(CoinMessage(share.clone())).into();
-        let id = self.netinfo.our_uid().clone();
+        let id = self.netinfo.our_id().clone();
         step.extend(self.handle_share(&id, share)?);
         Ok(step)
     }
@@ -163,7 +163,7 @@ where
     fn try_output(&mut self) -> Result<Step<N, T>> {
         debug!(
             "{:?} received {} shares, had_input = {}",
-            self.netinfo.our_uid(),
+            self.netinfo.our_id(),
             self.received_shares.len(),
             self.had_input
         );
@@ -171,7 +171,7 @@ where
             let sig = self.combine_and_verify_sig()?;
             // Output the parity of the verified signature.
             let parity = sig.parity();
-            debug!("{:?} output {}", self.netinfo.our_uid(), parity);
+            debug!("{:?} output {}", self.netinfo.our_id(), parity);
             self.terminated = true;
             let step = self.handle_input(())?; // Before terminating, make sure we sent our share.
             Ok(step.with_output(parity))
@@ -198,7 +198,7 @@ where
             // Abort
             error!(
                 "{:?} main public key verification failed",
-                self.netinfo.our_uid()
+                self.netinfo.our_id()
             );
             Err(Error::VerificationFailed)
         } else {

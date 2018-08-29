@@ -161,8 +161,8 @@ pub mod traits {
     impl<C> Contribution for C where C: Eq + Debug + Hash + Send + Sync {}
 
     /// A peer node's unique identifier.
-    pub trait NodeUidT: Eq + Ord + Clone + Debug + Hash + Send + Sync {}
-    impl<N> NodeUidT for N where N: Eq + Ord + Clone + Debug + Hash + Send + Sync {}
+    pub trait NodeIdT: Eq + Ord + Clone + Debug + Hash + Send + Sync {}
+    impl<N> NodeIdT for N where N: Eq + Ord + Clone + Debug + Hash + Send + Sync {}
 
     /// Messages.
     pub trait Message: Debug + Send + Sync {}

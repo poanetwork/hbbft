@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use super::epoch_state::EpochState;
 use super::{Batch, Error, ErrorKind, HoneyBadgerBuilder, Message, MessageContent, Result};
 use messaging::{self, DistAlgorithm, NetworkInfo};
-use traits::{Contribution, NodeUidT};
+use traits::{Contribution, NodeIdT};
 
 /// An instance of the Honey Badger Byzantine fault tolerant consensus algorithm.
 #[derive(Debug)]
@@ -33,9 +33,9 @@ pub type Step<C, N> = messaging::Step<HoneyBadger<C, N>>;
 impl<C, N> DistAlgorithm for HoneyBadger<C, N>
 where
     C: Contribution + Serialize + for<'r> Deserialize<'r>,
-    N: NodeUidT + Rand,
+    N: NodeIdT + Rand,
 {
-    type NodeUid = N;
+    type NodeId = N;
     type Input = C;
     type Output = Batch<C, N>;
     type Message = Message<N>;
@@ -54,14 +54,14 @@ where
     }
 
     fn our_id(&self) -> &N {
-        self.netinfo.our_uid()
+        self.netinfo.our_id()
     }
 }
 
 impl<C, N> HoneyBadger<C, N>
 where
     C: Contribution + Serialize + for<'r> Deserialize<'r>,
-    N: NodeUidT + Rand,
+    N: NodeIdT + Rand,
 {
     /// Returns a new `HoneyBadgerBuilder` configured to use the node IDs and cryptographic keys
     /// specified by `netinfo`.

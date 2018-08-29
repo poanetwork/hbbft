@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use super::{ChangeState, DynamicHoneyBadger, JoinPlan, Result, Step, VoteCounter};
 use honey_badger::HoneyBadger;
 use messaging::NetworkInfo;
-use traits::{Contribution, NodeUidT};
+use traits::{Contribution, NodeIdT};
 
 /// A Dynamic Honey Badger builder, to configure the parameters and create new instances of
 /// `DynamicHoneyBadger`.
@@ -33,7 +33,7 @@ impl<C, N> Default for DynamicHoneyBadgerBuilder<C, N> {
 impl<C, N> DynamicHoneyBadgerBuilder<C, N>
 where
     C: Contribution + Serialize + for<'r> Deserialize<'r>,
-    N: NodeUidT + Serialize + for<'r> Deserialize<'r> + Rand,
+    N: NodeIdT + Serialize + for<'r> Deserialize<'r> + Rand,
 {
     /// Returns a new `DynamicHoneyBadgerBuilder` configured to use the node IDs and cryptographic
     /// keys specified by `netinfo`.
@@ -66,14 +66,14 @@ where
     }
 
     /// Creates a new `DynamicHoneyBadger` configured to start a new network as a single validator.
-    pub fn build_first_node(&self, our_uid: N) -> Result<DynamicHoneyBadger<C, N>> {
+    pub fn build_first_node(&self, our_id: N) -> Result<DynamicHoneyBadger<C, N>> {
         let mut rng = rand::thread_rng();
         let sk_set = SecretKeySet::random(0, &mut rng)?;
         let pk_set = sk_set.public_keys();
         let sks = sk_set.secret_key_share(0)?;
         let sk: SecretKey = rng.gen();
-        let pub_keys = once((our_uid.clone(), sk.public_key())).collect();
-        let netinfo = NetworkInfo::new(our_uid, sks, pk_set, sk, pub_keys);
+        let pub_keys = once((our_id.clone(), sk.public_key())).collect();
+        let netinfo = NetworkInfo::new(our_id, sks, pk_set, sk, pub_keys);
         Ok(self.build(netinfo))
     }
 
@@ -81,12 +81,12 @@ where
     /// the `JoinPlan`.
     pub fn build_joining(
         &self,
-        our_uid: N,
+        our_id: N,
         secret_key: SecretKey,
         join_plan: JoinPlan<N>,
     ) -> Result<(DynamicHoneyBadger<C, N>, Step<C, N>)> {
         let netinfo = NetworkInfo::new(
-            our_uid,
+            our_id,
             SecretKeyShare::default(), // TODO: Should be an option?
             join_plan.pub_key_set,
             secret_key,

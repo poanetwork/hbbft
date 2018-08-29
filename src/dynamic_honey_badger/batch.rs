@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use super::{ChangeState, JoinPlan};
 use crypto::{PublicKey, PublicKeySet};
 use messaging::NetworkInfo;
-use traits::NodeUidT;
+use traits::NodeIdT;
 
 /// A batch of transactions the algorithm has output.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -22,7 +22,7 @@ pub struct Batch<C, N> {
     pub_netinfo: Option<(PublicKeySet, BTreeMap<N, PublicKey>)>,
 }
 
-impl<C, N: NodeUidT + Rand> Batch<C, N> {
+impl<C, N: NodeIdT + Rand> Batch<C, N> {
     /// Returns a new, empty batch with the given epoch.
     pub fn new(epoch: u64) -> Self {
         Batch {

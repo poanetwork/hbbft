@@ -32,7 +32,7 @@ use broadcast::{self, Broadcast};
 use fmt::HexBytes;
 use messaging::{self, DistAlgorithm, NetworkInfo};
 use rand::Rand;
-use traits::NodeUidT;
+use traits::NodeIdT;
 
 /// A subset error.
 #[derive(Clone, PartialEq, Debug, Fail)]
@@ -86,8 +86,8 @@ pub struct Subset<N: Rand> {
 
 pub type Step<N> = messaging::Step<Subset<N>>;
 
-impl<N: NodeUidT + Rand> DistAlgorithm for Subset<N> {
-    type NodeUid = N;
+impl<N: NodeIdT + Rand> DistAlgorithm for Subset<N> {
+    type NodeId = N;
     type Input = ProposedValue;
     type Output = BTreeMap<N, ProposedValue>;
     type Message = Message<N>;
@@ -96,7 +96,7 @@ impl<N: NodeUidT + Rand> DistAlgorithm for Subset<N> {
     fn handle_input(&mut self, input: Self::Input) -> Result<Step<N>> {
         debug!(
             "{:?} Proposing {:?}",
-            self.netinfo.our_uid(),
+            self.netinfo.our_id(),
             HexBytes(&input)
         );
         self.send_proposed_value(input)
@@ -104,7 +104,7 @@ impl<N: NodeUidT + Rand> DistAlgorithm for Subset<N> {
 
     fn handle_message(
         &mut self,
-        sender_id: &Self::NodeUid,
+        sender_id: &Self::NodeId,
         message: Self::Message,
     ) -> Result<Step<N>> {
         match message {
@@ -117,16 +117,16 @@ impl<N: NodeUidT + Rand> DistAlgorithm for Subset<N> {
         self.agreement_instances.values().all(Agreement::terminated)
     }
 
-    fn our_id(&self) -> &Self::NodeUid {
-        self.netinfo.our_uid()
+    fn our_id(&self) -> &Self::NodeId {
+        self.netinfo.our_id()
     }
 }
 
-impl<N: NodeUidT + Rand> Subset<N> {
+impl<N: NodeIdT + Rand> Subset<N> {
     pub fn new(netinfo: Arc<NetworkInfo<N>>, session_id: u64) -> Result<Self> {
         // Create all broadcast instances.
         let mut broadcast_instances: BTreeMap<N, Broadcast<N>> = BTreeMap::new();
-        for proposer_id in netinfo.all_uids() {
+        for proposer_id in netinfo.all_ids() {
             broadcast_instances.insert(
                 proposer_id.clone(),
                 Broadcast::new(netinfo.clone(), proposer_id.clone()).map_err(Error::NewBroadcast)?,
@@ -135,7 +135,7 @@ impl<N: NodeUidT + Rand> Subset<N> {
 
         // Create all agreement instances.
         let mut agreement_instances: BTreeMap<N, Agreement<N>> = BTreeMap::new();
-        for proposer_id in netinfo.all_uids() {
+        for proposer_id in netinfo.all_ids() {
             agreement_instances.insert(
                 proposer_id.clone(),
                 Agreement::new(netinfo.clone(), session_id, proposer_id.clone())
@@ -159,9 +159,9 @@ impl<N: NodeUidT + Rand> Subset<N> {
         if !self.netinfo.is_validator() {
             return Ok(Step::default());
         }
-        let uid = self.netinfo.our_uid().clone();
+        let id = self.netinfo.our_id().clone();
         // Upon receiving input v_i , input v_i to RBC_i. See Figure 2.
-        self.process_broadcast(&uid, |bc| bc.handle_input(value))
+        self.process_broadcast(&id, |bc| bc.handle_input(value))
     }
 
     /// Returns the number of validators from which we have already received a proposal.
@@ -230,7 +230,7 @@ impl<N: NodeUidT + Rand> Subset<N> {
     }
 
     /// Callback to be invoked on receipt of the decision value of the Agreement
-    /// instance `uid`.
+    /// instance `id`.
     fn process_agreement<F>(&mut self, proposer_id: &N, f: F) -> Result<Step<N>>
     where
         F: FnOnce(&mut Agreement<N>) -> result::Result<agreement::Step<N>, agreement::Error>,
@@ -264,23 +264,23 @@ impl<N: NodeUidT + Rand> Subset<N> {
         }
         debug!(
             "{:?} Updated Agreement results: {:?}",
-            self.netinfo.our_uid(),
+            self.netinfo.our_id(),
             self.agreement_results
         );
 
         if value && self.count_true() == self.netinfo.num_correct() {
             // Upon delivery of value 1 from at least N − f instances of BA, provide
             // input 0 to each instance of BA that has not yet been provided input.
-            for (uid, agreement) in &mut self.agreement_instances {
+            for (id, agreement) in &mut self.agreement_instances {
                 if agreement.accepts_input() {
-                    let to_msg = |a_msg| Message::Agreement(uid.clone(), a_msg);
+                    let to_msg = |a_msg| Message::Agreement(id.clone(), a_msg);
                     for output in step.extend_with(
                         agreement
                             .handle_input(false)
                             .map_err(Error::ProcessAgreementAgreement1)?,
                         to_msg,
                     ) {
-                        if self.agreement_results.insert(uid.clone(), output).is_some() {
+                        if self.agreement_results.insert(id.clone(), output).is_some() {
                             return Err(Error::MultipleAgreementResults);
                         }
                     }
@@ -308,7 +308,7 @@ impl<N: NodeUidT + Rand> Subset<N> {
         }
         debug!(
             "{:?} All Agreement instances have terminated",
-            self.netinfo.our_uid()
+            self.netinfo.our_id()
         );
         // All instances of Agreement that delivered `true` (or "1" in the paper).
         let delivered_1: BTreeSet<&N> = self
@@ -328,12 +328,9 @@ impl<N: NodeUidT + Rand> Subset<N> {
             .collect();
 
         if delivered_1.len() == broadcast_results.len() {
-            debug!(
-                "{:?} Agreement instances completed:",
-                self.netinfo.our_uid()
-            );
-            for (uid, result) in &broadcast_results {
-                debug!("    {:?} → {:?}", uid, HexBytes(&result));
+            debug!("{:?} Agreement instances completed:", self.netinfo.our_id());
+            for (id, result) in &broadcast_results {
+                debug!("    {:?} → {:?}", id, HexBytes(&result));
             }
             self.decided = true;
             Some(broadcast_results)

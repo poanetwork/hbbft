@@ -13,7 +13,7 @@ use super::{Error, Result};
 use fault_log::{Fault, FaultKind};
 use fmt::{HexBytes, HexList, HexProof};
 use messaging::{self, DistAlgorithm, NetworkInfo, Target};
-use traits::NodeUidT;
+use traits::NodeIdT;
 
 /// The three kinds of message sent during the reliable broadcast stage of the
 /// consensus algorithm.
@@ -62,7 +62,7 @@ impl Debug for Message {
 pub struct Broadcast<N> {
     /// Shared network data.
     netinfo: Arc<NetworkInfo<N>>,
-    /// The UID of the sending node.
+    /// The ID of the sending node.
     proposer_id: N,
     data_shard_num: usize,
     coding: Coding,
@@ -80,8 +80,8 @@ pub struct Broadcast<N> {
 
 pub type Step<N> = messaging::Step<Broadcast<N>>;
 
-impl<N: NodeUidT> DistAlgorithm for Broadcast<N> {
-    type NodeUid = N;
+impl<N: NodeIdT> DistAlgorithm for Broadcast<N> {
+    type NodeId = N;
     // TODO: Allow anything serializable and deserializable, i.e. make this a type parameter
     // T: Serialize + DeserializeOwned
     type Input = Vec<u8>;
@@ -90,15 +90,15 @@ impl<N: NodeUidT> DistAlgorithm for Broadcast<N> {
     type Error = Error;
 
     fn handle_input(&mut self, input: Self::Input) -> Result<Step<N>> {
-        if *self.netinfo.our_uid() != self.proposer_id {
+        if *self.netinfo.our_id() != self.proposer_id {
             return Err(Error::InstanceCannotPropose);
         }
         // Split the value into chunks/shards, encode them with erasure codes.
         // Assemble a Merkle tree from data and parity shards. Take all proofs
         // from this tree and send them, each to its own node.
         let (proof, mut step) = self.send_shards(input)?;
-        let our_uid = &self.netinfo.our_uid().clone();
-        step.extend(self.handle_value(our_uid, proof)?);
+        let our_id = &self.netinfo.our_id().clone();
+        step.extend(self.handle_value(our_id, proof)?);
         Ok(step)
     }
 
@@ -118,11 +118,11 @@ impl<N: NodeUidT> DistAlgorithm for Broadcast<N> {
     }
 
     fn our_id(&self) -> &N {
-        self.netinfo.our_uid()
+        self.netinfo.our_id()
     }
 }
 
-impl<N: NodeUidT> Broadcast<N> {
+impl<N: NodeIdT> Broadcast<N> {
     /// Creates a new broadcast instance to be used by node `our_id` which expects a value proposal
     /// from node `proposer_id`.
     pub fn new(netinfo: Arc<NetworkInfo<N>>, proposer_id: N) -> Result<Self> {
@@ -196,14 +196,14 @@ impl<N: NodeUidT> Broadcast<N> {
 
         let mut step = Step::default();
         // Send each proof to a node.
-        for (index, uid) in self.netinfo.all_uids().enumerate() {
+        for (index, id) in self.netinfo.all_ids().enumerate() {
             let proof = mtree.proof(index).ok_or(Error::ProofConstructionFailed)?;
-            if *uid == *self.netinfo.our_uid() {
+            if *id == *self.netinfo.our_id() {
                 // The proof is addressed to this node.
                 result = Ok(proof);
             } else {
                 // Rest of the proofs are sent to remote nodes.
-                let msg = Target::Node(uid.clone()).message(Message::Value(proof));
+                let msg = Target::Node(id.clone()).message(Message::Value(proof));
                 step.messages.push_back(msg);
             }
         }
@@ -217,7 +217,7 @@ impl<N: NodeUidT> Broadcast<N> {
         if *sender_id != self.proposer_id {
             info!(
                 "Node {:?} received Value from {:?} instead of {:?}.",
-                self.netinfo.our_uid(),
+                self.netinfo.our_id(),
                 sender_id,
                 self.proposer_id
             );
@@ -225,17 +225,14 @@ impl<N: NodeUidT> Broadcast<N> {
             return Ok(Fault::new(sender_id.clone(), fault_kind).into());
         }
         if self.echo_sent {
-            info!(
-                "Node {:?} received multiple Values.",
-                self.netinfo.our_uid()
-            );
+            info!("Node {:?} received multiple Values.", self.netinfo.our_id());
             // TODO: should receiving two Values from a node be considered
             // a fault? If so, return a `Fault` here. For now, ignore.
             return Ok(Step::default());
         }
 
         // If the proof is invalid, log the faulty node behavior and ignore.
-        if !self.validate_proof(&p, &self.netinfo.our_uid()) {
+        if !self.validate_proof(&p, &self.netinfo.our_id()) {
             return Ok(Fault::new(sender_id.clone(), FaultKind::InvalidProof).into());
         }
 
@@ -249,7 +246,7 @@ impl<N: NodeUidT> Broadcast<N> {
         if self.echos.contains_key(sender_id) {
             info!(
                 "Node {:?} received multiple Echos from {:?}.",
-                self.netinfo.our_uid(),
+                self.netinfo.our_id(),
                 sender_id,
             );
             return Ok(Step::default());
@@ -279,7 +276,7 @@ impl<N: NodeUidT> Broadcast<N> {
         if self.readys.contains_key(sender_id) {
             info!(
                 "Node {:?} received multiple Readys from {:?}.",
-                self.netinfo.our_uid(),
+                self.netinfo.our_id(),
                 sender_id
             );
             return Ok(Step::default());
@@ -306,8 +303,8 @@ impl<N: NodeUidT> Broadcast<N> {
         }
         let echo_msg = Message::Echo(p.clone());
         let mut step: Step<_> = Target::All.message(echo_msg).into();
-        let our_uid = &self.netinfo.our_uid().clone();
-        step.extend(self.handle_echo(our_uid, p)?);
+        let our_id = &self.netinfo.our_id().clone();
+        step.extend(self.handle_echo(our_id, p)?);
         Ok(step)
     }
 
@@ -319,8 +316,8 @@ impl<N: NodeUidT> Broadcast<N> {
         }
         let ready_msg = Message::Ready(*hash);
         let mut step: Step<_> = Target::All.message(ready_msg).into();
-        let our_uid = &self.netinfo.our_uid().clone();
-        step.extend(self.handle_ready(our_uid, hash)?);
+        let our_id = &self.netinfo.our_id().clone();
+        step.extend(self.handle_ready(our_id, hash)?);
         Ok(step)
     }
 
@@ -337,7 +334,7 @@ impl<N: NodeUidT> Broadcast<N> {
         // Upon receiving 2f + 1 matching Ready(h) messages, wait for N − 2f Echo messages.
         let mut leaf_values: Vec<Option<Box<[u8]>>> = self
             .netinfo
-            .all_uids()
+            .all_ids()
             .map(|id| {
                 self.echos.get(id).and_then(|p| {
                     if p.root_hash() == hash {
@@ -364,14 +361,14 @@ impl<N: NodeUidT> Broadcast<N> {
         if !p.validate(self.netinfo.num_nodes()) {
             info!(
                 "Node {:?} received invalid proof: {:?}",
-                self.netinfo.our_uid(),
+                self.netinfo.our_id(),
                 HexProof(&p)
             );
             false
         } else if self.netinfo.node_index(id) != Some(p.index()) {
             info!(
                 "Node {:?} received proof for wrong position: {:?}.",
-                self.netinfo.our_uid(),
+                self.netinfo.our_id(),
                 HexProof(&p)
             );
             false

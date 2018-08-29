@@ -36,13 +36,13 @@ use rand::Rng;
 use hbbft::agreement::Agreement;
 use hbbft::messaging::NetworkInfo;
 
-use network::{Adversary, MessageScheduler, NodeUid, SilentAdversary, TestNetwork, TestNode};
+use network::{Adversary, MessageScheduler, NodeId, SilentAdversary, TestNetwork, TestNode};
 
-fn test_agreement<A: Adversary<Agreement<NodeUid>>>(
-    mut network: TestNetwork<A, Agreement<NodeUid>>,
+fn test_agreement<A: Adversary<Agreement<NodeId>>>(
+    mut network: TestNetwork<A, Agreement<NodeId>>,
     input: Option<bool>,
 ) {
-    let ids: Vec<NodeUid> = network.nodes.keys().cloned().collect();
+    let ids: Vec<NodeId> = network.nodes.keys().cloned().collect();
     for id in ids {
         network.input(id, input.unwrap_or_else(rand::random));
     }
@@ -66,7 +66,7 @@ fn test_agreement<A: Adversary<Agreement<NodeUid>>>(
 
 fn test_agreement_different_sizes<A, F>(new_adversary: F)
 where
-    A: Adversary<Agreement<NodeUid>>,
+    A: Adversary<Agreement<NodeId>>,
     F: Fn(usize, usize) -> A,
 {
     // This returns an error in all but the first test.
@@ -85,8 +85,8 @@ where
                 num_good_nodes, num_faulty_nodes, input
             );
             let adversary = |_| new_adversary(num_good_nodes, num_faulty_nodes);
-            let new_agreement = |netinfo: Arc<NetworkInfo<NodeUid>>| {
-                Agreement::new(netinfo, 0, NodeUid(0)).expect("agreement instance")
+            let new_agreement = |netinfo: Arc<NetworkInfo<NodeId>>| {
+                Agreement::new(netinfo, 0, NodeId(0)).expect("agreement instance")
             };
             let network =
                 TestNetwork::new(num_good_nodes, num_faulty_nodes, adversary, new_agreement);

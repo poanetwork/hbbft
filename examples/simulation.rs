@@ -65,7 +65,7 @@ struct Args {
 
 /// A node identifier. In the simulation, nodes are simply numbered.
 #[derive(Serialize, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Clone, Copy, Rand)]
-pub struct NodeUid(pub usize);
+pub struct NodeId(pub usize);
 
 /// A transaction.
 #[derive(Serialize, Deserialize, Eq, PartialEq, Hash, Ord, PartialOrd, Debug, Clone)]
@@ -81,8 +81,8 @@ impl Transaction {
 #[derive(Eq, PartialEq, Debug)]
 struct TimestampedMessage<D: DistAlgorithm> {
     time: Duration,
-    sender_id: D::NodeUid,
-    target: Target<D::NodeUid>,
+    sender_id: D::NodeId,
+    target: Target<D::NodeId>,
     message: Vec<u8>,
 }
 
@@ -116,7 +116,7 @@ pub struct HwQuality {
 /// A "node" running an instance of the algorithm `D`.
 pub struct TestNode<D: DistAlgorithm> {
     /// This node's own ID.
-    id: D::NodeUid,
+    id: D::NodeId,
     /// The instance of the broadcast algorithm.
     algo: D,
     /// The duration for which this node's CPU has already been simulated.
@@ -251,10 +251,10 @@ where
 
 /// A collection of `TestNode`s representing a network.
 pub struct TestNetwork<D: DistAlgorithm> {
-    nodes: BTreeMap<D::NodeUid, TestNode<D>>,
+    nodes: BTreeMap<D::NodeId, TestNode<D>>,
 }
 
-impl<D: DistAlgorithm<NodeUid = NodeUid>> TestNetwork<D>
+impl<D: DistAlgorithm<NodeId = NodeId>> TestNetwork<D>
 where
     D::Message: Serialize + DeserializeOwned + Clone,
 {
@@ -266,13 +266,13 @@ where
         hw_quality: HwQuality,
     ) -> TestNetwork<D>
     where
-        F: Fn(NetworkInfo<NodeUid>) -> (D, Step<D>),
+        F: Fn(NetworkInfo<NodeId>) -> (D, Step<D>),
     {
-        let node_ids = (0..(good_num + adv_num)).map(NodeUid);
+        let node_ids = (0..(good_num + adv_num)).map(NodeId);
         let netinfos =
             NetworkInfo::generate_map(node_ids).expect("Failed to create `NetworkInfo` map");
-        let new_node = |(uid, netinfo): (NodeUid, NetworkInfo<_>)| {
-            (uid, TestNode::new(new_algo(netinfo), hw_quality))
+        let new_node = |(id, netinfo): (NodeId, NetworkInfo<_>)| {
+            (id, TestNode::new(new_algo(netinfo), hw_quality))
         };
         let mut network = TestNetwork {
             nodes: netinfos.into_iter().map(new_node).collect(),
@@ -311,13 +311,13 @@ where
 
     /// Handles a queued message in one of the nodes with the earliest timestamp, if any. Returns
     /// the recipient's ID.
-    pub fn step(&mut self) -> Option<NodeUid> {
+    pub fn step(&mut self) -> Option<NodeId> {
         let min_time = self
             .nodes
             .values()
             .filter_map(TestNode::next_event_time)
             .min()?;
-        let min_ids: Vec<NodeUid> = self
+        let min_ids: Vec<NodeId> = self
             .nodes
             .iter()
             .filter(|(_, node)| node.next_event_time() == Some(min_time))
@@ -347,17 +347,17 @@ where
 /// The timestamped batches for a particular epoch that have already been output.
 #[derive(Clone, Default)]
 struct EpochInfo {
-    nodes: BTreeMap<NodeUid, (Duration, Batch<Transaction, NodeUid>)>,
+    nodes: BTreeMap<NodeId, (Duration, Batch<Transaction, NodeId>)>,
 }
 
 impl EpochInfo {
     /// Adds a batch to this epoch. Prints information if the epoch is complete.
     fn add(
         &mut self,
-        id: NodeUid,
+        id: NodeId,
         time: Duration,
-        batch: &Batch<Transaction, NodeUid>,
-        network: &TestNetwork<QueueingHoneyBadger<Transaction, NodeUid>>,
+        batch: &Batch<Transaction, NodeId>,
+        network: &TestNetwork<QueueingHoneyBadger<Transaction, NodeId>>,
     ) {
         if self.nodes.contains_key(&id) {
             return;
@@ -388,7 +388,7 @@ impl EpochInfo {
 }
 
 /// Proposes `num_txs` values and expects nodes to output and order them.
-fn simulate_honey_badger(mut network: TestNetwork<QueueingHoneyBadger<Transaction, NodeUid>>) {
+fn simulate_honey_badger(mut network: TestNetwork<QueueingHoneyBadger<Transaction, NodeId>>) {
     // Handle messages until all nodes have output all transactions.
     println!(
         "{}",
@@ -436,7 +436,7 @@ fn main() {
     let txs: Vec<_> = (0..args.flag_txs)
         .map(|_| Transaction::new(args.flag_tx_size))
         .collect();
-    let new_honey_badger = |netinfo: NetworkInfo<NodeUid>| {
+    let new_honey_badger = |netinfo: NetworkInfo<NodeId>| {
         let dyn_hb = DynamicHoneyBadger::builder().build(netinfo);
         QueueingHoneyBadger::builder(dyn_hb)
             .batch_size(args.flag_b)

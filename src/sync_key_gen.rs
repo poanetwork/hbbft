@@ -173,7 +173,7 @@ use rand::OsRng;
 
 use fault_log::{AckMessageFault as Fault, FaultKind, FaultLog};
 use messaging::NetworkInfo;
-use traits::NodeUidT;
+use traits::NodeIdT;
 
 // TODO: No need to send our own row and value to ourselves.
 
@@ -264,7 +264,7 @@ pub enum PartOutcome<N: Clone> {
 #[derive(Debug)]
 pub struct SyncKeyGen<N> {
     /// Our node ID.
-    our_uid: N,
+    our_id: N,
     /// Our node index.
     our_idx: Option<u64>,
     /// Our secret key.
@@ -277,24 +277,24 @@ pub struct SyncKeyGen<N> {
     threshold: usize,
 }
 
-impl<N: NodeUidT> SyncKeyGen<N> {
+impl<N: NodeIdT> SyncKeyGen<N> {
     /// Creates a new `SyncKeyGen` instance, together with the `Part` message that should be
     /// multicast to all nodes.
     ///
     /// If we are not a validator but only an observer, no `Part` message is produced and no
     /// messages need to be sent.
     pub fn new(
-        our_uid: N,
+        our_id: N,
         sec_key: SecretKey,
         pub_keys: BTreeMap<N, PublicKey>,
         threshold: usize,
     ) -> Result<(SyncKeyGen<N>, Option<Part>), Error> {
         let our_idx = pub_keys
             .keys()
-            .position(|uid| *uid == our_uid)
+            .position(|id| *id == our_id)
             .map(|idx| idx as u64);
         let key_gen = SyncKeyGen {
-            our_uid,
+            our_id,
             our_idx,
             sec_key,
             pub_keys,
@@ -445,7 +445,7 @@ impl<N: NodeUidT> SyncKeyGen<N> {
     pub fn into_network_info(self) -> Result<NetworkInfo<N>, Error> {
         let (pk_set, opt_sk_share) = self.generate()?;
         let sk_share = opt_sk_share.unwrap_or_default(); // TODO: Make this an option.
-        let netinfo = NetworkInfo::new(self.our_uid, sk_share, pk_set, self.sec_key, self.pub_keys);
+        let netinfo = NetworkInfo::new(self.our_id, sk_share, pk_set, self.sec_key, self.pub_keys);
         Ok(netinfo)
     }
 
@@ -491,7 +491,7 @@ impl<N: NodeUidT> SyncKeyGen<N> {
 
     /// Returns the index of the node, or `None` if it is unknown.
     fn node_index(&self, node_id: &N) -> Option<u64> {
-        if let Some(node_idx) = self.pub_keys.keys().position(|uid| uid == node_id) {
+        if let Some(node_idx) = self.pub_keys.keys().position(|id| id == node_id) {
             Some(node_idx as u64)
         } else {
             error!("Unknown node {:?}", node_id);

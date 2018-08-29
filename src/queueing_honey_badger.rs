@@ -32,7 +32,7 @@ use serde::{Deserialize, Serialize};
 
 use dynamic_honey_badger::{self, Batch as DhbBatch, DynamicHoneyBadger, Message};
 use messaging::{self, DistAlgorithm};
-use traits::{Contribution, NodeUidT};
+use traits::{Contribution, NodeIdT};
 use transaction_queue::TransactionQueue;
 
 pub use dynamic_honey_badger::{Change, ChangeState, Input};
@@ -105,7 +105,7 @@ pub struct QueueingHoneyBadgerBuilder<T, N: Rand> {
 impl<T, N> QueueingHoneyBadgerBuilder<T, N>
 where
     T: Contribution + Serialize + for<'r> Deserialize<'r> + Clone,
-    N: NodeUidT + Serialize + for<'r> Deserialize<'r> + Rand,
+    N: NodeIdT + Serialize + for<'r> Deserialize<'r> + Rand,
 {
     /// Returns a new `QueueingHoneyBadgerBuilder` configured to use the node IDs and cryptographic
     /// keys specified by `netinfo`.
@@ -162,7 +162,7 @@ where
 pub struct QueueingHoneyBadger<T, N>
 where
     T: Contribution + Serialize + for<'r> Deserialize<'r>,
-    N: NodeUidT + Serialize + for<'r> Deserialize<'r> + Rand,
+    N: NodeIdT + Serialize + for<'r> Deserialize<'r> + Rand,
 {
     /// The target number of transactions to be included in each batch.
     batch_size: usize,
@@ -177,9 +177,9 @@ pub type Step<T, N> = messaging::Step<QueueingHoneyBadger<T, N>>;
 impl<T, N> DistAlgorithm for QueueingHoneyBadger<T, N>
 where
     T: Contribution + Serialize + for<'r> Deserialize<'r> + Clone,
-    N: NodeUidT + Serialize + for<'r> Deserialize<'r> + Rand,
+    N: NodeIdT + Serialize + for<'r> Deserialize<'r> + Rand,
 {
-    type NodeUid = N;
+    type NodeId = N;
     type Input = Input<T, N>;
     type Output = Batch<T, N>;
     type Message = Message<N>;
@@ -228,7 +228,7 @@ where
 impl<T, N> QueueingHoneyBadger<T, N>
 where
     T: Contribution + Serialize + for<'r> Deserialize<'r> + Clone,
-    N: NodeUidT + Serialize + for<'r> Deserialize<'r> + Rand,
+    N: NodeIdT + Serialize + for<'r> Deserialize<'r> + Rand,
 {
     /// Returns a new `QueueingHoneyBadgerBuilder` configured to use the node IDs and cryptographic
     /// keys specified by `netinfo`.

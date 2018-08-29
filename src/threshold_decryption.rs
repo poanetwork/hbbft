@@ -17,7 +17,7 @@ use crypto::error as cerror;
 use crypto::{Ciphertext, DecryptionShare};
 use fault_log::{Fault, FaultKind, FaultLog};
 use messaging::{self, DistAlgorithm, NetworkInfo, Target};
-use traits::NodeUidT;
+use traits::NodeIdT;
 
 /// A threshold decryption error.
 #[derive(Clone, Eq, PartialEq, Debug, Fail)]
@@ -54,8 +54,8 @@ pub struct ThresholdDecryption<N> {
 
 pub type Step<N> = messaging::Step<ThresholdDecryption<N>>;
 
-impl<N: NodeUidT> DistAlgorithm for ThresholdDecryption<N> {
-    type NodeUid = N;
+impl<N: NodeIdT> DistAlgorithm for ThresholdDecryption<N> {
+    type NodeId = N;
     type Input = Ciphertext;
     type Output = Vec<u8>;
     type Message = Message;
@@ -74,11 +74,11 @@ impl<N: NodeUidT> DistAlgorithm for ThresholdDecryption<N> {
     }
 
     fn our_id(&self) -> &N {
-        self.netinfo.our_uid()
+        self.netinfo.our_id()
     }
 }
 
-impl<N: NodeUidT> ThresholdDecryption<N> {
+impl<N: NodeIdT> ThresholdDecryption<N> {
     /// Creates a new Threshold Decryption instance.
     pub fn new(netinfo: Arc<NetworkInfo<N>>) -> Self {
         ThresholdDecryption {

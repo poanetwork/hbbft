@@ -102,7 +102,7 @@ impl<D: DistAlgorithm> Node<D> {
     ///
     /// A node's ID is equal to its underlying algorithm instance's ID.
     #[inline]
-    pub fn id(&self) -> &D::NodeUid {
+    pub fn id(&self) -> &D::NodeId {
         self.algorithm.our_id()
     }
 
@@ -137,11 +137,11 @@ impl<M, N> NetworkMessage<M, N> {
 }
 
 /// Mapping from node IDs to actual node instances.
-pub type NodeMap<D> = collections::BTreeMap<<D as DistAlgorithm>::NodeUid, Node<D>>;
+pub type NodeMap<D> = collections::BTreeMap<<D as DistAlgorithm>::NodeId, Node<D>>;
 
 /// A virtual network message tied to a distributed algorithm.
 pub type NetMessage<D> =
-    NetworkMessage<<D as DistAlgorithm>::Message, <D as DistAlgorithm>::NodeUid>;
+    NetworkMessage<<D as DistAlgorithm>::Message, <D as DistAlgorithm>::NodeId>;
 
 /// Process a step.
 ///
@@ -158,8 +158,8 @@ pub type NetMessage<D> =
 // borrow-checker restrictions.
 #[cfg_attr(feature = "cargo-clippy", allow(needless_pass_by_value))]
 fn process_step<'a, D>(
-    nodes: &'a mut collections::BTreeMap<D::NodeUid, Node<D>>,
-    sender: D::NodeUid,
+    nodes: &'a mut collections::BTreeMap<D::NodeId, Node<D>>,
+    sender: D::NodeId,
     step: &Step<D>,
     dest: &mut collections::VecDeque<NetMessage<D>>,
 ) -> usize
@@ -224,9 +224,9 @@ where
     D: DistAlgorithm,
 {
     /// The node ID for the new node.
-    pub id: D::NodeUid,
+    pub id: D::NodeId,
     /// Network info struct, containing keys and other information.
-    pub netinfo: NetworkInfo<D::NodeUid>,
+    pub netinfo: NetworkInfo<D::NodeId>,
     /// Whether or not the node is marked faulty.
     pub faulty: bool,
 }
@@ -263,7 +263,7 @@ where
     D: DistAlgorithm,
     D::Message: Clone,
     D::Output: Clone,
-    I: IntoIterator<Item = D::NodeUid>,
+    I: IntoIterator<Item = D::NodeId>,
 {
     /// Construct a new network builder.
     ///
@@ -463,7 +463,7 @@ where
     /// Returns `None` if the node ID is not part of the network.
     #[inline]
     #[cfg_attr(feature = "cargo-clippy", allow(needless_pass_by_value))]
-    pub fn get<'a>(&'a self, id: D::NodeUid) -> Option<&'a Node<D>> {
+    pub fn get<'a>(&'a self, id: D::NodeId) -> Option<&'a Node<D>> {
         self.nodes.get(&id)
     }
 
@@ -472,7 +472,7 @@ where
     /// Returns `None` if the node ID is not part of the network.
     #[inline]
     #[cfg_attr(feature = "cargo-clippy", allow(needless_pass_by_value))]
-    pub fn get_mut<'a>(&'a mut self, id: D::NodeUid) -> Option<&'a mut Node<D>> {
+    pub fn get_mut<'a>(&'a mut self, id: D::NodeId) -> Option<&'a mut Node<D>> {
         self.nodes.get_mut(&id)
     }
 }
@@ -500,7 +500,7 @@ where
     fn new<F, I>(node_ids: I, faulty: usize, cons: F) -> Result<Self, crypto::error::Error>
     where
         F: Fn(NewNodeInfo<D>) -> (D, Step<D>),
-        I: IntoIterator<Item = D::NodeUid>,
+        I: IntoIterator<Item = D::NodeId>,
     {
         // Generate a new set of cryptographic keys for threshold cryptography.
         let net_infos = messaging::NetworkInfo::generate_map(node_ids)?;
@@ -582,7 +582,7 @@ where
     ///
     /// Panics if `id` does not name a valid node.
     #[inline]
-    pub fn send_input(&mut self, id: D::NodeUid, input: D::Input) -> Result<Step<D>, D::Error> {
+    pub fn send_input(&mut self, id: D::NodeId, input: D::Input) -> Result<Step<D>, D::Error> {
         let step = self
             .nodes
             .get_mut(&id)
@@ -608,7 +608,7 @@ where
     /// If a successful `Step` was generated, all of its messages are queued on the network and the
     /// `Step` is returned.
     #[inline]
-    pub fn crank(&mut self) -> Option<Result<(D::NodeUid, Step<D>), CrankError<D>>> {
+    pub fn crank(&mut self) -> Option<Result<(D::NodeId, Step<D>), CrankError<D>>> {
         // Check limits.
         if let Some(limit) = self.crank_limit {
             if self.crank_count >= limit {
@@ -692,7 +692,7 @@ where
     ///
     /// Shortcut for cranking the network, expecting both progress to be made as well as processing
     /// to proceed.
-    pub fn crank_expect(&mut self) -> (D::NodeUid, Step<D>) {
+    pub fn crank_expect(&mut self) -> (D::NodeId, Step<D>) {
         self.crank()
             .expect("crank: network queue empty")
             .expect("crank: node failed to process step")
@@ -716,7 +716,7 @@ where
     pub fn broadcast_input<'a>(
         &'a mut self,
         input: &'a D::Input,
-    ) -> Result<Vec<(D::NodeUid, Step<D>)>, D::Error> {
+    ) -> Result<Vec<(D::NodeId, Step<D>)>, D::Error> {
         // Note: The tricky lifetime annotation basically says that the input value given must
         //       live as long as the iterator returned lives (because it is cloned on every step,
         //       with steps only evaluated each time `next()` is called. For the same reason the
@@ -749,24 +749,24 @@ where
     }
 }
 
-impl<D> ops::Index<D::NodeUid> for VirtualNet<D>
+impl<D> ops::Index<D::NodeId> for VirtualNet<D>
 where
     D: DistAlgorithm,
 {
     type Output = Node<D>;
 
     #[inline]
-    fn index(&self, index: D::NodeUid) -> &Self::Output {
+    fn index(&self, index: D::NodeId) -> &Self::Output {
         self.get(index).expect("indexed node not found")
     }
 }
 
-impl<D> ops::IndexMut<D::NodeUid> for VirtualNet<D>
+impl<D> ops::IndexMut<D::NodeId> for VirtualNet<D>
 where
     D: DistAlgorithm,
 {
     #[inline]
-    fn index_mut(&mut self, index: D::NodeUid) -> &mut Self::Output {
+    fn index_mut(&mut self, index: D::NodeId) -> &mut Self::Output {
         self.get_mut(index).expect("indexed node not found")
     }
 }
@@ -788,7 +788,7 @@ where
     D::Message: Clone,
     D::Output: Clone,
 {
-    type Item = Result<(D::NodeUid, Step<D>), CrankError<D>>;
+    type Item = Result<(D::NodeId, Step<D>), CrankError<D>>;
 
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
