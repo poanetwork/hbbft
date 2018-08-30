@@ -76,7 +76,7 @@
 //!
 //! This is used in Subset to send each node's proposal to the other nodes.
 //!
-//! [**Binary Agreement**](agreement/index.html)
+//! [**Binary Agreement**](binary_agreement/index.html)
 //!
 //! Each node inputs a binary value: `true` or `false`. As output, either all correct nodes receive
 //! `true` or all correct nodes receive `false`. The output is guaranteed to be a value that was
@@ -137,7 +137,7 @@ extern crate serde_derive;
 pub extern crate threshold_crypto as crypto;
 extern crate tiny_keccak;
 
-pub mod agreement;
+pub mod binary_agreement;
 pub mod broadcast;
 pub mod coin;
 pub mod dynamic_honey_badger;

@@ -17,17 +17,17 @@
 //! the element proposed by that node.
 //! * It also instantiates Binary Agreement for each participating node, to decide whether
 //! that node's proposed element should be included in the set. Whenever an element is
-//! received via broadcast, we input "yes" (`true`) into the corresponding `Agreement` instance.
-//! * When _N - f_ `Agreement` instances have decided "yes", we input "no" (`false`) into the
+//! received via broadcast, we input "yes" (`true`) into the corresponding `BinaryAgreement` instance.
+//! * When _N - f_ `BinaryAgreement` instances have decided "yes", we input "no" (`false`) into the
 //! remaining ones, where we haven't provided input yet.
-//! * Once all `Agreement` instances have decided, `Subset` returns the set of all proposed
+//! * Once all `BinaryAgreement` instances have decided, `Subset` returns the set of all proposed
 //! values for which the decision was "yes".
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::result;
 use std::sync::Arc;
 
-use agreement::{self, Agreement};
+use binary_agreement::{self, BinaryAgreement};
 use broadcast::{self, Broadcast};
 use fmt::HexBytes;
 use messaging::{self, DistAlgorithm, NetworkInfo};
@@ -37,20 +37,20 @@ use traits::NodeIdT;
 /// A subset error.
 #[derive(Clone, PartialEq, Debug, Fail)]
 pub enum Error {
-    #[fail(display = "NewAgreement error: {}", _0)]
-    NewAgreement(agreement::Error),
-    #[fail(display = "ProcessAgreementAgreement0 error: {}", _0)]
-    ProcessAgreementAgreement0(agreement::Error),
-    #[fail(display = "ProcessAgreementAgreement1 error: {}", _0)]
-    ProcessAgreementAgreement1(agreement::Error),
+    #[fail(display = "NewBinaryAgreement error: {}", _0)]
+    NewBinaryAgreement(binary_agreement::Error),
+    #[fail(display = "ProcessBinaryAgreement0 error: {}", _0)]
+    ProcessBinaryAgreement0(binary_agreement::Error),
+    #[fail(display = "ProcessBinaryAgreement1 error: {}", _0)]
+    ProcessBinaryAgreement1(binary_agreement::Error),
     #[fail(display = "NewBroadcast error: {}", _0)]
     NewBroadcast(broadcast::Error),
     #[fail(display = "ProcessBroadcastBroadcast error: {}", _0)]
     ProcessBroadcastBroadcast(broadcast::Error),
-    #[fail(display = "Multiple agreement results")]
-    MultipleAgreementResults,
-    #[fail(display = "No such agreement instance")]
-    NoSuchAgreementInstance,
+    #[fail(display = "Multiple Binary Agreement results")]
+    MultipleBinaryAgreementResults,
+    #[fail(display = "No such Binary Agreement instance")]
+    NoSuchBinaryAgreementInstance,
     #[fail(display = "No such broadcast instance")]
     NoSuchBroadcastInstance,
 }
@@ -66,9 +66,9 @@ type ProposedValue = Vec<u8>;
 pub enum Message<N: Rand> {
     /// A message for the broadcast algorithm concerning the set element proposed by the given node.
     Broadcast(N, broadcast::Message),
-    /// A message for the agreement algorithm concerning the set element proposed by the given
+    /// A message for the Binary Agreement algorithm concerning the set element proposed by the given
     /// node.
-    Agreement(N, agreement::Message),
+    BinaryAgreement(N, binary_agreement::Message),
 }
 
 /// Subset algorithm instance
@@ -77,9 +77,9 @@ pub struct Subset<N: Rand> {
     /// Shared network information.
     netinfo: Arc<NetworkInfo<N>>,
     broadcast_instances: BTreeMap<N, Broadcast<N>>,
-    agreement_instances: BTreeMap<N, Agreement<N>>,
+    ba_instances: BTreeMap<N, BinaryAgreement<N>>,
     broadcast_results: BTreeMap<N, ProposedValue>,
-    agreement_results: BTreeMap<N, bool>,
+    ba_results: BTreeMap<N, bool>,
     /// Whether the instance has decided on a value.
     decided: bool,
 }
@@ -109,12 +109,14 @@ impl<N: NodeIdT + Rand> DistAlgorithm for Subset<N> {
     ) -> Result<Step<N>> {
         match message {
             Message::Broadcast(p_id, b_msg) => self.handle_broadcast(sender_id, &p_id, b_msg),
-            Message::Agreement(p_id, a_msg) => self.handle_agreement(sender_id, &p_id, a_msg),
+            Message::BinaryAgreement(p_id, a_msg) => {
+                self.handle_binary_agreement(sender_id, &p_id, a_msg)
+            }
         }
     }
 
     fn terminated(&self) -> bool {
-        self.agreement_instances.values().all(Agreement::terminated)
+        self.ba_instances.values().all(BinaryAgreement::terminated)
     }
 
     fn our_id(&self) -> &Self::NodeId {
@@ -133,22 +135,22 @@ impl<N: NodeIdT + Rand> Subset<N> {
             );
         }
 
-        // Create all agreement instances.
-        let mut agreement_instances: BTreeMap<N, Agreement<N>> = BTreeMap::new();
+        // Create all Binary Agreement instances.
+        let mut ba_instances: BTreeMap<N, BinaryAgreement<N>> = BTreeMap::new();
         for proposer_id in netinfo.all_ids() {
-            agreement_instances.insert(
+            ba_instances.insert(
                 proposer_id.clone(),
-                Agreement::new(netinfo.clone(), session_id, proposer_id.clone())
-                    .map_err(Error::NewAgreement)?,
+                BinaryAgreement::new(netinfo.clone(), session_id, proposer_id.clone())
+                    .map_err(Error::NewBinaryAgreement)?,
             );
         }
 
         Ok(Subset {
             netinfo,
             broadcast_instances,
-            agreement_instances,
+            ba_instances,
             broadcast_results: BTreeMap::new(),
-            agreement_results: BTreeMap::new(),
+            ba_results: BTreeMap::new(),
             decided: false,
         })
     }
@@ -180,17 +182,17 @@ impl<N: NodeIdT + Rand> Subset<N> {
         self.process_broadcast(proposer_id, |bc| bc.handle_message(sender_id, bmessage))
     }
 
-    /// Receives an agreement message from a remote node `sender_id` concerning
+    /// Receives a Binary Agreement message from a remote node `sender_id` concerning
     /// a value proposed by the node `proposer_id`.
-    fn handle_agreement(
+    fn handle_binary_agreement(
         &mut self,
         sender_id: &N,
         proposer_id: &N,
-        amessage: agreement::Message,
+        amessage: binary_agreement::Message,
     ) -> Result<Step<N>> {
-        // Send the message to the local instance of Agreement
-        self.process_agreement(proposer_id, |agreement| {
-            agreement.handle_message(sender_id, amessage)
+        // Send the message to the local instance of Binary Agreement.
+        self.process_binary_agreement(proposer_id, |binary_agreement| {
+            binary_agreement.handle_message(sender_id, amessage)
         })
     }
 
@@ -218,35 +220,35 @@ impl<N: NodeIdT + Rand> Subset<N> {
             }
         };
         self.broadcast_results.insert(proposer_id.clone(), value);
-        let set_agreement_input = |agreement: &mut Agreement<N>| {
-            if agreement.accepts_input() {
-                agreement.handle_input(true)
+        let set_binary_agreement_input = |ba: &mut BinaryAgreement<N>| {
+            if ba.accepts_input() {
+                ba.handle_input(true)
             } else {
-                Ok(agreement::Step::default())
+                Ok(binary_agreement::Step::default())
             }
         };
-        step.extend(self.process_agreement(proposer_id, set_agreement_input)?);
+        step.extend(self.process_binary_agreement(proposer_id, set_binary_agreement_input)?);
         Ok(step)
     }
 
-    /// Callback to be invoked on receipt of the decision value of the Agreement
+    /// Callback to be invoked on receipt of the decision value of the Binary Agreement
     /// instance `id`.
-    fn process_agreement<F>(&mut self, proposer_id: &N, f: F) -> Result<Step<N>>
+    fn process_binary_agreement<F>(&mut self, proposer_id: &N, f: F) -> Result<Step<N>>
     where
-        F: FnOnce(&mut Agreement<N>) -> result::Result<agreement::Step<N>, agreement::Error>,
+        F: FnOnce(&mut BinaryAgreement<N>) -> binary_agreement::Result<binary_agreement::Step<N>>,
     {
         let mut step = Step::default();
         let value = {
-            let agreement = self
-                .agreement_instances
+            let binary_agreement = self
+                .ba_instances
                 .get_mut(proposer_id)
-                .ok_or(Error::NoSuchAgreementInstance)?;
-            if agreement.terminated() {
+                .ok_or(Error::NoSuchBinaryAgreementInstance)?;
+            if binary_agreement.terminated() {
                 return Ok(step);
             }
-            let to_msg = |a_msg| Message::Agreement(proposer_id.clone(), a_msg);
+            let to_msg = |a_msg| Message::BinaryAgreement(proposer_id.clone(), a_msg);
             let output = step.extend_with(
-                f(agreement).map_err(Error::ProcessAgreementAgreement0)?,
+                f(binary_agreement).map_err(Error::ProcessBinaryAgreement0)?,
                 to_msg,
             );
             if let Some(output) = output.into_iter().next() {
@@ -255,69 +257,68 @@ impl<N: NodeIdT + Rand> Subset<N> {
                 return Ok(step);
             }
         };
-        if self
-            .agreement_results
-            .insert(proposer_id.clone(), value)
-            .is_some()
-        {
-            return Err(Error::MultipleAgreementResults);
+        if self.ba_results.insert(proposer_id.clone(), value).is_some() {
+            return Err(Error::MultipleBinaryAgreementResults);
         }
         debug!(
-            "{:?} Updated Agreement results: {:?}",
+            "{:?} Updated Binary Agreement results: {:?}",
             self.netinfo.our_id(),
-            self.agreement_results
+            self.ba_results
         );
 
         if value && self.count_true() == self.netinfo.num_correct() {
             // Upon delivery of value 1 from at least N − f instances of BA, provide
             // input 0 to each instance of BA that has not yet been provided input.
-            for (id, agreement) in &mut self.agreement_instances {
-                if agreement.accepts_input() {
-                    let to_msg = |a_msg| Message::Agreement(id.clone(), a_msg);
+            for (id, binary_agreement) in &mut self.ba_instances {
+                if binary_agreement.accepts_input() {
+                    let to_msg = |a_msg| Message::BinaryAgreement(id.clone(), a_msg);
                     for output in step.extend_with(
-                        agreement
+                        binary_agreement
                             .handle_input(false)
-                            .map_err(Error::ProcessAgreementAgreement1)?,
+                            .map_err(Error::ProcessBinaryAgreement1)?,
                         to_msg,
                     ) {
-                        if self.agreement_results.insert(id.clone(), output).is_some() {
-                            return Err(Error::MultipleAgreementResults);
+                        if self.ba_results.insert(id.clone(), output).is_some() {
+                            return Err(Error::MultipleBinaryAgreementResults);
                         }
                     }
                 }
             }
         }
-        step.output.extend(self.try_agreement_completion());
+        step.output.extend(self.try_binary_agreement_completion());
         Ok(step)
     }
 
-    /// Returns the number of agreement instances that have decided "yes".
+    /// Returns the number of Binary Agreement instances that have decided "yes".
     fn count_true(&self) -> usize {
-        self.agreement_results.values().filter(|v| **v).count()
+        self.ba_results.values().filter(|v| **v).count()
     }
 
-    fn try_agreement_completion(&mut self) -> Option<BTreeMap<N, ProposedValue>> {
+    fn try_binary_agreement_completion(&mut self) -> Option<BTreeMap<N, ProposedValue>> {
         if self.decided || self.count_true() < self.netinfo.num_correct() {
             return None;
         }
         // Once all instances of BA have completed, let C ⊂ [1..N] be
         // the indexes of each BA that delivered 1. Wait for the output
         // v_j for each RBC_j such that j∈C. Finally output ∪ j∈C v_j.
-        if self.agreement_results.len() < self.netinfo.num_nodes() {
+        if self.ba_results.len() < self.netinfo.num_nodes() {
             return None;
         }
         debug!(
-            "{:?} All Agreement instances have terminated",
+            "{:?} All Binary Agreement instances have terminated",
             self.netinfo.our_id()
         );
-        // All instances of Agreement that delivered `true` (or "1" in the paper).
+        // All instances of BinaryAgreement that delivered `true` (or "1" in the paper).
         let delivered_1: BTreeSet<&N> = self
-            .agreement_results
+            .ba_results
             .iter()
             .filter(|(_, v)| **v)
             .map(|(k, _)| k)
             .collect();
-        debug!("Agreement instances that delivered 1: {:?}", delivered_1);
+        debug!(
+            "Binary Agreement instances that delivered 1: {:?}",
+            delivered_1
+        );
 
         // Results of Broadcast instances in `delivered_1`
         let broadcast_results: BTreeMap<N, ProposedValue> = self
@@ -328,7 +329,10 @@ impl<N: NodeIdT + Rand> Subset<N> {
             .collect();
 
         if delivered_1.len() == broadcast_results.len() {
-            debug!("{:?} Agreement instances completed:", self.netinfo.our_id());
+            debug!(
+                "{:?} Binary Agreement instances completed:",
+                self.netinfo.our_id()
+            );
             for (id, result) in &broadcast_results {
                 debug!("    {:?} → {:?}", id, HexBytes(&result));
             }

@@ -1,7 +1,7 @@
 #![deny(unused_must_use)]
-//! Tests of the Binary Byzantine Agreement protocol. Only one proposer instance
+//! Tests of the Binary Agreement protocol. Only one proposer instance
 //! is tested. Each of the nodes in the simulated network run only one instance
-//! of Agreement. This way we only test correctness of the protocol and not
+//! of Binary Agreement. This way we only test correctness of the protocol and not
 //! message dispatch between multiple proposers.
 //!
 //! There are three properties that are tested:
@@ -33,13 +33,13 @@ use std::sync::Arc;
 
 use rand::Rng;
 
-use hbbft::agreement::Agreement;
+use hbbft::binary_agreement::BinaryAgreement;
 use hbbft::messaging::NetworkInfo;
 
 use network::{Adversary, MessageScheduler, NodeId, SilentAdversary, TestNetwork, TestNode};
 
-fn test_agreement<A: Adversary<Agreement<NodeId>>>(
-    mut network: TestNetwork<A, Agreement<NodeId>>,
+fn test_binary_agreement<A: Adversary<BinaryAgreement<NodeId>>>(
+    mut network: TestNetwork<A, BinaryAgreement<NodeId>>,
     input: Option<bool>,
 ) {
     let ids: Vec<NodeId> = network.nodes.keys().cloned().collect();
@@ -64,9 +64,9 @@ fn test_agreement<A: Adversary<Agreement<NodeId>>>(
     assert!(expected.iter().eq(network.observer.outputs()));
 }
 
-fn test_agreement_different_sizes<A, F>(new_adversary: F)
+fn test_binary_agreement_different_sizes<A, F>(new_adversary: F)
 where
-    A: Adversary<Agreement<NodeId>>,
+    A: Adversary<BinaryAgreement<NodeId>>,
     F: Fn(usize, usize) -> A,
 {
     // This returns an error in all but the first test.
@@ -85,12 +85,11 @@ where
                 num_good_nodes, num_faulty_nodes, input
             );
             let adversary = |_| new_adversary(num_good_nodes, num_faulty_nodes);
-            let new_agreement = |netinfo: Arc<NetworkInfo<NodeId>>| {
-                Agreement::new(netinfo, 0, NodeId(0)).expect("agreement instance")
+            let new_ba = |netinfo: Arc<NetworkInfo<NodeId>>| {
+                BinaryAgreement::new(netinfo, 0, NodeId(0)).expect("Binary Agreement instance")
             };
-            let network =
-                TestNetwork::new(num_good_nodes, num_faulty_nodes, adversary, new_agreement);
-            test_agreement(network, input);
+            let network = TestNetwork::new(num_good_nodes, num_faulty_nodes, adversary, new_ba);
+            test_binary_agreement(network, input);
             info!(
                 "Test success: {} good nodes and {} faulty nodes, input: {:?}",
                 num_good_nodes, num_faulty_nodes, input
@@ -100,13 +99,13 @@ where
 }
 
 #[test]
-fn test_agreement_random_silent() {
+fn test_binary_agreement_random_silent() {
     let new_adversary = |_: usize, _: usize| SilentAdversary::new(MessageScheduler::Random);
-    test_agreement_different_sizes(new_adversary);
+    test_binary_agreement_different_sizes(new_adversary);
 }
 
 #[test]
-fn test_agreement_first_silent() {
+fn test_binary_agreement_first_silent() {
     let new_adversary = |_: usize, _: usize| SilentAdversary::new(MessageScheduler::First);
-    test_agreement_different_sizes(new_adversary);
+    test_binary_agreement_different_sizes(new_adversary);
 }

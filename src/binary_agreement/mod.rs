@@ -1,4 +1,4 @@
-//! # Binary Byzantine agreement protocol
+//! # Binary Agreement
 //!
 //! The Binary Agreement protocol allows each node to input one binary (`bool`) value, and will
 //! output a binary value. The output is guaranteed to have been input by at least one correct
@@ -63,7 +63,7 @@
 //! * After _f + 1_ nodes have sent us their coin shares, we receive the coin output and assign it
 //! to `s`.
 
-mod agreement;
+mod binary_agreement;
 mod bool_multimap;
 pub mod bool_set;
 mod sbv_broadcast;
@@ -74,9 +74,9 @@ use self::bool_set::BoolSet;
 use coin::{self, CoinMessage};
 use messaging;
 
-pub use self::agreement::Agreement;
+pub use self::binary_agreement::BinaryAgreement;
 
-/// An agreement error.
+/// An Binary Agreement error.
 #[derive(Clone, Eq, PartialEq, Debug, Fail)]
 pub enum Error {
     #[fail(display = "HandleCoin error: {}", _0)]
@@ -89,13 +89,13 @@ pub enum Error {
     InputNotAccepted,
 }
 
-/// An agreement result.
+/// An Binary Agreement result.
 pub type Result<T> = ::std::result::Result<T, Error>;
 
-pub type Step<N> = messaging::Step<Agreement<N>>;
+pub type Step<N> = messaging::Step<BinaryAgreement<N>>;
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
-pub enum AgreementContent {
+pub enum MessageContent {
     /// Synchronized Binary Value Broadcast message.
     SbvBroadcast(sbv_broadcast::Message),
     /// `Conf` message.
@@ -106,7 +106,7 @@ pub enum AgreementContent {
     Coin(Box<CoinMessage>),
 }
 
-impl AgreementContent {
+impl MessageContent {
     /// Creates an message with a given epoch number.
     pub fn with_epoch(self, epoch: u32) -> Message {
         Message {
@@ -118,31 +118,31 @@ impl AgreementContent {
     /// Returns `true` if this message can be ignored if its epoch has already passed.
     pub fn can_expire(&self) -> bool {
         match *self {
-            AgreementContent::Term(_) => false,
+            MessageContent::Term(_) => false,
             _ => true,
         }
     }
 }
 
-/// Messages sent during the binary Byzantine agreement stage.
+/// Messages sent during the Binary Agreement stage.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Rand)]
 pub struct Message {
     pub epoch: u32,
-    pub content: AgreementContent,
+    pub content: MessageContent,
 }
 
 // NOTE: Extending rand_derive to correctly generate random values from boxes would make this
 // implementation obsolete; however at the time of this writing, `rand::Rand` is already deprecated
 // with no replacement in sight.
-impl rand::Rand for AgreementContent {
+impl rand::Rand for MessageContent {
     fn rand<R: rand::Rng>(rng: &mut R) -> Self {
         let message_type = *rng.choose(&["sbvb", "conf", "term", "coin"]).unwrap();
 
         match message_type {
-            "sbvb" => AgreementContent::SbvBroadcast(rand::random()),
-            "conf" => AgreementContent::Conf(rand::random()),
-            "term" => AgreementContent::Term(rand::random()),
-            "coin" => AgreementContent::Coin(Box::new(rand::random())),
+            "sbvb" => MessageContent::SbvBroadcast(rand::random()),
+            "conf" => MessageContent::Conf(rand::random()),
+            "term" => MessageContent::Term(rand::random()),
+            "coin" => MessageContent::Coin(Box::new(rand::random())),
             _ => unreachable!(),
         }
     }
@@ -156,11 +156,11 @@ impl Nonce {
         invocation_id: &[u8],
         session_id: u64,
         proposer_id: usize,
-        agreement_epoch: u32,
+        binary_agreement_epoch: u32,
     ) -> Self {
         Nonce(Vec::from(format!(
             "Nonce for Honey Badger {:?}@{}:{}:{}",
-            invocation_id, session_id, agreement_epoch, proposer_id
+            invocation_id, session_id, binary_agreement_epoch, proposer_id
         )))
     }
 }

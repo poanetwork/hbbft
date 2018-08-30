@@ -63,9 +63,9 @@ pub enum FaultKind {
     InvalidVoteSignature,
     /// A validator committed an invalid vote in `DynamicHoneyBadger`.
     InvalidCommittedVote,
-    /// `Agreement` received a duplicate `BVal` message.
+    /// `BinaryAgreement` received a duplicate `BVal` message.
     DuplicateBVal,
-    /// `Agreement` received a duplicate `Aux` message.
+    /// `BinaryAgreement` received a duplicate `Aux` message.
     DuplicateAux,
 }
 
