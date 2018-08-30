@@ -435,11 +435,22 @@ fn main() {
         .map(|_| Transaction::new(args.flag_tx_size))
         .collect();
     let new_honey_badger = |netinfo: NetworkInfo<NodeId>| {
-        let dyn_hb = DynamicHoneyBadger::builder().build(netinfo);
-        QueueingHoneyBadger::builder(dyn_hb)
+        let (dyn_hb, dyn_hb_step) = DynamicHoneyBadger::builder()
+            .build(netinfo)
+            .expect("`DynamicHoneyBadger` builder failed");
+        // Convert the initial step of the `DynamicHoneyBadger` instance into the initial step of
+        // the `QueueingHoneyBadger` instance.
+        let mut step = Step {
+            output: dyn_hb_step.output,
+            fault_log: dyn_hb_step.fault_log,
+            messages: dyn_hb_step.messages,
+        };
+        let (qhb, qhb_step) = QueueingHoneyBadger::builder(dyn_hb)
             .batch_size(args.flag_b)
             .build_with_transactions(txs.clone())
-            .expect("instantiate QueueingHoneyBadger")
+            .expect("instantiate QueueingHoneyBadger");
+        step.extend(qhb_step);
+        (qhb, step)
     };
     let hw_quality = HwQuality {
         latency: Duration::from_millis(args.flag_lag),

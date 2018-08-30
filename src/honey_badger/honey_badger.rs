@@ -1,14 +1,14 @@
 use std::collections::btree_map::Entry;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, VecDeque};
 use std::sync::Arc;
 
 use bincode;
 use rand::Rand;
 use serde::{Deserialize, Serialize};
 
-use super::epoch_state::EpochState;
+use super::epoch_state::{EpochState, HandledMessageContent};
 use super::{Batch, Error, ErrorKind, HoneyBadgerBuilder, Message, MessageContent, Result};
-use messaging::{self, DistAlgorithm, NetworkInfo};
+use messaging::{self, DistAlgorithm, NetworkInfo, Target};
 use traits::{Contribution, NodeIdT};
 
 /// An instance of the Honey Badger Byzantine fault tolerant consensus algorithm.
@@ -26,6 +26,8 @@ pub struct HoneyBadger<C, N: Rand> {
     pub(super) max_future_epochs: u64,
     /// Messages for future epochs that couldn't be handled yet.
     pub(super) incoming_queue: BTreeMap<u64, Vec<(N, MessageContent<N>)>>,
+    /// Known current epochs of remote nodes.
+    pub(super) remote_epochs: BTreeMap<N, u64>,
 }
 
 pub type Step<C, N> = messaging::Step<HoneyBadger<C, N>>;
@@ -97,13 +99,30 @@ where
                 .or_insert_with(Vec::new)
                 .push((sender_id.clone(), content));
         } else if epoch == self.epoch {
-            let mut step = self
+            let HandledMessageContent {
+                mut step,
+                update_epoch,
+            } = self
                 .epoch_state_mut(epoch)?
                 .handle_message_content(sender_id, content)?;
             step.extend(self.try_output_batches()?);
+            if update_epoch {
+                self.update_remote_epoch(sender_id, epoch);
+            }
             return Ok(step);
         } // And ignore all messages from past epochs.
         Ok(Step::default())
+    }
+
+    fn update_remote_epoch(&mut self, sender_id: &N, epoch: u64) {
+        self.remote_epochs
+            .entry(sender_id.clone())
+            .and_modify(|e| {
+                if *e < epoch {
+                    *e = epoch;
+                }
+            })
+            .or_insert(epoch);
     }
 
     /// Returns `true` if input for the current epoch has already been provided.
@@ -126,12 +145,26 @@ where
         self.epoch += 1;
         self.has_input = false;
         let max_epoch = self.epoch + self.max_future_epochs;
-        let mut step = Step::default();
+        let mut msgs = VecDeque::new();
+        // The first message in an epoch announces the epoch transition.
+        msgs.push_back(Target::All.message(MessageContent::EpochStarted.with_epoch(self.epoch)));
+        let mut step = Step::new(Default::default(), Default::default(), msgs);
+        let mut epoch_updates = Vec::new();
         if let Some(messages) = self.incoming_queue.remove(&max_epoch) {
             let epoch_state = self.epoch_state_mut(max_epoch)?;
             for (sender_id, content) in messages {
-                step.extend(epoch_state.handle_message_content(&sender_id, content)?);
+                let HandledMessageContent {
+                    step: step_content,
+                    update_epoch,
+                } = epoch_state.handle_message_content(&sender_id, content)?;
+                step.extend(step_content);
+                if update_epoch {
+                    epoch_updates.push(sender_id);
+                }
             }
+        }
+        for sender_id in epoch_updates {
+            self.update_remote_epoch(&sender_id, max_epoch);
         }
         Ok(step)
     }

@@ -13,6 +13,10 @@ pub enum MessageContent<N: Rand> {
         proposer_id: N,
         share: threshold_decryption::Message,
     },
+    /// A Honey Badger participant uses this message to announce its transition to the given
+    /// epoch. This message informs the recipients that this participant now accepts messages for
+    /// `max_future_epochs + 1` epochs counting from the given one.
+    EpochStarted,
 }
 
 impl<N: Rand> MessageContent<N> {

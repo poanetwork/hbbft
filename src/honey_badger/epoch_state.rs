@@ -119,6 +119,19 @@ pub struct EpochState<C, N: Rand> {
     _phantom: PhantomData<C>,
 }
 
+#[derive(Debug)]
+pub struct HandledMessageContent<C, N>
+where
+    C: Contribution + Serialize + for<'r> Deserialize<'r>,
+    N: NodeIdT + Rand,
+{
+    /// The step output from processing message content.
+    pub(super) step: Step<C, N>,
+    /// The flag indicating whether the minimum epoch accepted by the remote Honey Badger instance
+    /// should be updated to the epoch of this message.
+    pub(super) update_epoch: bool,
+}
+
 impl<C, N> EpochState<C, N>
 where
     C: Contribution + Serialize + for<'r> Deserialize<'r>,
@@ -155,17 +168,24 @@ where
         &mut self,
         sender_id: &N,
         content: MessageContent<N>,
-    ) -> Result<Step<C, N>> {
+    ) -> Result<HandledMessageContent<C, N>> {
         match content {
             MessageContent::Subset(cs_msg) => {
                 let cs_step = self.subset.handle_message(sender_id, cs_msg)?;
                 self.process_subset(cs_step)
+                    .map(|step| HandledMessageContent {
+                        step,
+                        update_epoch: false,
+                    })
             }
             MessageContent::DecryptionShare { proposer_id, share } => {
                 if let Some(ref ids) = self.subset.accepted_ids() {
                     if !ids.contains(&proposer_id) {
                         let fault_kind = FaultKind::UnexpectedDecryptionShare;
-                        return Ok(Fault::new(sender_id.clone(), fault_kind).into());
+                        return Ok(HandledMessageContent {
+                            step: Fault::new(sender_id.clone(), fault_kind).into(),
+                            update_epoch: false,
+                        });
                     }
                 }
                 let td_step = match self.decryption.entry(proposer_id.clone()) {
@@ -176,7 +196,15 @@ where
                 }.handle_message(sender_id, share)
                 .map_err(ErrorKind::ThresholdDecryption)?;
                 self.process_decryption(proposer_id, td_step)
+                    .map(|step| HandledMessageContent {
+                        step,
+                        update_epoch: false,
+                    })
             }
+            MessageContent::EpochStarted => Ok(HandledMessageContent {
+                step: Step::default(),
+                update_epoch: true,
+            }),
         }
     }
 
