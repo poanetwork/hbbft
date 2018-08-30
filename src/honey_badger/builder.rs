@@ -1,11 +1,11 @@
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::BTreeMap;
 use std::marker::PhantomData;
 use std::sync::Arc;
 
 use rand::Rand;
 use serde::{Deserialize, Serialize};
 
-use super::{HoneyBadger, MessageContent, Step};
+use super::{HoneyBadger, Message, Step};
 use messaging::{NetworkInfo, Target};
 use traits::{Contribution, NodeIdT};
 
@@ -54,10 +54,12 @@ where
             incoming_queue: BTreeMap::new(),
             remote_epochs: BTreeMap::new(),
         };
-        let mut msgs = VecDeque::new();
-        // The first message in an epoch announces the epoch transition.
-        msgs.push_back(Target::All.message(MessageContent::EpochStarted.with_epoch(0)));
-        let step = Step::new(Default::default(), Default::default(), msgs);
+        let step = if self.netinfo.is_validator() {
+            // The first message in an epoch announces the epoch transition.
+            Target::All.message(Message::EpochStarted(0)).into()
+        } else {
+            Step::default()
+        };
         (hb, step)
     }
 }

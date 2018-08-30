@@ -110,14 +110,8 @@ fn new_queueing_hb(
     let (dhb, dhb_step) = DynamicHoneyBadger::builder()
         .build((*netinfo).clone())
         .expect("`new_queueing_hb` failed");
-    // Convert the initial step of the `DynamicHoneyBadger` instance into the initial step of
-    // the `QueueingHoneyBadger` instance.
-    let mut step = Step {
-        output: dhb_step.output,
-        fault_log: dhb_step.fault_log,
-        messages: dhb_step.messages,
-    };
     let (qhb, qhb_step) = QueueingHoneyBadger::builder(dhb).batch_size(3).build();
+    let mut step = dhb_step.convert();
     step.extend(qhb_step);
     (qhb, step)
 }

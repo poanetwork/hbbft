@@ -1,12 +1,12 @@
 use std::collections::btree_map::Entry;
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use bincode;
 use rand::Rand;
 use serde::{Deserialize, Serialize};
 
-use super::epoch_state::{EpochState, HandledMessageContent};
+use super::epoch_state::EpochState;
 use super::{Batch, Error, ErrorKind, HoneyBadgerBuilder, Message, MessageContent, Result};
 use messaging::{self, DistAlgorithm, NetworkInfo, Target};
 use traits::{Contribution, NodeIdT};
@@ -91,7 +91,24 @@ where
         if !self.netinfo.is_node_validator(sender_id) {
             return Err(ErrorKind::UnknownSender.into());
         }
-        let Message { epoch, content } = message;
+        match message {
+            Message::HoneyBadgerMessage { epoch, content } => {
+                self.handle_honey_badger_message(sender_id, epoch, content)
+            }
+            Message::EpochStarted(epoch) => {
+                self.handle_epoch_started(sender_id, epoch);
+                Ok(Step::default())
+            }
+        }
+    }
+
+    /// Handles a Honey Badger algorithm message in a given epoch.
+    fn handle_honey_badger_message(
+        &mut self,
+        sender_id: &N,
+        epoch: u64,
+        content: MessageContent<N>,
+    ) -> Result<Step<C, N>> {
         if epoch > self.epoch + self.max_future_epochs {
             // Postpone handling this message.
             self.incoming_queue
@@ -99,19 +116,18 @@ where
                 .or_insert_with(Vec::new)
                 .push((sender_id.clone(), content));
         } else if epoch == self.epoch {
-            let HandledMessageContent {
-                mut step,
-                update_epoch,
-            } = self
+            let mut step = self
                 .epoch_state_mut(epoch)?
                 .handle_message_content(sender_id, content)?;
             step.extend(self.try_output_batches()?);
-            if update_epoch {
-                self.update_remote_epoch(sender_id, epoch);
-            }
             return Ok(step);
         } // And ignore all messages from past epochs.
         Ok(Step::default())
+    }
+
+    /// Handles an epoch start announcement.
+    fn handle_epoch_started(&mut self, sender_id: &N, epoch: u64) {
+        self.update_remote_epoch(sender_id, epoch);
     }
 
     fn update_remote_epoch(&mut self, sender_id: &N, epoch: u64) {
@@ -145,26 +161,15 @@ where
         self.epoch += 1;
         self.has_input = false;
         let max_epoch = self.epoch + self.max_future_epochs;
-        let mut msgs = VecDeque::new();
         // The first message in an epoch announces the epoch transition.
-        msgs.push_back(Target::All.message(MessageContent::EpochStarted.with_epoch(self.epoch)));
-        let mut step = Step::new(Default::default(), Default::default(), msgs);
-        let mut epoch_updates = Vec::new();
+        let mut step: Step<C, N> = Target::All
+            .message(Message::EpochStarted(self.epoch))
+            .into();
         if let Some(messages) = self.incoming_queue.remove(&max_epoch) {
             let epoch_state = self.epoch_state_mut(max_epoch)?;
             for (sender_id, content) in messages {
-                let HandledMessageContent {
-                    step: step_content,
-                    update_epoch,
-                } = epoch_state.handle_message_content(&sender_id, content)?;
-                step.extend(step_content);
-                if update_epoch {
-                    epoch_updates.push(sender_id);
-                }
+                step.extend(epoch_state.handle_message_content(&sender_id, content)?);
             }
-        }
-        for sender_id in epoch_updates {
-            self.update_remote_epoch(&sender_id, max_epoch);
         }
         Ok(step)
     }
