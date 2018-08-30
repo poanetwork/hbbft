@@ -1,6 +1,6 @@
 //! # Synchronized Binary Value Broadcast
 //!
-//! This performs the `BVal` and `Aux` steps for `Agreement`.
+//! This performs the `BVal` and `Aux` steps for `BinaryAgreement`.
 //!
 //! Validators input binary values, and each node outputs a set of one or two binary values.
 //! These outputs are not necessarily the same in each node, but it is guaranteed that whenever two

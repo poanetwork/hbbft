@@ -4,9 +4,9 @@ use std::sync::Arc;
 use itertools::Itertools;
 
 use super::bool_multimap::BoolMultimap;
+use super::bool_set::BoolSet;
 use super::sbv_broadcast::{self, SbvBroadcast};
-use super::{AgreementContent, Error, Message, Nonce, Result, Step};
-use agreement::bool_set::BoolSet;
+use super::{Error, Message, MessageContent, Nonce, Result, Step};
 use coin::{self, Coin, CoinMessage};
 use messaging::{DistAlgorithm, NetworkInfo, Target};
 use traits::NodeIdT;
@@ -39,14 +39,14 @@ impl<N> From<bool> for CoinState<N> {
 
 /// Binary Agreement instance
 #[derive(Debug)]
-pub struct Agreement<N> {
+pub struct BinaryAgreement<N> {
     /// Shared network information.
     netinfo: Arc<NetworkInfo<N>>,
     /// Session ID, e.g, the Honey Badger algorithm epoch.
     session_id: u64,
-    /// The ID of the proposer of the value for this agreement instance.
+    /// The ID of the proposer of the value for this Binary Agreement instance.
     proposer_id: N,
-    /// Agreement algorithm epoch.
+    /// Binary Agreement algorithm epoch.
     epoch: u32,
     /// This epoch's Synchronized Binary Value Broadcast instance.
     sbv_broadcast: SbvBroadcast<N>,
@@ -65,14 +65,14 @@ pub struct Agreement<N> {
     decision: Option<bool>,
     /// A cache for messages for future epochs that cannot be handled yet.
     // TODO: Find a better solution for this; defend against spam.
-    incoming_queue: BTreeMap<u32, Vec<(N, AgreementContent)>>,
+    incoming_queue: BTreeMap<u32, Vec<(N, MessageContent)>>,
     /// The values we found in the first _N - f_ `Aux` messages that were in `bin_values`.
     conf_values: Option<BoolSet>,
     /// The state of this epoch's coin.
     coin_state: CoinState<N>,
 }
 
-impl<N: NodeIdT> DistAlgorithm for Agreement<N> {
+impl<N: NodeIdT> DistAlgorithm for BinaryAgreement<N> {
     type NodeId = N;
     type Input = bool;
     type Output = bool;
@@ -109,12 +109,12 @@ impl<N: NodeIdT> DistAlgorithm for Agreement<N> {
     }
 }
 
-impl<N: NodeIdT> Agreement<N> {
+impl<N: NodeIdT> BinaryAgreement<N> {
     pub fn new(netinfo: Arc<NetworkInfo<N>>, session_id: u64, proposer_id: N) -> Result<Self> {
         if !netinfo.is_node_validator(&proposer_id) {
             return Err(Error::UnknownProposer);
         }
-        Ok(Agreement {
+        Ok(BinaryAgreement {
             netinfo: netinfo.clone(),
             session_id,
             proposer_id,
@@ -130,7 +130,7 @@ impl<N: NodeIdT> Agreement<N> {
         })
     }
 
-    /// Sets the input value for agreement.
+    /// Sets the input value for Binary Agreement.
     fn handle_input(&mut self, input: bool) -> Result<Step<N>> {
         if self.epoch != 0 || self.estimated.is_some() {
             return Err(Error::InputNotAccepted);
@@ -151,13 +151,13 @@ impl<N: NodeIdT> Agreement<N> {
     fn handle_message_content(
         &mut self,
         sender_id: &N,
-        content: AgreementContent,
+        content: MessageContent,
     ) -> Result<Step<N>> {
         match content {
-            AgreementContent::SbvBroadcast(msg) => self.handle_sbv_broadcast(sender_id, msg),
-            AgreementContent::Conf(v) => self.handle_conf(sender_id, v),
-            AgreementContent::Term(v) => self.handle_term(sender_id, v),
-            AgreementContent::Coin(msg) => self.handle_coin(sender_id, *msg),
+            MessageContent::SbvBroadcast(msg) => self.handle_sbv_broadcast(sender_id, msg),
+            MessageContent::Conf(v) => self.handle_conf(sender_id, v),
+            MessageContent::Term(v) => self.handle_term(sender_id, v),
+            MessageContent::Coin(msg) => self.handle_coin(sender_id, *msg),
         }
     }
 
@@ -176,7 +176,7 @@ impl<N: NodeIdT> Agreement<N> {
     fn handle_sbvb_step(&mut self, sbvb_step: sbv_broadcast::Step<N>) -> Result<Step<N>> {
         let mut step = Step::default();
         let output = step.extend_with(sbvb_step, |msg| {
-            AgreementContent::SbvBroadcast(msg).with_epoch(self.epoch)
+            MessageContent::SbvBroadcast(msg).with_epoch(self.epoch)
         });
         if self.conf_values.is_some() {
             return Ok(step); // The `Conf` round has already started.
@@ -250,11 +250,11 @@ impl<N: NodeIdT> Agreement<N> {
             return Ok(self.try_finish_conf_round()?);
         }
 
-        self.send(AgreementContent::Conf(values))
+        self.send(MessageContent::Conf(values))
     }
 
     /// Multicasts and handles a message. Does nothing if we are only an observer.
-    fn send(&mut self, content: AgreementContent) -> Result<Step<N>> {
+    fn send(&mut self, content: MessageContent) -> Result<Step<N>> {
         if !self.netinfo.is_validator() {
             return Ok(Step::default());
         }
@@ -270,7 +270,7 @@ impl<N: NodeIdT> Agreement<N> {
     fn on_coin_step(&mut self, coin_step: coin::Step<N, Nonce>) -> Result<Step<N>> {
         let mut step = Step::default();
         let epoch = self.epoch;
-        let to_msg = |c_msg| AgreementContent::Coin(Box::new(c_msg)).with_epoch(epoch);
+        let to_msg = |c_msg| MessageContent::Coin(Box::new(c_msg)).with_epoch(epoch);
         let coin_output = step.extend_with(coin_step, to_msg);
         if let Some(coin) = coin_output.into_iter().next() {
             self.coin_state = coin.into();
@@ -287,7 +287,7 @@ impl<N: NodeIdT> Agreement<N> {
     /// the unique conf value agrees with the coin, terminates and decides on that value.
     fn try_update_epoch(&mut self) -> Result<Step<N>> {
         if self.decision.is_some() {
-            // Avoid an infinite regression without making an Agreement step.
+            // Avoid an infinite regression without making a Binary Agreement step.
             return Ok(Step::default());
         }
         let coin = match self.coin_state.value() {
@@ -329,7 +329,7 @@ impl<N: NodeIdT> Agreement<N> {
         if self.decision.is_some() {
             return Step::default();
         }
-        // Output the agreement value.
+        // Output the Binary Agreement value.
         let mut step = Step::default();
         step.output.push_back(b);
         // Latch the decided state.
@@ -342,7 +342,7 @@ impl<N: NodeIdT> Agreement<N> {
             b
         );
         if self.netinfo.is_validator() {
-            let msg = AgreementContent::Term(b).with_epoch(self.epoch + 1);
+            let msg = MessageContent::Term(b).with_epoch(self.epoch + 1);
             step.messages.push_back(Target::All.message(msg));
         }
         step
@@ -383,7 +383,7 @@ impl<N: NodeIdT> Agreement<N> {
         self.epoch += 1;
         self.coin_state = self.coin_state();
         debug!(
-            "{:?} Agreement instance {:?} started epoch {}, {} terminated",
+            "{:?} BinaryAgreement instance {:?} started epoch {}, {} terminated",
             self.netinfo.our_id(),
             self.proposer_id,
             self.epoch,
