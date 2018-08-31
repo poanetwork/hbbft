@@ -17,7 +17,7 @@ pub enum MessageContent<N: Rand> {
 
 impl<N: Rand> MessageContent<N> {
     pub fn with_epoch(self, epoch: u64) -> Message<N> {
-        Message::HoneyBadgerMessage {
+        Message::HoneyBadger {
             epoch,
             content: self,
         }
@@ -27,21 +27,23 @@ impl<N: Rand> MessageContent<N> {
 /// A message sent to or received from another node's Honey Badger instance.
 #[derive(Clone, Debug, Deserialize, Rand, Serialize)]
 pub enum Message<N: Rand> {
-    /// Honey Badger algorithm message annotated with the epoch number.
-    HoneyBadgerMessage {
+    /// A Honey Badger algorithm message annotated with the epoch number.
+    HoneyBadger {
         epoch: u64,
         content: MessageContent<N>,
     },
     /// A Honey Badger participant uses this message to announce its transition to the given
     /// epoch. This message informs the recipients that this participant now accepts messages for
-    /// `max_future_epochs + 1` epochs counting from the given one.
+    /// `max_future_epochs + 1` epochs counting from the given one, and drops any incoming messages
+    /// from earlier epochs.
     EpochStarted(u64),
 }
 
 impl<N: Rand> Message<N> {
+    /// Returns the epoch from which the message originated.
     pub fn epoch(&self) -> u64 {
         match *self {
-            Message::HoneyBadgerMessage { epoch, .. } => epoch,
+            Message::HoneyBadger { epoch, .. } => epoch,
             Message::EpochStarted(epoch) => epoch,
         }
     }

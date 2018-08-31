@@ -169,10 +169,6 @@ where
         sender_id: &N,
         message: HbMessage<N>,
     ) -> Result<Step<C, N>> {
-        if !self.netinfo.is_node_validator(sender_id) {
-            info!("Unknown sender {:?} of message {:?}", sender_id, message);
-            return Err(ErrorKind::UnknownSender.into());
-        }
         // Handle the message.
         let step = self
             .honey_badger

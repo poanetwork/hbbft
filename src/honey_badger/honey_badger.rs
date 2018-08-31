@@ -88,11 +88,11 @@ where
 
     /// Handles a message received from `sender_id`.
     fn handle_message(&mut self, sender_id: &N, message: Message<N>) -> Result<Step<C, N>> {
-        if !self.netinfo.is_node_validator(sender_id) {
-            return Err(ErrorKind::UnknownSender.into());
-        }
         match message {
-            Message::HoneyBadgerMessage { epoch, content } => {
+            Message::HoneyBadger { epoch, content } => {
+                if !self.netinfo.is_node_validator(sender_id) {
+                    return Err(ErrorKind::SenderNotValidator.into());
+                }
                 self.handle_honey_badger_message(sender_id, epoch, content)
             }
             Message::EpochStarted(epoch) => {
