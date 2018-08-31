@@ -39,4 +39,4 @@ script:
   - cargo +${RUST_NEXT} clippy --all-features -- --deny clippy
   - cargo +${RUST_NEXT} clippy --all-features --tests -- --deny clippy
   - cargo +${RUST_NEXT} fmt -- --check
-  - cargo test --all-features --release
+  - cargo test --all-features --release -- --test-threads 1
