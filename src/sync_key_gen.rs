@@ -480,8 +480,7 @@ impl<N: NodeIdT> SyncKeyGen<N> {
                     err
                 );
                 Fault::ValueDeserialization
-            })?
-            .into_inner();
+            })?.into_inner();
         if part.commit.evaluate(our_idx + 1, sender_idx + 1) != G1Affine::one().mul(val) {
             return Err(Fault::ValueInvalid);
         }

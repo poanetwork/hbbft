@@ -138,7 +138,8 @@ where
 
     /// If the instance hasn't terminated yet, inputs our encrypted contribution.
     pub fn propose(&mut self, ciphertext: &Ciphertext) -> Result<Step<C, N>> {
-        let ser_ct = bincode::serialize(ciphertext).map_err(|err| ErrorKind::ProposeBincode(*err))?;
+        let ser_ct =
+            bincode::serialize(ciphertext).map_err(|err| ErrorKind::ProposeBincode(*err))?;
         let cs_step = self.subset.handle_input(ser_ct)?;
         self.process_subset(cs_step)
     }
@@ -173,7 +174,7 @@ where
                         entry.insert(DecryptionState::new(self.netinfo.clone()))
                     }
                 }.handle_message(sender_id, share)
-                    .map_err(ErrorKind::ThresholdDecryption)?;
+                .map_err(ErrorKind::ThresholdDecryption)?;
                 self.process_decryption(proposer_id, td_step)
             }
         }

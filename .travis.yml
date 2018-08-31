@@ -28,14 +28,9 @@ env:
   global:
     - RUST_BACKTRACE=1
     - RUSTFLAGS="-D warnings"
-    # Note: Currently (as of 2018-07-13), `clippy-preview` is only in the nightly
-    #       release. A version of `rustfmt` that supports the `--check` option
-    #       is also not in stable yet.
-    #
-    #       A Clear migration path is swapping out `nightly-2018-07-13` with
-    #       `beta` after the stable release of Rust 1.28; and finally migrating
-    #       everything to `stable` at Rust 1.29.
-    - RUST_NEXT=nightly-2018-07-13
+    # Note: `beta` should be removed along with `RUST_NEXT` after the 1.28
+    #       stable release on 2018-09-13.
+    - RUST_NEXT=beta
     - MLOCK_SECRETS=false
 script:
   - cargo +${RUST_NEXT} clippy -- --deny clippy

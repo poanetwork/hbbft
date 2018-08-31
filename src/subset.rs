@@ -131,7 +131,8 @@ impl<N: NodeIdT + Rand> Subset<N> {
         for proposer_id in netinfo.all_ids() {
             broadcast_instances.insert(
                 proposer_id.clone(),
-                Broadcast::new(netinfo.clone(), proposer_id.clone()).map_err(Error::NewBroadcast)?,
+                Broadcast::new(netinfo.clone(), proposer_id.clone())
+                    .map_err(Error::NewBroadcast)?,
             );
         }
 
