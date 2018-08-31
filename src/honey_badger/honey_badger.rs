@@ -127,10 +127,6 @@ where
 
     /// Handles an epoch start announcement.
     fn handle_epoch_started(&mut self, sender_id: &N, epoch: u64) {
-        self.update_remote_epoch(sender_id, epoch);
-    }
-
-    fn update_remote_epoch(&mut self, sender_id: &N, epoch: u64) {
         self.remote_epochs
             .entry(sender_id.clone())
             .and_modify(|e| {
