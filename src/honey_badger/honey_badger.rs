@@ -133,8 +133,7 @@ where
                 if *e < epoch {
                     *e = epoch;
                 }
-            })
-            .or_insert(epoch);
+            }).or_insert(epoch);
     }
 
     /// Returns `true` if input for the current epoch has already been provided.
