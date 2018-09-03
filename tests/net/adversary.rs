@@ -342,7 +342,7 @@ pub struct NullAdversary {}
 impl NullAdversary {
     /// Create a new `NullAdversary`.
     #[inline]
-    pub fn new() -> NullAdversary {
+    pub fn new() -> Self {
         NullAdversary {}
     }
 }
@@ -353,3 +353,30 @@ where
     D::Message: Clone,
     D::Output: Clone,
 {}
+
+/// Ascending node id message order adversary.
+///
+/// Simulates the behavior of the previous test framework, in which messages were processed by each
+/// node in order, with the lowest node IDs always being chosen first.
+#[derive(Debug, Default)]
+pub struct NodeOrderAdversary {}
+
+impl NodeOrderAdversary {
+    #[inline]
+    pub fn new() -> Self {
+        NodeOrderAdversary {}
+    }
+}
+
+impl<D> Adversary<D> for NodeOrderAdversary
+where
+    D: DistAlgorithm,
+    D::Message: Clone,
+    D::Output: Clone,
+{
+    #[inline]
+    fn pre_crank(&mut self, mut net: NetMutHandle<D>) {
+        // Message are sorted by NodeID on each step.
+        net.sort_messages_by(|a, b| a.to.cmp(&b.to))
+    }
+}
