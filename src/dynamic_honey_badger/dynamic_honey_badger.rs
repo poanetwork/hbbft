@@ -306,9 +306,7 @@ where
         } {
             info!("{:?} No-op change: {:?}", self.our_id(), change);
         }
-        let mut step: Step<C, N> = Step::default();
-        let step_on_restart = self.restart_honey_badger(epoch)?;
-        step.extend(step_on_restart);
+        let mut step = self.restart_honey_badger(epoch)?;
         // TODO: This needs to be the same as `num_faulty` will be in the _new_
         // `NetworkInfo` if the change goes through. It would be safer to deduplicate.
         let threshold = (pub_keys.len() - 1) / 3;
