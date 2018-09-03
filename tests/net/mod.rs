@@ -685,7 +685,7 @@ where
         let mut adv = self.adversary.take();
         if let Some(ref mut adversary) = adv {
             // If an adversary was set, we let it affect the network now.
-            adversary.pre_crank(self);
+            adversary.pre_crank(adversary::NetMutHandle::new(self))
         }
         self.adversary = adv;
 
@@ -716,7 +716,7 @@ where
             let mut adv = self.adversary.take();
             let opt_tamper_result = adv.as_mut().map(|adversary| {
                 // If an adversary was set, we let it affect the network now.
-                adversary.tamper(self, msg)
+                adversary.tamper(adversary::NetMutHandle::new(self), msg)
             });
             self.adversary = adv;
 
