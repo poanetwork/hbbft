@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 
 use super::epoch_state::EpochState;
 use super::{Batch, Error, ErrorKind, HoneyBadgerBuilder, Message, MessageContent, Result};
-use messaging::{self, DistAlgorithm, NetworkInfo};
+use messaging::{self, DistAlgorithm, NetworkInfo, Target};
 use traits::{Contribution, NodeIdT};
 
 /// An instance of the Honey Badger Byzantine fault tolerant consensus algorithm.
@@ -26,6 +26,8 @@ pub struct HoneyBadger<C, N: Rand> {
     pub(super) max_future_epochs: u64,
     /// Messages for future epochs that couldn't be handled yet.
     pub(super) incoming_queue: BTreeMap<u64, Vec<(N, MessageContent<N>)>>,
+    /// Known current epochs of remote nodes.
+    pub(super) remote_epochs: BTreeMap<N, u64>,
 }
 
 pub type Step<C, N> = messaging::Step<HoneyBadger<C, N>>;
@@ -86,10 +88,27 @@ where
 
     /// Handles a message received from `sender_id`.
     fn handle_message(&mut self, sender_id: &N, message: Message<N>) -> Result<Step<C, N>> {
-        if !self.netinfo.is_node_validator(sender_id) {
-            return Err(ErrorKind::UnknownSender.into());
+        match message {
+            Message::HoneyBadger { epoch, content } => {
+                if !self.netinfo.is_node_validator(sender_id) {
+                    return Err(ErrorKind::SenderNotValidator.into());
+                }
+                self.handle_honey_badger_message(sender_id, epoch, content)
+            }
+            Message::EpochStarted(epoch) => {
+                self.handle_epoch_started(sender_id, epoch);
+                Ok(Step::default())
+            }
         }
-        let Message { epoch, content } = message;
+    }
+
+    /// Handles a Honey Badger algorithm message in a given epoch.
+    fn handle_honey_badger_message(
+        &mut self,
+        sender_id: &N,
+        epoch: u64,
+        content: MessageContent<N>,
+    ) -> Result<Step<C, N>> {
         if epoch > self.epoch + self.max_future_epochs {
             // Postpone handling this message.
             self.incoming_queue
@@ -104,6 +123,17 @@ where
             return Ok(step);
         } // And ignore all messages from past epochs.
         Ok(Step::default())
+    }
+
+    /// Handles an epoch start announcement.
+    fn handle_epoch_started(&mut self, sender_id: &N, epoch: u64) {
+        self.remote_epochs
+            .entry(sender_id.clone())
+            .and_modify(|e| {
+                if *e < epoch {
+                    *e = epoch;
+                }
+            }).or_insert(epoch);
     }
 
     /// Returns `true` if input for the current epoch has already been provided.
@@ -126,7 +156,10 @@ where
         self.epoch += 1;
         self.has_input = false;
         let max_epoch = self.epoch + self.max_future_epochs;
-        let mut step = Step::default();
+        // The first message in an epoch announces the epoch transition.
+        let mut step: Step<C, N> = Target::All
+            .message(Message::EpochStarted(self.epoch))
+            .into();
         if let Some(messages) = self.incoming_queue.remove(&max_epoch) {
             let epoch_state = self.epoch_state_mut(max_epoch)?;
             for (sender_id, content) in messages {

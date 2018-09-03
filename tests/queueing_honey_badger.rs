@@ -107,8 +107,13 @@ where
 fn new_queueing_hb(
     netinfo: Arc<NetworkInfo<NodeId>>,
 ) -> (QueueingHoneyBadger<usize, NodeId>, Step<usize, NodeId>) {
-    let dyn_hb = DynamicHoneyBadger::builder().build((*netinfo).clone());
-    QueueingHoneyBadger::builder(dyn_hb).batch_size(3).build()
+    let (dhb, dhb_step) = DynamicHoneyBadger::builder()
+        .build((*netinfo).clone())
+        .expect("`new_queueing_hb` failed");
+    let (qhb, qhb_step) = QueueingHoneyBadger::builder(dhb).batch_size(3).build();
+    let mut step = dhb_step.convert();
+    step.extend(qhb_step);
+    (qhb, step)
 }
 
 fn test_queueing_honey_badger_different_sizes<A, F>(new_adversary: F, num_txs: usize)

@@ -62,7 +62,7 @@ pub type Result<T> = ::std::result::Result<T, Error>;
 type ProposedValue = Vec<u8>;
 
 /// Message from Subset to remote nodes.
-#[derive(Serialize, Deserialize, Clone, Debug, Rand)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Rand)]
 pub enum Message<N: Rand> {
     /// A message for the broadcast algorithm concerning the set element proposed by the given node.
     Broadcast(N, broadcast::Message),
