@@ -50,9 +50,9 @@ impl rand::Rand for Message {
 impl Debug for Message {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            Message::Value(ref v) => write!(f, "Value({:?})", HexProof(&v)),
-            Message::Echo(ref v) => write!(f, "Echo({:?})", HexProof(&v)),
-            Message::Ready(ref bytes) => write!(f, "Ready({:?})", HexBytes(bytes)),
+            Message::Value(ref v) => f.debug_tuple("Value").field(&HexProof(v)).finish(),
+            Message::Echo(ref v) => f.debug_tuple("Echo").field(&HexProof(v)).finish(),
+            Message::Ready(ref b) => f.debug_tuple("Ready").field(&HexBytes(b)).finish(),
         }
     }
 }
