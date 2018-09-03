@@ -30,7 +30,7 @@ pub struct HexList<'a, T: 'a>(pub &'a [T]);
 impl<'a, T: AsRef<[u8]>> fmt::Debug for HexList<'a, T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let v: Vec<_> = self.0.iter().map(|t| HexBytes(t.as_ref())).collect();
-        write!(f, "{:?}", v)
+        v.fmt(f)
     }
 }
 

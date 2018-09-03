@@ -199,9 +199,10 @@ pub struct Part(BivarCommitment, Vec<Ciphertext>);
 
 impl Debug for Part {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        let deg = self.0.degree();
-        let len = self.1.len();
-        write!(f, "Part(<degree {}>, <{} rows>)", deg, len)
+        f.debug_tuple("Part")
+            .field(&format!("<degree {}>", self.0.degree()))
+            .field(&format!("<{} rows>", self.1.len()))
+            .finish()
     }
 }
 
@@ -215,7 +216,10 @@ pub struct Ack(u64, Vec<Ciphertext>);
 
 impl Debug for Ack {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        write!(f, "Ack({}, <{} values>", self.0, self.1.len())
+        f.debug_tuple("Ack")
+            .field(&self.0)
+            .field(&format!("<{} values>", self.1.len()))
+            .finish()
     }
 }
 
