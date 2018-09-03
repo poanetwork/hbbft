@@ -55,7 +55,7 @@ where
         self.0.nodes().map(NodeHandle::new)
     }
 
-    /// Returns an iterator over all faulty in the network.
+    /// Returns an iterator over all faulty nodes in the network.
     ///
     /// Instead of a handle, returns the node directly, as the adversary gets full access to all
     /// nodes in the network.
@@ -85,7 +85,7 @@ where
     }
 }
 
-/// Queue position.
+/// Insert-position for networking queue.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum QueuePosition {
     /// Front of the queue (equivalent to `Before(0)`).
@@ -121,7 +121,7 @@ where
         self.0.nodes_mut().map(NodeMutHandle::new)
     }
 
-    /// Returns an iterator that allows changes all faulty nodes in the network.
+    /// Returns an iterator that allows changes to all faulty nodes in the network.
     ///
     /// Instead of a handle, returns the node directly, as the adversary gets full access to all
     /// nodes in the network.
@@ -147,8 +147,8 @@ where
     ///
     /// # Panics
     ///
-    /// Panics if `msg.from` is not a faulty or either `msg.from` or `msg.to` do not exist. Panics
-    /// if `position` is equal to `Before(idx)`, with `idx` being out of bounds.
+    /// Panics if `msg.from` is not a faulty node or either `msg.from` or `msg.to` do not exist.
+    /// Panics if `position` is equal to `Before(idx)`, with `idx` being out of bounds.
     #[inline]
     pub fn inject_message(&mut self, position: QueuePosition, msg: NetMessage<D>) {
         // Ensure the node is not faulty.
@@ -199,7 +199,10 @@ where
 }
 
 // Downgrade-conversion.
-impl<'a, D: DistAlgorithm> From<NetMutHandle<'a, D>> for NetHandle<'a, D> {
+impl<'a, D> From<NetMutHandle<'a, D>> for NetHandle<'a, D>
+where
+    D: DistAlgorithm,
+{
     #[inline]
     fn from(n: NetMutHandle<D>) -> NetHandle<D> {
         NetHandle(n.0)
@@ -211,11 +214,11 @@ pub struct NodeHandle<'a, D: 'a>(&'a Node<D>)
 where
     D: DistAlgorithm;
 
-impl<'a, D: DistAlgorithm> NodeHandle<'a, D>
+impl<'a, D> NodeHandle<'a, D>
 where
     D: DistAlgorithm,
 {
-    /// Construct new immutable node handle.
+    /// Construct a new immutable node handle.
     #[inline]
     fn new(inner: &'a Node<D>) -> Self {
         NodeHandle(inner)
@@ -229,8 +232,6 @@ where
 
     /// Returns a reference to the faulty node.
     ///
-    /// Allows access to the wrapped node, if it is faulty.
-    ///
     /// # Panics
     ///
     /// Panics if the node is not faulty.
@@ -240,8 +241,6 @@ where
             .expect("could not access inner node of handle, node is not faulty")
     }
 
-    /// Try to return a reference to the inner faulty node.
-    ///
     /// If the inner node is faulty, returns a reference to it.
     #[inline]
     pub fn try_node(&self) -> Option<&'a Node<D>> {
@@ -262,14 +261,12 @@ impl<'a, D: 'a> NodeMutHandle<'a, D>
 where
     D: DistAlgorithm,
 {
-    /// Construct new mutable node handle.
+    /// Construct a new mutable node handle.
     fn new(inner: &'a mut Node<D>) -> Self {
         NodeMutHandle(inner)
     }
 
     /// Returns a mutable reference to the faulty node.
-    ///
-    /// Allows mutable access to the wrapped node, if it is faulty.
     ///
     /// # Panics
     ///
@@ -280,9 +277,7 @@ where
             .expect("could not access inner node of handle, node is not faulty")
     }
 
-    /// Try to return a mutable reference to the inner faulty node.
-    ///
-    /// If the inner node is faulty, returns a reference to it.
+    /// If the inner node is faulty, returns a mutable reference to it.
     #[inline]
     pub fn try_node_mut(&mut self) -> Option<&mut Node<D>> {
         if self.0.is_faulty() {
@@ -337,7 +332,7 @@ where
 /// The `NullAdversary` does not interfere with operation in any way, it neither reorders messages
 /// nor tampers with message, passing them through unchanged instead.
 #[derive(Debug, Default)]
-pub struct NullAdversary {}
+pub struct NullAdversary;
 
 impl NullAdversary {
     /// Create a new `NullAdversary`.
@@ -356,10 +351,13 @@ where
 
 /// Ascending node id message order adversary.
 ///
-/// Simulates the behavior of the previous test framework, in which messages were processed by each
-/// node in order, with the lowest node IDs always being chosen first.
+/// An adversary that processes messages in ascending order by the node id that sent the message
+/// (i.e. the lowest node IDs always being chosen first).
+///
+/// Note: This behavior is equivalent to the default scheduling used by the preceding testing
+///       framework.
 #[derive(Debug, Default)]
-pub struct NodeOrderAdversary {}
+pub struct NodeOrderAdversary;
 
 impl NodeOrderAdversary {
     #[inline]
