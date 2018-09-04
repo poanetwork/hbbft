@@ -496,19 +496,19 @@ where
 
     /// Returns an iterator over all messages currently queued.
     #[inline]
-    pub fn messages<'a>(&'a self) -> impl Iterator<Item = &'a NetMessage<D>> {
+    pub fn messages(&self) -> impl Iterator<Item = &NetMessage<D>> {
         self.messages.iter()
     }
 
     /// Returns an iterator that allows modifying all messages currently queued.
     #[inline]
-    pub fn messages_mut<'a>(&'a mut self) -> impl Iterator<Item = &'a mut NetMessage<D>> {
+    pub fn messages_mut(&mut self) -> impl Iterator<Item = &mut NetMessage<D>> {
         self.messages.iter_mut()
     }
 
     /// Swap two queued messages at indices `i` and `j`.
     #[inline]
-    pub fn swap_messages<'a>(&'a mut self, i: usize, j: usize) {
+    pub fn swap_messages(&mut self, i: usize, j: usize) {
         self.messages.swap(i, j)
     }
 
