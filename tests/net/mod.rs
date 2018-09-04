@@ -18,7 +18,7 @@ pub mod err;
 pub mod util;
 
 use std::io::Write;
-use std::{collections, env, fs, io, ops, process};
+use std::{cmp, collections, env, fs, io, ops, process};
 
 use rand;
 use rand::Rand;
@@ -440,22 +440,40 @@ impl<D> VirtualNet<D>
 where
     D: DistAlgorithm,
 {
-    /// Iterator over *all* nodes in the network.
+    /// Returns an iterator over *all* nodes in the network.
     #[inline]
     pub fn nodes(&self) -> impl Iterator<Item = &Node<D>> {
         self.nodes.values()
     }
 
-    /// Iterator over all faulty nodes in the network.
+    /// Returns an iterator that allows modifying *all* nodes in the network.
+    #[inline]
+    pub fn nodes_mut(&mut self) -> impl Iterator<Item = &mut Node<D>> {
+        self.nodes.values_mut()
+    }
+
+    /// Returns an iterator over all faulty nodes in the network.
     #[inline]
     pub fn faulty_nodes(&self) -> impl Iterator<Item = &Node<D>> {
         self.nodes().filter(|n| n.is_faulty())
     }
 
-    /// Iterator over all correct nodes in the network.
+    /// Returns an iterator that allows modifying all faulty nodes in the network.
+    #[inline]
+    pub fn faulty_nodes_mut(&mut self) -> impl Iterator<Item = &mut Node<D>> {
+        self.nodes_mut().filter(|n| n.is_faulty())
+    }
+
+    /// Returns an iterator over all correct nodes in the network.
     #[inline]
     pub fn correct_nodes(&self) -> impl Iterator<Item = &Node<D>> {
         self.nodes().filter(|n| !n.is_faulty())
+    }
+
+    /// Returns an iterator that allows modifying all correct nodes in the network.
+    #[inline]
+    pub fn correct_nodes_mut(&mut self) -> impl Iterator<Item = &mut Node<D>> {
+        self.nodes_mut().filter(|n| !n.is_faulty())
     }
 
     /// Retrieve a node by ID.
@@ -474,6 +492,46 @@ where
     #[cfg_attr(feature = "cargo-clippy", allow(needless_pass_by_value))]
     pub fn get_mut<'a>(&'a mut self, id: D::NodeId) -> Option<&'a mut Node<D>> {
         self.nodes.get_mut(&id)
+    }
+
+    /// Returns an iterator over all messages currently queued.
+    #[inline]
+    pub fn messages(&self) -> impl Iterator<Item = &NetMessage<D>> {
+        self.messages.iter()
+    }
+
+    /// Returns an iterator that allows modifying all messages currently queued.
+    #[inline]
+    pub fn messages_mut(&mut self) -> impl Iterator<Item = &mut NetMessage<D>> {
+        self.messages.iter_mut()
+    }
+
+    /// Swap two queued messages at indices `i` and `j`.
+    #[inline]
+    pub fn swap_messages(&mut self, i: usize, j: usize) {
+        self.messages.swap(i, j)
+    }
+
+    /// Sort queued messages by a function.
+    ///
+    /// The underlying sort function is stable and has `O(n log n)` bounded runtime; but comes with
+    /// an `O(5n)` copying cost.
+    #[inline]
+    pub fn sort_messages_by<F>(&mut self, f: F)
+    where
+        F: FnMut(&NetMessage<D>, &NetMessage<D>) -> cmp::Ordering,
+    {
+        // We use stable sorting, which uses Tim sort internally. Adversaries are probably sorting
+        // almost-sorted sequences fairly often (e.g. on every iteration), for which Tim sort is a
+        // nice fit.
+
+        // Create a `Vec` from the `VecDeque`, which does not support sorting out-of-the-box.
+        let l = self.messages.len();
+        let mut msgs: Vec<_> = self.messages.drain(0..l).collect();
+
+        // Perform sorting and drain `Vec` back into `VecDeque`.
+        msgs.sort_by(f);
+        self.messages.extend(msgs.into_iter());
     }
 }
 
@@ -627,7 +685,7 @@ where
         let mut adv = self.adversary.take();
         if let Some(ref mut adversary) = adv {
             // If an adversary was set, we let it affect the network now.
-            adversary.pre_crank(self);
+            adversary.pre_crank(adversary::NetMutHandle::new(self))
         }
         self.adversary = adv;
 
@@ -658,7 +716,7 @@ where
             let mut adv = self.adversary.take();
             let opt_tamper_result = adv.as_mut().map(|adversary| {
                 // If an adversary was set, we let it affect the network now.
-                adversary.tamper(self, msg)
+                adversary.tamper(adversary::NetMutHandle::new(self), msg)
             });
             self.adversary = adv;
 
