@@ -41,6 +41,7 @@ use net::{CrankError, NetMessage, Node, VirtualNet};
 /// Immutable network handle.
 ///
 /// Allows querying public information of the network or getting immutable handles to any node.
+#[derive(Debug)]
 pub struct NetHandle<'a, D: 'a>(&'a VirtualNet<D>)
 where
     D: DistAlgorithm;
@@ -100,6 +101,7 @@ pub enum QueuePosition {
 ///
 /// Allows reordering of messages, injecting new ones into the network queue and getting mutable
 /// handles to nodes.
+#[derive(Debug)]
 pub struct NetMutHandle<'a, D: 'a>(&'a mut VirtualNet<D>)
 where
     D: DistAlgorithm;
@@ -210,6 +212,7 @@ where
 }
 
 /// Immutable node handle.
+#[derive(Debug)]
 pub struct NodeHandle<'a, D: 'a>(&'a Node<D>)
 where
     D: DistAlgorithm;
@@ -253,6 +256,7 @@ where
 }
 
 /// Mutable node handle.
+#[derive(Debug)]
 pub struct NodeMutHandle<'a, D: 'a>(&'a mut Node<D>)
 where
     D: DistAlgorithm;
