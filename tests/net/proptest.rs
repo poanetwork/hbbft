@@ -22,13 +22,9 @@ pub struct NetworkTopology {
 impl NetworkTopology {
     /// Creates a new `NetworkTopology` with the supplied parameters.
     ///
-    /// # Panics
-    ///
-    /// `size` and `faulty` must not satisfy the conditions imposed by `is_sane`.
+    /// Topologies that are not sane can be created using this function.
     pub fn new(size: usize, faulty: usize) -> Self {
-        let nt = NetworkTopology { size, faulty };
-        assert!(nt.is_sane());
-        nt
+        NetworkTopology { size, faulty }
     }
 
     /// Checks whether the network topology satisfies the `3 * faulty + 1 <= size`
