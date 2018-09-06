@@ -91,13 +91,14 @@ fn halfway_handles_edge_cases() {
 }
 
 proptest!{
+    /// Ensures all generated network topologies are actually sane.
     #[test]
     fn generated_network_topologies_are_sane(nt in NetworkTopology::range(1, 400)) {
         assert!(nt.is_sane());
     }
-
 }
 
+/// Verifies generated network topologies can be grown and shrunk multiple times.
 #[test]
 fn network_topologies_shrink_and_grow() {
     let mut runner = TestRunner::new(Default::default());
