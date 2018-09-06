@@ -63,11 +63,15 @@ Requires `rust` and `cargo`: [installation instructions.](https://www.rust-lang.
 $ cargo build [--release]
 ```
 
-### Test
+### Testing
 
 ```
-$ cargo test --release
+$ MLOCK_SECRETS=false cargo test --release
 ```
+The [MLOCK_SECRETS](https://github.com/poanetwork/threshold_crypto#environment-variables) envvar is associated with the `threshold_crypto` dependency and **should only be used in development and testing**. The test suite can run without setting `MLOCK_SECRETS=false`, however, it runs faster when it is set and ensures tests won't fail if the testing system's locked memory limit is reached.
+
+See the [tests README](tests/README.md) for more information on our testing toolkit.
+
 
 ### Example Network Simulation
 
@@ -168,7 +172,7 @@ This project is licensed under the GNU Lesser General Public License v3.0. See t
 
 * Other language implementations
 
-  * [Python](https://github.com/amiller/HoneyBadgerBFT)
+  * [Python](https://github.com/initc3/HoneyBadgerBFT-Python)
 
   * [Go](https://github.com/anthdm/hbbft)
 
