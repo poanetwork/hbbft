@@ -26,8 +26,8 @@ impl NetworkTopology {
     ///
     /// `size` and `faulty` must not satisfy the conditions imposed by `is_sane`.
     pub fn new(size: usize, faulty: usize) -> Self {
-        let nt = NetworkTopology { size, faulty }
-        assert!(nt.is_sane())
+        let nt = NetworkTopology { size, faulty };
+        assert!(nt.is_sane());
         nt
     }
 
