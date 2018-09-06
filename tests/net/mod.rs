@@ -14,6 +14,7 @@
 
 pub mod adversary;
 pub mod err;
+pub mod proptest;
 #[macro_use]
 pub mod util;
 
