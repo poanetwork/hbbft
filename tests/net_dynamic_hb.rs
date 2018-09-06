@@ -42,15 +42,21 @@ where
     rand::seq::sample_slice(rng, &queue[0..n], k)
 }
 
+/// Test configuration for dynamic honey badger tests.
 #[derive(Debug)]
 struct TestConfig {
+    /// The desired network topology.
     topology: NetworkTopology,
+    /// Total number of transactions to execute before finishing.
     total_txs: usize,
+    /// Epoch batch size.
     batch_size: usize,
+    /// Individual nodes contribution size.
     contribution_size: usize,
 }
 
 prop_compose! {
+    /// Strategy to generate a test configuration.
     fn arb_config()
                  (topology in NetworkTopology::range(3, 15),
                   total_txs in 20..60usize,
@@ -63,7 +69,7 @@ prop_compose! {
     }
 }
 
-// Note: Still pending: Better batch sizes (configurable).
+/// Proptest wrapper for do_drop_and_readd.
 proptest!{
     #![proptest_config(ProptestConfig {
         cases: 1, .. ProptestConfig::default()
@@ -74,14 +80,8 @@ proptest!{
     }
 }
 
-/// Dynamic honey badger: Drop a validator node, demoting it to observer, then re-add it.
-///
-/// * `num_faulty`: The number of faulty nodes.
-/// * `total`: Total number of nodes. Must be >= `3 * num_faulty + 1`.
-/// * `total_txs`: The total number of transactions each node will propose. All nodes will propose
-///                the same transactions, albeit in random order.
-/// * `batch_size`: The number of transaction per epoch, total.
-/// * `contribution_size`: A single nodes contribution to the batch.
+/// Dynamic honey badger: Drop a validator node, demoting it to observer, then re-add it, all while
+/// running a regular honey badger network.
 fn do_drop_and_readd(cfg: TestConfig) {
     let mut rng = rand::thread_rng();
 
