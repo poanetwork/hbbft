@@ -34,9 +34,10 @@ env:
     - RUST_NEXT=beta
     - MLOCK_SECRETS=false
 script:
-  - cargo +${RUST_NEXT} clippy -- --deny clippy
-  - cargo +${RUST_NEXT} clippy --tests --examples -- --deny clippy
-  - cargo +${RUST_NEXT} clippy --all-features -- --deny clippy
-  - cargo +${RUST_NEXT} clippy --all-features --tests -- --deny clippy
+  # Clippy is disabled until the switch to stable.
+  # - cargo +${RUST_NEXT} clippy -- --deny clippy
+  # - cargo +${RUST_NEXT} clippy --tests --examples -- --deny clippy
+  # - cargo +${RUST_NEXT} clippy --all-features -- --deny clippy
+  # - cargo +${RUST_NEXT} clippy --all-features --tests -- --deny clippy
   - cargo +${RUST_NEXT} fmt -- --check
   - cargo test --all-features --release -- --test-threads 1
