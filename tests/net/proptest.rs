@@ -1,4 +1,4 @@
-//! Proptest helpers and strategies
+//! Proptest helpers and strategies.
 //!
 //! This module houses strategies to generate (and reduce/expand) various `hbbft` and `net` related
 //! structures.
@@ -10,7 +10,8 @@ use proptest::test_runner::{Reason, TestRunner};
 /// Node network topology.
 ///
 /// A `NetworkTopology` describes the number of correct and faulty nodes in a network. It can also
-/// be checked, "averaged" (using the `halfway` function) and generated using `NetworkTopologyTree`.
+/// be checked, "averaged" (using the `average_higher` function) and generated using
+/// `NetworkTopologyTree`.
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub struct NetworkTopology {
     /// Total number of nodes in network.
@@ -27,20 +28,20 @@ impl NetworkTopology {
         NetworkTopology { size, faulty }
     }
 
-    /// Checks whether the network topology satisfies the `3 * faulty + 1 <= size`
-    pub fn is_sane(&self) -> bool {
+    /// Checks whether the network topology satisfies the `3 * faulty + 1 <= size` condition.
+    pub fn is_bft(&self) -> bool {
         self.faulty * 3 + 1 <= self.size
     }
 
     /// Creates a new topology of average complexity.
     ///
     /// The new topology is approximately half way in the interval of `[self, high]` and will
-    /// conform to the constraint checked by `is_sane()`.
+    /// conform to the constraint checked by `is_bft()`.
     ///
     /// # Panics
     ///
     /// `high` must be have a higher or equal size and faulty node count.
-    pub fn halfway(&self, high: NetworkTopology) -> NetworkTopology {
+    pub fn average_higher(&self, high: NetworkTopology) -> NetworkTopology {
         assert!(high.size >= self.size);
         assert!(high.faulty >= self.faulty);
 
@@ -57,7 +58,7 @@ impl NetworkTopology {
         }
 
         // This assert just checks for bugs.
-        assert!(half.is_sane());
+        assert!(half.is_bft());
 
         half
     }
@@ -69,22 +70,27 @@ impl NetworkTopology {
 }
 
 /// Network topology tree for proptest generation.
+///
+/// See `proptest::strategy::ValueTree` for a more thorough description.
 #[derive(Copy, Clone, Debug)]
 pub struct NetworkTopologyTree {
+    /// The upper bound for any generated topology.
     high: NetworkTopology,
+    /// The currently generated network topology.
     current: NetworkTopology,
+    /// The lower bound for any generate topology value (changes during generation or shrinking).
     low: NetworkTopology,
 }
 
 impl NetworkTopologyTree {
-    /// Generate a random network topology tree
+    /// Generate a random network topology tree.
     ///
     /// The resulting initial `NetworkTopology` will have a number of nodes within
     /// [`min_size`, `max_size`] and a valid number of faulty nodes.
     ///
     /// # Panics
     ///
-    /// The minimum `min_size` is 1 and `min_size` must be less or equal `max_size`.
+    /// The minimum `min_size` is 1 and `min_size` must be less than or equal `max_size`.
     pub fn gen<R: Rng>(mut rng: R, min_size: usize, max_size: usize) -> Self {
         // A common mistake, add an extra assert for a more helpful error message.
         assert!(min_size > 0, "minimum network size is 1");
@@ -97,13 +103,13 @@ impl NetworkTopologyTree {
             size: total,
             faulty,
         };
-        assert!(high.is_sane());
+        assert!(high.is_bft());
 
         let low = NetworkTopology {
             size: min_size,
             faulty: 0,
         };
-        assert!(low.is_sane());
+        assert!(low.is_bft());
 
         NetworkTopologyTree {
             high,
@@ -121,11 +127,11 @@ impl ValueTree for NetworkTopologyTree {
     }
 
     fn simplify(&mut self) -> bool {
-        // Shrinking is simply done through `halfway`.
+        // Shrinking is simply done through `average_higher`.
         let prev = *self;
 
         self.high = prev.current;
-        self.current = self.low.halfway(prev.high);
+        self.current = self.low.average_higher(prev.high);
 
         (prev.high != self.high || prev.current != self.current)
     }
@@ -139,7 +145,7 @@ impl ValueTree for NetworkTopologyTree {
         let mut new_low = self.current;
         new_low.faulty += 1;
         new_low.size = (new_low.size + 2).max(new_low.faulty * 3 + 1);
-        assert!(new_low.is_sane());
+        assert!(new_low.is_bft());
 
         // Instead of growing the network, return unchanged if the new network would be larger than
         // the current high.
@@ -147,7 +153,7 @@ impl ValueTree for NetworkTopologyTree {
             return false;
         }
 
-        self.current = new_low.halfway(self.high);
+        self.current = new_low.average_higher(self.high);
         self.low = new_low;
 
         (prev.current != self.current || prev.low != self.low)

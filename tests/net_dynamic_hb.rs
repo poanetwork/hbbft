@@ -69,7 +69,7 @@ prop_compose! {
     }
 }
 
-/// Proptest wrapper for do_drop_and_readd.
+/// Proptest wrapper for `do_drop_and_readd`.
 proptest!{
     #![proptest_config(ProptestConfig {
         cases: 1, .. ProptestConfig::default()
