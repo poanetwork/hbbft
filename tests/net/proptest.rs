@@ -7,47 +7,48 @@ use proptest::prelude::Rng;
 use proptest::strategy::{Strategy, ValueTree};
 use proptest::test_runner::{Reason, TestRunner};
 
-/// Node network topology.
+/// Node network dimension.
 ///
-/// A `NetworkTopology` describes the number of correct and faulty nodes in a network. It can also
+/// A `NetworkDimension` describes the number of correct and faulty nodes in a network. It can also
 /// be checked, "averaged" (using the `average_higher` function) and generated using
-/// `NetworkTopologyTree`.
+/// `NetworkDimensionTree`.
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
-pub struct NetworkTopology {
+pub struct NetworkDimension {
     /// Total number of nodes in network.
     pub size: usize,
     /// Number of faulty nodes in a network.
     pub faulty: usize,
 }
 
-impl NetworkTopology {
-    /// Creates a new `NetworkTopology` with the supplied parameters.
+impl NetworkDimension {
+    /// Creates a new `NetworkDimension` with the supplied parameters.
     ///
-    /// Topologies that are not sane can be created using this function.
+    /// Dimensions that do not satisfy BFT conditions (see `is_bft`) can be created using this
+    /// function.
     pub fn new(size: usize, faulty: usize) -> Self {
-        NetworkTopology { size, faulty }
+        NetworkDimension { size, faulty }
     }
 
-    /// Checks whether the network topology satisfies the `3 * faulty + 1 <= size` condition.
+    /// Checks whether the network dimension satisfies the `3 * faulty + 1 <= size` condition.
     pub fn is_bft(&self) -> bool {
         self.faulty * 3 + 1 <= self.size
     }
 
-    /// Creates a new topology of average complexity.
+    /// Creates a new dimension of average complexity.
     ///
-    /// The new topology is approximately half way in the interval of `[self, high]` and will
+    /// The new dimension is approximately half way in the interval of `[self, high]` and will
     /// conform to the constraint checked by `is_bft()`.
     ///
     /// # Panics
     ///
     /// `high` must be have a higher or equal size and faulty node count.
-    pub fn average_higher(&self, high: NetworkTopology) -> NetworkTopology {
+    pub fn average_higher(&self, high: NetworkDimension) -> NetworkDimension {
         assert!(high.size >= self.size);
         assert!(high.faulty >= self.faulty);
 
         // We try halving both values, rounding down. If `size` is at the minimum, `faulty` will
         // shrink afterwards.
-        let mut half = NetworkTopology {
+        let mut half = NetworkDimension {
             size: self.size + (high.size - self.size) / 2,
             faulty: self.faulty + (high.faulty - self.faulty) / 2,
         };
@@ -63,29 +64,29 @@ impl NetworkTopology {
         half
     }
 
-    /// Creates a proptest strategy to create network topologies within a certain range.
-    pub fn range(min_size: usize, max_size: usize) -> NetworkTopologyStrategy {
-        NetworkTopologyStrategy { min_size, max_size }
+    /// Creates a proptest strategy to create network dimensions within a certain range.
+    pub fn range(min_size: usize, max_size: usize) -> NetworkDimensionStrategy {
+        NetworkDimensionStrategy { min_size, max_size }
     }
 }
 
-/// Network topology tree for proptest generation.
+/// Network dimension tree for proptest generation.
 ///
 /// See `proptest::strategy::ValueTree` for a more thorough description.
 #[derive(Copy, Clone, Debug)]
-pub struct NetworkTopologyTree {
-    /// The upper bound for any generated topology.
-    high: NetworkTopology,
-    /// The currently generated network topology.
-    current: NetworkTopology,
-    /// The lower bound for any generate topology value (changes during generation or shrinking).
-    low: NetworkTopology,
+pub struct NetworkDimensionTree {
+    /// The upper bound for any generated dimension.
+    high: NetworkDimension,
+    /// The currently generated network dimension.
+    current: NetworkDimension,
+    /// The lower bound for any generated dimension value (changes during generation or shrinking).
+    low: NetworkDimension,
 }
 
-impl NetworkTopologyTree {
-    /// Generate a random network topology tree.
+impl NetworkDimensionTree {
+    /// Generate a random network dimension tree.
     ///
-    /// The resulting initial `NetworkTopology` will have a number of nodes within
+    /// The resulting initial `NetworkDimension` will have a number of nodes within
     /// [`min_size`, `max_size`] and a valid number of faulty nodes.
     ///
     /// # Panics
@@ -99,19 +100,19 @@ impl NetworkTopologyTree {
         let max_faulty = (total - 1) / 3;
         let faulty = rng.gen_range(0, max_faulty + 1);
 
-        let high = NetworkTopology {
+        let high = NetworkDimension {
             size: total,
             faulty,
         };
         assert!(high.is_bft());
 
-        let low = NetworkTopology {
+        let low = NetworkDimension {
             size: min_size,
             faulty: 0,
         };
         assert!(low.is_bft());
 
-        NetworkTopologyTree {
+        NetworkDimensionTree {
             high,
             current: high,
             low,
@@ -119,8 +120,8 @@ impl NetworkTopologyTree {
     }
 }
 
-impl ValueTree for NetworkTopologyTree {
-    type Value = NetworkTopology;
+impl ValueTree for NetworkDimensionTree {
+    type Value = NetworkDimension;
 
     fn current(&self) -> Self::Value {
         self.current.clone()
@@ -160,21 +161,21 @@ impl ValueTree for NetworkTopologyTree {
     }
 }
 
-/// Network topology strategy for proptest.
+/// Network dimension strategy for proptest.
 #[derive(Debug)]
-pub struct NetworkTopologyStrategy {
-    /// Minimum number of nodes for newly generated networks topologies.
+pub struct NetworkDimensionStrategy {
+    /// Minimum number of nodes for newly generated networks dimensions.
     pub min_size: usize,
-    /// Maximum number of nodes for newly generated networks topologies.
+    /// Maximum number of nodes for newly generated networks dimensions.
     pub max_size: usize,
 }
 
-impl Strategy for NetworkTopologyStrategy {
-    type Value = NetworkTopology;
-    type Tree = NetworkTopologyTree;
+impl Strategy for NetworkDimensionStrategy {
+    type Value = NetworkDimension;
+    type Tree = NetworkDimensionTree;
 
     fn new_tree(&self, runner: &mut TestRunner) -> Result<Self::Tree, Reason> {
-        Ok(NetworkTopologyTree::gen(
+        Ok(NetworkDimensionTree::gen(
             runner.rng(),
             self.min_size,
             self.max_size,

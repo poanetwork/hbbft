@@ -11,7 +11,7 @@ use std::collections;
 
 use hbbft::dynamic_honey_badger::{Change, ChangeState, DynamicHoneyBadger, Input};
 use hbbft::messaging::DistAlgorithm;
-use net::proptest::NetworkTopology;
+use net::proptest::NetworkDimension;
 use net::NetBuilder;
 use proptest::prelude::ProptestConfig;
 
@@ -45,8 +45,8 @@ where
 /// Test configuration for dynamic honey badger tests.
 #[derive(Debug)]
 struct TestConfig {
-    /// The desired network topology.
-    topology: NetworkTopology,
+    /// The desired network dimension.
+    dimension: NetworkDimension,
     /// Total number of transactions to execute before finishing.
     total_txs: usize,
     /// Epoch batch size.
@@ -58,13 +58,13 @@ struct TestConfig {
 prop_compose! {
     /// Strategy to generate a test configuration.
     fn arb_config()
-                 (topology in NetworkTopology::range(3, 15),
+                 (dimension in NetworkDimension::range(3, 15),
                   total_txs in 20..60usize,
                   batch_size in 10..20usize,
                   contribution_size in 1..10usize)
                  -> TestConfig {
         TestConfig{
-            topology, total_txs, batch_size, contribution_size,
+            dimension, total_txs, batch_size, contribution_size,
         }
     }
 }
@@ -86,8 +86,8 @@ fn do_drop_and_readd(cfg: TestConfig) {
     let mut rng = rand::thread_rng();
 
     // First, we create a new test network with Honey Badger instances.
-    let mut net = NetBuilder::new(0..cfg.topology.size)
-        .num_faulty(cfg.topology.faulty)
+    let mut net = NetBuilder::new(0..cfg.dimension.size)
+        .num_faulty(cfg.dimension.faulty)
         .message_limit(200_000)  // Limited to 200k messages for now.
         .using_step(move |node| {
             println!("Constructing new dynamic honey badger node #{}", node.id);
