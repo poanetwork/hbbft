@@ -31,7 +31,7 @@ impl NetworkDimension {
 
     /// Checks whether the network dimension satisfies the `3 * faulty + 1 <= size` condition.
     pub fn is_bft(&self) -> bool {
-        self.faulty * 3 + 1 <= self.size
+        self.faulty * 3 < self.size
     }
 
     /// Creates a new dimension of average complexity.
