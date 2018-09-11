@@ -30,9 +30,6 @@ impl NetworkDimension {
     }
 
     /// Checks whether the network dimension satisfies the `3 * faulty + 1 <= size` condition.
-    // The formulation of the condition is directly from the original paper, for this reason we
-    // silence the clippy lint here.
-    #[cfg_attr(feature = "cargo-clippy", allow = int_plus_one)]
     pub fn is_bft(&self) -> bool {
         self.faulty * 3 + 1 <= self.size
     }
