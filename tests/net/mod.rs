@@ -14,11 +14,12 @@
 
 pub mod adversary;
 pub mod err;
+pub mod proptest;
 #[macro_use]
 pub mod util;
 
 use std::io::Write;
-use std::{cmp, collections, env, fs, io, ops, process};
+use std::{cmp, collections, env, fmt, fs, io, ops, process};
 
 use rand;
 use rand::Rand;
@@ -59,7 +60,6 @@ fn open_trace() -> Result<io::BufWriter<fs::File>, io::Error> {
 }
 
 /// A node in the test network.
-#[derive(Debug)]
 pub struct Node<D: DistAlgorithm> {
     /// Algorithm instance of node.
     algorithm: D,
@@ -67,6 +67,19 @@ pub struct Node<D: DistAlgorithm> {
     is_faulty: bool,
     /// Captured algorithm outputs, in order.
     outputs: Vec<D::Output>,
+}
+
+impl<D> fmt::Debug for Node<D>
+where
+    D: DistAlgorithm,
+{
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.debug_struct("Node")
+            .field("algorithm", &"yes")
+            .field("is_faulty", &self.is_faulty)
+            .field("outputs", &self.outputs.len())
+            .finish()
+    }
 }
 
 impl<D: DistAlgorithm> Node<D> {
@@ -258,6 +271,23 @@ where
     message_limit: Option<usize>,
 }
 
+impl<D, I> fmt::Debug for NetBuilder<D, I>
+where
+    D: DistAlgorithm,
+{
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.debug_struct("NetBuilder")
+            .field("node_ids", &())
+            .field("num_faulty", &self.num_faulty)
+            .field("cons", &self.cons.is_some())
+            .field("adversary", &self.cons.is_some())
+            .field("trace", &self.trace)
+            .field("crank_limit", &self.crank_limit)
+            .field("message_limit", &self.message_limit)
+            .finish()
+    }
+}
+
 impl<D, I> NetBuilder<D, I>
 where
     D: DistAlgorithm,
@@ -426,6 +456,24 @@ where
     message_count: usize,
     /// The limit set for the number of messages.
     message_limit: Option<usize>,
+}
+
+impl<D> fmt::Debug for VirtualNet<D>
+where
+    D: DistAlgorithm,
+{
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.debug_struct("VirtualNet")
+            .field("nodes", &self.nodes.len())
+            .field("messages", &self.messages)
+            .field("adversary", &self.adversary.is_some())
+            .field("trace", &self.trace.is_some())
+            .field("crank_count", &self.crank_count)
+            .field("crank_limit", &self.crank_limit)
+            .field("message_count", &self.message_count)
+            .field("message_limit", &self.message_limit)
+            .finish()
+    }
 }
 
 /// A virtual network

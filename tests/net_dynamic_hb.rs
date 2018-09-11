@@ -1,5 +1,7 @@
 extern crate failure;
 extern crate hbbft;
+#[macro_use]
+extern crate proptest;
 extern crate rand;
 extern crate threshold_crypto;
 
@@ -9,8 +11,9 @@ use std::collections;
 
 use hbbft::dynamic_honey_badger::{Change, ChangeState, DynamicHoneyBadger, Input};
 use hbbft::messaging::DistAlgorithm;
-
+use net::proptest::NetworkDimension;
 use net::NetBuilder;
+use proptest::prelude::ProptestConfig;
 
 /// Choose a node's contribution for an epoch.
 ///
@@ -39,34 +42,52 @@ where
     rand::seq::sample_slice(rng, &queue[0..n], k)
 }
 
-// Note: Still pending: Better batch sizes (configurable).
-#[test]
-fn drop_and_readd() {
-    // Currently fixed settings; to be replace by proptest later on. This wrapper function is
-    // already in place, to avoid with rustfmt not formatting the inside of macros.
-    do_drop_and_readd(3, 10, 20, 10, 3)
+/// Test configuration for dynamic honey badger tests.
+#[derive(Debug)]
+struct TestConfig {
+    /// The desired network dimension.
+    dimension: NetworkDimension,
+    /// Total number of transactions to execute before finishing.
+    total_txs: usize,
+    /// Epoch batch size.
+    batch_size: usize,
+    /// Individual nodes contribution size.
+    contribution_size: usize,
 }
 
-/// Dynamic honey badger: Drop a validator node, demoting it to observer, then re-add it.
-///
-/// * `num_faulty`: The number of faulty nodes.
-/// * `total`: Total number of nodes. Must be >= `3 * num_faulty + 1`.
-/// * `total_txs`: The total number of transactions each node will propose. All nodes will propose
-///                the same transactions, albeit in random order.
-/// * `batch_size`: The number of transaction per epoch, total.
-/// * `contribution_size`: A single nodes contribution to the batch.
-fn do_drop_and_readd(
-    num_faulty: usize,
-    total: usize,
-    total_txs: usize,
-    batch_size: usize,
-    contribution_size: usize,
-) {
+prop_compose! {
+    /// Strategy to generate a test configuration.
+    fn arb_config()
+                 (dimension in NetworkDimension::range(3, 15),
+                  total_txs in 20..60usize,
+                  batch_size in 10..20usize,
+                  contribution_size in 1..10usize)
+                 -> TestConfig {
+        TestConfig{
+            dimension, total_txs, batch_size, contribution_size,
+        }
+    }
+}
+
+/// Proptest wrapper for `do_drop_and_readd`.
+proptest!{
+    #![proptest_config(ProptestConfig {
+        cases: 1, .. ProptestConfig::default()
+    })]
+    #[test]
+    fn drop_and_readd(cfg in arb_config()) {
+        do_drop_and_readd(cfg)
+    }
+}
+
+/// Dynamic honey badger: Drop a validator node, demoting it to observer, then re-add it, all while
+/// running a regular honey badger network.
+fn do_drop_and_readd(cfg: TestConfig) {
     let mut rng = rand::thread_rng();
 
     // First, we create a new test network with Honey Badger instances.
-    let mut net = NetBuilder::new(0..total)
-        .num_faulty(num_faulty)
+    let mut net = NetBuilder::new(0..cfg.dimension.size)
+        .num_faulty(cfg.dimension.faulty)
         .message_limit(200_000)  // Limited to 200k messages for now.
         .using_step(move |node| {
             println!("Constructing new dynamic honey badger node #{}", node.id);
@@ -87,12 +108,12 @@ fn do_drop_and_readd(
     // a number between 0..total_txs, chosen randomly.
     let mut queues: collections::BTreeMap<_, Vec<usize>> = net
         .nodes()
-        .map(|node| (*node.id(), (0..total_txs).collect()))
+        .map(|node| (*node.id(), (0..cfg.total_txs).collect()))
         .collect();
 
     // For each node, select transactions randomly from the queue and propose them.
     for (id, queue) in &mut queues {
-        let proposal = choose_contribution(&mut rng, queue, batch_size, contribution_size);
+        let proposal = choose_contribution(&mut rng, queue, cfg.batch_size, cfg.contribution_size);
         println!("Node {:?} will propose: {:?}", id, proposal);
 
         // The step will have its messages added to the queue automatically, we ignore the output.
@@ -200,7 +221,8 @@ fn do_drop_and_readd(
         // If not done, check if we still want to propose something.
         if has_output {
             // Out of the remaining transactions, select a suitable amount.
-            let proposal = choose_contribution(&mut rng, queue, batch_size, contribution_size);
+            let proposal =
+                choose_contribution(&mut rng, queue, cfg.batch_size, cfg.contribution_size);
 
             let _ = net
                 .send_input(node_id, Input::User(proposal))
