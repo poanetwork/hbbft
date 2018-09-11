@@ -122,3 +122,71 @@ assert!(net.nodes().all(|node| node.outputs() == first));
 
 println!("End result: {:?}", first);
 ```
+
+### Property based testing
+
+Many higher-level tests allow for a variety of different input parameters like the number of nodes in a network or the amount of faulty ones among them. Other possible parameters include transaction, batch or contribution sizes. To test a variety of randomized combinations of these, the [proptest](https://docs.rs/proptest) crate should be used.
+
+The first step in using `proptest` is parametrizing a test, ensuring that all parameters are passed in and not hardcoded. The resulting function should be wrapped, due to the fact that `rustfmt` will not reformat code inside most macros:
+
+```rust
+proptest! {
+  #[test]
+  fn basic_operations(num_nodes in 3..10u32, num_tx in 40..60u32) {
+      do_basic_operations(num_nodes, num_txs);
+  }
+}
+
+fn do_basic_operations(num_nodes: u32, num_txs: u32) {
+    // ...
+}
+```
+
+Some helper structures and functions are available, e.g. the number of nodes should rarely be specified using a range, but with the `NetworkDimension` strategy instead:
+
+```rust
+use net::NetBuilder;
+use net::proptest::NetworkDimension;
+
+proptest! {
+    #[test]
+    fn basic_operations(dimension in NetworkDimension::range(3, 10), num_txs in 40..60u32) {
+        do_basic_operations(dimension, num_txs)
+    }
+}
+
+fn do_basic_operations(dimension: NetworkDimension, num_txs: u32) {
+    let mut net = NetBuilder::new(0..cfg.dimension.size)
+        .num_faulty(cfg.dimension.faulty)
+        // ...
+}
+```
+
+When specified this way, `dimension` will always be generated with a random valid number of faulty nodes, which is limited by the total amount of nodes. Additionally, `proptest` will automatically try to shrink the solution to a minimum if an error is found. The `NetworkDimension` is reduced in a way that tries to find a minimal combination of size and faulty nodes quicker than independently modified node counts would.
+
+To cut down on the number of parameters passed to each function, a struct containing all parameters for a single test can be added for larger parameter sets:
+
+```rust
+prop_compose! {
+    /// Strategy to generate a test configuration.
+    fn arb_config()
+                 (dimension in NetworkDimension::range(3, 15),
+                  total_txs in 20..60usize,
+                  batch_size in 10..20usize,
+                  contribution_size in 1..10usize)
+                 -> TestConfig {
+        TestConfig{
+            dimension, total_txs, batch_size, contribution_size,
+        }
+    }
+}
+
+proptest!{
+    #[test]
+    fn drop_and_readd(cfg in arb_config()) {
+        do_drop_and_readd(cfg)
+    }
+
+    // ...
+}
+```
