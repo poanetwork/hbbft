@@ -19,7 +19,7 @@ pub mod proptest;
 pub mod util;
 
 use std::io::Write;
-use std::{cmp, collections, env, fmt, fs, io, ops, process};
+use std::{cmp, collections, env, fmt, fs, io, ops, process, time};
 
 use rand;
 use rand::Rand;
@@ -29,6 +29,9 @@ use hbbft::messaging::{self, DistAlgorithm, NetworkInfo, Step};
 
 pub use self::adversary::Adversary;
 pub use self::err::CrankError;
+
+/// The time limit for any network if none was specified.
+const DEFAULT_TIME_LIMIT: Option<time::Duration> = Some(time::Duration::from_secs(60 * 20));
 
 /// Helper macro for tracing.
 ///
@@ -269,6 +272,8 @@ where
     crank_limit: Option<usize>,
     /// Optional message limit.
     message_limit: Option<usize>,
+    /// Optoinal time limit.
+    time_limit: Option<time::Duration>,
 }
 
 impl<D, I> fmt::Debug for NetBuilder<D, I>
@@ -313,6 +318,7 @@ where
             trace: None,
             crank_limit: None,
             message_limit: None,
+            time_limit: DEFAULT_TIME_LIMIT,
         }
     }
 
@@ -350,12 +356,31 @@ where
         self
     }
 
+    /// Remove the time limit.
+    ///
+    /// Removes any time limit from the builder.
+    #[inline]
+    pub fn no_time_limit(mut self) -> Self {
+        self.time_limit = None;
+        self
+    }
+
     /// Number of faulty nodes.
     ///
     /// Indicates the number of nodes that should be marked faulty.
     #[inline]
     pub fn num_faulty(mut self, num_faulty: usize) -> Self {
         self.num_faulty = num_faulty;
+        self
+    }
+
+    /// Time limit.
+    ///
+    /// Sets the time limit; `crank` will fail if called after this much time as elapsed since
+    /// the first time it was ever called.
+    #[inline]
+    pub fn time_limit(mut self, limit: time::Duration) -> Self {
+        self.time_limit = Some(limit);
         self
     }
 
