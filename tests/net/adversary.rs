@@ -329,6 +329,15 @@ where
     ) -> Result<Step<D>, CrankError<D>> {
         net.dispatch_message(msg)
     }
+
+    /// Convert the adversary into a generic boxed version.
+    #[inline]
+    fn boxed(self) -> Box<dyn Adversary<D>>
+    where
+        Self: Sized + 'static,
+    {
+        Box::new(self)
+    }
 }
 
 /// Passive adversary.
