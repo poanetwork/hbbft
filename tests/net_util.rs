@@ -47,7 +47,7 @@ fn check_sanity_works() {
 proptest!{
     /// Ensure that `.average_higher()` produces valid new dimensions.
     #[test]
-    fn average_higher_is_bft(size in 4..40usize) {
+    fn network_dimension_average_higher_is_bft(size in 4..40usize) {
         let mut faulty: usize = size/3;
         if faulty > 0 {
             faulty -= 1;
@@ -68,7 +68,7 @@ proptest!{
 
 /// Ensure `.average_higher()` works for edge cases.
 #[test]
-fn average_higher_handles_edge_cases() {
+fn network_dimension_average_higher_handles_edge_cases() {
     let high = NetworkDimension::new(1, 0);
     let low = NetworkDimension::new(1, 0);
     let average_higher = low.average_higher(high);
