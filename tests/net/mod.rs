@@ -427,7 +427,7 @@ where
     /// If the total number of nodes is not `> 3 * num_faulty`, construction will panic.
     #[inline]
     pub fn build(self) -> Result<VirtualNet<D>, crypto::error::Error> {
-        // The time limit can be overriden on the command-line:
+        // The time limit can be overriden through environment variables:
         let override_time_limit = env::var("HBBFT_NO_TIME_LIMIT")
             // We fail early, to avoid tricking the user into thinking that they have set the time
             // limit when they haven't.
@@ -466,6 +466,7 @@ where
 
         net.crank_limit = self.crank_limit;
         net.message_limit = self.message_limit;
+        net.time_limit = time_limit;
 
         Ok(net)
     }
@@ -495,6 +496,10 @@ where
     message_count: usize,
     /// The limit set for the number of messages.
     message_limit: Option<usize>,
+    /// Limits the maximum running time between construction and last call to `crank()`.
+    time_limit: Option<time::Duration>,
+    /// The instant the network was created.
+    start_time: time::Instant,
 }
 
 impl<D> fmt::Debug for VirtualNet<D>
@@ -692,6 +697,8 @@ where
             crank_limit: None,
             message_count,
             message_limit: None,
+            time_limit: None,
+            start_time: time::Instant::now(),
         })
     }
 
@@ -763,6 +770,12 @@ where
         if let Some(limit) = self.message_limit {
             if self.message_count >= limit {
                 return Some(Err(CrankError::MessageLimitExceeded(limit)));
+            }
+        }
+
+        if let Some(limit) = self.time_limit {
+            if time::Instant::now().duration_since(self.start_time) > limit {
+                return Some(Err(CrankError::TimeLimitHit(limit)));
             }
         }
 
