@@ -427,6 +427,20 @@ where
     /// If the total number of nodes is not `> 3 * num_faulty`, construction will panic.
     #[inline]
     pub fn build(self) -> Result<VirtualNet<D>, crypto::error::Error> {
+        // The time limit can be overriden on the command-line:
+        let override_time_limit = env::var("HBBFT_NO_TIME_LIMIT")
+            // We fail early, to avoid tricking the user into thinking that they have set the time
+            // limit when they haven't.
+            .map(|s| s.parse().expect("could not parse `HBBFT_NO_TIME_LIMIT`"))
+            .unwrap_or(false);
+
+        let time_limit = if override_time_limit {
+            eprintln!("WARNING: The time limit for individual tests has been manually disabled through `HBBFT_NO_TIME_LIMIT`.");
+            None
+        } else {
+            self.time_limit
+        };
+
         let cons = self
             .cons
             .as_ref()
