@@ -272,7 +272,7 @@ where
     crank_limit: Option<usize>,
     /// Optional message limit.
     message_limit: Option<usize>,
-    /// Optoinal time limit.
+    /// Optional time limit.
     time_limit: Option<time::Duration>,
 }
 
@@ -336,7 +336,7 @@ where
 
     /// Set a crank limit.
     ///
-    /// Crank limits are useful to limit execution time and reign in adversary. Otherwise, message
+    /// Crank limits are useful to limit execution time and rein in adversary. Otherwise, message
     /// limits are typically more useful. After the limit is hit, any call to `crank` will return a
     /// `CrankError::CrankLimitExceeded`.
     #[inline]
@@ -377,7 +377,7 @@ where
     /// Time limit.
     ///
     /// Sets the time limit; `crank` will fail if called after this much time as elapsed since
-    /// the first time it was ever called.
+    /// the network was instantiated.
     #[inline]
     pub fn time_limit(mut self, limit: time::Duration) -> Self {
         self.time_limit = Some(limit);
