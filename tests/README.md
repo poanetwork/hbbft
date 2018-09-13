@@ -123,6 +123,23 @@ assert!(net.nodes().all(|node| node.outputs() == first));
 println!("End result: {:?}", first);
 ```
 
+### Time-limits
+
+Every `VirtualNet` instance limits execution time to 20 minutes by default, this can be adjusted using the `time_limit` function:
+
+```rust
+use std::time;
+
+let num_nodes = 10;
+let mut net = NetBuilder::new(0..num_nodes)
+    // Change the time limit to five minutes per node total.
+    .time_limit(time::Duration::from_secs(num_nodes * 5 * 60))
+```
+
+If the time limit has been reached, `crank` will return a `TimeLimitHit` error. The time-limit can be disabled completely through `no_time_limit()`.
+
+It's also possible to run tests without a time-limit on a per-run basis by setting the `HBBFT_NO_TIME_LIMIT` environment variable to "true".
+
 ### Property based testing
 
 Many higher-level tests allow for a variety of different input parameters like the number of nodes in a network or the amount of faulty ones among them. Other possible parameters include transaction, batch or contribution sizes. To test a variety of randomized combinations of these, the [proptest](https://docs.rs/proptest) crate should be used.
