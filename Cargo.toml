@@ -47,3 +47,9 @@ name = "consensus-node"
 
 [[example]]
 name = "simulation"
+
+# This will turn on overflow checks in `cargo test --release` and
+# `cargo bench`. Dependencies will not be affected, as they use the
+# `[profile.release]` block in both cases.
+[profile.bench]
+overflow-checks = true
