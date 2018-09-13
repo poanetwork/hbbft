@@ -54,7 +54,7 @@ impl NetworkDimension {
         };
 
         // Reduce the number of faulty nodes, if we are outside our limits.
-        if !half.faulty * 3 <= half.size {
+        if !(half.faulty * 3 <= half.size) {
             half.faulty -= 1;
         }
 
