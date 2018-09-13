@@ -1,6 +1,6 @@
 //! Test network errors
 
-use std::fmt;
+use std::{fmt, time};
 
 use failure;
 use hbbft::messaging::DistAlgorithm;
@@ -27,6 +27,8 @@ where
     CrankLimitExceeded(usize),
     /// The configured maximum number of messages has been reached or exceeded.
     MessageLimitExceeded(usize),
+    /// The execution time limit has been reached or exceeded.
+    TimeLimitHit(time::Duration),
 }
 
 // Note: Deriving [Debug](std::fmt::Debug), [Fail](failure::Fail) and through that,
@@ -60,6 +62,9 @@ where
             CrankError::MessageLimitExceeded(max) => {
                 write!(f, "Maximum number of messages exceeded: {}", max)
             }
+            CrankError::TimeLimitHit(lim) => {
+                write!(f, "Time limit of {} seconds exceeded.", lim.as_secs())
+            }
         }
     }
 }
@@ -82,6 +87,7 @@ where
             CrankError::MessageLimitExceeded(max) => {
                 f.debug_tuple("MessageLimitExceeded").field(max).finish()
             }
+            CrankError::TimeLimitHit(lim) => f.debug_tuple("TimeLimitHit").field(lim).finish(),
         }
     }
 }
