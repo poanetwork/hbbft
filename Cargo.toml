@@ -30,7 +30,7 @@ rand_derive = "0.3.1"
 reed-solomon-erasure = "3.1.0"
 serde = "1.0.55"
 serde_derive = "1.0.55"
-threshold_crypto = { git = "https://github.com/poanetwork/threshold_crypto", tag = "0.1.0" }
+threshold_crypto = { git = "https://github.com/poanetwork/threshold_crypto" }
 tiny-keccak = "1.4"
 
 [dev-dependencies]

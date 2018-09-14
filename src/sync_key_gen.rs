@@ -63,7 +63,7 @@
 //! let (threshold, node_num) = (1, 4);
 //!
 //! // Generate individual key pairs for encryption. These are not suitable for threshold schemes.
-//! let sec_keys: Vec<SecretKey> = (0..node_num).map(|_| rand::random()).collect();
+//! let sec_keys: Vec<SecretKey> = (0..node_num).map(|_| SecretKey::random()).collect();
 //! let pub_keys: BTreeMap<usize, PublicKey> = sec_keys
 //!     .iter()
 //!     .map(SecretKey::public_key)
@@ -309,10 +309,10 @@ impl<N: NodeIdT> SyncKeyGen<N> {
             return Ok((key_gen, None)); // No part: we are an observer.
         }
         let mut rng = OsRng::new().expect("OS random number generator");
-        let our_part = BivarPoly::random(threshold, &mut rng).map_err(Error::Creation)?;
+        let our_part = BivarPoly::try_random(threshold, &mut rng).map_err(Error::Creation)?;
         let commit = our_part.commitment();
         let encrypt = |(i, pk): (usize, &PublicKey)| {
-            let row = our_part.row(i + 1).map_err(Error::Creation)?;
+            let row = our_part.try_row(i + 1).map_err(Error::Creation)?;
             let bytes = bincode::serialize(&row).expect("failed to serialize row");
             Ok(pk.encrypt(&bytes))
         };
@@ -421,19 +421,19 @@ impl<N: NodeIdT> SyncKeyGen<N> {
     /// All participating nodes must have handled the exact same sequence of `Part` and `Ack`
     /// messages before calling this method. Otherwise their key shares will not match.
     pub fn generate(&self) -> Result<(PublicKeySet, Option<SecretKeyShare>), Error> {
-        let mut pk_commit = Poly::zero().map_err(Error::Generation)?.commitment();
+        let mut pk_commit = Poly::zero().commitment();
         let mut opt_sk_val = self.our_idx.map(|_| Fr::zero());
         let is_complete = |part: &&ProposalState| part.is_complete(self.threshold);
         for part in self.parts.values().filter(is_complete) {
             pk_commit += part.commit.row(0);
             if let Some(sk_val) = opt_sk_val.as_mut() {
-                let row = Poly::interpolate(part.values.iter().take(self.threshold + 1))
+                let row = Poly::try_interpolate(part.values.iter().take(self.threshold + 1))
                     .map_err(Error::Generation)?;
                 sk_val.add_assign(&row.evaluate(0));
             }
         }
         let opt_sk = if let Some(mut fr) = opt_sk_val {
-            let sk = SecretKeyShare::from_mut_ptr(&mut fr as *mut Fr).map_err(Error::Generation)?;
+            let sk = SecretKeyShare::try_from_mut(&mut fr).map_err(Error::Generation)?;
             Some(sk)
         } else {
             None
