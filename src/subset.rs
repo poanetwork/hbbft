@@ -89,7 +89,7 @@ pub type Step<N> = messaging::Step<Subset<N>>;
 impl<N: NodeIdT + Rand> DistAlgorithm for Subset<N> {
     type NodeId = N;
     type Input = ProposedValue;
-    type Output = BTreeMap<N, ProposedValue>;
+    type Output = SubsetOutput<N>;
     type Message = Message<N>;
     type Error = Error;
 
@@ -122,6 +122,12 @@ impl<N: NodeIdT + Rand> DistAlgorithm for Subset<N> {
     fn our_id(&self) -> &Self::NodeId {
         self.netinfo.our_id()
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SubsetOutput<N> {
+    Contribution(N, Vec<u8>),
+    Done(BTreeMap<N, Vec<u8>>),
 }
 
 impl<N: NodeIdT + Rand> Subset<N> {
@@ -192,9 +198,11 @@ impl<N: NodeIdT + Rand> Subset<N> {
         amessage: binary_agreement::Message,
     ) -> Result<Step<N>> {
         // Send the message to the local instance of Binary Agreement.
-        self.process_binary_agreement(proposer_id, |binary_agreement| {
-            binary_agreement.handle_message(sender_id, amessage)
-        })
+        self.process_binary_agreement(
+            proposer_id,
+            |binary_agreement| binary_agreement.handle_message(sender_id, amessage),
+            None,
+        )
     }
 
     /// Upon delivery of v_j from RBC_j, if input has not yet been provided to
@@ -220,7 +228,8 @@ impl<N: NodeIdT + Rand> Subset<N> {
                 return Ok(step);
             }
         };
-        self.broadcast_results.insert(proposer_id.clone(), value);
+        self.broadcast_results
+            .insert(proposer_id.clone(), value.clone());
         let set_binary_agreement_input = |ba: &mut BinaryAgreement<N>| {
             if ba.accepts_input() {
                 ba.handle_input(true)
@@ -228,13 +237,22 @@ impl<N: NodeIdT + Rand> Subset<N> {
                 Ok(binary_agreement::Step::default())
             }
         };
-        step.extend(self.process_binary_agreement(proposer_id, set_binary_agreement_input)?);
+        step.extend(self.process_binary_agreement(
+            proposer_id,
+            set_binary_agreement_input,
+            Some(value.clone()),
+        )?);
         Ok(step)
     }
 
     /// Callback to be invoked on receipt of the decision value of the Binary Agreement
     /// instance `id`.
-    fn process_binary_agreement<F>(&mut self, proposer_id: &N, f: F) -> Result<Step<N>>
+    fn process_binary_agreement<F>(
+        &mut self,
+        proposer_id: &N,
+        f: F,
+        result: Option<Vec<u8>>,
+    ) -> Result<Step<N>>
     where
         F: FnOnce(&mut BinaryAgreement<N>) -> binary_agreement::Result<binary_agreement::Step<N>>,
     {
@@ -286,7 +304,8 @@ impl<N: NodeIdT + Rand> Subset<N> {
                 }
             }
         }
-        step.output.extend(self.try_binary_agreement_completion());
+        step.output
+            .extend(self.try_binary_agreement_completion(proposer_id, result));
         Ok(step)
     }
 
@@ -295,7 +314,11 @@ impl<N: NodeIdT + Rand> Subset<N> {
         self.ba_results.values().filter(|v| **v).count()
     }
 
-    fn try_binary_agreement_completion(&mut self) -> Option<BTreeMap<N, ProposedValue>> {
+    fn try_binary_agreement_completion(
+        &mut self,
+        proposer_id: &N,
+        result: Option<Vec<u8>>,
+    ) -> Option<SubsetOutput<N>> {
         if self.decided || self.count_true() < self.netinfo.num_correct() {
             return None;
         }
@@ -303,7 +326,7 @@ impl<N: NodeIdT + Rand> Subset<N> {
         // the indexes of each BA that delivered 1. Wait for the output
         // v_j for each RBC_j such that j∈C. Finally output ∪ j∈C v_j.
         if self.ba_results.len() < self.netinfo.num_nodes() {
-            return None;
+            return Some(SubsetOutput::Contribution(proposer_id.clone(), result?));
         }
         debug!(
             "{:?} All Binary Agreement instances have terminated",
@@ -338,7 +361,7 @@ impl<N: NodeIdT + Rand> Subset<N> {
                 debug!("    {:?} → {:?}", id, HexBytes(&result));
             }
             self.decided = true;
-            Some(broadcast_results)
+            Some(SubsetOutput::Done(broadcast_results))
         } else {
             None
         }

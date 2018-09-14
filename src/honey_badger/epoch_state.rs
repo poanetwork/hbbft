@@ -1,5 +1,5 @@
 use std::collections::btree_map::Entry;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::marker::PhantomData;
 use std::sync::Arc;
 
@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use super::{Batch, ErrorKind, MessageContent, Result, Step};
 use fault_log::{Fault, FaultKind, FaultLog};
 use messaging::{DistAlgorithm, NetworkInfo};
-use subset::{self as cs, Subset};
+use subset::{self as cs, Subset, SubsetOutput};
 use threshold_decryption::{self as td, ThresholdDecryption};
 use traits::{Contribution, NodeIdT};
 
@@ -116,6 +116,8 @@ pub struct EpochState<C, N: Rand> {
     subset: SubsetState<N>,
     /// The status of threshold decryption, by proposer.
     decryption: BTreeMap<N, DecryptionState<N>>,
+    /// N seen so far
+    keys: BTreeSet<N>,
     _phantom: PhantomData<C>,
 }
 
@@ -132,6 +134,7 @@ where
             netinfo,
             subset: SubsetState::Ongoing(cs),
             decryption: BTreeMap::default(),
+            keys: Default::default(),
             _phantom: PhantomData,
         })
     }
@@ -219,12 +222,22 @@ where
     /// Checks whether the subset has output, and if it does, sends out our decryption shares.
     fn process_subset(&mut self, cs_step: cs::Step<N>) -> Result<Step<C, N>> {
         let mut step = Step::default();
-        let mut cs_outputs = step.extend_with(cs_step, |cs_msg| {
+        let mut cs_outputs: VecDeque<_> = step.extend_with(cs_step, |cs_msg| {
             MessageContent::Subset(cs_msg).with_epoch(self.epoch)
         });
         if let Some(cs_output) = cs_outputs.pop_front() {
-            self.subset = SubsetState::Complete(cs_output.keys().cloned().collect());
-            step.extend(self.send_decryption_shares(cs_output)?);
+            match cs_output {
+                SubsetOutput::Contribution(k, v) => {
+                    let mut map: BTreeMap<N, Vec<u8>> = Default::default();
+                    self.keys.insert(k.clone());
+                    map.insert(k, v);
+                    //step.extend(self.send_decryption_shares(map)?);
+                }
+                SubsetOutput::Done(output) => {
+                    self.subset = SubsetState::Complete(output.keys().cloned().collect());
+                    step.extend(self.send_decryption_shares(output)?);
+                }
+            }
         }
         if !cs_outputs.is_empty() {
             error!("Multiple outputs from a single Subset instance.");

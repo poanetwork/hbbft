@@ -20,7 +20,7 @@ use std::iter::once;
 use std::sync::Arc;
 
 use hbbft::messaging::NetworkInfo;
-use hbbft::subset::Subset;
+use hbbft::subset::{Subset, SubsetOutput};
 
 use network::{Adversary, MessageScheduler, NodeId, SilentAdversary, TestNetwork, TestNode};
 
@@ -54,13 +54,18 @@ fn test_subset<A: Adversary<Subset<NodeId>>>(
     }
     let output = expected.unwrap();
     assert!(once(&output).eq(network.observer.outputs()));
-    // The Subset algorithm guarantees that more than two thirds of the proposed elements
-    // are in the set.
-    assert!(output.len() * 3 > inputs.len() * 2);
-    // Verify that the set's elements match the proposed values.
-    for (id, value) in output {
-        assert_eq!(inputs[&id], value);
-    }
+    match output {
+        SubsetOutput::Contribution(_, _) => unreachable!(),
+        SubsetOutput::Done(output) => {
+            // The Subset algorithm guarantees that more than two thirds of the proposed elements
+            // are in the set.
+            assert!(output.len() * 3 > inputs.len() * 2);
+            // Verify that the set's elements match the proposed values.
+            for (id, value) in output {
+                assert_eq!(inputs[&id], value);
+            }
+        }
+    };
 }
 
 fn new_network<A, F>(
