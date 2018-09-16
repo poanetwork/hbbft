@@ -198,11 +198,9 @@ impl<N: NodeIdT + Rand> Subset<N> {
         amessage: binary_agreement::Message,
     ) -> Result<Step<N>> {
         // Send the message to the local instance of Binary Agreement.
-        self.process_binary_agreement(
-            proposer_id,
-            |binary_agreement| binary_agreement.handle_message(sender_id, amessage),
-            None,
-        )
+        self.process_binary_agreement(proposer_id, |binary_agreement| {
+            binary_agreement.handle_message(sender_id, amessage)
+        })
     }
 
     /// Upon delivery of v_j from RBC_j, if input has not yet been provided to
@@ -237,22 +235,13 @@ impl<N: NodeIdT + Rand> Subset<N> {
                 Ok(binary_agreement::Step::default())
             }
         };
-        step.extend(self.process_binary_agreement(
-            proposer_id,
-            set_binary_agreement_input,
-            Some(value.clone()),
-        )?);
+        step.extend(self.process_binary_agreement(proposer_id, set_binary_agreement_input)?);
         Ok(step)
     }
 
     /// Callback to be invoked on receipt of the decision value of the Binary Agreement
     /// instance `id`.
-    fn process_binary_agreement<F>(
-        &mut self,
-        proposer_id: &N,
-        f: F,
-        result: Option<Vec<u8>>,
-    ) -> Result<Step<N>>
+    fn process_binary_agreement<F>(&mut self, proposer_id: &N, f: F) -> Result<Step<N>>
     where
         F: FnOnce(&mut BinaryAgreement<N>) -> binary_agreement::Result<binary_agreement::Step<N>>,
     {
@@ -276,14 +265,16 @@ impl<N: NodeIdT + Rand> Subset<N> {
                 return Ok(step);
             }
         };
-        if self.ba_results.insert(proposer_id.clone(), value).is_some() {
-            return Err(Error::MultipleBinaryAgreementResults);
-        }
         debug!(
             "{:?} Updated Binary Agreement results: {:?}",
             self.netinfo.our_id(),
             self.ba_results
         );
+
+        // Binary agreement result accepted.
+        if self.ba_results.insert(proposer_id.clone(), value).is_some() {
+            return Err(Error::MultipleBinaryAgreementResults);
+        }
 
         if value && self.count_true() == self.netinfo.num_correct() {
             // Upon delivery of value 1 from at least N − f instances of BA, provide
@@ -304,8 +295,14 @@ impl<N: NodeIdT + Rand> Subset<N> {
                 }
             }
         }
-        step.output
-            .extend(self.try_binary_agreement_completion(proposer_id, result));
+        if let Some(x) = self.broadcast_results.get(proposer_id) {
+            step.output.extend(Some(SubsetOutput::Contribution(
+                proposer_id.clone(),
+                x.clone(),
+            )));
+        }
+
+        step.output.extend(self.try_binary_agreement_completion());
         Ok(step)
     }
 
@@ -314,11 +311,7 @@ impl<N: NodeIdT + Rand> Subset<N> {
         self.ba_results.values().filter(|v| **v).count()
     }
 
-    fn try_binary_agreement_completion(
-        &mut self,
-        proposer_id: &N,
-        result: Option<Vec<u8>>,
-    ) -> Option<SubsetOutput<N>> {
+    fn try_binary_agreement_completion(&mut self) -> Option<SubsetOutput<N>> {
         if self.decided || self.count_true() < self.netinfo.num_correct() {
             return None;
         }
@@ -326,7 +319,7 @@ impl<N: NodeIdT + Rand> Subset<N> {
         // the indexes of each BA that delivered 1. Wait for the output
         // v_j for each RBC_j such that j∈C. Finally output ∪ j∈C v_j.
         if self.ba_results.len() < self.netinfo.num_nodes() {
-            return Some(SubsetOutput::Contribution(proposer_id.clone(), result?));
+            return None;
         }
         debug!(
             "{:?} All Binary Agreement instances have terminated",

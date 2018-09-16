@@ -117,7 +117,7 @@ pub struct EpochState<C, N: Rand> {
     /// The status of threshold decryption, by proposer.
     decryption: BTreeMap<N, DecryptionState<N>>,
     /// N seen so far
-    keys: BTreeSet<N>,
+    map: BTreeMap<N, Vec<u8>>,
     _phantom: PhantomData<C>,
 }
 
@@ -134,7 +134,7 @@ where
             netinfo,
             subset: SubsetState::Ongoing(cs),
             decryption: BTreeMap::default(),
-            keys: Default::default(),
+            map: Default::default(),
             _phantom: PhantomData,
         })
     }
@@ -225,17 +225,21 @@ where
         let mut cs_outputs: VecDeque<_> = step.extend_with(cs_step, |cs_msg| {
             MessageContent::Subset(cs_msg).with_epoch(self.epoch)
         });
-        if let Some(cs_output) = cs_outputs.pop_front() {
+        while let Some(cs_output) = cs_outputs.pop_front() {
             match cs_output {
                 SubsetOutput::Contribution(k, v) => {
-                    let mut map: BTreeMap<N, Vec<u8>> = Default::default();
-                    self.keys.insert(k.clone());
+                    self.map.insert(k.clone(), v.clone());
+                    let mut map = BTreeMap::default();
                     map.insert(k, v);
-                    //step.extend(self.send_decryption_shares(map)?);
                 }
-                SubsetOutput::Done(output) => {
-                    self.subset = SubsetState::Complete(output.keys().cloned().collect());
-                    step.extend(self.send_decryption_shares(output)?);
+                SubsetOutput::Done(_) => {
+                    //assert_eq!(self.map, output);
+
+                    self.subset = SubsetState::Complete(self.map.keys().cloned().collect());
+                    let q = self.map.clone();
+                    step.extend(self.send_decryption_shares(q)?);
+
+                    break;
                 }
             }
         }
