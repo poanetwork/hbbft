@@ -231,13 +231,13 @@ where
                     self.map.insert(k.clone(), v.clone());
                     let mut map = BTreeMap::default();
                     map.insert(k, v);
+                    step.extend(self.send_decryption_shares(map)?);
                 }
-                SubsetOutput::Done(_) => {
+                SubsetOutput::Done => {
                     //assert_eq!(self.map, output);
 
                     self.subset = SubsetState::Complete(self.map.keys().cloned().collect());
                     let q = self.map.clone();
-                    step.extend(self.send_decryption_shares(q)?);
 
                     break;
                 }

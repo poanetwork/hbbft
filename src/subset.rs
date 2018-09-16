@@ -127,7 +127,7 @@ impl<N: NodeIdT + Rand> DistAlgorithm for Subset<N> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SubsetOutput<N> {
     Contribution(N, Vec<u8>),
-    Done(BTreeMap<N, Vec<u8>>),
+    Done,
 }
 
 impl<N: NodeIdT + Rand> Subset<N> {
@@ -227,7 +227,8 @@ impl<N: NodeIdT + Rand> Subset<N> {
             }
         };
         self.broadcast_results
-            .insert(proposer_id.clone(), value.clone());
+            .entry(proposer_id.clone())
+            .or_insert(value);
         let set_binary_agreement_input = |ba: &mut BinaryAgreement<N>| {
             if ba.accepts_input() {
                 ba.handle_input(true)
@@ -295,11 +296,14 @@ impl<N: NodeIdT + Rand> Subset<N> {
                 }
             }
         }
-        if let Some(x) = self.broadcast_results.get(proposer_id) {
-            step.output.extend(Some(SubsetOutput::Contribution(
-                proposer_id.clone(),
-                x.clone(),
-            )));
+        if let Some(x) = self.broadcast_results.insert(proposer_id.clone(), Default::default()) {
+            let y: Vec<u8> = x;
+            if y.len() > 0 {
+                step.output.extend(Some(SubsetOutput::Contribution(
+                    proposer_id.clone(),
+                    y,
+                )));
+            }
         }
 
         step.output.extend(self.try_binary_agreement_completion());
@@ -354,7 +358,7 @@ impl<N: NodeIdT + Rand> Subset<N> {
                 debug!("    {:?} → {:?}", id, HexBytes(&result));
             }
             self.decided = true;
-            Some(SubsetOutput::Done(broadcast_results))
+            Some(SubsetOutput::Done)
         } else {
             None
         }

@@ -56,12 +56,7 @@ fn test_subset<A: Adversary<Subset<NodeId>>>(
     for i in output {
         match i {
             SubsetOutput::Contribution(id, value) => assert_eq!(&inputs[&id], value),
-            SubsetOutput::Done(output) => {
-                // Verify that the set's elements match the proposed values.
-                for (id, value) in output {
-                    assert_eq!(&inputs[&id], value);
-                }
-            }
+            SubsetOutput::Done => (),
         };
     }
 }
