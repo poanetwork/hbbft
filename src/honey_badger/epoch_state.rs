@@ -222,28 +222,24 @@ where
     /// Checks whether the subset has output, and if it does, sends out our decryption shares.
     fn process_subset(&mut self, cs_step: cs::Step<N>) -> Result<Step<C, N>> {
         let mut step = Step::default();
-        let mut cs_outputs: VecDeque<_> = step.extend_with(cs_step, |cs_msg| {
+        let cs_outputs: VecDeque<_> = step.extend_with(cs_step, |cs_msg| {
             MessageContent::Subset(cs_msg).with_epoch(self.epoch)
         });
-        while let Some(cs_output) = cs_outputs.pop_front() {
+        let expected_num_outputs = cs_outputs.len();
+        let mut actual_num_outputs = 0;
+        for cs_output in cs_outputs {
+            actual_num_outputs += 1;
             match cs_output {
                 SubsetOutput::Contribution(k, v) => {
-                    self.map.insert(k.clone(), v.clone());
-                    let mut map = BTreeMap::default();
-                    map.insert(k, v);
-                    step.extend(self.send_decryption_shares(map)?);
+                    step.extend(self.send_decryption_share(k.clone(), v.clone())?);
                 }
                 SubsetOutput::Done => {
-                    //assert_eq!(self.map, output);
-
                     self.subset = SubsetState::Complete(self.map.keys().cloned().collect());
-                    let q = self.map.clone();
-
                     break;
                 }
             }
         }
-        if !cs_outputs.is_empty() {
+        if expected_num_outputs != actual_num_outputs {
             error!("Multiple outputs from a single Subset instance.");
         }
         Ok(step)
@@ -267,48 +263,46 @@ where
 
     /// Given the output of the Subset algorithm, inputs the ciphertexts into the Threshold
     /// Decryption instances and sends our own decryption shares.
-    fn send_decryption_shares(&mut self, cs_output: BTreeMap<N, Vec<u8>>) -> Result<Step<C, N>> {
+    fn send_decryption_share(&mut self, proposer_id: N, v: Vec<u8>) -> Result<Step<C, N>> {
         let mut step = Step::default();
-        let faulty_shares: Vec<_> = self
-            .decryption
-            .keys()
-            .filter(|id| !cs_output.contains_key(id))
-            .cloned()
-            .collect();
-        for id in faulty_shares {
-            if let Some(DecryptionState::Ongoing(td)) = self.decryption.remove(&id) {
-                for id in td.sender_ids() {
-                    let fault_kind = FaultKind::UnexpectedDecryptionShare;
-                    step.fault_log.append(id.clone(), fault_kind);
-                }
+        // let faulty_shares: Vec<_> = self
+        //     .decryption
+        //     .keys()
+        //     .filter(|id| !cs_output.contains_key(id))
+        //     .cloned()
+        //     .collect();
+        // for id in faulty_shares {
+        //     if let Some(DecryptionState::Ongoing(td)) = self.decryption.remove(&id) {
+        //         for id in td.sender_ids() {
+        //             let fault_kind = FaultKind::UnexpectedDecryptionShare;
+        //             step.fault_log.append(id.clone(), fault_kind);
+        //         }
+        //     }
+        // }
+        let ciphertext: Ciphertext = match bincode::deserialize(&v) {
+            Ok(ciphertext) => ciphertext,
+            Err(err) => {
+                warn!(
+                    "Cannot deserialize ciphertext from {:?}: {:?}",
+                    proposer_id, err
+                );
+                let fault_kind = FaultKind::InvalidCiphertext;
+                step.fault_log.append(proposer_id, fault_kind);
+                return Ok(step);
             }
-        }
-        for (proposer_id, v) in cs_output {
-            let ciphertext: Ciphertext = match bincode::deserialize(&v) {
-                Ok(ciphertext) => ciphertext,
-                Err(err) => {
-                    warn!(
-                        "Cannot deserialize ciphertext from {:?}: {:?}",
-                        proposer_id, err
-                    );
-                    let fault_kind = FaultKind::InvalidCiphertext;
-                    step.fault_log.append(proposer_id, fault_kind);
-                    continue;
-                }
-            };
-            let td_result = match self.decryption.entry(proposer_id.clone()) {
-                Entry::Occupied(entry) => entry.into_mut(),
-                Entry::Vacant(entry) => entry.insert(DecryptionState::new(self.netinfo.clone())),
-            }.set_ciphertext(ciphertext);
-            match td_result {
-                Ok(td_step) => step.extend(self.process_decryption(proposer_id, td_step)?),
-                Err(td::Error::InvalidCiphertext(_)) => {
-                    warn!("Invalid ciphertext from {:?}", proposer_id);
-                    let fault_kind = FaultKind::ShareDecryptionFailed;
-                    step.fault_log.append(proposer_id.clone(), fault_kind);
-                }
-                Err(err) => return Err(ErrorKind::ThresholdDecryption(err).into()),
+        };
+        let td_result = match self.decryption.entry(proposer_id.clone()) {
+            Entry::Occupied(entry) => entry.into_mut(),
+            Entry::Vacant(entry) => entry.insert(DecryptionState::new(self.netinfo.clone())),
+        }.set_ciphertext(ciphertext);
+        match td_result {
+            Ok(td_step) => step.extend(self.process_decryption(proposer_id, td_step)?),
+            Err(td::Error::InvalidCiphertext(_)) => {
+                warn!("Invalid ciphertext from {:?}", proposer_id);
+                let fault_kind = FaultKind::ShareDecryptionFailed;
+                step.fault_log.append(proposer_id.clone(), fault_kind);
             }
+            Err(err) => return Err(ErrorKind::ThresholdDecryption(err).into()),
         }
         Ok(step)
     }

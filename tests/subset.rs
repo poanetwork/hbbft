@@ -46,19 +46,31 @@ fn test_subset<A: Adversary<Subset<NodeId>>>(
     let mut expected = None;
     for node in network.nodes.values() {
         assert!(1 < node.outputs().len());
-        expected = Some(node.outputs().clone());
+        let outputs = node.outputs();
+        let (expected_num_outputs, mut actual_num_outputs) = (outputs.len(), 0);
+        let mut actual = BTreeMap::default();
+
+        for i in outputs {
+            match i {
+                SubsetOutput::Contribution(k, v) => {
+                    actual_num_outputs += 1;
+                    assert!(actual.insert(k, v).is_none());
+                }
+                SubsetOutput::Done => break,
+            }
+        }
+        assert_eq!(expected_num_outputs, actual_num_outputs + 1);
+
+        // The Subset algorithm guarantees that more than two thirds of the proposed elements
+        // are in the set.
+        assert!(actual_num_outputs * 3 > inputs.len() * 2);
+        match expected {
+            None      => expected = Some(actual),
+            Some(ref set) => assert_eq!(&actual, set),
+        };
+
     }
     let output = expected.unwrap();
-
-    // The Subset algorithm guarantees that more than two thirds of the proposed elements
-    // are in the set.
-    assert!((output.len() - 1) * 3 > inputs.len() * 2);
-    for i in output {
-        match i {
-            SubsetOutput::Contribution(id, value) => assert_eq!(&inputs[&id], value),
-            SubsetOutput::Done => (),
-        };
-    }
 }
 
 fn new_network<A, F>(
