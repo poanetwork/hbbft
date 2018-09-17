@@ -60,13 +60,12 @@ fn test_subset<A: Adversary<Subset<NodeId>>>(
 
         // The Subset algorithm guarantees that more than two thirds of the proposed elements
         // are in the set.
-        assert!(actual_num_outputs * 3 > inputs.len() * 2);
+        assert!(actual.len() * 3 > inputs.len() * 2);
         match expected {
             None => expected = Some(actual),
             Some(ref set) => assert_eq!(&actual, set),
         };
     }
-    let output = expected.unwrap();
 }
 
 fn new_network<A, F>(

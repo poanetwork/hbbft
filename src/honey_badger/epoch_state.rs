@@ -228,7 +228,7 @@ where
         for cs_output in cs_outputs {
             match cs_output {
                 SubsetOutput::Contribution(k, v) => {
-                    step.extend(self.send_decryption_share(k, v)?);
+                    step.extend(self.send_decryption_share(k, &v)?);
                 }
                 SubsetOutput::Done => {
                     self.subset = SubsetState::Complete(self.map.keys().cloned().collect());
@@ -272,8 +272,8 @@ where
 
     /// Given the output of the Subset algorithm, inputs the ciphertexts into the Threshold
     /// Decryption instances and sends our own decryption shares.
-    fn send_decryption_share(&mut self, proposer_id: N, v: Vec<u8>) -> Result<Step<C, N>> {
-        let ciphertext: Ciphertext = match bincode::deserialize(&v) {
+    fn send_decryption_share(&mut self, proposer_id: N, v: &[u8]) -> Result<Step<C, N>> {
+        let ciphertext: Ciphertext = match bincode::deserialize(v) {
             Ok(ciphertext) => ciphertext,
             Err(err) => {
                 warn!(
@@ -293,7 +293,7 @@ where
                 warn!("Invalid ciphertext from {:?}", proposer_id);
                 Ok(Fault::new(proposer_id.clone(), FaultKind::ShareDecryptionFailed).into())
             }
-            Err(err) => return Err(ErrorKind::ThresholdDecryption(err).into()),
+            Err(err) => Err(ErrorKind::ThresholdDecryption(err).into()),
         }
     }
 }
