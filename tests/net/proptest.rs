@@ -54,7 +54,7 @@ impl NetworkDimension {
         };
 
         // Reduce the number of faulty nodes, if we are outside our limits.
-        if !(half.faulty * 3 <= half.size) {
+        if half.faulty * 3 > half.size {
             half.faulty -= 1;
         }
 
@@ -124,7 +124,7 @@ impl ValueTree for NetworkDimensionTree {
     type Value = NetworkDimension;
 
     fn current(&self) -> Self::Value {
-        self.current.clone()
+        self.current
     }
 
     fn simplify(&mut self) -> bool {
