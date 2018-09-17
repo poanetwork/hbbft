@@ -1,6 +1,6 @@
 language: rust
 rust:
-    - stable
+    - 1.29.0
 cache:
   cargo: true
   timeout: 1200
@@ -12,12 +12,7 @@ before_install:
   - if [ "$TRAVIS_SECURE_ENV_VARS" = true ]; then
       openssl aes-256-cbc -K $encrypted_ab99677a831c_key -iv $encrypted_ab99677a831c_iv -in deploy_rsa.enc -out deploy_rsa -d;
     fi
-  # The Rust stable toolchain is already installed, ${RUST_NEXT} is added to
-  # provide `cargo clippy` and `cargo fmt`.
-  - rustup toolchain install ${RUST_NEXT}
-  - rustup component add --toolchain=${RUST_NEXT} rustfmt-preview clippy-preview
-  # Some symlinking is still necessary for clippy to function properly.
-  - ln -sf ${HOME}/.rustup/toolchains/${RUST_NEXT}-x86_64-unknown-linux-gnu/bin/clippy-driver ${HOME}/.rustup/toolchains/${RUST_NEXT}-x86_64-unknown-linux-gnu/bin/cargo-clippy $HOME/.cargo/bin/
+  - rustup component add --toolchain=$TRAVIS_RUST_VERSION rustfmt-preview clippy-preview
 # after_failure:
 #   # Outputs the syslog after a failed build, e.g. to debug `SIGILL` occurrences.
 #   # Unfortunately this is likely to disable container-based travis images,
@@ -29,15 +24,8 @@ env:
     - RUST_BACKTRACE=1
     # Enables additional cpu-specific optimizations.
     - RUSTFLAGS="-D warnings -C target-cpu=native"
-    # Note: `beta` should be removed along with `RUST_NEXT` after the 1.28
-    #       stable release on 2018-09-13.
-    - RUST_NEXT=beta
     - MLOCK_SECRETS=false
 script:
-  # Clippy is disabled until the switch to stable.
-  # - cargo +${RUST_NEXT} clippy -- --deny clippy
-  # - cargo +${RUST_NEXT} clippy --tests --examples -- --deny clippy
-  # - cargo +${RUST_NEXT} clippy --all-features -- --deny clippy
-  # - cargo +${RUST_NEXT} clippy --all-features --tests -- --deny clippy
-  - cargo +${RUST_NEXT} fmt -- --check
+  - cargo clippy --tests --examples -- --deny clippy
+  - cargo fmt -- --check
   - cargo test --all-features --release -- --test-threads 1

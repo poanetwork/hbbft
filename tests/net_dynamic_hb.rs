@@ -75,6 +75,7 @@ proptest!{
         cases: 1, .. ProptestConfig::default()
     })]
     #[test]
+    #[cfg_attr(feature = "cargo-clippy", allow(unnecessary_operation))]
     fn drop_and_readd(cfg in arb_config()) {
         do_drop_and_readd(cfg)
     }
@@ -82,6 +83,7 @@ proptest!{
 
 /// Dynamic honey badger: Drop a validator node, demoting it to observer, then re-add it, all while
 /// running a regular honey badger network.
+#[cfg_attr(feature = "cargo-clippy", allow(needless_pass_by_value))]
 fn do_drop_and_readd(cfg: TestConfig) {
     let mut rng = rand::thread_rng();
 
