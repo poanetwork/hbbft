@@ -225,22 +225,31 @@ where
         let cs_outputs: VecDeque<_> = step.extend_with(cs_step, |cs_msg| {
             MessageContent::Subset(cs_msg).with_epoch(self.epoch)
         });
-        let expected_num_outputs = cs_outputs.len();
-        let mut actual_num_outputs = 0;
         for cs_output in cs_outputs {
-            actual_num_outputs += 1;
             match cs_output {
                 SubsetOutput::Contribution(k, v) => {
-                    step.extend(self.send_decryption_share(k.clone(), v.clone())?);
+                    step.extend(self.send_decryption_share(k, v)?);
                 }
                 SubsetOutput::Done => {
                     self.subset = SubsetState::Complete(self.map.keys().cloned().collect());
+
+                    let faulty_shares: Vec<_> = self
+                        .decryption
+                        .keys()
+                        .filter(|id| !self.map.contains_key(id))
+                        .cloned()
+                        .collect();
+                    for id in faulty_shares {
+                        if let Some(DecryptionState::Ongoing(td)) = self.decryption.remove(&id) {
+                            for id in td.sender_ids() {
+                                let fault_kind = FaultKind::UnexpectedDecryptionShare;
+                                step.fault_log.append(id.clone(), fault_kind);
+                            }
+                        }
+                    }
                     break;
                 }
             }
-        }
-        if expected_num_outputs != actual_num_outputs {
-            error!("Multiple outputs from a single Subset instance.");
         }
         Ok(step)
     }
@@ -264,21 +273,6 @@ where
     /// Given the output of the Subset algorithm, inputs the ciphertexts into the Threshold
     /// Decryption instances and sends our own decryption shares.
     fn send_decryption_share(&mut self, proposer_id: N, v: Vec<u8>) -> Result<Step<C, N>> {
-        let mut step = Step::default();
-        // let faulty_shares: Vec<_> = self
-        //     .decryption
-        //     .keys()
-        //     .filter(|id| !cs_output.contains_key(id))
-        //     .cloned()
-        //     .collect();
-        // for id in faulty_shares {
-        //     if let Some(DecryptionState::Ongoing(td)) = self.decryption.remove(&id) {
-        //         for id in td.sender_ids() {
-        //             let fault_kind = FaultKind::UnexpectedDecryptionShare;
-        //             step.fault_log.append(id.clone(), fault_kind);
-        //         }
-        //     }
-        // }
         let ciphertext: Ciphertext = match bincode::deserialize(&v) {
             Ok(ciphertext) => ciphertext,
             Err(err) => {
@@ -286,9 +280,7 @@ where
                     "Cannot deserialize ciphertext from {:?}: {:?}",
                     proposer_id, err
                 );
-                let fault_kind = FaultKind::InvalidCiphertext;
-                step.fault_log.append(proposer_id, fault_kind);
-                return Ok(step);
+                return Ok(Fault::new(proposer_id, FaultKind::InvalidCiphertext).into());
             }
         };
         let td_result = match self.decryption.entry(proposer_id.clone()) {
@@ -296,14 +288,12 @@ where
             Entry::Vacant(entry) => entry.insert(DecryptionState::new(self.netinfo.clone())),
         }.set_ciphertext(ciphertext);
         match td_result {
-            Ok(td_step) => step.extend(self.process_decryption(proposer_id, td_step)?),
+            Ok(td_step) => self.process_decryption(proposer_id, td_step),
             Err(td::Error::InvalidCiphertext(_)) => {
                 warn!("Invalid ciphertext from {:?}", proposer_id);
-                let fault_kind = FaultKind::ShareDecryptionFailed;
-                step.fault_log.append(proposer_id.clone(), fault_kind);
+                Ok(Fault::new(proposer_id.clone(), FaultKind::ShareDecryptionFailed).into())
             }
             Err(err) => return Err(ErrorKind::ThresholdDecryption(err).into()),
         }
-        Ok(step)
     }
 }
