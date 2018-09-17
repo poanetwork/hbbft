@@ -31,7 +31,7 @@ pub use self::adversary::Adversary;
 pub use self::err::CrankError;
 
 /// The time limit for any network if none was specified.
-const DEFAULT_TIME_LIMIT: Option<time::Duration> = Some(time::Duration::from_secs(60 * 20));
+const DEFAULT_TIME_LIMIT: Option<time::Duration> = Some(time::Duration::from_secs(60 * 5));
 
 /// Helper macro for tracing.
 ///
