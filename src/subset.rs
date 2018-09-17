@@ -78,6 +78,7 @@ pub struct Subset<N: Rand> {
     netinfo: Arc<NetworkInfo<N>>,
     broadcast_instances: BTreeMap<N, Broadcast<N>>,
     ba_instances: BTreeMap<N, BinaryAgreement<N>>,
+    /// `None` means that that item has already been output.
     broadcast_results: BTreeMap<N, Option<ProposedValue>>,
     ba_results: BTreeMap<N, bool>,
     /// Whether the instance has decided on a value.
