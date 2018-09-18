@@ -229,26 +229,21 @@ impl<N: NodeIdT + Rand> Subset<N> {
         };
         {
             let ba_results = &self.ba_results;
-            let mut did_add_contribution = false;
-            self.broadcast_results
-                .entry(proposer_id.clone())
-                .or_insert_with(|| {
-                    if let Some(true) = ba_results.get(proposer_id) {
-                        step.output
-                            .extend(Some(SubsetOutput::Contribution(proposer_id.clone(), value)));
-                        did_add_contribution = true;
-                        None
-                    } else {
-                        Some(value)
-                    }
-                });
 
-            if did_add_contribution {
-                for (id, result) in &self.broadcast_results {
-                    if let Some(i) = result {
-                        debug!("    {:?} → {:?}", id, HexBytes(i));
-                    }
-                }
+            let val_to_insert = if let Some(true) = ba_results.get(proposer_id) {
+                debug!("    {:?} → {:?}", proposer_id, HexBytes(&value));
+                step.output
+                    .extend(Some(SubsetOutput::Contribution(proposer_id.clone(), value)));
+                None
+            } else {
+                Some(value)
+            };
+
+            if let Some(inval) = self
+                .broadcast_results
+                .insert(proposer_id.clone(), val_to_insert)
+            {
+                error!("Duplicate insert in broadcast_results: {:?}", inval)
             }
         }
         let set_binary_agreement_input = |ba: &mut BinaryAgreement<N>| {
@@ -325,13 +320,9 @@ impl<N: NodeIdT + Rand> Subset<N> {
                 }
             }
             if let Some(Some(value)) = self.broadcast_results.insert(proposer_id.clone(), None) {
+                debug!("    {:?} → {:?}", proposer_id, HexBytes(&value));
                 step.output
                     .extend(Some(SubsetOutput::Contribution(proposer_id.clone(), value)));
-                for (id, result) in &self.broadcast_results {
-                    if let Some(i) = result {
-                        debug!("    {:?} → {:?}", id, HexBytes(i));
-                    }
-                }
             }
         }
 
