@@ -43,7 +43,6 @@ fn test_subset<A: Adversary<Subset<NodeId>>>(
         network.step();
     }
     // Verify that all instances output the same set.
-    let mut expected = None;
     for node in network.nodes.values() {
         let outputs = node.outputs();
         let mut actual = BTreeMap::default();
@@ -61,10 +60,9 @@ fn test_subset<A: Adversary<Subset<NodeId>>>(
         // The Subset algorithm guarantees that more than two thirds of the proposed elements
         // are in the set.
         assert!(actual.len() * 3 > inputs.len() * 2);
-        match expected {
-            None => expected = Some(actual),
-            Some(ref set) => assert_eq!(&actual, set),
-        };
+        for (id, value) in actual {
+            assert_eq!(&inputs[&id], value);
+        }
     }
 }
 
