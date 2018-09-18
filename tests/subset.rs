@@ -42,17 +42,29 @@ fn test_subset<A: Adversary<Subset<NodeId>>>(
     while !network.nodes.values().all(TestNode::terminated) {
         network.step();
     }
+
+    let subsetoutput_to_option = |x: &SubsetOutput<_>| {
+        match x.clone() {
+            SubsetOutput::Contribution(x, y) => Some((x, y)),
+            SubsetOutput::Done               => None
+        }
+    };
+
     // Verify that all instances output the same set.
+    let mut observer: Vec<_> = network.observer.outputs().iter().map(subsetoutput_to_option).collect();
+    observer.sort();
     for node in network.nodes.values() {
-        let outputs = node.outputs();
+        let mut outputs = node.outputs();
         let mut actual = BTreeMap::default();
 
+        let mut has_seen_done = false;
         for i in outputs {
+            assert!(!has_seen_done);
             match i {
                 SubsetOutput::Contribution(k, v) => {
                     assert!(actual.insert(k, v).is_none());
                 }
-                SubsetOutput::Done => break,
+                SubsetOutput::Done => has_seen_done = true,
             }
         }
         assert_eq!(outputs.len(), actual.len() + 1);
@@ -61,8 +73,12 @@ fn test_subset<A: Adversary<Subset<NodeId>>>(
         // are in the set.
         assert!(actual.len() * 3 > inputs.len() * 2);
         for (id, value) in actual {
-            assert_eq!(&inputs[&id], value);
+            assert_eq!(&inputs[id], value);
         }
+
+        let mut outputs: Vec<_> = outputs.iter().map(subsetoutput_to_option).collect();
+        outputs.sort();
+        assert_eq!(outputs, observer);
     }
 }
 

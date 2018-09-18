@@ -131,6 +131,7 @@ pub enum SubsetOutput<N> {
     Done,
 }
 
+
 impl<N: NodeIdT + Rand> Subset<N> {
     pub fn new(netinfo: Arc<NetworkInfo<N>>, session_id: u64) -> Result<Self> {
         // Create all broadcast instances.

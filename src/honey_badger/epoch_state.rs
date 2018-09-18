@@ -116,7 +116,7 @@ pub struct EpochState<C, N: Rand> {
     subset: SubsetState<N>,
     /// The status of threshold decryption, by proposer.
     decryption: BTreeMap<N, DecryptionState<N>>,
-    /// N seen so far
+    /// Nodes found so far in `Subset` output.
     nodes_found_so_far: BTreeSet<N>,
     _phantom: PhantomData<C>,
 }
@@ -225,7 +225,11 @@ where
         let cs_outputs: VecDeque<_> = step.extend_with(cs_step, |cs_msg| {
             MessageContent::Subset(cs_msg).with_epoch(self.epoch)
         });
+        let mut has_seen_done = false;
         for cs_output in cs_outputs {
+            if has_seen_done {
+                panic!("`SubsetOutput::Done` was not the last `SubsetOutput`");
+            }
             match cs_output {
                 SubsetOutput::Contribution(k, v) => {
                     step.extend(self.send_decryption_share(k.clone(), &v)?);
@@ -248,7 +252,7 @@ where
                             }
                         }
                     }
-                    break;
+                    has_seen_done = true
                 }
             }
         }
