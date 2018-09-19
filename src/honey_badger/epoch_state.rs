@@ -117,7 +117,7 @@ pub struct EpochState<C, N: Rand> {
     /// The status of threshold decryption, by proposer.
     decryption: BTreeMap<N, DecryptionState<N>>,
     /// Nodes found so far in `Subset` output.
-    nodes_found_so_far: BTreeSet<N>,
+    accepted_proposers: BTreeSet<N>,
     _phantom: PhantomData<C>,
 }
 
@@ -134,7 +134,7 @@ where
             netinfo,
             subset: SubsetState::Ongoing(cs),
             decryption: BTreeMap::default(),
-            nodes_found_so_far: Default::default(),
+            accepted_proposers: Default::default(),
             _phantom: PhantomData,
         })
     }
@@ -233,15 +233,15 @@ where
             match cs_output {
                 SubsetOutput::Contribution(k, v) => {
                     step.extend(self.send_decryption_share(k.clone(), &v)?);
-                    self.nodes_found_so_far.insert(k);
+                    self.accepted_proposers.insert(k);
                 }
                 SubsetOutput::Done => {
-                    self.subset = SubsetState::Complete(self.nodes_found_so_far.clone());
+                    self.subset = SubsetState::Complete(self.accepted_proposers.clone());
 
                     let faulty_shares: Vec<_> = self
                         .decryption
                         .keys()
-                        .filter(|id| !self.nodes_found_so_far.contains(id))
+                        .filter(|id| !self.accepted_proposers.contains(id))
                         .cloned()
                         .collect();
                     for id in faulty_shares {
