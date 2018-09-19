@@ -43,16 +43,8 @@ fn test_subset<A: Adversary<Subset<NodeId>>>(
         network.step();
     }
 
-    let subsetoutput_to_option = |x: &SubsetOutput<_>| {
-        match x.clone() {
-            SubsetOutput::Contribution(x, y) => Some((x, y)),
-            SubsetOutput::Done               => None
-        }
-    };
-
     // Verify that all instances output the same set.
-    let mut observer: Vec<_> = network.observer.outputs().iter().map(subsetoutput_to_option).collect();
-    observer.sort();
+    let observer: BTreeSet<_> = network.observer.outputs().iter().cloned().collect();
     for node in network.nodes.values() {
         let mut outputs = node.outputs();
         let mut actual = BTreeMap::default();
@@ -76,9 +68,7 @@ fn test_subset<A: Adversary<Subset<NodeId>>>(
             assert_eq!(&inputs[id], value);
         }
 
-        let mut outputs: Vec<_> = outputs.iter().map(subsetoutput_to_option).collect();
-        outputs.sort();
-        assert_eq!(outputs, observer);
+        assert_eq!(outputs.iter().cloned().collect::<BTreeSet<_>>(), observer);
     }
 }
 

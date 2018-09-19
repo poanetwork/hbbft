@@ -228,7 +228,7 @@ where
         let mut has_seen_done = false;
         for cs_output in cs_outputs {
             if has_seen_done {
-                panic!("`SubsetOutput::Done` was not the last `SubsetOutput`");
+                error!("`SubsetOutput::Done` was not the last `SubsetOutput`");
             }
             match cs_output {
                 SubsetOutput::Contribution(k, v) => {

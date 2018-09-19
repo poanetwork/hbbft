@@ -125,12 +125,11 @@ impl<N: NodeIdT + Rand> DistAlgorithm for Subset<N> {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum SubsetOutput<N> {
     Contribution(N, Vec<u8>),
     Done,
 }
-
 
 impl<N: NodeIdT + Rand> Subset<N> {
     pub fn new(netinfo: Arc<NetworkInfo<N>>, session_id: u64) -> Result<Self> {
@@ -228,24 +227,21 @@ impl<N: NodeIdT + Rand> Subset<N> {
                 return Ok(step);
             }
         };
+
+        let val_to_insert = if let Some(true) = self.ba_results.get(proposer_id) {
+            debug!("    {:?} → {:?}", proposer_id, HexBytes(&value));
+            step.output
+                .extend(Some(SubsetOutput::Contribution(proposer_id.clone(), value)));
+            None
+        } else {
+            Some(value)
+        };
+
+        if let Some(inval) = self
+            .broadcast_results
+            .insert(proposer_id.clone(), val_to_insert)
         {
-            let ba_results = &self.ba_results;
-
-            let val_to_insert = if let Some(true) = ba_results.get(proposer_id) {
-                debug!("    {:?} → {:?}", proposer_id, HexBytes(&value));
-                step.output
-                    .extend(Some(SubsetOutput::Contribution(proposer_id.clone(), value)));
-                None
-            } else {
-                Some(value)
-            };
-
-            if let Some(inval) = self
-                .broadcast_results
-                .insert(proposer_id.clone(), val_to_insert)
-            {
-                error!("Duplicate insert in broadcast_results: {:?}", inval)
-            }
+            error!("Duplicate insert in broadcast_results: {:?}", inval)
         }
         let set_binary_agreement_input = |ba: &mut BinaryAgreement<N>| {
             if ba.accepts_input() {
