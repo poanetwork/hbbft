@@ -5,7 +5,8 @@ authors = ["Vladimir Komendantskiy <komendantsky@gmail.com>",
            "Andreas Fackler <AndreasFackler@gmx.de>",
            "Peter van Nostrand <jnz@riseup.net>",
            "Andrew Gross <andogro@gmail.com>",
-           "Nick Sanders <nsan1129@gmail.com>"]
+           "Nick Sanders <nsan1129@gmail.com>",
+           "Marc Brinkmann <git@marcbrinkmann.de>"]
 description = "Honey Badger Byzantine fault tolerant consensus algorithm"
 license = "LGPL-3.0"
 repository = "https://github.com/poanetwork/hbbft"
