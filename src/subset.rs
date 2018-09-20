@@ -78,7 +78,8 @@ pub struct Subset<N: Rand> {
     netinfo: Arc<NetworkInfo<N>>,
     broadcast_instances: BTreeMap<N, Broadcast<N>>,
     ba_instances: BTreeMap<N, BinaryAgreement<N>>,
-    broadcast_results: BTreeMap<N, ProposedValue>,
+    /// `None` means that that item has already been output.
+    broadcast_results: BTreeMap<N, Option<ProposedValue>>,
     ba_results: BTreeMap<N, bool>,
     /// Whether the instance has decided on a value.
     decided: bool,
@@ -89,7 +90,7 @@ pub type Step<N> = messaging::Step<Subset<N>>;
 impl<N: NodeIdT + Rand> DistAlgorithm for Subset<N> {
     type NodeId = N;
     type Input = ProposedValue;
-    type Output = BTreeMap<N, ProposedValue>;
+    type Output = SubsetOutput<N>;
     type Message = Message<N>;
     type Error = Error;
 
@@ -122,6 +123,12 @@ impl<N: NodeIdT + Rand> DistAlgorithm for Subset<N> {
     fn our_id(&self) -> &Self::NodeId {
         self.netinfo.our_id()
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum SubsetOutput<N> {
+    Contribution(N, Vec<u8>),
+    Done,
 }
 
 impl<N: NodeIdT + Rand> Subset<N> {
@@ -220,7 +227,22 @@ impl<N: NodeIdT + Rand> Subset<N> {
                 return Ok(step);
             }
         };
-        self.broadcast_results.insert(proposer_id.clone(), value);
+
+        let val_to_insert = if let Some(true) = self.ba_results.get(proposer_id) {
+            debug!("    {:?} → {:?}", proposer_id, HexBytes(&value));
+            step.output
+                .extend(Some(SubsetOutput::Contribution(proposer_id.clone(), value)));
+            None
+        } else {
+            Some(value)
+        };
+
+        if let Some(inval) = self
+            .broadcast_results
+            .insert(proposer_id.clone(), val_to_insert)
+        {
+            error!("Duplicate insert in broadcast_results: {:?}", inval)
+        }
         let set_binary_agreement_input = |ba: &mut BinaryAgreement<N>| {
             if ba.accepts_input() {
                 ba.handle_input(true)
@@ -239,7 +261,7 @@ impl<N: NodeIdT + Rand> Subset<N> {
         F: FnOnce(&mut BinaryAgreement<N>) -> binary_agreement::Result<binary_agreement::Step<N>>,
     {
         let mut step = Step::default();
-        let value = {
+        let accepted = {
             let binary_agreement = self
                 .ba_instances
                 .get_mut(proposer_id)
@@ -252,40 +274,55 @@ impl<N: NodeIdT + Rand> Subset<N> {
                 f(binary_agreement).map_err(Error::ProcessBinaryAgreement0)?,
                 to_msg,
             );
-            if let Some(output) = output.into_iter().next() {
-                output
+            if let Some(accepted) = output.into_iter().next() {
+                accepted
             } else {
                 return Ok(step);
             }
         };
-        if self.ba_results.insert(proposer_id.clone(), value).is_some() {
+
+        // Binary agreement result accepted.
+        if self
+            .ba_results
+            .insert(proposer_id.clone(), accepted)
+            .is_some()
+        {
             return Err(Error::MultipleBinaryAgreementResults);
         }
+
         debug!(
             "{:?} Updated Binary Agreement results: {:?}",
             self.netinfo.our_id(),
             self.ba_results
         );
 
-        if value && self.count_true() == self.netinfo.num_correct() {
-            // Upon delivery of value 1 from at least N − f instances of BA, provide
-            // input 0 to each instance of BA that has not yet been provided input.
-            for (id, binary_agreement) in &mut self.ba_instances {
-                if binary_agreement.accepts_input() {
-                    let to_msg = |a_msg| Message::BinaryAgreement(id.clone(), a_msg);
-                    for output in step.extend_with(
-                        binary_agreement
-                            .handle_input(false)
-                            .map_err(Error::ProcessBinaryAgreement1)?,
-                        to_msg,
-                    ) {
-                        if self.ba_results.insert(id.clone(), output).is_some() {
-                            return Err(Error::MultipleBinaryAgreementResults);
+        if accepted {
+            if self.count_true() == self.netinfo.num_correct() {
+                // Upon delivery of value 1 from at least N − f instances of BA, provide
+                // input 0 to each instance of BA that has not yet been provided input.
+                for (id, binary_agreement) in &mut self.ba_instances {
+                    if binary_agreement.accepts_input() {
+                        let to_msg = |a_msg| Message::BinaryAgreement(id.clone(), a_msg);
+                        for output in step.extend_with(
+                            binary_agreement
+                                .handle_input(false)
+                                .map_err(Error::ProcessBinaryAgreement1)?,
+                            to_msg,
+                        ) {
+                            if self.ba_results.insert(id.clone(), output).is_some() {
+                                return Err(Error::MultipleBinaryAgreementResults);
+                            }
                         }
                     }
                 }
             }
+            if let Some(Some(value)) = self.broadcast_results.insert(proposer_id.clone(), None) {
+                debug!("    {:?} → {:?}", proposer_id, HexBytes(&value));
+                step.output
+                    .extend(Some(SubsetOutput::Contribution(proposer_id.clone(), value)));
+            }
         }
+
         step.output.extend(self.try_binary_agreement_completion());
         Ok(step)
     }
@@ -295,7 +332,7 @@ impl<N: NodeIdT + Rand> Subset<N> {
         self.ba_results.values().filter(|v| **v).count()
     }
 
-    fn try_binary_agreement_completion(&mut self) -> Option<BTreeMap<N, ProposedValue>> {
+    fn try_binary_agreement_completion(&mut self) -> Option<SubsetOutput<N>> {
         if self.decided || self.count_true() < self.netinfo.num_correct() {
             return None;
         }
@@ -322,11 +359,11 @@ impl<N: NodeIdT + Rand> Subset<N> {
         );
 
         // Results of Broadcast instances in `delivered_1`
-        let broadcast_results: BTreeMap<N, ProposedValue> = self
+        let broadcast_results: BTreeSet<&N> = self
             .broadcast_results
             .iter()
             .filter(|(k, _)| delivered_1.contains(k))
-            .map(|(k, v)| (k.clone(), v.clone()))
+            .map(|(k, _)| k)
             .collect();
 
         if delivered_1.len() == broadcast_results.len() {
@@ -334,11 +371,8 @@ impl<N: NodeIdT + Rand> Subset<N> {
                 "{:?} Binary Agreement instances completed:",
                 self.netinfo.our_id()
             );
-            for (id, result) in &broadcast_results {
-                debug!("    {:?} → {:?}", id, HexBytes(&result));
-            }
             self.decided = true;
-            Some(broadcast_results)
+            Some(SubsetOutput::Done)
         } else {
             None
         }

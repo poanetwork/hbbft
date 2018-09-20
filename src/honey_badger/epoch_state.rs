@@ -1,5 +1,5 @@
 use std::collections::btree_map::Entry;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::marker::PhantomData;
 use std::sync::Arc;
 
@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use super::{Batch, ErrorKind, MessageContent, Result, Step};
 use fault_log::{Fault, FaultKind, FaultLog};
 use messaging::{DistAlgorithm, NetworkInfo};
-use subset::{self as cs, Subset};
+use subset::{self as cs, Subset, SubsetOutput};
 use threshold_decryption::{self as td, ThresholdDecryption};
 use traits::{Contribution, NodeIdT};
 
@@ -116,6 +116,8 @@ pub struct EpochState<C, N: Rand> {
     subset: SubsetState<N>,
     /// The status of threshold decryption, by proposer.
     decryption: BTreeMap<N, DecryptionState<N>>,
+    /// Nodes found so far in `Subset` output.
+    accepted_proposers: BTreeSet<N>,
     _phantom: PhantomData<C>,
 }
 
@@ -132,6 +134,7 @@ where
             netinfo,
             subset: SubsetState::Ongoing(cs),
             decryption: BTreeMap::default(),
+            accepted_proposers: Default::default(),
             _phantom: PhantomData,
         })
     }
@@ -219,15 +222,39 @@ where
     /// Checks whether the subset has output, and if it does, sends out our decryption shares.
     fn process_subset(&mut self, cs_step: cs::Step<N>) -> Result<Step<C, N>> {
         let mut step = Step::default();
-        let mut cs_outputs = step.extend_with(cs_step, |cs_msg| {
+        let cs_outputs: VecDeque<_> = step.extend_with(cs_step, |cs_msg| {
             MessageContent::Subset(cs_msg).with_epoch(self.epoch)
         });
-        if let Some(cs_output) = cs_outputs.pop_front() {
-            self.subset = SubsetState::Complete(cs_output.keys().cloned().collect());
-            step.extend(self.send_decryption_shares(cs_output)?);
-        }
-        if !cs_outputs.is_empty() {
-            error!("Multiple outputs from a single Subset instance.");
+        let mut has_seen_done = false;
+        for cs_output in cs_outputs {
+            if has_seen_done {
+                error!("`SubsetOutput::Done` was not the last `SubsetOutput`");
+            }
+            match cs_output {
+                SubsetOutput::Contribution(k, v) => {
+                    step.extend(self.send_decryption_share(k.clone(), &v)?);
+                    self.accepted_proposers.insert(k);
+                }
+                SubsetOutput::Done => {
+                    self.subset = SubsetState::Complete(self.accepted_proposers.clone());
+
+                    let faulty_shares: Vec<_> = self
+                        .decryption
+                        .keys()
+                        .filter(|id| !self.accepted_proposers.contains(id))
+                        .cloned()
+                        .collect();
+                    for id in faulty_shares {
+                        if let Some(DecryptionState::Ongoing(td)) = self.decryption.remove(&id) {
+                            for id in td.sender_ids() {
+                                let fault_kind = FaultKind::UnexpectedDecryptionShare;
+                                step.fault_log.append(id.clone(), fault_kind);
+                            }
+                        }
+                    }
+                    has_seen_done = true
+                }
+            }
         }
         Ok(step)
     }
@@ -250,49 +277,28 @@ where
 
     /// Given the output of the Subset algorithm, inputs the ciphertexts into the Threshold
     /// Decryption instances and sends our own decryption shares.
-    fn send_decryption_shares(&mut self, cs_output: BTreeMap<N, Vec<u8>>) -> Result<Step<C, N>> {
-        let mut step = Step::default();
-        let faulty_shares: Vec<_> = self
-            .decryption
-            .keys()
-            .filter(|id| !cs_output.contains_key(id))
-            .cloned()
-            .collect();
-        for id in faulty_shares {
-            if let Some(DecryptionState::Ongoing(td)) = self.decryption.remove(&id) {
-                for id in td.sender_ids() {
-                    let fault_kind = FaultKind::UnexpectedDecryptionShare;
-                    step.fault_log.append(id.clone(), fault_kind);
-                }
+    fn send_decryption_share(&mut self, proposer_id: N, v: &[u8]) -> Result<Step<C, N>> {
+        let ciphertext: Ciphertext = match bincode::deserialize(v) {
+            Ok(ciphertext) => ciphertext,
+            Err(err) => {
+                warn!(
+                    "Cannot deserialize ciphertext from {:?}: {:?}",
+                    proposer_id, err
+                );
+                return Ok(Fault::new(proposer_id, FaultKind::InvalidCiphertext).into());
             }
-        }
-        for (proposer_id, v) in cs_output {
-            let ciphertext: Ciphertext = match bincode::deserialize(&v) {
-                Ok(ciphertext) => ciphertext,
-                Err(err) => {
-                    warn!(
-                        "Cannot deserialize ciphertext from {:?}: {:?}",
-                        proposer_id, err
-                    );
-                    let fault_kind = FaultKind::InvalidCiphertext;
-                    step.fault_log.append(proposer_id, fault_kind);
-                    continue;
-                }
-            };
-            let td_result = match self.decryption.entry(proposer_id.clone()) {
-                Entry::Occupied(entry) => entry.into_mut(),
-                Entry::Vacant(entry) => entry.insert(DecryptionState::new(self.netinfo.clone())),
-            }.set_ciphertext(ciphertext);
-            match td_result {
-                Ok(td_step) => step.extend(self.process_decryption(proposer_id, td_step)?),
-                Err(td::Error::InvalidCiphertext(_)) => {
-                    warn!("Invalid ciphertext from {:?}", proposer_id);
-                    let fault_kind = FaultKind::ShareDecryptionFailed;
-                    step.fault_log.append(proposer_id.clone(), fault_kind);
-                }
-                Err(err) => return Err(ErrorKind::ThresholdDecryption(err).into()),
+        };
+        let td_result = match self.decryption.entry(proposer_id.clone()) {
+            Entry::Occupied(entry) => entry.into_mut(),
+            Entry::Vacant(entry) => entry.insert(DecryptionState::new(self.netinfo.clone())),
+        }.set_ciphertext(ciphertext);
+        match td_result {
+            Ok(td_step) => self.process_decryption(proposer_id, td_step),
+            Err(td::Error::InvalidCiphertext(_)) => {
+                warn!("Invalid ciphertext from {:?}", proposer_id);
+                Ok(Fault::new(proposer_id.clone(), FaultKind::ShareDecryptionFailed).into())
             }
+            Err(err) => Err(ErrorKind::ThresholdDecryption(err).into()),
         }
-        Ok(step)
     }
 }

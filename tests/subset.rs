@@ -20,7 +20,7 @@ use std::iter::once;
 use std::sync::Arc;
 
 use hbbft::messaging::NetworkInfo;
-use hbbft::subset::Subset;
+use hbbft::subset::{Subset, SubsetOutput};
 
 use network::{Adversary, MessageScheduler, NodeId, SilentAdversary, TestNetwork, TestNode};
 
@@ -42,24 +42,33 @@ fn test_subset<A: Adversary<Subset<NodeId>>>(
     while !network.nodes.values().all(TestNode::terminated) {
         network.step();
     }
+
     // Verify that all instances output the same set.
-    let mut expected = None;
+    let observer: BTreeSet<_> = network.observer.outputs().iter().cloned().collect();
     for node in network.nodes.values() {
-        if let Some(output) = expected.as_ref() {
-            assert!(once(output).eq(node.outputs()));
-            continue;
+        let mut outputs = node.outputs();
+        let mut actual = BTreeMap::default();
+
+        let mut has_seen_done = false;
+        for i in outputs {
+            assert!(!has_seen_done);
+            match i {
+                SubsetOutput::Contribution(k, v) => {
+                    assert!(actual.insert(k, v).is_none());
+                }
+                SubsetOutput::Done => has_seen_done = true,
+            }
         }
-        assert_eq!(1, node.outputs().len());
-        expected = Some(node.outputs()[0].clone());
-    }
-    let output = expected.unwrap();
-    assert!(once(&output).eq(network.observer.outputs()));
-    // The Subset algorithm guarantees that more than two thirds of the proposed elements
-    // are in the set.
-    assert!(output.len() * 3 > inputs.len() * 2);
-    // Verify that the set's elements match the proposed values.
-    for (id, value) in output {
-        assert_eq!(inputs[&id], value);
+        assert_eq!(outputs.len(), actual.len() + 1);
+
+        // The Subset algorithm guarantees that more than two thirds of the proposed elements
+        // are in the set.
+        assert!(actual.len() * 3 > inputs.len() * 2);
+        for (id, value) in actual {
+            assert_eq!(&inputs[id], value);
+        }
+
+        assert_eq!(outputs.iter().cloned().collect::<BTreeSet<_>>(), observer);
     }
 }
 
