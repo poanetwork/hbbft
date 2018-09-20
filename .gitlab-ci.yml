@@ -1,7 +1,6 @@
 # TODO: Check caching.
 # TODO: After failure log collection.
 # TODO: Collect logs on failure.
-# TODO: Remove test-threads 1
 
 .global: &global
   # Required tags setup for current worker setup.
@@ -24,4 +23,4 @@ test:lint:
 test:cargo:
   <<: *global
   script:
-    - cargo test --all-features --release -- --test-threads 1
+    - cargo test --all-features --release
