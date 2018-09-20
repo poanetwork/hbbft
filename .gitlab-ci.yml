@@ -1,0 +1,27 @@
+# TODO: Check caching.
+# TODO: After failure log collection.
+# TODO: Collect logs on failure.
+# TODO: Remove test-threads 1
+
+.global: &global
+  # Required tags setup for current worker setup.
+  tags:
+    - hbbft-ubuntu
+  image: "rust:latest"
+  variables:
+    RUST_BACKTRACE: 1
+    RUSTFLAGS: "-D warnings -C target-cpu=native"
+    MLOCK_SECRETS: "false"
+
+test:lint:
+  <<: *global
+  before_script:
+    - rustup component add rustfmt-preview clippy-preview
+  script:
+    - cargo fmt -- --check
+    - cargo clippy --tests --examples -- --deny clippy
+
+test:cargo:
+  <<: *global
+  script:
+    - cargo test --all-features --release -- --test-threads 1
