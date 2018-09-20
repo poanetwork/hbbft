@@ -1,6 +1,5 @@
-# TODO: Check caching.
-# TODO: After failure log collection.
-# TODO: Collect logs on failure.
+cache:
+  key: ${CI_COMMIT_REF_SLUG}
 
 .global: &global
   # Required tags setup for current worker setup.
@@ -24,3 +23,10 @@ test:cargo:
   <<: *global
   script:
     - cargo test --all-features --release
+  # collect logs in case of failure
+  artifacts:
+    paths:
+      - "net-trace*.txt"
+      - "tests/*.proptest-regressions"
+    expire_in: 1 week
+    when: on_failure
