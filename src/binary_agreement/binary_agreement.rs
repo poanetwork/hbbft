@@ -1,8 +1,6 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use itertools::Itertools;
-
 use super::bool_multimap::BoolMultimap;
 use super::bool_set::BoolSet;
 use super::sbv_broadcast::{self, SbvBroadcast};
@@ -393,7 +391,11 @@ impl<N: NodeIdT> BinaryAgreement<N> {
         self.estimated = Some(b);
         let sbvb_step = self.sbv_broadcast.handle_input(b)?;
         let mut step = self.handle_sbvb_step(sbvb_step)?;
-        let queued_msgs = Itertools::flatten(self.incoming_queue.remove(&self.epoch).into_iter());
+        let queued_msgs = self
+            .incoming_queue
+            .remove(&self.epoch)
+            .into_iter()
+            .flatten();
         for (sender_id, content) in queued_msgs {
             step.extend(self.handle_message_content(&sender_id, content)?);
             if self.decision.is_some() {
