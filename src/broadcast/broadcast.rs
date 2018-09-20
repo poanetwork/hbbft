@@ -3,7 +3,6 @@ use std::fmt::{self, Debug};
 use std::sync::Arc;
 
 use byteorder::{BigEndian, ByteOrder};
-use itertools::Itertools;
 use rand;
 use reed_solomon_erasure as rse;
 use reed_solomon_erasure::ReedSolomon;
@@ -498,7 +497,7 @@ fn decode_from_shards(
 /// and forgetting the leaves that contain parity information.
 fn glue_shards(m: MerkleTree<Vec<u8>>, n: usize) -> Option<Vec<u8>> {
     // Create an iterator over the shard payload, drop the index bytes.
-    let mut bytes = Itertools::flatten(m.into_values().into_iter().take(n));
+    let mut bytes = m.into_values().into_iter().take(n).flatten();
     let payload_len = match (bytes.next(), bytes.next(), bytes.next(), bytes.next()) {
         (Some(b0), Some(b1), Some(b2), Some(b3)) => BigEndian::read_u32(&[b0, b1, b2, b3]) as usize,
         _ => return None, // The proposing node is faulty: no payload size.
