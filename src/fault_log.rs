@@ -67,6 +67,8 @@ pub enum FaultKind {
     DuplicateBVal,
     /// `BinaryAgreement` received a duplicate `Aux` message.
     DuplicateAux,
+    /// Incoming `HoneyBadger` message epoch is out of range.
+    EpochOutOfRange,
 }
 
 /// A structure representing the context of a faulty node. This structure

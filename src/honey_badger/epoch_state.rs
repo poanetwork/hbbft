@@ -99,7 +99,10 @@ where
     /// Returns the IDs of the accepted proposers, if that has already been decided.
     pub fn accepted_ids(&self) -> Option<&BTreeSet<N>> {
         match self {
-            SubsetState::Ongoing(_) => None,
+            SubsetState::Ongoing(_) => {
+                debug!("Ongoing proposal acceptance");
+                None
+            }
             SubsetState::Complete(ref ids) => Some(ids),
         }
     }
@@ -193,6 +196,15 @@ where
             .flat_map(|(id, dec_state)| dec_state.plaintext().map(|pt| (id.clone(), pt)))
             .collect();
         if !proposer_ids.iter().eq(plaintexts.keys()) {
+            debug!(
+                "{:?} Cannot output batch. Some accepted contributions are not decrypted yet: {:?}",
+                self.netinfo.our_id(),
+                {
+                    let decrypted: BTreeSet<N> = plaintexts.keys().cloned().collect();
+                    let diff: Vec<N> = proposer_ids.difference(&decrypted).cloned().collect();
+                    diff
+                }
+            );
             return None; // Not all accepted contributions are decrypted yet.
         }
 

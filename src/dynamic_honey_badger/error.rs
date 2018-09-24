@@ -29,6 +29,10 @@ pub enum ErrorKind {
     HandleHoneyBadgerMessageHoneyBadger(honey_badger::Error),
     #[fail(display = "SyncKeyGen error: {}", _0)]
     SyncKeyGen(sync_key_gen::Error),
+    #[fail(display = "DynamicEpochStarted error: {}", _0)]
+    DynamicEpochStarted(honey_badger::Error),
+    #[fail(display = "Obsolete `DynamicEpochStarted`")]
+    ObsoleteDynamicEpochStarted,
 }
 
 /// A dynamic honey badger error.

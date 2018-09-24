@@ -1,3 +1,4 @@
+use std::collections::{BTreeMap, BTreeSet};
 use std::default::Default;
 use std::iter::once;
 use std::marker::PhantomData;
@@ -61,7 +62,10 @@ where
             key_gen_msg_buffer: Vec::new(),
             honey_badger,
             key_gen_state: None,
-            incoming_queue: Vec::new(),
+            outgoing_queue_hb: BTreeMap::new(),
+            outgoing_queue_dhb: BTreeMap::new(),
+            remote_epochs: BTreeMap::new(),
+            nodes_being_added: BTreeSet::new(),
         };
         let step = dhb.process_output(hb_step)?;
         Ok((dhb, step))
@@ -103,16 +107,19 @@ where
             netinfo,
             max_future_epochs: self.max_future_epochs,
             start_epoch,
-            vote_counter: VoteCounter::new(arc_netinfo, join_plan.epoch),
+            vote_counter: VoteCounter::new(arc_netinfo, start_epoch),
             key_gen_msg_buffer: Vec::new(),
             honey_badger,
             key_gen_state: None,
-            incoming_queue: Vec::new(),
+            outgoing_queue_hb: BTreeMap::new(),
+            outgoing_queue_dhb: BTreeMap::new(),
+            remote_epochs: BTreeMap::new(),
+            nodes_being_added: BTreeSet::new(),
         };
         let mut step = dhb.process_output(hb_step)?;
         match join_plan.change {
             ChangeState::InProgress(ref change) => {
-                step.extend(dhb.update_key_gen(join_plan.epoch, change)?)
+                step.extend(dhb.update_key_gen(start_epoch, change)?)
             }
             ChangeState::None | ChangeState::Complete(..) => (),
         };

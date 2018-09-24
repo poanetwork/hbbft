@@ -1,3 +1,4 @@
+use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::iter::once;
 
@@ -25,6 +26,32 @@ pub enum Target<N> {
     Node(N),
 }
 
+impl<N: Ord> Ord for Target<N> {
+    fn cmp(&self, other: &Target<N>) -> Ordering {
+        match (self, other) {
+            (Target::Node(id1), Target::Node(id2)) => id1.cmp(id2),
+            (Target::All, Target::All) => Ordering::Equal,
+            (Target::All, Target::Node(_)) => Ordering::Greater,
+            (Target::Node(_), Target::All) => Ordering::Less,
+        }
+    }
+}
+
+impl<N: PartialEq> PartialOrd for Target<N> {
+    fn partial_cmp(&self, other: &Target<N>) -> Option<Ordering> {
+        match (self, other) {
+            (Target::Node(id1), Target::Node(id2)) => if id1 == id2 {
+                Some(Ordering::Equal)
+            } else {
+                None
+            },
+            (Target::All, Target::All) => Some(Ordering::Equal),
+            (Target::All, Target::Node(_)) => Some(Ordering::Greater),
+            (Target::Node(_), Target::All) => Some(Ordering::Less),
+        }
+    }
+}
+
 impl<N> Target<N> {
     /// Returns a `TargetedMessage` with this target, and the given message.
     pub fn message<M>(self, message: M) -> TargetedMessage<M, N> {
@@ -49,6 +76,16 @@ impl<M, N> TargetedMessage<M, N> {
             target: self.target,
             message: f(self.message),
         }
+    }
+}
+
+impl<M, N> TargetedMessage<M, N>
+where
+    N: PartialEq,
+{
+    /// Tests whether the given target node is contained in the message target.
+    pub fn has_target_node(&self, id: N) -> bool {
+        Target::Node(id).partial_cmp(&self.target).is_some()
     }
 }
 
@@ -178,6 +215,19 @@ impl<D: DistAlgorithm> From<TargetedMessage<D::Message, D::NodeId>> for Step<D> 
     fn from(msg: TargetedMessage<D::Message, D::NodeId>) -> Self {
         Step {
             messages: once(msg).collect(),
+            ..Step::default()
+        }
+    }
+}
+
+impl<D, I> From<I> for Step<D>
+where
+    D: DistAlgorithm,
+    I: IntoIterator<Item = TargetedMessage<D::Message, D::NodeId>>,
+{
+    fn from(msgs: I) -> Self {
+        Step {
+            messages: msgs.into_iter().collect(),
             ..Step::default()
         }
     }

@@ -45,21 +45,17 @@ where
     /// Creates a new Honey Badger instance in epoch 0 and makes the initial `Step` on that
     /// instance.
     pub fn build(&self) -> (HoneyBadger<C, N>, Step<C, N>) {
+        let epoch = 0;
         let hb = HoneyBadger {
             netinfo: self.netinfo.clone(),
-            epoch: 0,
+            epoch,
             has_input: false,
             epochs: BTreeMap::new(),
             max_future_epochs: self.max_future_epochs as u64,
-            incoming_queue: BTreeMap::new(),
+            outgoing_queue: BTreeMap::new(),
             remote_epochs: BTreeMap::new(),
         };
-        let step = if self.netinfo.is_validator() {
-            // The first message in an epoch announces the epoch transition.
-            Target::All.message(Message::EpochStarted(0)).into()
-        } else {
-            Step::default()
-        };
-        (hb, step)
+        // The first message in an epoch announces the epoch transition.
+        (hb, Target::All.message(Message::EpochStarted(epoch)).into())
     }
 }
