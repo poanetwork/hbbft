@@ -57,7 +57,7 @@ _**Note:** Additional examples are currently in progress._
 
 ### Build
 
-Requires `rust` and `cargo`: [installation instructions.](https://www.rust-lang.org/en-US/install.html)
+Requires Rust 1.29 or higher and `cargo`: [installation instructions.](https://www.rust-lang.org/en-US/install.html) The library is tested against the `stable` release channel.
 
 ```
 $ cargo build [--release]
