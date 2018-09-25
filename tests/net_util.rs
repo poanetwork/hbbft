@@ -7,10 +7,12 @@ extern crate threshold_crypto;
 
 pub mod net;
 
+use std::u8;
+
 use proptest::strategy::ValueTree;
 use proptest::test_runner::TestRunner;
 
-use net::proptest::{NetworkDimension, NetworkDimensionTree};
+use net::proptest::{AdversaryConfiguration, NetworkDimension, NetworkDimensionTree};
 
 /// Checks the `check_sanity` function with various inputs.
 #[test]
@@ -126,4 +128,63 @@ fn network_dimensions_shrink_and_grow() {
         tree.simplify();
         assert!(tree.current().is_bft());
     }
+}
+
+/// Checks that the `AdversaryConfiguration` can be roundtripped through `u8`.
+#[test]
+fn adversary_configuration_round_trip() {
+    for n in 0..=34 {
+        assert_eq!(n, u8::from(AdversaryConfiguration::from(n)));
+    }
+}
+
+/// Verifies that values past the hardcoded limit for the adversary type are set to just the limit.
+#[test]
+fn adversary_configuration_ceiling() {
+    let max = 35;
+    for n in max..u8::MAX {
+        assert_eq!(
+            AdversaryConfiguration::from(n),
+            AdversaryConfiguration::from(max)
+        );
+    }
+}
+
+/// Tests known adversary configuration mid-way points.
+#[test]
+fn adversary_configuration_average_higher_works() {
+    assert_eq!(
+        AdversaryConfiguration::from(15).average_higher(29.into()),
+        22.into()
+    );
+    assert_eq!(
+        AdversaryConfiguration::from(0).average_higher(34.into()),
+        17.into()
+    );
+
+    assert_eq!(
+        AdversaryConfiguration::from(0).average_higher(0.into()),
+        0.into()
+    );
+    assert_eq!(
+        AdversaryConfiguration::from(0).average_higher(1.into()),
+        0.into()
+    );
+    assert_eq!(
+        AdversaryConfiguration::from(0).average_higher(2.into()),
+        1.into()
+    );
+
+    assert_eq!(
+        AdversaryConfiguration::from(10).average_higher(11.into()),
+        10.into()
+    );
+    assert_eq!(
+        AdversaryConfiguration::from(11).average_higher(11.into()),
+        11.into()
+    );
+    assert_eq!(
+        AdversaryConfiguration::from(11).average_higher(13.into()),
+        12.into()
+    );
 }

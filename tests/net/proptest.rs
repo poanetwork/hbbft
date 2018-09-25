@@ -3,8 +3,12 @@
 //! This module houses strategies to generate (and reduce/expand) various `hbbft` and `net` related
 //! structures.
 
-use proptest::prelude::Rng;
-use proptest::strategy::{Strategy, ValueTree};
+use std::{cell, fmt};
+
+use hbbft::messaging::DistAlgorithm;
+use net::adversary::{self, Adversary};
+use proptest::prelude::{any, Rng};
+use proptest::strategy::{BoxedStrategy, LazyJust, Strategy, ValueTree};
 use proptest::test_runner::{Reason, TestRunner};
 
 /// Node network dimension.
@@ -181,4 +185,165 @@ impl Strategy for NetworkDimensionStrategy {
             self.max_size,
         ))
     }
+}
+
+/// Adversary configuration.
+///
+/// Describes a generic adversary and can be used to instantiate it. All configurations are ordered
+/// in terms of approximate complexity.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Ord, PartialOrd)]
+pub enum AdversaryConfiguration {
+    /// A `NullAdversary`.
+    Null,
+    /// A `NodeOrderAdversary`.
+    NodeOrder,
+    /// A `SilentAdversary`.
+    Silent,
+    /// A `ReorderingAdversary`.
+    ///
+    /// Includes an opaque complexity value that specifies how active the adversary acts.
+    Reordering(u8), // random complexity value
+    /// A `RandomAdversary`.
+    ///
+    /// Includes an opaque complexity value that specifies how active the adversary acts.
+    Random(u8), // random complexity value, not a seed!
+}
+
+impl AdversaryConfiguration {
+    pub fn average_higher(&self, high: AdversaryConfiguration) -> Self {
+        assert!(*self <= high);
+
+        let l: u8 = (*self).into();
+        let h: u8 = high.into();
+
+        AdversaryConfiguration::from(l + (h - l) / 2)
+    }
+
+    pub fn create_adversary<D>(&self) -> Box<dyn Adversary<D>>
+    where
+        D: DistAlgorithm,
+        D::Message: Clone,
+        D::Output: Clone,
+    {
+        match self {
+            AdversaryConfiguration::Null => Box::new(adversary::NullAdversary::new()),
+            _ => unimplemented!(),
+        }
+    }
+}
+
+impl From<u8> for AdversaryConfiguration {
+    fn from(raw: u8) -> AdversaryConfiguration {
+        match raw.min(34) {
+            0 => AdversaryConfiguration::Null,
+            1 => AdversaryConfiguration::NodeOrder,
+            2 => AdversaryConfiguration::Silent,
+            // `Reordering` and `Random` adversary each know 16 different complexities.
+            n if n <= 18 => AdversaryConfiguration::Reordering(n - 2),
+            n if n <= 34 => AdversaryConfiguration::Random(n - 18),
+            // The `.min` above ensure no values exceeds the tested ones.
+            _ => unreachable!(),
+        }
+    }
+}
+
+impl From<AdversaryConfiguration> for u8 {
+    fn from(at: AdversaryConfiguration) -> u8 {
+        match at {
+            AdversaryConfiguration::Null => 0,
+            AdversaryConfiguration::NodeOrder => 1,
+            AdversaryConfiguration::Silent => 2,
+            AdversaryConfiguration::Reordering(n) => n + 2,
+            AdversaryConfiguration::Random(n) => n + 18,
+        }
+    }
+}
+
+struct AdversaryTree<D> {
+    high: AdversaryConfiguration,
+    current: AdversaryConfiguration,
+    low: AdversaryConfiguration,
+    current_instance: cell::RefCell<Option<Box<dyn Adversary<D>>>>,
+}
+
+impl<D> ValueTree for AdversaryTree<D>
+where
+    Adversary<D>: fmt::Debug + Clone,
+    D: DistAlgorithm,
+    D::Message: Clone,
+    D::Output: Clone,
+{
+    type Value = Box<Adversary<D> + 'static>;
+
+    fn current(&self) -> Self::Value {
+        // Through `current_instance` we only instantiate the adversary once its requested. This
+        // is not done for performance but code structuring purposes (actual gains would likely
+        // be very small). If this causes any issues due to the resulting `?Sync`, the  cell can be
+        // removed and an instance created inside `simplify` and `complicate` each time the state
+        // changes.
+        self.current_instance
+            .borrow_mut()
+            .get_or_insert_with(|| self.current.create_adversary())
+            .clone()
+    }
+
+    fn simplify(&mut self) -> bool {
+        let prev_high = self.high;
+        let prev_current = self.current;
+
+        self.high = self.current;
+        self.current = self.low.average_higher(prev_high);
+
+        (prev_high != self.high || prev_current != self.current)
+    }
+
+    fn complicate(&mut self) -> bool {
+        let new_low: AdversaryConfiguration = (u8::from(self.low) + 1).into();
+        let prev_low = self.low;
+        let prev_current = self.current;
+
+        if new_low > self.high {
+            // We already hit the max.
+            return false;
+        }
+
+        self.current = new_low.average_higher(self.high);
+        self.low = new_low;
+
+        (prev_current != self.current || prev_low != self.low)
+    }
+}
+
+fn boxed_null_adversary<D>() -> Box<dyn Adversary<D>>
+where
+    D: DistAlgorithm,
+    D::Message: Clone,
+    D::Output: Clone,
+{
+    adversary::NullAdversary::new().boxed()
+}
+
+fn boxed_node_order_adversary<D>() -> Box<dyn Adversary<D>>
+where
+    D: DistAlgorithm,
+    D::Message: Clone,
+    D::Output: Clone,
+{
+    adversary::NodeOrderAdversary::new().boxed()
+}
+
+fn generic_adversary<D>()
+// -> impl Strategy
+where
+    D: DistAlgorithm,
+    D::Message: Clone,
+    D::Output: Clone,
+{
+    // let b1 = || boxed_adversary(adversary::NullAdversary::new);
+    // prop_oneof![
+    // boxed_null_adversary::<D>,
+    // boxed_node_order_adversary::<D>(),
+    //     // LazyJust::new(|| Box::new(adversary::NodeOrderAdversary::new()))
+    // ]
+    // unimplemented!()
 }
