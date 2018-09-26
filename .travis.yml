@@ -13,6 +13,7 @@ before_install:
       openssl aes-256-cbc -K $encrypted_ab99677a831c_key -iv $encrypted_ab99677a831c_iv -in deploy_rsa.enc -out deploy_rsa -d;
     fi
   - rustup component add --toolchain=$TRAVIS_RUST_VERSION rustfmt-preview clippy-preview
+  - cargo install cargo-deadlinks
 # after_failure:
 #   # Outputs the syslog after a failed build, e.g. to debug `SIGILL` occurrences.
 #   # Unfortunately this is likely to disable container-based travis images,
@@ -29,3 +30,5 @@ script:
   - cargo clippy --tests --examples -- --deny clippy
   - cargo fmt -- --check
   - cargo test --all-features --release -- --test-threads 1
+  - cargo doc
+  - cargo deadlinks --dir target/doc/hbbft/
