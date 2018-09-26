@@ -377,6 +377,19 @@ where
 
     /// Cast a vote to change the set of validators.
     pub fn vote_for(&mut self, change: Change<N>) -> Result<Step<C, N>> {
+        info!(
+            "{:?}, {}being a validator, is voting for {:?}",
+            self.netinfo.our_id(),
+            if self.netinfo.is_validator() {
+                ""
+            } else {
+                "not "
+            },
+            change
+        );
+        if let Change::Add(ref id, ..) = change {
+            self.nodes_being_added.insert(id.clone());
+        }
         if !self.netinfo.is_validator() {
             return Ok(Step::default()); // TODO: Return an error?
         }
@@ -530,7 +543,7 @@ where
                     self.start_epoch,
                     kgs.change
                 );
-                if let Change::Add(ref id, _) = kgs.change {
+                if let Change::Add(ref id, ..) = kgs.change {
                     self.nodes_being_added.remove(id);
                 }
                 self.netinfo = kgs.key_gen.into_network_info()?;
@@ -562,10 +575,7 @@ where
         let mut pub_keys = self.netinfo.public_key_map().clone();
         if match *change {
             Change::Remove(ref id) => pub_keys.remove(id).is_none(),
-            Change::Add(ref id, ref pk) => {
-                self.nodes_being_added.insert(id.clone());
-                pub_keys.insert(id.clone(), pk.clone()).is_some()
-            }
+            Change::Add(ref id, ref pk) => pub_keys.insert(id.clone(), pk.clone()).is_some(),
         } {
             info!("{:?} No-op change: {:?}", self.our_id(), change);
         }
