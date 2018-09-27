@@ -575,7 +575,10 @@ where
         let mut pub_keys = self.netinfo.public_key_map().clone();
         if match *change {
             Change::Remove(ref id) => pub_keys.remove(id).is_none(),
-            Change::Add(ref id, ref pk) => pub_keys.insert(id.clone(), pk.clone()).is_some(),
+            Change::Add(ref id, ref pk) => {
+                self.nodes_being_added.insert(id.clone());
+                pub_keys.insert(id.clone(), pk.clone()).is_some()
+            }
         } {
             info!("{:?} No-op change: {:?}", self.our_id(), change);
         }
