@@ -17,6 +17,7 @@ use traits::{Contribution, NodeIdT};
 pub struct DynamicHoneyBadgerBuilder<C, N> {
     /// The maximum number of future epochs for which we handle messages simultaneously.
     max_future_epochs: usize,
+    rng: Box<dyn rand::Rng>,
     _phantom: PhantomData<(C, N)>,
 }
 
@@ -25,6 +26,7 @@ impl<C, N> Default for DynamicHoneyBadgerBuilder<C, N> {
         // TODO: Use the defaults from `HoneyBadgerBuilder`.
         DynamicHoneyBadgerBuilder {
             max_future_epochs: 3,
+            rng: Box::new(rand::thread_rng()),
             _phantom: PhantomData,
         }
     }
@@ -44,6 +46,12 @@ where
     /// Sets the maximum number of future epochs for which we handle messages simultaneously.
     pub fn max_future_epochs(&mut self, max_future_epochs: usize) -> &mut Self {
         self.max_future_epochs = max_future_epochs;
+        self
+    }
+
+    /// Sets the random number generator to be used to instantiate cryptographic structures.
+    pub fn rng<R: rand::Rng + 'static>(&mut self, rng: R) -> &mut Self {
+        self.rng = Box::new(rng);
         self
     }
 
@@ -68,12 +76,14 @@ where
     }
 
     /// Creates a new `DynamicHoneyBadger` configured to start a new network as a single validator.
-    pub fn build_first_node(&self, our_id: N) -> Result<(DynamicHoneyBadger<C, N>, Step<C, N>)> {
-        let mut rng = rand::thread_rng();
-        let sk_set = SecretKeySet::random(0, &mut rng)?;
+    pub fn build_first_node(
+        &mut self,
+        our_id: N,
+    ) -> Result<(DynamicHoneyBadger<C, N>, Step<C, N>)> {
+        let sk_set = SecretKeySet::random(0, &mut self.rng)?;
         let pk_set = sk_set.public_keys();
         let sks = sk_set.secret_key_share(0)?;
-        let sk: SecretKey = rng.gen();
+        let sk: SecretKey = self.rng.gen();
         let pub_keys = once((our_id.clone(), sk.public_key())).collect();
         let netinfo = NetworkInfo::new(our_id, sks, pk_set, sk, pub_keys);
         self.build(netinfo)
