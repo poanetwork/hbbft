@@ -11,10 +11,10 @@ use std::collections;
 
 use hbbft::dynamic_honey_badger::{Change, ChangeState, DynamicHoneyBadger, Input};
 use hbbft::messaging::DistAlgorithm;
-use net::proptest::{gen_rng, NetworkDimension, TestRng};
+use net::proptest::{gen_seed, NetworkDimension, TestRng, TestRngSeed};
 use net::NetBuilder;
 use proptest::prelude::ProptestConfig;
-use rand::SeedableRng;
+use rand::{Rng, SeedableRng};
 
 /// Choose a node's contribution for an epoch.
 ///
@@ -55,7 +55,7 @@ struct TestConfig {
     /// Individual nodes contribution size.
     contribution_size: usize,
     /// Random number generator to be passed to subsystems.
-    rng: TestRng,
+    seed: TestRngSeed,
 }
 
 prop_compose! {
@@ -65,10 +65,10 @@ prop_compose! {
                   total_txs in 20..60usize,
                   batch_size in 10..20usize,
                   contribution_size in 1..10usize,
-                  rng in gen_rng())
+                  seed in gen_seed())
                  -> TestConfig {
         TestConfig{
-            dimension, total_txs, batch_size, contribution_size, rng
+            dimension, total_txs, batch_size, contribution_size, seed
         }
     }
 }
@@ -88,7 +88,9 @@ proptest!{
 /// Dynamic honey badger: Drop a validator node, demoting it to observer, then re-add it, all while
 /// running a regular honey badger network.
 #[cfg_attr(feature = "cargo-clippy", allow(needless_pass_by_value))]
-fn do_drop_and_readd(mut cfg: TestConfig) {
+fn do_drop_and_readd(cfg: TestConfig) {
+    let mut rng: TestRng = TestRng::from_seed(cfg.seed);
+
     // First, we create a new test network with Honey Badger instances.
     let mut net = NetBuilder::new(0..cfg.dimension.size)
         .num_faulty(cfg.dimension.faulty)
@@ -119,8 +121,7 @@ fn do_drop_and_readd(mut cfg: TestConfig) {
 
     // For each node, select transactions randomly from the queue and propose them.
     for (id, queue) in &mut queues {
-        let proposal =
-            choose_contribution(&mut cfg.rng, queue, cfg.batch_size, cfg.contribution_size);
+        let proposal = choose_contribution(&mut rng, queue, cfg.batch_size, cfg.contribution_size);
         println!("Node {:?} will propose: {:?}", id, proposal);
 
         // The step will have its messages added to the queue automatically, we ignore the output.
@@ -229,7 +230,7 @@ fn do_drop_and_readd(mut cfg: TestConfig) {
         if has_output {
             // Out of the remaining transactions, select a suitable amount.
             let proposal =
-                choose_contribution(&mut cfg.rng, queue, cfg.batch_size, cfg.contribution_size);
+                choose_contribution(&mut rng, queue, cfg.batch_size, cfg.contribution_size);
 
             let _ = net
                 .send_input(node_id, Input::User(proposal))

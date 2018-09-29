@@ -12,11 +12,21 @@ use rand::{self, SeedableRng};
 /// Random number generator type used in testing.
 pub type TestRng = rand::XorShiftRng;
 
+/// Seed type of the random number generator used in testing.
+// Note: In `rand` 0.5, this is an associated type of the `SeedableRng` trait, but for 0.4 and below
+//       we still need to alias this type.
+pub type TestRngSeed = [u32; 4];
+
 /// Generates a random instance of a random number generator.
 pub fn gen_rng() -> impl Strategy<Value = TestRng> {
-    any::<[u32; 4]>()
-        .prop_map(|seed| rand::XorShiftRng::from_seed(seed))
-        .no_shrink()
+    gen_seed().prop_map(|seed| TestRng::from_seed(seed))
+}
+
+/// Generates a random seed to instantiate a `TestRng`.
+///
+/// The random seed is non-shrinkable, to avoid meaningless shrinking in case of failed tests.
+pub fn gen_seed() -> impl Strategy<Value = TestRngSeed> {
+    any::<TestRngSeed>().no_shrink()
 }
 
 /// Node network dimension.
