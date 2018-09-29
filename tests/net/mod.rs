@@ -22,7 +22,7 @@ use std::io::Write;
 use std::{cmp, collections, env, fmt, fs, io, ops, process, time};
 
 use rand;
-use rand::Rand;
+use rand::{Rand, Rng};
 use threshold_crypto as crypto;
 
 use hbbft::messaging::{self, DistAlgorithm, NetworkInfo, Step};
@@ -234,7 +234,6 @@ where
 /// New network node construction information.
 ///
 /// Helper structure passed to node constructors when building virtual networks.
-#[derive(Debug)]
 pub struct NewNodeInfo<D>
 where
     D: DistAlgorithm,
@@ -245,6 +244,28 @@ where
     pub netinfo: NetworkInfo<D::NodeId>,
     /// Whether or not the node is marked faulty.
     pub faulty: bool,
+    /// An initialized random number generated for exclusive use by the node.
+    ///
+    /// Can be ignored, but usually comes in handy with algorithm that require additional randomness
+    /// for instantiation or operation.
+    ///
+    /// Note that the random number generator type may differ from the one set for generation on
+    /// the `VirtualNet`, due to limitations of the `rand` crates API.
+    pub rng: rand::isaac::Isaac64Rng,
+}
+
+impl<D> fmt::Debug for NewNodeInfo<D>
+where
+    D: DistAlgorithm,
+{
+    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
+        fmt.debug_struct("NewNodeInfo")
+            .field("id", &self.id)
+            .field("netinfo", &self.netinfo)
+            .field("faulty", &self.faulty)
+            .field("rng", &"<RNG>")
+            .finish()
+    }
 }
 
 /// Virtual network builder.
@@ -275,7 +296,7 @@ where
     /// Optional time limit.
     time_limit: Option<time::Duration>,
     /// Random number generator used to generate keys.
-    rng: Option<Box<dyn rand::Rng>>,
+    rng: Option<Box<dyn Rng>>,
 }
 
 impl<D, I> fmt::Debug for NetBuilder<D, I>
@@ -387,7 +408,7 @@ where
     /// The passed in generator is used for key generation.
     pub fn rng<R>(mut self, rng: R) -> Self
     where
-        R: rand::Rng + 'static,
+        R: Rng + 'static,
     {
         self.rng = Some(Box::new(rng));
         self
@@ -446,7 +467,7 @@ where
     /// If the total number of nodes is not `> 3 * num_faulty`, construction will panic.
     #[inline]
     pub fn build(self) -> Result<VirtualNet<D>, crypto::error::Error> {
-        let rng: Box<dyn rand::Rng> = self.rng.unwrap_or_else(|| Box::new(rand::thread_rng()));
+        let rng: Box<dyn Rng> = self.rng.unwrap_or_else(|| Box::new(rand::thread_rng()));
 
         // The time limit can be overriden through environment variables:
         let override_time_limit = env::var("HBBFT_NO_TIME_LIMIT")
@@ -671,7 +692,7 @@ where
     fn new<F, I, R>(
         node_ids: I,
         faulty: usize,
-        rng: R,
+        mut rng: R,
         cons: F,
     ) -> Result<Self, crypto::error::Error>
     where
@@ -680,7 +701,7 @@ where
         R: rand::Rng,
     {
         // Generate a new set of cryptographic keys for threshold cryptography.
-        let net_infos = messaging::NetworkInfo::generate_map(node_ids, rng)?;
+        let net_infos = messaging::NetworkInfo::generate_map(node_ids, &mut rng)?;
 
         assert!(
             faulty * 3 < net_infos.len(),
@@ -695,10 +716,21 @@ where
             .enumerate()
             .map(|(idx, (id, netinfo))| {
                 let is_faulty = idx < faulty;
+
                 let (algorithm, step) = cons(NewNodeInfo {
                     id: id.clone(),
                     netinfo,
                     faulty: is_faulty,
+                    // The node's RNG will always be an `Isaac64Rng` at this time, since the rand 0.4
+                    // API is not conducive to creating new instances from existing RNGs.
+                    //
+                    // Later versions like 0.5 offer more facilities like associated `Seed` types,
+                    // or even convenience functions like `from_rng` and should be used in the future
+                    // to replace this section.
+                    //
+                    // We err on the side of security and choose a strong instead of a fast random
+                    // number generator.
+                    rng: rng.gen(),
                 });
                 steps.insert(id.clone(), step);
                 (id, Node::new(algorithm, is_faulty))
