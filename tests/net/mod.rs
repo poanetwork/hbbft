@@ -274,6 +274,8 @@ where
     message_limit: Option<usize>,
     /// Optional time limit.
     time_limit: Option<time::Duration>,
+    /// Random number generator used to generate keys.
+    rng: Option<Box<dyn rand::Rng>>,
 }
 
 impl<D, I> fmt::Debug for NetBuilder<D, I>
@@ -289,6 +291,7 @@ where
             .field("trace", &self.trace)
             .field("crank_limit", &self.crank_limit)
             .field("message_limit", &self.message_limit)
+            .field("rng", &"<RNG>")
             .finish()
     }
 }
@@ -319,6 +322,7 @@ where
             crank_limit: None,
             message_limit: None,
             time_limit: DEFAULT_TIME_LIMIT,
+            rng: None,
         }
     }
 
@@ -371,6 +375,20 @@ where
     #[inline]
     pub fn num_faulty(mut self, num_faulty: usize) -> Self {
         self.num_faulty = num_faulty;
+        self
+    }
+
+    /// Random number generator.
+    ///
+    /// Overrides the random number generator used. If not specified, a `thread_rng` will be
+    /// used on construction.
+    ///
+    /// The passed in generator is used for key generation.
+    pub fn rng<R>(mut self, rng: R) -> Self
+    where
+        R: rand::Rng + 'static,
+    {
+        self.rng = Some(Box::new(rng));
         self
     }
 
@@ -427,6 +445,8 @@ where
     /// If the total number of nodes is not `> 3 * num_faulty`, construction will panic.
     #[inline]
     pub fn build(self) -> Result<VirtualNet<D>, crypto::error::Error> {
+        let rng: Box<dyn rand::Rng> = self.rng.unwrap_or_else(|| Box::new(rand::thread_rng()));
+
         // The time limit can be overriden through environment variables:
         let override_time_limit = env::var("HBBFT_NO_TIME_LIMIT")
             // We fail early, to avoid tricking the user into thinking that they have set the time
@@ -448,7 +468,7 @@ where
 
         // Note: Closure is not redundant, won't compile without it.
         #[cfg_attr(feature = "cargo-clippy", allow(redundant_closure))]
-        let mut net = VirtualNet::new(self.node_ids, self.num_faulty, move |node| cons(node))?;
+        let mut net = VirtualNet::new(self.node_ids, self.num_faulty, rng, move |node| cons(node))?;
 
         if self.adversary.is_some() {
             net.adversary = self.adversary;
@@ -647,13 +667,19 @@ where
     ///
     /// The total number of nodes, that is `node_ids.count()` must be `> 3 * faulty`, otherwise
     /// the construction function will panic.
-    fn new<F, I>(node_ids: I, faulty: usize, cons: F) -> Result<Self, crypto::error::Error>
+    fn new<F, I, R>(
+        node_ids: I,
+        faulty: usize,
+        rng: R,
+        cons: F,
+    ) -> Result<Self, crypto::error::Error>
     where
         F: Fn(NewNodeInfo<D>) -> (D, Step<D>),
         I: IntoIterator<Item = D::NodeId>,
+        R: rand::Rng,
     {
         // Generate a new set of cryptographic keys for threshold cryptography.
-        let net_infos = messaging::NetworkInfo::generate_map(node_ids, rand::thread_rng())?;
+        let net_infos = messaging::NetworkInfo::generate_map(node_ids, rng)?;
 
         assert!(
             faulty * 3 < net_infos.len(),
