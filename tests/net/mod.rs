@@ -653,7 +653,7 @@ where
         I: IntoIterator<Item = D::NodeId>,
     {
         // Generate a new set of cryptographic keys for threshold cryptography.
-        let net_infos = messaging::NetworkInfo::generate_map(node_ids)?;
+        let net_infos = messaging::NetworkInfo::generate_map(node_ids, rand::thread_rng())?;
 
         assert!(
             faulty * 3 < net_infos.len(),

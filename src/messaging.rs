@@ -2,6 +2,7 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::iter::once;
 
 use failure::Fail;
+use rand;
 
 use crypto::{self, PublicKey, PublicKeySet, PublicKeyShare, SecretKey, SecretKeyShare};
 use fault_log::{Fault, FaultLog};
@@ -357,15 +358,15 @@ impl<N: NodeIdT> NetworkInfo<N> {
     }
 
     /// Generates a map of matching `NetworkInfo`s for testing.
-    pub fn generate_map<I>(ids: I) -> Result<BTreeMap<N, NetworkInfo<N>>, crypto::error::Error>
+    pub fn generate_map<I, R>(
+        ids: I,
+        mut rng: R,
+    ) -> Result<BTreeMap<N, NetworkInfo<N>>, crypto::error::Error>
     where
         I: IntoIterator<Item = N>,
+        R: rand::Rng,
     {
-        use rand::{self, Rng};
-
         use crypto::SecretKeySet;
-
-        let mut rng = rand::thread_rng();
 
         let all_ids: BTreeSet<N> = ids.into_iter().collect();
         let num_faulty = (all_ids.len() - 1) / 3;
