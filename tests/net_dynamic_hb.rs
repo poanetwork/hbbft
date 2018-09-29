@@ -95,9 +95,11 @@ fn do_drop_and_readd(cfg: TestConfig) {
     let mut net = NetBuilder::new(0..cfg.dimension.size)
         .num_faulty(cfg.dimension.faulty)
         .message_limit(200_000) // Limited to 200k messages for now.
+        .rng(rng.gen::<TestRng>()) // Ensure runs are reproducible.
         .using_step(move |node| {
             println!("Constructing new dynamic honey badger node #{}", node.id);
             DynamicHoneyBadger::builder()
+                .rng(node.rng)
                 .build(node.netinfo)
                 .expect("cannot build instance")
         }).build()
