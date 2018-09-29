@@ -291,6 +291,7 @@ where
             .field("trace", &self.trace)
             .field("crank_limit", &self.crank_limit)
             .field("message_limit", &self.message_limit)
+            .field("time_limit", &self.time_limit)
             .field("rng", &"<RNG>")
             .finish()
     }
