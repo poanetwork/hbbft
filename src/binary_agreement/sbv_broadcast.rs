@@ -35,8 +35,8 @@ impl rand::Rand for Message {
         let message_type = *rng.choose(&["bval", "aux"]).unwrap();
 
         match message_type {
-            "bval" => Message::BVal(rand::random()),
-            "aux" => Message::Aux(rand::random()),
+            "bval" => Message::BVal(rng.gen()),
+            "aux" => Message::Aux(rng.gen()),
             _ => unreachable!(),
         }
     }
