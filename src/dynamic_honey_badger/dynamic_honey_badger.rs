@@ -1,9 +1,10 @@
 use rand::Rand;
-use std::mem;
 use std::sync::Arc;
+use std::{fmt, mem};
 
 use bincode;
 use crypto::Signature;
+use rand;
 use serde::{Deserialize, Serialize};
 
 use super::votes::{SignedVote, VoteCounter};
@@ -18,7 +19,6 @@ use sync_key_gen::{Ack, Part, PartOutcome, SyncKeyGen};
 use traits::{Contribution, NodeIdT};
 
 /// A Honey Badger instance that can handle adding and removing nodes.
-#[derive(Debug)]
 pub struct DynamicHoneyBadger<C, N: Rand> {
     /// Shared network data.
     pub(super) netinfo: NetworkInfo<N>,
@@ -36,6 +36,29 @@ pub struct DynamicHoneyBadger<C, N: Rand> {
     pub(super) key_gen_state: Option<KeyGenState<N>>,
     /// A queue for messages from future epochs that cannot be handled yet.
     pub(super) incoming_queue: Vec<(N, Message<N>)>,
+    /// A random number generator used for secret key generation.
+    // Boxed to avoid overloading the algorithm's type with more generics.
+    pub(super) rng: Box<dyn rand::Rng>,
+}
+
+impl<C, N> fmt::Debug for DynamicHoneyBadger<C, N>
+where
+    C: fmt::Debug,
+    N: Rand + fmt::Debug,
+{
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.debug_struct("DynamicHoneyBadger")
+            .field("netinfo", &self.netinfo)
+            .field("max_future_epochs", &self.max_future_epochs)
+            .field("start_epoch", &self.start_epoch)
+            .field("vote_counter", &self.vote_counter)
+            .field("key_gen_msg_buffer", &self.key_gen_msg_buffer)
+            .field("honey_badger", &self.honey_badger)
+            .field("key_gen_state", &self.key_gen_state)
+            .field("incoming_queue", &self.incoming_queue)
+            .field("rng", &"<RNG>")
+            .finish()
+    }
 }
 
 impl<C, N> DistAlgorithm for DynamicHoneyBadger<C, N>
@@ -312,7 +335,7 @@ where
         let threshold = (pub_keys.len() - 1) / 3;
         let sk = self.netinfo.secret_key().clone();
         let our_id = self.our_id().clone();
-        let (key_gen, part) = SyncKeyGen::new(our_id, sk, pub_keys, threshold)?;
+        let (key_gen, part) = SyncKeyGen::new(&mut self.rng, our_id, sk, pub_keys, threshold)?;
         self.key_gen_state = Some(KeyGenState::new(key_gen, change.clone()));
         if let Some(part) = part {
             let step_on_send = self.send_transaction(KeyGenMessage::Part(part))?;

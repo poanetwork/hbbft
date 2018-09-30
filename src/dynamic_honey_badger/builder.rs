@@ -55,8 +55,18 @@ where
         self
     }
 
+    /// Create a new random number generator based on seed created by rng initialized by builder.
+    fn create_rng(&mut self) -> rand::isaac::Isaac64Rng {
+        // With rand 0.4, it's fairly hard to create same-type RNGs, so we use a fixed `Isaac64Rng`
+        // for now.
+        self.rng.gen()
+    }
+
     /// Creates a new Dynamic Honey Badger instance with an empty buffer.
-    pub fn build(&self, netinfo: NetworkInfo<N>) -> Result<(DynamicHoneyBadger<C, N>, Step<C, N>)> {
+    pub fn build(
+        &mut self,
+        netinfo: NetworkInfo<N>,
+    ) -> Result<(DynamicHoneyBadger<C, N>, Step<C, N>)> {
         let arc_netinfo = Arc::new(netinfo.clone());
         let (honey_badger, hb_step) = HoneyBadger::builder(arc_netinfo.clone())
             .max_future_epochs(self.max_future_epochs)
@@ -70,6 +80,7 @@ where
             honey_badger,
             key_gen_state: None,
             incoming_queue: Vec::new(),
+            rng: Box::new(self.create_rng()),
         };
         let step = dhb.process_output(hb_step)?;
         Ok((dhb, step))
@@ -92,7 +103,7 @@ where
     /// Creates a new `DynamicHoneyBadger` configured to join the network at the epoch specified in
     /// the `JoinPlan`.
     pub fn build_joining(
-        &self,
+        &mut self,
         our_id: N,
         secret_key: SecretKey,
         join_plan: JoinPlan<N>,
@@ -118,6 +129,7 @@ where
             honey_badger,
             key_gen_state: None,
             incoming_queue: Vec::new(),
+            rng: Box::new(self.create_rng()),
         };
         let mut step = dhb.process_output(hb_step)?;
         match join_plan.change {

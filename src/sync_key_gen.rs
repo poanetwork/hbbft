@@ -169,7 +169,7 @@ use crypto::{
 };
 use pairing::bls12_381::{Fr, G1Affine};
 use pairing::{CurveAffine, Field};
-use rand::OsRng;
+use rand;
 
 use fault_log::{AckMessageFault as Fault, FaultKind, FaultLog};
 use messaging::NetworkInfo;
@@ -287,7 +287,8 @@ impl<N: NodeIdT> SyncKeyGen<N> {
     ///
     /// If we are not a validator but only an observer, no `Part` message is produced and no
     /// messages need to be sent.
-    pub fn new(
+    pub fn new<R: rand::Rng>(
+        mut rng: R,
         our_id: N,
         sec_key: SecretKey,
         pub_keys: BTreeMap<N, PublicKey>,
@@ -308,7 +309,9 @@ impl<N: NodeIdT> SyncKeyGen<N> {
         if our_idx.is_none() {
             return Ok((key_gen, None)); // No part: we are an observer.
         }
-        let mut rng = OsRng::new().expect("OS random number generator");
+
+        // There is a slight misdesign in `threshold_crypto`'s API here and we would really like to
+        // pass just `rng` here, instead of a reference.
         let our_part = BivarPoly::random(threshold, &mut rng).map_err(Error::Creation)?;
         let commit = our_part.commitment();
         let encrypt = |(i, pk): (usize, &PublicKey)| {
