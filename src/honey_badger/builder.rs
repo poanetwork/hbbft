@@ -6,6 +6,7 @@ use rand::{self, Rand, Rng};
 use serde::{Deserialize, Serialize};
 
 use super::{HoneyBadger, Message, Step};
+use honey_badger::SubsetHandlingStrategy;
 use messaging::{NetworkInfo, Target};
 use traits::{Contribution, NodeIdT};
 use util::SubRng;
@@ -21,6 +22,7 @@ where
     max_future_epochs: usize,
     /// Random number generator passed on to algorithm instance for signing and encrypting.
     rng: Box<dyn Rng>,
+    subset_handling_strategy: SubsetHandlingStrategy,
     _phantom: PhantomData<C>,
 }
 
@@ -36,6 +38,7 @@ where
             netinfo,
             max_future_epochs: 3,
             rng: Box::new(rand::thread_rng()),
+            subset_handling_strategy: SubsetHandlingStrategy::Incremental,
             _phantom: PhantomData,
         }
     }
@@ -52,6 +55,14 @@ where
         self
     }
 
+    pub fn subset_handling_strategy(
+        &mut self,
+        subset_handling_strategy: SubsetHandlingStrategy,
+    ) -> &mut Self {
+        self.subset_handling_strategy = subset_handling_strategy;
+        self
+    }
+
     /// Creates a new Honey Badger instance in epoch 0 and makes the initial `Step` on that
     /// instance.
     pub fn build(&mut self) -> (HoneyBadger<C, N>, Step<C, N>) {
@@ -64,6 +75,7 @@ where
             incoming_queue: BTreeMap::new(),
             remote_epochs: BTreeMap::new(),
             rng: Box::new(self.rng.sub_rng()),
+            subset_handling_strategy: self.subset_handling_strategy.clone(),
         };
         let step = if self.netinfo.is_validator() {
             // The first message in an epoch announces the epoch transition.

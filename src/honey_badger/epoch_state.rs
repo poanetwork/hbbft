@@ -1,6 +1,7 @@
 use std::collections::btree_map::Entry;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::marker::PhantomData;
+use std::mem::replace;
 use std::sync::Arc;
 
 use bincode;
@@ -105,6 +106,71 @@ where
     }
 }
 
+/// A flag used when constructing an `EpochState` to determine which behavior to use when receiving
+/// proposals from a `Subset` instance.
+#[derive(Debug, Clone)]
+pub enum SubsetHandlingStrategy {
+    Incremental,
+    AllAtEnd,
+}
+
+/// Used in an `EpochState` to encapsulate the state necessary to maintain each
+/// `SubsetHandlingStrategy`.
+#[derive(Debug, Clone)]
+pub enum SubsetHandler<N> {
+    Incremental,
+    AllAtEnd(Vec<(N, Vec<u8>)>),
+}
+
+pub struct SubsetHandleData<N> {
+    contributions: Vec<(N, Vec<u8>)>,
+    is_done: bool,
+}
+
+impl<N> SubsetHandler<N> {
+    fn handle(&mut self, o: SubsetOutput<N>) -> SubsetHandleData<N> {
+        use self::SubsetHandler::*;
+        use self::SubsetOutput::*;
+        let contributions;
+        let is_done;
+        match o {
+            Contribution(proposer_id, data) => {
+                let proposal = (proposer_id, data);
+                contributions = match self {
+                    Incremental => vec![proposal],
+                    AllAtEnd(cs) => {
+                        cs.push(proposal);
+                        vec![]
+                    }
+                };
+                is_done = false;
+            }
+            Done => {
+                contributions = match self {
+                    Incremental => vec![],
+                    AllAtEnd(cs) => replace(cs, vec![]),
+                };
+                is_done = true;
+            }
+        }
+
+        SubsetHandleData {
+            contributions,
+            is_done,
+        }
+    }
+}
+
+impl<N> From<SubsetHandlingStrategy> for SubsetHandler<N> {
+    fn from(s: SubsetHandlingStrategy) -> Self {
+        use self::SubsetHandlingStrategy::*;
+        match s {
+            Incremental => SubsetHandler::Incremental,
+            AllAtEnd => SubsetHandler::AllAtEnd(Vec::new()),
+        }
+    }
+}
+
 /// The sub-algorithms and their intermediate results for a single epoch.
 #[derive(Debug)]
 pub struct EpochState<C, N: Rand> {
@@ -118,6 +184,8 @@ pub struct EpochState<C, N: Rand> {
     decryption: BTreeMap<N, DecryptionState<N>>,
     /// Nodes found so far in `Subset` output.
     accepted_proposers: BTreeSet<N>,
+    /// Determines the behavior upon receiving proposals from `subset`.
+    subset_handler: SubsetHandler<N>,
     _phantom: PhantomData<C>,
 }
 
@@ -127,7 +195,11 @@ where
     N: NodeIdT + Rand,
 {
     /// Creates a new `Subset` instance.
-    pub fn new(netinfo: Arc<NetworkInfo<N>>, epoch: u64) -> Result<Self> {
+    pub fn new(
+        netinfo: Arc<NetworkInfo<N>>,
+        epoch: u64,
+        subset_handling_strategy: SubsetHandlingStrategy,
+    ) -> Result<Self> {
         let cs = Subset::new(netinfo.clone(), epoch).map_err(ErrorKind::CreateSubset)?;
         Ok(EpochState {
             epoch,
@@ -135,6 +207,7 @@ where
             subset: SubsetState::Ongoing(cs),
             decryption: BTreeMap::default(),
             accepted_proposers: Default::default(),
+            subset_handler: subset_handling_strategy.into(),
             _phantom: PhantomData,
         })
     }
@@ -230,30 +303,34 @@ where
             if has_seen_done {
                 error!("`SubsetOutput::Done` was not the last `SubsetOutput`");
             }
-            match cs_output {
-                SubsetOutput::Contribution(k, v) => {
-                    step.extend(self.send_decryption_share(k.clone(), &v)?);
-                    self.accepted_proposers.insert(k);
-                }
-                SubsetOutput::Done => {
-                    self.subset = SubsetState::Complete(self.accepted_proposers.clone());
 
-                    let faulty_shares: Vec<_> = self
-                        .decryption
-                        .keys()
-                        .filter(|id| !self.accepted_proposers.contains(id))
-                        .cloned()
-                        .collect();
-                    for id in faulty_shares {
-                        if let Some(DecryptionState::Ongoing(td)) = self.decryption.remove(&id) {
-                            for id in td.sender_ids() {
-                                let fault_kind = FaultKind::UnexpectedDecryptionShare;
-                                step.fault_log.append(id.clone(), fault_kind);
-                            }
+            let SubsetHandleData {
+                contributions,
+                is_done,
+            } = self.subset_handler.handle(cs_output);
+
+            for (k, v) in contributions {
+                step.extend(self.send_decryption_share(k.clone(), &v)?);
+                self.accepted_proposers.insert(k);
+            }
+
+            if is_done {
+                self.subset = SubsetState::Complete(self.accepted_proposers.clone());
+                let faulty_shares: Vec<_> = self
+                    .decryption
+                    .keys()
+                    .filter(|id| !self.accepted_proposers.contains(id))
+                    .cloned()
+                    .collect();
+                for id in faulty_shares {
+                    if let Some(DecryptionState::Ongoing(td)) = self.decryption.remove(&id) {
+                        for id in td.sender_ids() {
+                            let fault_kind = FaultKind::UnexpectedDecryptionShare;
+                            step.fault_log.append(id.clone(), fault_kind);
                         }
                     }
-                    has_seen_done = true
                 }
+                has_seen_done = true;
             }
         }
         Ok(step)

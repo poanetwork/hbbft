@@ -8,7 +8,7 @@ use rand::{self, Rand, Rng};
 use serde::{Deserialize, Serialize};
 
 use super::{ChangeState, DynamicHoneyBadger, JoinPlan, Result, Step, VoteCounter};
-use honey_badger::HoneyBadger;
+use honey_badger::{HoneyBadger, SubsetHandlingStrategy};
 use messaging::NetworkInfo;
 use traits::{Contribution, NodeIdT};
 use util::SubRng;
@@ -21,6 +21,7 @@ pub struct DynamicHoneyBadgerBuilder<C, N> {
     /// Random number generator passed on to algorithm instance for key generation. Also used to
     /// instantiate `HoneyBadger`.
     rng: Box<dyn rand::Rng>,
+    subset_handling_strategy: SubsetHandlingStrategy,
     _phantom: PhantomData<(C, N)>,
 }
 
@@ -30,6 +31,7 @@ impl<C, N> Default for DynamicHoneyBadgerBuilder<C, N> {
         DynamicHoneyBadgerBuilder {
             max_future_epochs: 3,
             rng: Box::new(rand::thread_rng()),
+            subset_handling_strategy: SubsetHandlingStrategy::Incremental,
             _phantom: PhantomData,
         }
     }
@@ -58,26 +60,42 @@ where
         self
     }
 
+    pub fn subset_handling_strategy(
+        &mut self,
+        subset_handling_strategy: SubsetHandlingStrategy,
+    ) -> &mut Self {
+        self.subset_handling_strategy = subset_handling_strategy;
+        self
+    }
+
     /// Creates a new Dynamic Honey Badger instance with an empty buffer.
     pub fn build(
         &mut self,
         netinfo: NetworkInfo<N>,
     ) -> Result<(DynamicHoneyBadger<C, N>, Step<C, N>)> {
+        let DynamicHoneyBadgerBuilder {
+            max_future_epochs,
+            rng,
+            subset_handling_strategy,
+            _phantom,
+        } = self;
+        let max_future_epochs = *max_future_epochs;
         let arc_netinfo = Arc::new(netinfo.clone());
         let (honey_badger, hb_step) = HoneyBadger::builder(arc_netinfo.clone())
-            .max_future_epochs(self.max_future_epochs)
-            .rng(self.rng.sub_rng())
+            .max_future_epochs(max_future_epochs)
+            .rng(rng.sub_rng())
+            .subset_handling_strategy(subset_handling_strategy.clone())
             .build();
         let mut dhb = DynamicHoneyBadger {
             netinfo,
-            max_future_epochs: self.max_future_epochs,
+            max_future_epochs,
             start_epoch: 0,
             vote_counter: VoteCounter::new(arc_netinfo, 0),
             key_gen_msg_buffer: Vec::new(),
             honey_badger,
             key_gen_state: None,
             incoming_queue: Vec::new(),
-            rng: Box::new(self.rng.sub_rng()),
+            rng: Box::new(rng.sub_rng()),
         };
         let step = dhb.process_output(hb_step)?;
         Ok((dhb, step))
