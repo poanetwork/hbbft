@@ -11,6 +11,7 @@ use super::{ChangeState, DynamicHoneyBadger, JoinPlan, Result, Step, VoteCounter
 use honey_badger::HoneyBadger;
 use messaging::NetworkInfo;
 use traits::{Contribution, NodeIdT};
+use util::SubRng;
 
 /// A Dynamic Honey Badger builder, to configure the parameters and create new instances of
 /// `DynamicHoneyBadger`.
@@ -57,13 +58,6 @@ where
         self
     }
 
-    /// Create a new random number generator based on seed created by rng initialized by builder.
-    fn create_rng(&mut self) -> rand::isaac::Isaac64Rng {
-        // With rand 0.4, it's fairly hard to create same-type RNGs, so we use a fixed `Isaac64Rng`
-        // for now.
-        self.rng.gen()
-    }
-
     /// Creates a new Dynamic Honey Badger instance with an empty buffer.
     pub fn build(
         &mut self,
@@ -72,7 +66,7 @@ where
         let arc_netinfo = Arc::new(netinfo.clone());
         let (honey_badger, hb_step) = HoneyBadger::builder(arc_netinfo.clone())
             .max_future_epochs(self.max_future_epochs)
-            .rng(self.create_rng())
+            .rng(self.rng.sub_rng())
             .build();
         let mut dhb = DynamicHoneyBadger {
             netinfo,
@@ -83,7 +77,7 @@ where
             honey_badger,
             key_gen_state: None,
             incoming_queue: Vec::new(),
-            rng: Box::new(self.create_rng()),
+            rng: Box::new(self.rng.sub_rng()),
         };
         let step = dhb.process_output(hb_step)?;
         Ok((dhb, step))
@@ -132,7 +126,7 @@ where
             honey_badger,
             key_gen_state: None,
             incoming_queue: Vec::new(),
-            rng: Box::new(self.create_rng()),
+            rng: Box::new(self.rng.sub_rng()),
         };
         let mut step = dhb.process_output(hb_step)?;
         match join_plan.change {

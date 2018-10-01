@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use super::{HoneyBadger, Message, Step};
 use messaging::{NetworkInfo, Target};
 use traits::{Contribution, NodeIdT};
+use util::SubRng;
 
 /// A Honey Badger builder, to configure the parameters and create new instances of `HoneyBadger`.
 pub struct HoneyBadgerBuilder<C, N>
@@ -62,7 +63,7 @@ where
             max_future_epochs: self.max_future_epochs as u64,
             incoming_queue: BTreeMap::new(),
             remote_epochs: BTreeMap::new(),
-            rng: Box::new(self.rng.gen::<rand::isaac::Isaac64Rng>()),
+            rng: Box::new(self.rng.sub_rng()),
         };
         let step = if self.netinfo.is_validator() {
             // The first message in an epoch announces the epoch transition.

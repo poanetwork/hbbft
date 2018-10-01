@@ -26,6 +26,7 @@ use rand::{Rand, Rng};
 use threshold_crypto as crypto;
 
 use hbbft::messaging::{self, DistAlgorithm, NetworkInfo, Step};
+use hbbft::util::SubRng;
 
 pub use self::adversary::Adversary;
 pub use self::err::CrankError;
@@ -251,7 +252,7 @@ where
     ///
     /// Note that the random number generator type may differ from the one set for generation on
     /// the `VirtualNet`, due to limitations of the `rand` crates API.
-    pub rng: rand::isaac::Isaac64Rng,
+    pub rng: Box<dyn rand::Rng>,
 }
 
 impl<D> fmt::Debug for NewNodeInfo<D>
@@ -721,16 +722,7 @@ where
                     id: id.clone(),
                     netinfo,
                     faulty: is_faulty,
-                    // The node's RNG will always be an `Isaac64Rng` at this time, since the rand 0.4
-                    // API is not conducive to creating new instances from existing RNGs.
-                    //
-                    // Later versions like 0.5 offer more facilities like associated `Seed` types,
-                    // or even convenience functions like `from_rng` and should be used in the future
-                    // to replace this section.
-                    //
-                    // We err on the side of security and choose a strong instead of a fast random
-                    // number generator.
-                    rng: rng.gen(),
+                    rng: rng.sub_rng(),
                 });
                 steps.insert(id.clone(), step);
                 (id, Node::new(algorithm, is_faulty))

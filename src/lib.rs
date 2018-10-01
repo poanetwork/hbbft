@@ -149,6 +149,7 @@ pub mod subset;
 pub mod sync_key_gen;
 pub mod threshold_decryption;
 pub mod transaction_queue;
+pub mod util;
 
 /// Common supertraits.
 pub mod traits {
