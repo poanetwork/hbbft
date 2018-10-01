@@ -315,7 +315,7 @@ impl<N: NodeIdT> SyncKeyGen<N> {
         let encrypt = |(i, pk): (usize, &PublicKey)| {
             let row = our_part.row(i + 1).map_err(Error::Creation)?;
             let bytes = bincode::serialize(&row).expect("failed to serialize row");
-            Ok(pk.encrypt(&bytes))
+            Ok(pk.encrypt_with_rng(rng, &bytes))
         };
         let rows = key_gen
             .pub_keys
@@ -332,8 +332,9 @@ impl<N: NodeIdT> SyncKeyGen<N> {
     ///
     /// All participating nodes must handle the exact same sequence of messages.
     /// Note that `handle_part` also needs to explicitly be called with this instance's own `Part`.
-    pub fn handle_part(
+    pub fn handle_part<R: rand::Rng>(
         &mut self,
+        rng: &mut R,
         sender_id: &N,
         Part(commit, rows): Part,
     ) -> Option<PartOutcome<N>> {
@@ -370,7 +371,7 @@ impl<N: NodeIdT> SyncKeyGen<N> {
             let wrap = FieldWrap::new(val);
             // TODO: Handle errors.
             let ser_val = bincode::serialize(&wrap).expect("failed to serialize value");
-            pk.encrypt(ser_val)
+            pk.encrypt_with_rng(rng, ser_val)
         };
         let values = self.pub_keys.values().enumerate().map(encrypt).collect();
         Some(PartOutcome::Valid(Ack(sender_idx, values)))

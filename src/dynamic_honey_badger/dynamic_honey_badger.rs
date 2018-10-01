@@ -360,8 +360,17 @@ where
 
     /// Handles a `Part` message that was output by Honey Badger.
     fn handle_part(&mut self, sender_id: &N, part: Part) -> Result<Step<C, N>> {
-        let handle = |kgs: &mut KeyGenState<N>| kgs.key_gen.handle_part(&sender_id, part);
-        match self.key_gen_state.as_mut().and_then(handle) {
+        // Awkward construction due to borrowck shortcomings; we need to borrow two struct fields
+        // mutably and have the borrow end early enough for us to call `send_transaction`.
+        // FIXME: This part should be cleaned up and restructured.
+        let res = {
+            let kgs = self.key_gen_state.as_mut();
+            let rng = &mut self.rng;
+            let handle = |kgs: &mut KeyGenState<N>| kgs.key_gen.handle_part(rng, &sender_id, part);
+            kgs.and_then(handle)
+        };
+
+        match res {
             Some(PartOutcome::Valid(ack)) => self.send_transaction(KeyGenMessage::Ack(ack)),
             Some(PartOutcome::Invalid(fault_log)) => Ok(fault_log.into()),
             None => Ok(Step::default()),
