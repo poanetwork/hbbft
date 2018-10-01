@@ -1,4 +1,3 @@
-use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::iter::once;
 
@@ -26,32 +25,6 @@ pub enum Target<N> {
     Node(N),
 }
 
-impl<N: Ord> Ord for Target<N> {
-    fn cmp(&self, other: &Target<N>) -> Ordering {
-        match (self, other) {
-            (Target::Node(id1), Target::Node(id2)) => id1.cmp(id2),
-            (Target::All, Target::All) => Ordering::Equal,
-            (Target::All, Target::Node(_)) => Ordering::Greater,
-            (Target::Node(_), Target::All) => Ordering::Less,
-        }
-    }
-}
-
-impl<N: PartialEq> PartialOrd for Target<N> {
-    fn partial_cmp(&self, other: &Target<N>) -> Option<Ordering> {
-        match (self, other) {
-            (Target::Node(id1), Target::Node(id2)) => if id1 == id2 {
-                Some(Ordering::Equal)
-            } else {
-                None
-            },
-            (Target::All, Target::All) => Some(Ordering::Equal),
-            (Target::All, Target::Node(_)) => Some(Ordering::Greater),
-            (Target::Node(_), Target::All) => Some(Ordering::Less),
-        }
-    }
-}
-
 impl<N> Target<N> {
     /// Returns a `TargetedMessage` with this target, and the given message.
     pub fn message<M>(self, message: M) -> TargetedMessage<M, N> {
@@ -76,16 +49,6 @@ impl<M, N> TargetedMessage<M, N> {
             target: self.target,
             message: f(self.message),
         }
-    }
-}
-
-impl<M, N> TargetedMessage<M, N>
-where
-    N: PartialEq,
-{
-    /// Tests whether the given target node is contained in the message target.
-    pub fn has_target_node(&self, id: N) -> bool {
-        Target::Node(id).partial_cmp(&self.target).is_some()
     }
 }
 
@@ -230,6 +193,110 @@ where
             messages: msgs.into_iter().collect(),
             ..Step::default()
         }
+    }
+}
+
+/// An interface to objects with epoch numbers. Different algorithms may have different internal
+/// notion of "epoch". This interface summarizes the properties that are essential for the message
+/// sender queue.
+pub trait Epoched {
+    type Epoch: Clone + Copy + Eq + Ord;
+
+    /// Returns the object's epoch number.
+    fn epoch(&self) -> Self::Epoch;
+}
+
+impl<'i, D> Step<D>
+where
+    D: DistAlgorithm,
+    <D as DistAlgorithm>::NodeId: NodeIdT,
+    <D as DistAlgorithm>::Message: 'i + Clone + Epoched,
+{
+    /// Removes and returns any messages that are not yet accepted by remote nodes according to the
+    /// mapping `remote_epochs`. This way the returned messages are postponed until later, and the
+    /// remaining messages can be sent to remote nodes without delay.
+    pub fn defer_messages<I, F, G, H>(
+        &mut self,
+        remote_epochs: &'i BTreeMap<D::NodeId, <D::Message as Epoched>::Epoch>,
+        remote_ids: I,
+        is_accepting_epoch: F,
+        is_later_epoch: G,
+        is_passed_unchanged: H,
+    ) -> impl Iterator<Item = (D::NodeId, D::Message)> + 'i
+    where
+        I: 'i + Iterator<Item = &'i D::NodeId>,
+        <D as DistAlgorithm>::NodeId: 'i,
+        F: Fn(&D::Message, <D::Message as Epoched>::Epoch) -> bool,
+        G: Fn(&D::Message, <D::Message as Epoched>::Epoch) -> bool,
+        H: FnMut(&TargetedMessage<D::Message, D::NodeId>) -> bool,
+    {
+        let messages = &mut self.messages;
+        let (mut passed_msgs, failed_msgs): (Vec<_>, Vec<_>) =
+            messages.drain(..).partition(is_passed_unchanged);
+        // `Target::All` messages contained in the result of the partitioning are analyzed further
+        // and each split into two sets of point messages: those which can be sent without delay and
+        // those which should be postponed.
+        let remote_nodes: BTreeSet<&D::NodeId> = remote_ids.collect();
+        let mut deferred_msgs: Vec<(D::NodeId, D::Message)> = Vec::new();
+        for msg in failed_msgs {
+            let message = msg.message;
+            match msg.target {
+                Target::Node(id) => {
+                    let mut defer = false;
+                    {
+                        let lagging = |&them| {
+                            !(is_accepting_epoch(&message, them) || is_later_epoch(&message, them))
+                        };
+                        if remote_epochs.get(&id).map_or(true, lagging) {
+                            defer = true;
+                        }
+                    }
+                    if defer {
+                        deferred_msgs.push((id, message));
+                    } else {
+                        warn!("Discarding {:?}", message);
+                    }
+                }
+                Target::All => {
+                    debug!("Filtered broadcast: {:?}", message);
+                    let isnt_earlier_epoch = |&them| {
+                        is_accepting_epoch(&message, them) || is_later_epoch(&message, them)
+                    };
+                    let lagging = |them| !isnt_earlier_epoch(them);
+                    let accepts = |&them| is_accepting_epoch(&message, them);
+                    let accepting_nodes: BTreeSet<&D::NodeId> = remote_epochs
+                        .iter()
+                        .filter(|(_, them)| accepts(them))
+                        .map(|(id, _)| id)
+                        .collect();
+                    let non_lagging_nodes: BTreeSet<&D::NodeId> = remote_epochs
+                        .iter()
+                        .filter(|(_, them)| isnt_earlier_epoch(them))
+                        .map(|(id, _)| id)
+                        .collect();
+                    for &id in &accepting_nodes {
+                        passed_msgs.push(Target::Node(id.clone()).message(message.clone()));
+                    }
+                    let lagging_nodes: BTreeSet<_> =
+                        remote_nodes.difference(&non_lagging_nodes).collect();
+                    // FIXME: remove second reference after removing debug output.
+                    for &&id in &lagging_nodes {
+                        if remote_epochs.get(&id).map_or(true, lagging) {
+                            deferred_msgs.push((id.clone(), message.clone()));
+                        }
+                    }
+                    if !non_lagging_nodes.is_empty() {
+                        warn!("Discarded split messages to {:?}", non_lagging_nodes);
+                    }
+                    debug!(
+                        "Accepting nodes: {:?} --- Lagging nodes: {:?} --- All remote nodes: {:?}",
+                        accepting_nodes, lagging_nodes, remote_nodes
+                    );
+                }
+            }
+        }
+        messages.extend(passed_msgs);
+        deferred_msgs.into_iter()
     }
 }
 

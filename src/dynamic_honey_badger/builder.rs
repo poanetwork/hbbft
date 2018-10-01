@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::default::Default;
 use std::iter::once;
 use std::marker::PhantomData;
@@ -65,7 +65,7 @@ where
             outgoing_queue_hb: BTreeMap::new(),
             outgoing_queue_dhb: BTreeMap::new(),
             remote_epochs: BTreeMap::new(),
-            nodes_being_added: BTreeSet::new(),
+            node_being_added: None,
         };
         let step = dhb.process_output(hb_step)?;
         Ok((dhb, step))
@@ -114,7 +114,7 @@ where
             outgoing_queue_hb: BTreeMap::new(),
             outgoing_queue_dhb: BTreeMap::new(),
             remote_epochs: BTreeMap::new(),
-            nodes_being_added: BTreeSet::new(),
+            node_being_added: None,
         };
         let mut step = dhb.process_output(hb_step)?;
         match join_plan.change {

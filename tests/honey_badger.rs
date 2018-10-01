@@ -24,7 +24,7 @@ use itertools::Itertools;
 use rand::Rng;
 
 use hbbft::honey_badger::{self, Batch, HoneyBadger, MessageContent, Step};
-use hbbft::messaging::{NetworkInfo, Target, TargetedMessage};
+use hbbft::messaging::{Epoched, NetworkInfo, Target, TargetedMessage};
 use hbbft::threshold_decryption;
 use hbbft::transaction_queue::TransactionQueue;
 

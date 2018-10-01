@@ -1,5 +1,6 @@
 use rand::Rand;
 
+use messaging::Epoched;
 use subset;
 use threshold_decryption;
 
@@ -39,9 +40,11 @@ pub enum Message<N: Rand> {
     EpochStarted(u64),
 }
 
-impl<N: Rand> Message<N> {
+impl<N: Rand> Epoched for Message<N> {
+    type Epoch = u64;
+
     /// Returns the epoch from which the message originated.
-    pub fn epoch(&self) -> u64 {
+    fn epoch(&self) -> u64 {
         match *self {
             Message::HoneyBadger { epoch, .. } => epoch,
             Message::EpochStarted(epoch) => epoch,

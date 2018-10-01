@@ -57,10 +57,20 @@ fn test_queueing_honey_badger<A>(
     // Returns `true` if the node has not output all transactions yet.
     // If it has, and has advanced another epoch, it clears all messages for later epochs.
     let node_busy = |node: &mut TestNode<QueueingHoneyBadger<usize, NodeId>>| {
-        if !has_remove(node) || !has_add(node) {
+        if !has_remove(node) {
+            debug!("{:?} has not yet processed Remove", node.id);
             return true;
         }
-        if node.outputs().iter().flat_map(Batch::iter).unique().count() < num_txs {
+        if !has_add(node) {
+            debug!("{:?} has not yet processed Add", node.id);
+            return true;
+        }
+        let count = node.outputs().iter().flat_map(Batch::iter).unique().count();
+        if count < num_txs {
+            debug!(
+                "{:?} insufficient transaction count {} < {}",
+                node.id, count, num_txs
+            );
             return true;
         }
         false

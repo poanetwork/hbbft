@@ -1,5 +1,5 @@
 use std::collections::btree_map;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::mem;
 use std::sync::Arc;
 
@@ -15,7 +15,7 @@ use super::{
 };
 use fault_log::{Fault, FaultKind, FaultLog};
 use honey_badger::{self, HoneyBadger, Message as HbMessage};
-use messaging::{self, DistAlgorithm, NetworkInfo, Target};
+use messaging::{self, DistAlgorithm, Epoched, NetworkInfo, Target, TargetedMessage};
 use sync_key_gen::{Ack, Part, PartOutcome, SyncKeyGen};
 use traits::{Contribution, NodeIdT};
 
@@ -45,112 +45,11 @@ pub struct DynamicHoneyBadger<C, N: Rand> {
     pub(super) outgoing_queue_dhb: BTreeMap<(N, u64), Vec<Message<N>>>,
     /// Known current epochs of remote nodes.
     pub(super) remote_epochs: BTreeMap<N, DynamicEpoch>,
-    /// Nodes which are being added using a `Change::Add` command. The command is ongoing and hasn't
-    /// been finished yet.
-    pub(super) nodes_being_added: BTreeSet<N>,
+    /// The node which is being added using a `Change::Add` command. The command should be is ongoing.
+    pub(super) node_being_added: Option<N>,
 }
 
 pub type Step<C, N> = messaging::Step<DynamicHoneyBadger<C, N>>;
-
-impl<C, N> Step<C, N>
-where
-    C: Contribution + Serialize + for<'r> Deserialize<'r>,
-    N: NodeIdT + Serialize + for<'r> Deserialize<'r> + Rand,
-{
-    /// Removes and returns any messages that are not yet accepted by remote nodes according to the
-    /// mapping `remote_epochs`. This way the returned messages are postponed until later, and the
-    /// remaining messages can be sent to remote nodes without delay.
-    fn defer_messages<'i, I>(
-        &mut self,
-        remote_epochs: &'i BTreeMap<N, DynamicEpoch>,
-        remote_ids: I,
-        max_future_epochs: u64,
-    ) -> impl Iterator<Item = (N, Message<N>)> + 'i
-    where
-        I: 'i + Iterator<Item = &'i N>,
-        N: 'i,
-    {
-        let accepts = |us: DynamicEpoch, is_dynamic: bool, them: DynamicEpoch| {
-            us.start_epoch == them.start_epoch
-                && (is_dynamic
-                    || (us.hb_epoch >= them.hb_epoch
-                        && us.hb_epoch <= them.hb_epoch + max_future_epochs))
-        };
-        let is_early = |us: DynamicEpoch, is_dynamic: bool, them: DynamicEpoch| {
-            us.start_epoch < them.start_epoch
-                || (them.start_epoch == us.start_epoch
-                    && !is_dynamic
-                    && us.hb_epoch < them.hb_epoch)
-        };
-        let messages: Vec<_> = self.messages.drain(..).collect();
-        let (mut passed_msgs, failed_msgs): (Vec<_>, Vec<_>) =
-            messages.into_iter().partition(|msg| match &msg.message {
-                Message::DynamicHoneyBadger(ref content) => {
-                    let dynamic_epoch = content.dynamic_epoch();
-                    let is_dynamic = content.is_dynamic();
-                    let pass = |&them: &DynamicEpoch| accepts(dynamic_epoch, is_dynamic, them);
-                    match &msg.target {
-                        Target::All => remote_epochs.values().all(pass),
-                        Target::Node(id) => remote_epochs.get(&id).map_or(false, pass),
-                    }
-                }
-                Message::DynamicEpochStarted(_) => true,
-            });
-        // `Target::All` messages contained in the result of the partitioning are analyzed further
-        // and each split into two sets of point messages: those which can be sent without delay and
-        // those which should be postponed.
-        let remote_nodes: BTreeSet<&N> = remote_ids.collect();
-        let mut deferred_msgs: Vec<(N, Message<N>)> = Vec::new();
-        for msg in failed_msgs {
-            let message = msg.message;
-            let dynamic_epoch = message.dynamic_epoch();
-            let is_dynamic = message.is_dynamic();
-            let deferrable = |&them| !is_early(dynamic_epoch, is_dynamic, them);
-            match msg.target {
-                Target::Node(id) => {
-                    if remote_epochs.get(&id).map_or(false, deferrable) {
-                        deferred_msgs.push((id, message));
-                    }
-                }
-                Target::All => {
-                    debug!("Filtered out broadcast: {:?}", message);
-                    let isnt_late = |&them: &DynamicEpoch| {
-                        accepts(dynamic_epoch, is_dynamic, them)
-                            || is_early(dynamic_epoch, is_dynamic, them)
-                    };
-                    let accepts = |&them: &DynamicEpoch| accepts(dynamic_epoch, is_dynamic, them);
-                    let accepting_nodes: BTreeSet<&N> = remote_epochs
-                        .iter()
-                        .filter(|(_, them)| accepts(them))
-                        .map(|(id, _)| id)
-                        .collect();
-                    let non_late_nodes: BTreeSet<&N> = remote_epochs
-                        .iter()
-                        .filter(|(_, them)| isnt_late(them))
-                        .map(|(id, _)| id)
-                        .collect();
-                    for &id in &accepting_nodes {
-                        passed_msgs.push(Target::Node(id.clone()).message(message.clone()));
-                    }
-                    let late_nodes: BTreeSet<_> =
-                        remote_nodes.difference(&non_late_nodes).collect();
-                    // FIXME: remove second reference after removing debug output.
-                    for &&id in &late_nodes {
-                        if remote_epochs.get(&id).map_or(false, deferrable) {
-                            deferred_msgs.push((id.clone(), message.clone()));
-                        }
-                    }
-                    debug!(
-                        "Accepting nodes: {:?} --- Late nodes: {:?} --- All remote nodes: {:?}",
-                        accepting_nodes, late_nodes, remote_nodes
-                    );
-                }
-            }
-        }
-        self.messages.extend(passed_msgs);
-        deferred_msgs.into_iter()
-    }
-}
 
 impl<C, N> DistAlgorithm for DynamicHoneyBadger<C, N>
 where
@@ -166,14 +65,16 @@ where
     fn handle_input(&mut self, input: Self::Input) -> Result<Step<C, N>> {
         // User contributions are forwarded to `HoneyBadger` right away. Votes are signed and
         // broadcast.
-        match input {
+        let mut step = match input {
             Input::User(contrib) => self.propose(contrib),
             Input::Change(change) => self.vote_for(change),
-        }
+        }?;
+        self.defer_messages(&mut step);
+        Ok(step)
     }
 
     fn handle_message(&mut self, sender_id: &N, message: Self::Message) -> Result<Step<C, N>> {
-        let step = match message {
+        let mut step = match message {
             Message::DynamicHoneyBadger(content) => self.handle_message_content(sender_id, content),
             Message::DynamicEpochStarted(epoch) => {
                 self.handle_dynamic_epoch_started(sender_id, epoch)
@@ -188,6 +89,7 @@ where
             self.outgoing_queue_hb,
             self.remote_epochs
         );
+        self.defer_messages(&mut step);
         Ok(step)
     }
 
@@ -234,7 +136,7 @@ where
             );
             return Ok(Fault::new(sender_id.clone(), FaultKind::EpochOutOfRange).into());
         }
-        let mut step = match content {
+        match content {
             MessageContent::HoneyBadger(_, hb_msg) => {
                 self.handle_honey_badger_message(sender_id, hb_msg)
             }
@@ -245,35 +147,7 @@ where
                 .vote_counter
                 .add_pending_vote(sender_id, signed_vote)
                 .map(FaultLog::into),
-        }?;
-        let our_id = self.netinfo.our_id();
-        let all_remote_validators = self
-            .netinfo
-            .all_ids()
-            .filter(|&id| id != our_id)
-            .into_iter();
-        let all_remote_nodes = all_remote_validators.chain(self.nodes_being_added.iter());
-        let deferred_msgs = step.defer_messages(
-            &self.remote_epochs,
-            all_remote_nodes,
-            self.max_future_epochs as u64,
-        );
-        // Append the deferred messages onto the queues.
-        for (id, message) in deferred_msgs {
-            let epoch = message.dynamic_epoch();
-            if message.is_dynamic() {
-                self.outgoing_queue_dhb
-                    .entry((id, epoch.start_epoch))
-                    .and_modify(|e| e.push(message.clone()))
-                    .or_insert_with(|| vec![message.clone()]);
-            } else {
-                self.outgoing_queue_hb
-                    .entry((id, epoch))
-                    .and_modify(|e| e.push(message.clone()))
-                    .or_insert_with(|| vec![message.clone()]);
-            }
         }
-        Ok(step)
     }
 
     /// Handles an epoch start announcement from a remote `DynamicHoneyBadger`.
@@ -388,7 +262,7 @@ where
             change
         );
         if let Change::Add(ref id, ..) = change {
-            self.nodes_being_added.insert(id.clone());
+            self.set_node_being_added(id)?;
         }
         if !self.netinfo.is_validator() {
             return Ok(Step::default()); // TODO: Return an error?
@@ -544,7 +418,14 @@ where
                     kgs.change
                 );
                 if let Change::Add(ref id, ..) = kgs.change {
-                    self.nodes_being_added.remove(id);
+                    if let Some(ref add_id) = self.node_being_added {
+                        if add_id != id {
+                            return Err(ErrorKind::AddedNodeDiffersFromProposed.into());
+                        }
+                    } else {
+                        return Err(ErrorKind::NoNodeBeingAdded.into());
+                    }
+                    self.node_being_added = None;
                 }
                 self.netinfo = kgs.key_gen.into_network_info()?;
                 step.extend(self.restart_honey_badger(batch.epoch + 1)?);
@@ -576,7 +457,7 @@ where
         if match *change {
             Change::Remove(ref id) => pub_keys.remove(id).is_none(),
             Change::Add(ref id, ref pk) => {
-                self.nodes_being_added.insert(id.clone());
+                self.set_node_being_added(id)?;
                 pub_keys.insert(id.clone(), pk.clone()).is_some()
             }
         } {
@@ -594,6 +475,22 @@ where
             step.extend(self.send_transaction(KeyGenMessage::Part(part))?);
         }
         Ok(step)
+    }
+
+    /// Sets the node  which is currently being added as validator.
+    fn set_node_being_added(&mut self, id: &N) -> Result<()> {
+        let mut add = false;
+        if let Some(ref add_id) = self.node_being_added {
+            if add_id != id {
+                return Err(ErrorKind::AddedNodeDiffersFromProposed.into());
+            }
+        } else {
+            add = true;
+        }
+        if add {
+            self.node_being_added = Some(id.clone());
+        }
+        Ok(())
     }
 
     /// Moves queued messages from Honey Badger to Dynamic Honey Badger.
@@ -627,6 +524,7 @@ where
         mem::replace(&mut self.vote_counter, counter);
         let (hb, hb_step) = HoneyBadger::builder(netinfo)
             .max_future_epochs(self.max_future_epochs)
+            .node_being_added(self.node_being_added.clone())
             .build();
         self.honey_badger = hb;
         self.process_output(hb_step)
@@ -703,6 +601,73 @@ where
         };
         let pk_opt = self.netinfo.public_key(node_id).or_else(get_candidate_key);
         Ok(pk_opt.map_or(false, |pk| pk.verify(&sig, ser)))
+    }
+
+    /// Removes any messages to nodes at earlier epochs from the given `Step`. This may involve
+    /// decomposing a `Target::All` message into `Target::Node` messages and sending some of the
+    /// resulting messages while placing onto the queue those remaining messages whose recipient is
+    /// currently at an earlier epoch.
+    fn defer_messages(&mut self, step: &mut Step<C, N>) {
+        let max_future_epochs = self.max_future_epochs;
+        let is_accepting_epoch = |us: &Message<N>, them: DynamicEpoch| {
+            let our_epoch = us.epoch();
+            our_epoch.start_epoch == them.start_epoch
+                && (us.is_dynamic()
+                    || (our_epoch.hb_epoch >= them.hb_epoch
+                        && our_epoch.hb_epoch <= them.hb_epoch + max_future_epochs as u64))
+        };
+        let is_later_epoch = |us: &Message<N>, them: DynamicEpoch| {
+            let our_epoch = us.epoch();
+            our_epoch.start_epoch < them.start_epoch
+                || (them.start_epoch == our_epoch.start_epoch
+                    && !us.is_dynamic()
+                    && our_epoch.hb_epoch < them.hb_epoch)
+        };
+        let remote_epochs = &self.remote_epochs;
+        let is_passed_unchanged = |msg: &TargetedMessage<_, _>| match &msg.message {
+            Message::DynamicHoneyBadger(..) => {
+                let pass = |&them: &DynamicEpoch| is_accepting_epoch(&msg.message, them);
+                match &msg.target {
+                    Target::All => remote_epochs.values().all(pass),
+                    Target::Node(id) => remote_epochs.get(&id).map_or(false, pass),
+                }
+            }
+            Message::DynamicEpochStarted(_) => true,
+        };
+        let our_id = self.netinfo.our_id();
+        let all_remote_nodes = self
+            .netinfo
+            .all_ids()
+            .chain(self.node_being_added.iter())
+            .filter(|&id| id != our_id)
+            .into_iter();
+        let deferred_msgs = step.defer_messages(
+            &self.remote_epochs,
+            all_remote_nodes,
+            is_accepting_epoch,
+            is_later_epoch,
+            is_passed_unchanged,
+        );
+        // Append the deferred messages onto the queues.
+        for (id, message) in deferred_msgs {
+            let epoch = message.epoch();
+            if message.is_dynamic() {
+                self.outgoing_queue_dhb
+                    .entry((id, epoch.start_epoch))
+                    .and_modify(|e| e.push(message.clone()))
+                    .or_insert_with(|| vec![message.clone()]);
+            } else {
+                self.outgoing_queue_hb
+                    .entry((id, epoch))
+                    .and_modify(|e| e.push(message.clone()))
+                    .or_insert_with(|| vec![message.clone()]);
+            }
+        }
+        debug!(
+            "{:?}: node being added is {:?}",
+            self.netinfo.our_id(),
+            self.node_being_added
+        );
     }
 }
 

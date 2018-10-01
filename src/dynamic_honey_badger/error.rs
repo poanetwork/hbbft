@@ -33,6 +33,10 @@ pub enum ErrorKind {
     DynamicEpochStarted(honey_badger::Error),
     #[fail(display = "Obsolete `DynamicEpochStarted`")]
     ObsoleteDynamicEpochStarted,
+    #[fail(display = "The added node differs from the one already being proposed")]
+    AddedNodeDiffersFromProposed,
+    #[fail(display = "There is no node proposed to be added")]
+    NoNodeBeingAdded,
 }
 
 /// A dynamic honey badger error.

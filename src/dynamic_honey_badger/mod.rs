@@ -69,6 +69,7 @@ use rand::Rand;
 
 use self::votes::{SignedVote, VoteCounter};
 use honey_badger::Message as HbMessage;
+use messaging::Epoched;
 use sync_key_gen::{Ack, Part, SyncKeyGen};
 use traits::NodeIdT;
 
@@ -111,25 +112,11 @@ pub enum MessageContent<N: Rand> {
 
 impl<N: Rand> MessageContent<N> {
     fn start_epoch(&self) -> u64 {
-        match *self {
-            MessageContent::HoneyBadger(start_epoch, ..) => start_epoch,
-            MessageContent::KeyGen(start_epoch, ..) => start_epoch,
-            MessageContent::SignedVote(ref signed_vote) => signed_vote.era(),
-        }
-    }
-
-    pub fn dynamic_epoch(&self) -> DynamicEpoch {
-        match *self {
-            MessageContent::HoneyBadger(start_epoch, ref msg) => {
-                DynamicEpoch::new(start_epoch, msg.epoch())
-            }
-            MessageContent::KeyGen(start_epoch, ..) => DynamicEpoch::new(start_epoch, 0),
-            MessageContent::SignedVote(ref signed_vote) => DynamicEpoch::new(signed_vote.era(), 0),
-        }
+        self.epoch().start_epoch
     }
 
     /// Tests whether the message has only Dynamic Honey Badger content.
-    pub fn is_dynamic(&self) -> bool {
+    fn is_dynamic(&self) -> bool {
         if let MessageContent::HoneyBadger(..) = *self {
             false
         } else {
@@ -137,9 +124,23 @@ impl<N: Rand> MessageContent<N> {
         }
     }
 
-    /// Computes the overall epoch from the `DynamicEpoch`.
-    pub fn epoch(&self) -> u64 {
-        self.dynamic_epoch().epoch()
+    /// Computes the overall projected epoch from the `DynamicEpoch`.
+    pub fn projected_epoch(&self) -> u64 {
+        self.epoch().projected_epoch()
+    }
+}
+
+impl<N: Rand> Epoched for MessageContent<N> {
+    type Epoch = DynamicEpoch;
+
+    fn epoch(&self) -> Self::Epoch {
+        match *self {
+            MessageContent::HoneyBadger(start_epoch, ref msg) => {
+                DynamicEpoch::new(start_epoch, msg.epoch())
+            }
+            MessageContent::KeyGen(start_epoch, ..) => DynamicEpoch::new(start_epoch, 0),
+            MessageContent::SignedVote(ref signed_vote) => DynamicEpoch::new(signed_vote.era(), 0),
+        }
     }
 }
 
@@ -159,7 +160,8 @@ impl DynamicEpoch {
         }
     }
 
-    pub fn epoch(&self) -> u64 {
+    /// Computes the overall projected epoch from the `DynamicEpoch`.
+    pub fn projected_epoch(&self) -> u64 {
         self.start_epoch + self.hb_epoch
     }
 }
@@ -175,20 +177,22 @@ pub enum Message<N: Rand> {
     DynamicEpochStarted(DynamicEpoch),
 }
 
-impl<N: Rand> Message<N> {
-    pub fn dynamic_epoch(&self) -> DynamicEpoch {
+impl<N: Rand> Epoched for Message<N> {
+    type Epoch = DynamicEpoch;
+
+    fn epoch(&self) -> Self::Epoch {
         match *self {
-            Message::DynamicHoneyBadger(ref content) => content.dynamic_epoch(),
+            Message::DynamicHoneyBadger(ref content) => content.epoch(),
             Message::DynamicEpochStarted(epoch) => epoch,
         }
     }
+}
 
-    /// Tests whether the message has only Dynamic Honey Badger content.
+impl<N: Rand> Message<N> {
     pub fn is_dynamic(&self) -> bool {
-        if let Message::DynamicHoneyBadger(MessageContent::HoneyBadger(..)) = *self {
-            false
-        } else {
-            true
+        match *self {
+            Message::DynamicHoneyBadger(ref content) => content.is_dynamic(),
+            _ => true,
         }
     }
 }
