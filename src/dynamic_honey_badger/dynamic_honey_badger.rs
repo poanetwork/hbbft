@@ -17,6 +17,7 @@ use honey_badger::{self, HoneyBadger, Message as HbMessage};
 use messaging::{DistAlgorithm, NetworkInfo, Target};
 use sync_key_gen::{Ack, Part, PartOutcome, SyncKeyGen};
 use traits::{Contribution, NodeIdT};
+use util::SubRng;
 
 /// A Honey Badger instance that can handle adding and removing nodes.
 pub struct DynamicHoneyBadger<C, N: Rand> {
@@ -353,6 +354,7 @@ where
         mem::replace(&mut self.vote_counter, counter);
         let (hb, hb_step) = HoneyBadger::builder(netinfo)
             .max_future_epochs(self.max_future_epochs)
+            .rng(self.rng.sub_rng())
             .build();
         self.honey_badger = hb;
         self.process_output(hb_step)
