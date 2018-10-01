@@ -1,9 +1,10 @@
 use std::collections::btree_map::Entry;
 use std::collections::BTreeMap;
+use std::fmt;
 use std::sync::Arc;
 
 use bincode;
-use rand::Rand;
+use rand::{Rand, Rng};
 use serde::{Deserialize, Serialize};
 
 use super::epoch_state::EpochState;
@@ -12,7 +13,6 @@ use messaging::{self, DistAlgorithm, NetworkInfo, Target};
 use traits::{Contribution, NodeIdT};
 
 /// An instance of the Honey Badger Byzantine fault tolerant consensus algorithm.
-#[derive(Debug)]
 pub struct HoneyBadger<C, N: Rand> {
     /// Shared network data.
     pub(super) netinfo: Arc<NetworkInfo<N>>,
@@ -28,6 +28,28 @@ pub struct HoneyBadger<C, N: Rand> {
     pub(super) incoming_queue: BTreeMap<u64, Vec<(N, MessageContent<N>)>>,
     /// Known current epochs of remote nodes.
     pub(super) remote_epochs: BTreeMap<N, u64>,
+    /// A random number generator used for secret key generation.
+    // Boxed to avoid overloading the algorithm's type with more generics.
+    pub(super) rng: Box<dyn Rng>,
+}
+
+impl<C, N> fmt::Debug for HoneyBadger<C, N>
+where
+    N: Rand + fmt::Debug,
+    C: fmt::Debug,
+{
+    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
+        fmt.debug_struct("HoneyBadger")
+            .field("netinfo", &self.netinfo)
+            .field("epoch", &self.epoch)
+            .field("has_input", &self.has_input)
+            .field("epochs", &self.epochs)
+            .field("max_future_epochs", &self.max_future_epochs)
+            .field("incoming_queue", &self.incoming_queue)
+            .field("remote_epochs", &self.remote_epochs)
+            .field("rng", &"<RNG>")
+            .finish()
+    }
 }
 
 pub type Step<C, N> = messaging::Step<HoneyBadger<C, N>>;
@@ -79,7 +101,11 @@ where
         self.has_input = true;
         let ser_prop =
             bincode::serialize(&proposal).map_err(|err| ErrorKind::ProposeBincode(*err))?;
-        let ciphertext = self.netinfo.public_key_set().public_key().encrypt(ser_prop);
+        let ciphertext = self
+            .netinfo
+            .public_key_set()
+            .public_key()
+            .encrypt_with_rng(&mut self.rng, ser_prop);
         let epoch = self.epoch;
         let mut step = self.epoch_state_mut(epoch)?.propose(&ciphertext)?;
         step.extend(self.try_output_batches()?);

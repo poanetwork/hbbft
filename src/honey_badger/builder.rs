@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::marker::PhantomData;
 use std::sync::Arc;
 
-use rand::Rand;
+use rand::{self, Rand, Rng};
 use serde::{Deserialize, Serialize};
 
 use super::{HoneyBadger, Message, Step};
@@ -18,6 +18,8 @@ where
     netinfo: Arc<NetworkInfo<N>>,
     /// The maximum number of future epochs for which we handle messages simultaneously.
     max_future_epochs: usize,
+    /// Random number generator passed on to algorithm instance for signing and encrypting.
+    rng: Box<dyn Rng>,
     _phantom: PhantomData<C>,
 }
 
@@ -32,8 +34,15 @@ where
         HoneyBadgerBuilder {
             netinfo,
             max_future_epochs: 3,
+            rng: Box::new(rand::thread_rng()),
             _phantom: PhantomData,
         }
+    }
+
+    /// Sets the random number generator for the public key cryptography.
+    pub fn rng<R: Rng + 'static>(&mut self, rng: R) -> &mut Self {
+        self.rng = Box::new(rng);
+        self
     }
 
     /// Sets the maximum number of future epochs for which we handle messages simultaneously.
@@ -44,7 +53,7 @@ where
 
     /// Creates a new Honey Badger instance in epoch 0 and makes the initial `Step` on that
     /// instance.
-    pub fn build(&self) -> (HoneyBadger<C, N>, Step<C, N>) {
+    pub fn build(&mut self) -> (HoneyBadger<C, N>, Step<C, N>) {
         let hb = HoneyBadger {
             netinfo: self.netinfo.clone(),
             epoch: 0,
@@ -53,6 +62,7 @@ where
             max_future_epochs: self.max_future_epochs as u64,
             incoming_queue: BTreeMap::new(),
             remote_epochs: BTreeMap::new(),
+            rng: Box::new(self.rng.gen::<rand::isaac::Isaac64Rng>()),
         };
         let step = if self.netinfo.is_validator() {
             // The first message in an epoch announces the epoch transition.

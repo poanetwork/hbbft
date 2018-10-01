@@ -72,6 +72,7 @@ where
         let arc_netinfo = Arc::new(netinfo.clone());
         let (honey_badger, hb_step) = HoneyBadger::builder(arc_netinfo.clone())
             .max_future_epochs(self.max_future_epochs)
+            .rng(self.create_rng())
             .build();
         let mut dhb = DynamicHoneyBadger {
             netinfo,
