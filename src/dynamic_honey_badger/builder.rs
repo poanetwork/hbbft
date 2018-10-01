@@ -17,6 +17,8 @@ use traits::{Contribution, NodeIdT};
 pub struct DynamicHoneyBadgerBuilder<C, N> {
     /// The maximum number of future epochs for which we handle messages simultaneously.
     max_future_epochs: usize,
+    /// Random number generator passed on to algorithm instance for key generation. Also used to
+    /// instantiate `HoneyBadger`.
     rng: Box<dyn rand::Rng>,
     _phantom: PhantomData<(C, N)>,
 }
