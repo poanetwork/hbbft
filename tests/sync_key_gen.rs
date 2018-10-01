@@ -29,7 +29,7 @@ fn test_sync_key_gen_with(threshold: usize, node_num: usize) {
         .enumerate()
         .map(|(id, sk)| {
             let (sync_key_gen, proposal) =
-                SyncKeyGen::new(rand::thread_rng(), id, sk, pub_keys.clone(), threshold)
+                SyncKeyGen::new(&mut rand::thread_rng(), id, sk, pub_keys.clone(), threshold)
                     .unwrap_or_else(|_err| {
                         panic!("Failed to create `SyncKeyGen` instance #{}", id)
                     });

@@ -360,7 +360,7 @@ impl<N: NodeIdT> NetworkInfo<N> {
     /// Generates a map of matching `NetworkInfo`s for testing.
     pub fn generate_map<I, R>(
         ids: I,
-        mut rng: R,
+        rng: &mut R,
     ) -> Result<BTreeMap<N, NetworkInfo<N>>, crypto::error::Error>
     where
         I: IntoIterator<Item = N>,
@@ -372,7 +372,7 @@ impl<N: NodeIdT> NetworkInfo<N> {
         let num_faulty = (all_ids.len() - 1) / 3;
 
         // Generate the keys for threshold cryptography.
-        let sk_set = SecretKeySet::random(num_faulty, &mut rng)?;
+        let sk_set = SecretKeySet::random(num_faulty, rng)?;
         let pk_set = sk_set.public_keys();
 
         // Generate keys for individually signing and encrypting messages.

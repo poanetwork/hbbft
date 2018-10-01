@@ -79,7 +79,7 @@ impl Adversary<Broadcast<NodeId>> for ProposeAdversary {
 
         // FIXME: Take the correct, known keys from the network.
         let netinfo = Arc::new(
-            NetworkInfo::generate_map(node_ids, rand::thread_rng())
+            NetworkInfo::generate_map(node_ids, &mut rand::thread_rng())
                 .expect("Failed to create `NetworkInfo` map")
                 .remove(&id)
                 .unwrap(),
