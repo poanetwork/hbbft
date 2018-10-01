@@ -140,6 +140,32 @@ If the time limit has been reached, `crank` will return a `TimeLimitHit` error. 
 
 It's also possible to run tests without a time-limit on a per-run basis by setting the `HBBFT_NO_TIME_LIMIT` environment variable to "true".
 
+### Randomness
+
+The test framework supports deterministic randomness by allowing all random values to be dervied from a single random generator. By seeding this generator with a fixed value, tests can be reproduced precisely:
+
+```rust
+#[test]
+fn do_example_test(seed: TestRngSeed, dimension: NetworkDimension) {
+    // Instantiates a new random number generator for the test.
+    let mut rng: TestRng = TestRng::from_seed(cfg.seed);
+
+    let mut net = NetBuilder::new(0..dimension.size)
+        .num_faulty(cfg.dimension.faulty)
+        // Setting `rng` ensures that randomness will only be retrieved by
+        // `VirtualNet` from the `TestRng` instantiated above.
+        .rng(rng)
+        .using_step(move |node: NewNodeInfo<_>| {
+            DynamicHoneyBadger::builder()
+                // `DynamicHoneyBadger` can also be configured with a random
+                // number generator. `NewNodeInfo` includes a convenience
+                // field that contains a ready-to-use random number generator:
+                .rng(node.rng)
+                // ...
+        })
+        // ...
+}
+
 ### Property based testing
 
 Many higher-level tests allow for a variety of different input parameters like the number of nodes in a network or the amount of faulty ones among them. Other possible parameters include transaction, batch or contribution sizes. To test a variety of randomized combinations of these, the [proptest](https://docs.rs/proptest) crate should be used.
