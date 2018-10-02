@@ -59,6 +59,9 @@
 //! use threshold_crypto::{PublicKey, SecretKey, SignatureShare};
 //! use hbbft::sync_key_gen::{PartOutcome, SyncKeyGen};
 //!
+//! // Use a default random number generator for any randomness:
+//! let mut rng = rand::thread_rng();
+//!
 //! // Two out of four shares will suffice to sign or encrypt something.
 //! let (threshold, node_num) = (1, 4);
 //!
@@ -75,7 +78,7 @@
 //! let mut nodes = BTreeMap::new();
 //! let mut parts = Vec::new();
 //! for (id, sk) in sec_keys.into_iter().enumerate() {
-//!     let (sync_key_gen, opt_part) = SyncKeyGen::new(id, sk, pub_keys.clone(), threshold)
+//!     let (sync_key_gen, opt_part) = SyncKeyGen::new(&mut rng, id, sk, pub_keys.clone(), threshold)
 //!         .unwrap_or_else(|_| panic!("Failed to create `SyncKeyGen` instance for node #{}", id));
 //!     nodes.insert(id, sync_key_gen);
 //!     parts.push((id, opt_part.unwrap())); // Would be `None` for observer nodes.
@@ -85,7 +88,7 @@
 //! let mut acks = Vec::new();
 //! for (sender_id, part) in parts {
 //!     for (&id, node) in &mut nodes {
-//!         match node.handle_part(&sender_id, part.clone()) {
+//!         match node.handle_part(&mut rng, &sender_id, part.clone()) {
 //!             Some(PartOutcome::Valid(ack)) => acks.push((id, ack)),
 //!             Some(PartOutcome::Invalid(faults)) => panic!("Invalid part: {:?}", faults),
 //!             None => panic!("We are not an observer, so we should send Ack."),
