@@ -267,7 +267,7 @@ where
         F: Fn(NetworkInfo<NodeId>) -> (D, Step<D>),
     {
         let node_ids = (0..(good_num + adv_num)).map(NodeId);
-        let netinfos = NetworkInfo::generate_map(node_ids, rand::thread_rng())
+        let netinfos = NetworkInfo::generate_map(node_ids, &mut rand::thread_rng())
             .expect("Failed to create `NetworkInfo` map");
         let new_node = |(id, netinfo): (NodeId, NetworkInfo<_>)| {
             (id, TestNode::new(new_algo(netinfo), hw_quality))
