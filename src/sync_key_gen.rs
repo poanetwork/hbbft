@@ -59,6 +59,9 @@
 //! use threshold_crypto::{PublicKey, SecretKey, SignatureShare};
 //! use hbbft::sync_key_gen::{PartOutcome, SyncKeyGen};
 //!
+//! // Use a default random number generator for any randomness:
+//! let mut rng = rand::thread_rng();
+//!
 //! // Two out of four shares will suffice to sign or encrypt something.
 //! let (threshold, node_num) = (1, 4);
 //!
@@ -75,7 +78,7 @@
 //! let mut nodes = BTreeMap::new();
 //! let mut parts = Vec::new();
 //! for (id, sk) in sec_keys.into_iter().enumerate() {
-//!     let (sync_key_gen, opt_part) = SyncKeyGen::new(id, sk, pub_keys.clone(), threshold)
+//!     let (sync_key_gen, opt_part) = SyncKeyGen::new(&mut rng, id, sk, pub_keys.clone(), threshold)
 //!         .unwrap_or_else(|_| panic!("Failed to create `SyncKeyGen` instance for node #{}", id));
 //!     nodes.insert(id, sync_key_gen);
 //!     parts.push((id, opt_part.unwrap())); // Would be `None` for observer nodes.
@@ -85,7 +88,7 @@
 //! let mut acks = Vec::new();
 //! for (sender_id, part) in parts {
 //!     for (&id, node) in &mut nodes {
-//!         match node.handle_part(&sender_id, part.clone()) {
+//!         match node.handle_part(&mut rng, &sender_id, part.clone()) {
 //!             Some(PartOutcome::Valid(ack)) => acks.push((id, ack)),
 //!             Some(PartOutcome::Invalid(faults)) => panic!("Invalid part: {:?}", faults),
 //!             None => panic!("We are not an observer, so we should send Ack."),
@@ -169,7 +172,7 @@ use crypto::{
 };
 use pairing::bls12_381::{Fr, G1Affine};
 use pairing::{CurveAffine, Field};
-use rand::OsRng;
+use rand;
 
 use fault_log::{AckMessageFault as Fault, FaultKind, FaultLog};
 use messaging::NetworkInfo;
@@ -287,7 +290,8 @@ impl<N: NodeIdT> SyncKeyGen<N> {
     ///
     /// If we are not a validator but only an observer, no `Part` message is produced and no
     /// messages need to be sent.
-    pub fn new(
+    pub fn new<R: rand::Rng>(
+        rng: &mut R,
         our_id: N,
         sec_key: SecretKey,
         pub_keys: BTreeMap<N, PublicKey>,
@@ -308,13 +312,13 @@ impl<N: NodeIdT> SyncKeyGen<N> {
         if our_idx.is_none() {
             return Ok((key_gen, None)); // No part: we are an observer.
         }
-        let mut rng = OsRng::new().expect("OS random number generator");
-        let our_part = BivarPoly::random(threshold, &mut rng).map_err(Error::Creation)?;
+
+        let our_part = BivarPoly::random(threshold, rng).map_err(Error::Creation)?;
         let commit = our_part.commitment();
         let encrypt = |(i, pk): (usize, &PublicKey)| {
             let row = our_part.row(i + 1).map_err(Error::Creation)?;
             let bytes = bincode::serialize(&row).expect("failed to serialize row");
-            Ok(pk.encrypt(&bytes))
+            Ok(pk.encrypt_with_rng(rng, &bytes))
         };
         let rows = key_gen
             .pub_keys
@@ -331,8 +335,9 @@ impl<N: NodeIdT> SyncKeyGen<N> {
     ///
     /// All participating nodes must handle the exact same sequence of messages.
     /// Note that `handle_part` also needs to explicitly be called with this instance's own `Part`.
-    pub fn handle_part(
+    pub fn handle_part<R: rand::Rng>(
         &mut self,
+        rng: &mut R,
         sender_id: &N,
         Part(commit, rows): Part,
     ) -> Option<PartOutcome<N>> {
@@ -369,7 +374,7 @@ impl<N: NodeIdT> SyncKeyGen<N> {
             let wrap = FieldWrap::new(val);
             // TODO: Handle errors.
             let ser_val = bincode::serialize(&wrap).expect("failed to serialize value");
-            pk.encrypt(ser_val)
+            pk.encrypt_with_rng(rng, ser_val)
         };
         let values = self.pub_keys.values().enumerate().map(encrypt).collect();
         Some(PartOutcome::Valid(Ack(sender_idx, values)))

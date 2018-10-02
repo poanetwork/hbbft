@@ -11,9 +11,10 @@ use std::collections;
 
 use hbbft::dynamic_honey_badger::{Change, ChangeState, DynamicHoneyBadger, Input};
 use hbbft::messaging::DistAlgorithm;
-use net::proptest::NetworkDimension;
+use net::proptest::{gen_seed, NetworkDimension, TestRng, TestRngSeed};
 use net::NetBuilder;
 use proptest::prelude::ProptestConfig;
+use rand::{Rng, SeedableRng};
 
 /// Choose a node's contribution for an epoch.
 ///
@@ -53,6 +54,8 @@ struct TestConfig {
     batch_size: usize,
     /// Individual nodes contribution size.
     contribution_size: usize,
+    /// Random number generator to be passed to subsystems.
+    seed: TestRngSeed,
 }
 
 prop_compose! {
@@ -61,10 +64,11 @@ prop_compose! {
                  (dimension in NetworkDimension::range(3, 15),
                   total_txs in 20..60usize,
                   batch_size in 10..20usize,
-                  contribution_size in 1..10usize)
+                  contribution_size in 1..10usize,
+                  seed in gen_seed())
                  -> TestConfig {
         TestConfig{
-            dimension, total_txs, batch_size, contribution_size,
+            dimension, total_txs, batch_size, contribution_size, seed
         }
     }
 }
@@ -85,15 +89,17 @@ proptest!{
 /// running a regular honey badger network.
 #[cfg_attr(feature = "cargo-clippy", allow(needless_pass_by_value))]
 fn do_drop_and_readd(cfg: TestConfig) {
-    let mut rng = rand::thread_rng();
+    let mut rng: TestRng = TestRng::from_seed(cfg.seed);
 
     // First, we create a new test network with Honey Badger instances.
     let mut net = NetBuilder::new(0..cfg.dimension.size)
         .num_faulty(cfg.dimension.faulty)
         .message_limit(200_000) // Limited to 200k messages for now.
+        .rng(rng.gen::<TestRng>()) // Ensure runs are reproducible.
         .using_step(move |node| {
             println!("Constructing new dynamic honey badger node #{}", node.id);
             DynamicHoneyBadger::builder()
+                .rng(node.rng)
                 .build(node.netinfo)
                 .expect("cannot build instance")
         }).build()

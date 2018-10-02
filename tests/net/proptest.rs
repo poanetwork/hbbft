@@ -3,9 +3,31 @@
 //! This module houses strategies to generate (and reduce/expand) various `hbbft` and `net` related
 //! structures.
 
+use proptest::arbitrary::any;
 use proptest::prelude::Rng;
 use proptest::strategy::{Strategy, ValueTree};
 use proptest::test_runner::{Reason, TestRunner};
+use rand::{self, SeedableRng};
+
+/// Random number generator type used in testing.
+pub type TestRng = rand::XorShiftRng;
+
+/// Seed type of the random number generator used in testing.
+// Note: In `rand` 0.5, this is an associated type of the `SeedableRng` trait, but for 0.4 and below
+//       we still need to alias this type.
+pub type TestRngSeed = [u32; 4];
+
+/// Generates a random instance of a random number generator.
+pub fn gen_rng() -> impl Strategy<Value = TestRng> {
+    gen_seed().prop_map(TestRng::from_seed)
+}
+
+/// Generates a random seed to instantiate a `TestRng`.
+///
+/// The random seed is non-shrinkable, to avoid meaningless shrinking in case of failed tests.
+pub fn gen_seed() -> impl Strategy<Value = TestRngSeed> {
+    any::<TestRngSeed>().no_shrink()
+}
 
 /// Node network dimension.
 ///

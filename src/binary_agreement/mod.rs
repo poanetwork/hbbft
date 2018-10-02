@@ -139,10 +139,10 @@ impl rand::Rand for MessageContent {
         let message_type = *rng.choose(&["sbvb", "conf", "term", "coin"]).unwrap();
 
         match message_type {
-            "sbvb" => MessageContent::SbvBroadcast(rand::random()),
-            "conf" => MessageContent::Conf(rand::random()),
-            "term" => MessageContent::Term(rand::random()),
-            "coin" => MessageContent::Coin(Box::new(rand::random())),
+            "sbvb" => MessageContent::SbvBroadcast(rng.gen()),
+            "conf" => MessageContent::Conf(rng.gen()),
+            "term" => MessageContent::Term(rng.gen()),
+            "coin" => MessageContent::Coin(Box::new(rng.gen())),
             _ => unreachable!(),
         }
     }

@@ -399,8 +399,8 @@ where
     {
         let mut rng = rand::thread_rng();
         let node_ids = (0..(good_num + adv_num)).map(NodeId);
-        let mut netinfos =
-            NetworkInfo::generate_map(node_ids).expect("Failed to generate `NetworkInfo` map");
+        let mut netinfos = NetworkInfo::generate_map(node_ids, &mut rng)
+            .expect("Failed to generate `NetworkInfo` map");
         let obs_netinfo = {
             let node_ni = netinfos.values().next().unwrap();
             NetworkInfo::new(

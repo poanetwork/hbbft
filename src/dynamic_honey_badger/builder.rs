@@ -11,12 +11,16 @@ use super::{ChangeState, DynamicHoneyBadger, JoinPlan, Result, Step, VoteCounter
 use honey_badger::HoneyBadger;
 use messaging::NetworkInfo;
 use traits::{Contribution, NodeIdT};
+use util::SubRng;
 
 /// A Dynamic Honey Badger builder, to configure the parameters and create new instances of
 /// `DynamicHoneyBadger`.
 pub struct DynamicHoneyBadgerBuilder<C, N> {
     /// The maximum number of future epochs for which we handle messages simultaneously.
     max_future_epochs: usize,
+    /// Random number generator passed on to algorithm instance for key generation. Also used to
+    /// instantiate `HoneyBadger`.
+    rng: Box<dyn rand::Rng>,
     _phantom: PhantomData<(C, N)>,
 }
 
@@ -25,6 +29,7 @@ impl<C, N> Default for DynamicHoneyBadgerBuilder<C, N> {
         // TODO: Use the defaults from `HoneyBadgerBuilder`.
         DynamicHoneyBadgerBuilder {
             max_future_epochs: 3,
+            rng: Box::new(rand::thread_rng()),
             _phantom: PhantomData,
         }
     }
@@ -47,11 +52,21 @@ where
         self
     }
 
+    /// Sets the random number generator to be used to instantiate cryptographic structures.
+    pub fn rng<R: rand::Rng + 'static>(&mut self, rng: R) -> &mut Self {
+        self.rng = Box::new(rng);
+        self
+    }
+
     /// Creates a new Dynamic Honey Badger instance with an empty buffer.
-    pub fn build(&self, netinfo: NetworkInfo<N>) -> Result<(DynamicHoneyBadger<C, N>, Step<C, N>)> {
+    pub fn build(
+        &mut self,
+        netinfo: NetworkInfo<N>,
+    ) -> Result<(DynamicHoneyBadger<C, N>, Step<C, N>)> {
         let arc_netinfo = Arc::new(netinfo.clone());
         let (honey_badger, hb_step) = HoneyBadger::builder(arc_netinfo.clone())
             .max_future_epochs(self.max_future_epochs)
+            .rng(self.rng.sub_rng())
             .build();
         let mut dhb = DynamicHoneyBadger {
             netinfo,
@@ -62,18 +77,21 @@ where
             honey_badger,
             key_gen_state: None,
             incoming_queue: Vec::new(),
+            rng: Box::new(self.rng.sub_rng()),
         };
         let step = dhb.process_output(hb_step)?;
         Ok((dhb, step))
     }
 
     /// Creates a new `DynamicHoneyBadger` configured to start a new network as a single validator.
-    pub fn build_first_node(&self, our_id: N) -> Result<(DynamicHoneyBadger<C, N>, Step<C, N>)> {
-        let mut rng = rand::thread_rng();
-        let sk_set = SecretKeySet::random(0, &mut rng)?;
+    pub fn build_first_node(
+        &mut self,
+        our_id: N,
+    ) -> Result<(DynamicHoneyBadger<C, N>, Step<C, N>)> {
+        let sk_set = SecretKeySet::random(0, &mut self.rng)?;
         let pk_set = sk_set.public_keys();
         let sks = sk_set.secret_key_share(0)?;
-        let sk: SecretKey = rng.gen();
+        let sk: SecretKey = self.rng.gen();
         let pub_keys = once((our_id.clone(), sk.public_key())).collect();
         let netinfo = NetworkInfo::new(our_id, sks, pk_set, sk, pub_keys);
         self.build(netinfo)
@@ -82,7 +100,7 @@ where
     /// Creates a new `DynamicHoneyBadger` configured to join the network at the epoch specified in
     /// the `JoinPlan`.
     pub fn build_joining(
-        &self,
+        &mut self,
         our_id: N,
         secret_key: SecretKey,
         join_plan: JoinPlan<N>,
@@ -108,6 +126,7 @@ where
             honey_badger,
             key_gen_state: None,
             incoming_queue: Vec::new(),
+            rng: Box::new(self.rng.sub_rng()),
         };
         let mut step = dhb.process_output(hb_step)?;
         match join_plan.change {

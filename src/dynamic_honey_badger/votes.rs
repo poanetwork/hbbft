@@ -188,6 +188,8 @@ impl<N> SignedVote<N> {
 mod tests {
     use std::sync::Arc;
 
+    use rand;
+
     use super::{Change, SignedVote, VoteCounter};
     use fault_log::{FaultKind, FaultLog};
     use messaging::NetworkInfo;
@@ -199,8 +201,8 @@ mod tests {
     /// order.
     fn setup(node_num: usize, era: u64) -> (Vec<VoteCounter<usize>>, Vec<Vec<SignedVote<usize>>>) {
         // Create keys for threshold cryptography.
-        let netinfos =
-            NetworkInfo::generate_map(0..node_num).expect("Failed to generate `NetworkInfo` map");
+        let netinfos = NetworkInfo::generate_map(0..node_num, &mut rand::thread_rng())
+            .expect("Failed to generate `NetworkInfo` map");
 
         // Create a `VoteCounter` instance for each node.
         let create_counter =

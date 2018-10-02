@@ -1,9 +1,10 @@
 use rand::Rand;
-use std::mem;
 use std::sync::Arc;
+use std::{fmt, mem};
 
 use bincode;
 use crypto::Signature;
+use rand;
 use serde::{Deserialize, Serialize};
 
 use super::votes::{SignedVote, VoteCounter};
@@ -16,9 +17,9 @@ use honey_badger::{self, HoneyBadger, Message as HbMessage};
 use messaging::{DistAlgorithm, NetworkInfo, Target};
 use sync_key_gen::{Ack, Part, PartOutcome, SyncKeyGen};
 use traits::{Contribution, NodeIdT};
+use util::SubRng;
 
 /// A Honey Badger instance that can handle adding and removing nodes.
-#[derive(Debug)]
 pub struct DynamicHoneyBadger<C, N: Rand> {
     /// Shared network data.
     pub(super) netinfo: NetworkInfo<N>,
@@ -36,6 +37,29 @@ pub struct DynamicHoneyBadger<C, N: Rand> {
     pub(super) key_gen_state: Option<KeyGenState<N>>,
     /// A queue for messages from future epochs that cannot be handled yet.
     pub(super) incoming_queue: Vec<(N, Message<N>)>,
+    /// A random number generator used for secret key generation.
+    // Boxed to avoid overloading the algorithm's type with more generics.
+    pub(super) rng: Box<dyn rand::Rng>,
+}
+
+impl<C, N> fmt::Debug for DynamicHoneyBadger<C, N>
+where
+    C: fmt::Debug,
+    N: Rand + fmt::Debug,
+{
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.debug_struct("DynamicHoneyBadger")
+            .field("netinfo", &self.netinfo)
+            .field("max_future_epochs", &self.max_future_epochs)
+            .field("start_epoch", &self.start_epoch)
+            .field("vote_counter", &self.vote_counter)
+            .field("key_gen_msg_buffer", &self.key_gen_msg_buffer)
+            .field("honey_badger", &self.honey_badger)
+            .field("key_gen_state", &self.key_gen_state)
+            .field("incoming_queue", &self.incoming_queue)
+            .field("rng", &"<RNG>")
+            .finish()
+    }
 }
 
 impl<C, N> DistAlgorithm for DynamicHoneyBadger<C, N>
@@ -312,7 +336,7 @@ where
         let threshold = (pub_keys.len() - 1) / 3;
         let sk = self.netinfo.secret_key().clone();
         let our_id = self.our_id().clone();
-        let (key_gen, part) = SyncKeyGen::new(our_id, sk, pub_keys, threshold)?;
+        let (key_gen, part) = SyncKeyGen::new(&mut self.rng, our_id, sk, pub_keys, threshold)?;
         self.key_gen_state = Some(KeyGenState::new(key_gen, change.clone()));
         if let Some(part) = part {
             let step_on_send = self.send_transaction(KeyGenMessage::Part(part))?;
@@ -330,6 +354,7 @@ where
         mem::replace(&mut self.vote_counter, counter);
         let (hb, hb_step) = HoneyBadger::builder(netinfo)
             .max_future_epochs(self.max_future_epochs)
+            .rng(self.rng.sub_rng())
             .build();
         self.honey_badger = hb;
         self.process_output(hb_step)
@@ -337,8 +362,17 @@ where
 
     /// Handles a `Part` message that was output by Honey Badger.
     fn handle_part(&mut self, sender_id: &N, part: Part) -> Result<Step<C, N>> {
-        let handle = |kgs: &mut KeyGenState<N>| kgs.key_gen.handle_part(&sender_id, part);
-        match self.key_gen_state.as_mut().and_then(handle) {
+        // Awkward construction due to borrowck shortcomings; we need to borrow two struct fields
+        // mutably and have the borrow end early enough for us to call `send_transaction`.
+        // FIXME: This part should be cleaned up and restructured.
+        let res = {
+            let kgs = self.key_gen_state.as_mut();
+            let rng = &mut self.rng;
+            let handle = |kgs: &mut KeyGenState<N>| kgs.key_gen.handle_part(rng, &sender_id, part);
+            kgs.and_then(handle)
+        };
+
+        match res {
             Some(PartOutcome::Valid(ack)) => self.send_transaction(KeyGenMessage::Ack(ack)),
             Some(PartOutcome::Invalid(fault_log)) => Ok(fault_log.into()),
             None => Ok(Step::default()),
