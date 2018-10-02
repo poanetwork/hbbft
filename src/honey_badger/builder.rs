@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::marker::PhantomData;
 use std::sync::Arc;
 
@@ -22,6 +22,8 @@ where
     /// `Change::Add` command. The command should be is ongoing. The node receives any broadcast
     /// message but is not a validator.
     node_being_added: Option<N>,
+    /// Observer nodes.
+    observers: BTreeSet<N>,
     _phantom: PhantomData<C>,
 }
 
@@ -37,6 +39,7 @@ where
             netinfo,
             max_future_epochs: 3,
             node_being_added: None,
+            observers: BTreeSet::new(),
             _phantom: PhantomData,
         }
     }
@@ -53,6 +56,12 @@ where
         self
     }
 
+    /// Sets observer nodes.
+    pub fn observers(&mut self, observers: BTreeSet<N>) -> &mut Self {
+        self.observers = observers;
+        self
+    }
+
     /// Creates a new Honey Badger instance in epoch 0 and makes the initial `Step` on that
     /// instance.
     pub fn build(&self) -> (HoneyBadger<C, N>, Step<C, N>) {
@@ -66,6 +75,7 @@ where
             outgoing_queue: BTreeMap::new(),
             remote_epochs: BTreeMap::new(),
             node_being_added: self.node_being_added.clone(),
+            observers: self.observers.clone(),
         };
         // The first message in an epoch announces the epoch transition.
         (hb, Target::All.message(Message::EpochStarted(epoch)).into())

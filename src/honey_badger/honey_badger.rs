@@ -1,5 +1,5 @@
 use std::collections::btree_map::Entry;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use bincode;
@@ -33,6 +33,8 @@ pub struct HoneyBadger<C, N: Rand> {
     /// `Change::Add` command. The command should be is ongoing. The node receives any broadcast
     /// message but is not a validator.
     pub(super) node_being_added: Option<N>,
+    /// Observer nodes.
+    pub(super) observers: BTreeSet<N>,
 }
 
 pub type Step<C, N> = messaging::Step<HoneyBadger<C, N>>;
@@ -270,6 +272,7 @@ where
             self.netinfo
                 .all_ids()
                 .chain(self.node_being_added.iter())
+                .chain(self.observers.iter())
                 .filter(|&id| id != our_id),
             is_accepting_epoch,
             is_later_epoch,

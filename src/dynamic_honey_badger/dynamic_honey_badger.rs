@@ -1,5 +1,5 @@
 use std::collections::btree_map;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::mem;
 use std::sync::Arc;
 
@@ -47,6 +47,8 @@ pub struct DynamicHoneyBadger<C, N: Rand> {
     pub(super) remote_epochs: BTreeMap<N, DynamicEpoch>,
     /// The node which is being added using a `Change::Add` command. The command should be is ongoing.
     pub(super) node_being_added: Option<N>,
+    /// Observer nodes receive broadcasts but cannot propose or validate transactions.
+    pub(super) observers: BTreeSet<N>,
 }
 
 pub type Step<C, N> = messaging::Step<DynamicHoneyBadger<C, N>>;
@@ -455,7 +457,10 @@ where
         // Use the existing key shares - with the change applied - as keys for DKG.
         let mut pub_keys = self.netinfo.public_key_map().clone();
         if match *change {
-            Change::Remove(ref id) => pub_keys.remove(id).is_none(),
+            Change::Remove(ref id) => {
+                self.observers.insert(id.clone());
+                pub_keys.remove(id).is_none()
+            }
             Change::Add(ref id, ref pk) => {
                 self.set_node_being_added(id)?;
                 pub_keys.insert(id.clone(), pk.clone()).is_some()
@@ -488,6 +493,7 @@ where
             add = true;
         }
         if add {
+            self.observers.remove(id);
             self.node_being_added = Some(id.clone());
         }
         Ok(())
@@ -525,6 +531,7 @@ where
         let (hb, hb_step) = HoneyBadger::builder(netinfo)
             .max_future_epochs(self.max_future_epochs)
             .node_being_added(self.node_being_added.clone())
+            .observers(self.observers.clone())
             .build();
         self.honey_badger = hb;
         self.process_output(hb_step)
@@ -639,6 +646,7 @@ where
             .netinfo
             .all_ids()
             .chain(self.node_being_added.iter())
+            .chain(self.observers.iter())
             .filter(|&id| id != our_id)
             .into_iter();
         let deferred_msgs = step.defer_messages(
