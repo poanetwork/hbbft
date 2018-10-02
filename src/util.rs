@@ -5,7 +5,7 @@
 
 use rand;
 
-/// Work-around trait for creating new random number generators
+/// Workaround trait for creating new random number generators
 pub trait SubRng {
     fn sub_rng(&mut self) -> Box<dyn rand::Rng>;
 }

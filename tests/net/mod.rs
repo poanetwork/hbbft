@@ -247,8 +247,8 @@ where
     pub faulty: bool,
     /// An initialized random number generated for exclusive use by the node.
     ///
-    /// Can be ignored, but usually comes in handy with algorithm that require additional randomness
-    /// for instantiation or operation.
+    /// Can be ignored, but usually comes in handy with algorithms that require additional
+    /// randomness for instantiation or operation.
     ///
     /// Note that the random number generator type may differ from the one set for generation on
     /// the `VirtualNet`, due to limitations of the `rand` crates API.
