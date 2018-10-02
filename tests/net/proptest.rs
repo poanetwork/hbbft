@@ -19,7 +19,7 @@ pub type TestRngSeed = [u32; 4];
 
 /// Generates a random instance of a random number generator.
 pub fn gen_rng() -> impl Strategy<Value = TestRng> {
-    gen_seed().prop_map(|seed| TestRng::from_seed(seed))
+    gen_seed().prop_map(TestRng::from_seed)
 }
 
 /// Generates a random seed to instantiate a `TestRng`.
