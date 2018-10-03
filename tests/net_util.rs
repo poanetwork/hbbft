@@ -3,14 +3,55 @@ extern crate hbbft;
 #[macro_use]
 extern crate proptest;
 extern crate rand;
+extern crate rand_core;
 extern crate threshold_crypto;
 
 pub mod net;
 
-use proptest::strategy::ValueTree;
-use proptest::test_runner::TestRunner;
+use proptest::arbitrary::any;
+use proptest::prelude::RngCore;
+use proptest::strategy::{Strategy, ValueTree};
+use rand::{Rng as Rng4, SeedableRng as SeedableRng4};
 
 use net::proptest::{NetworkDimension, NetworkDimensionTree};
+
+struct RngAdapter4To5<T>(pub T);
+
+impl<T> Rng4 for RngAdapter4To5<T>
+where
+    T: Rng4,
+{
+    #[inline]
+    fn next_u32(&mut self) -> u32 {
+        self.0.next_u32()
+    }
+}
+
+impl<T> RngCore for RngAdapter4To5<T>
+where
+    T: Rng4,
+{
+    #[inline]
+    fn next_u32(&mut self) -> u32 {
+        self.0.next_u32()
+    }
+
+    #[inline]
+    fn next_u64(&mut self) -> u64 {
+        self.0.next_u64()
+    }
+
+    #[inline]
+    fn fill_bytes(&mut self, bytes: &mut [u8]) {
+        self.0.fill_bytes(bytes);
+    }
+
+    #[inline]
+    fn try_fill_bytes(&mut self, bytes: &mut [u8]) -> Result<(), rand_core::Error> {
+        self.0.fill_bytes(bytes);
+        Ok(())
+    }
+}
 
 /// Checks the `check_sanity` function with various inputs.
 #[test]
@@ -98,32 +139,38 @@ proptest!{
     }
 }
 
-/// Verifies generated network dimensions can be grown and shrunk multiple times.
-#[test]
-fn network_dimensions_shrink_and_grow() {
-    let mut runner = TestRunner::new(Default::default());
+#[derive(Debug)]
+enum Op {
+    Simplify,
+    Complicate,
+}
 
-    let mut tree = NetworkDimensionTree::gen(runner.rng(), 1, 40);
-    assert!(tree.current().is_bft());
+fn any_op() -> impl Strategy<Value = Op> {
+    any::<bool>().prop_map(|v| if v { Op::Simplify } else { Op::Complicate })
+}
 
-    // We complicate and simplify a few times.
-    for _ in 0..10 {
-        tree.complicate();
+proptest!{
+    /// Verifies generated network dimensions can be grown and shrunk multiple times.
+    #[test]
+    fn network_dimensions_shrink_and_grow(
+        // dim in NetworkDimension::range(1, 400).no_shrink(),
+        seed in any::<[u32; 4]>().no_shrink(),
+        // num_ops in 10..10000,
+        ops in proptest::collection::vec(any_op(), 1..100)
+    ) {
+        let mut rng5 = RngAdapter4To5(rand::XorShiftRng::from_seed(seed));
+
+        let mut tree = NetworkDimensionTree::gen(&mut rng5, 1, 40);
         assert!(tree.current().is_bft());
-    }
+        println!("Current: {:?}", tree);
 
-    for _ in 0..20 {
-        tree.simplify();
-        assert!(tree.current().is_bft());
-    }
+        for op in ops.iter() {
+            match op {
+                Op::Simplify => tree.simplify(),
+                Op::Complicate => tree.complicate(),
+            };
 
-    for _ in 0..10 {
-        tree.complicate();
-        assert!(tree.current().is_bft());
-    }
-
-    for _ in 0..10 {
-        tree.simplify();
-        assert!(tree.current().is_bft());
+            assert!(tree.current().is_bft());
+        }
     }
 }
