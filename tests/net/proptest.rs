@@ -38,9 +38,9 @@ pub fn gen_seed() -> impl Strategy<Value = TestRngSeed> {
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub struct NetworkDimension {
     /// Total number of nodes in network.
-    pub size: u16,
+    size: u16,
     /// Number of faulty nodes in a network.
-    pub faulty: u16,
+    faulty: u16,
     /// Hidden value to prevent instantion outside of `new`:
     _hidden: (),
 }
@@ -63,6 +63,16 @@ impl NetworkDimension {
             "Tried to create network dimension that violates BFT-property."
         );
         dim
+    }
+
+    #[inline]
+    pub fn faulty(&self) -> usize {
+        self.faulty.into()
+    }
+
+    #[inline]
+    pub fn size(&self) -> usize {
+        self.size.into()
     }
 
     /// Checks whether the network dimension satisfies the `3 * faulty + 1 <= size` condition.

@@ -150,8 +150,8 @@ fn do_example_test(seed: TestRngSeed, dimension: NetworkDimension) {
     // Instantiates a new random number generator for the test.
     let mut rng: TestRng = TestRng::from_seed(cfg.seed);
 
-    let mut net = NetBuilder::new(0..dimension.size)
-        .num_faulty(cfg.dimension.faulty)
+    let mut net = NetBuilder::new(0..dimension.size())
+        .num_faulty(cfg.dimension.faulty())
         // Setting `rng` ensures that randomness will only be retrieved by
         // `VirtualNet` from the `TestRng` instantiated above.
         .rng(rng)
@@ -199,8 +199,8 @@ proptest! {
 }
 
 fn do_basic_operations(dimension: NetworkDimension, num_txs: u32) {
-    let mut net = NetBuilder::new(0..cfg.dimension.size)
-        .num_faulty(cfg.dimension.faulty)
+    let mut net = NetBuilder::new(0..cfg.dimension.size())
+        .num_faulty(cfg.dimension.faulty())
         // ...
 }
 ```
