@@ -46,6 +46,7 @@ proptest = "0.8.7"
 #       tests and should be removed as soon as a migration path to rand 0.5
 #       appears.
 rand_core = "0.2.1"
+integer-sqrt = "0.1.1"
 
 [[example]]
 name = "consensus-node"

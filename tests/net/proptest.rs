@@ -3,6 +3,7 @@
 //! This module houses strategies to generate (and reduce/expand) various `hbbft` and `net` related
 //! structures.
 
+use integer_sqrt::IntegerSquareRoot;
 use proptest::arbitrary::any;
 use proptest::prelude::Rng;
 use proptest::strategy::{Strategy, ValueTree};
@@ -34,12 +35,12 @@ pub fn gen_seed() -> impl Strategy<Value = TestRngSeed> {
 /// A `NetworkDimension` describes the number of correct and faulty nodes in a network. It can also
 /// be checked, "averaged" (using the `average_higher` function) and generated using
 /// `NetworkDimensionTree`.
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub struct NetworkDimension {
     /// Total number of nodes in network.
-    pub size: usize,
+    pub size: u16,
     /// Number of faulty nodes in a network.
-    pub faulty: usize,
+    pub faulty: u16,
 }
 
 impl NetworkDimension {
@@ -48,7 +49,7 @@ impl NetworkDimension {
     /// Dimensions that do not satisfy BFT conditions (see `is_bft`) can be created using this
     /// function.
     #[inline]
-    pub fn new(size: usize, faulty: usize) -> Self {
+    pub fn new(size: u16, faulty: u16) -> Self {
         NetworkDimension { size, faulty }
     }
 
@@ -94,8 +95,25 @@ impl NetworkDimension {
 
     /// Creates a proptest strategy to create network dimensions within a certain range.
     #[inline]
-    pub fn range(min_size: usize, max_size: usize) -> NetworkDimensionStrategy {
+    pub fn range(min_size: u16, max_size: u16) -> NetworkDimensionStrategy {
         NetworkDimensionStrategy { min_size, max_size }
+    }
+
+    /// Returns next-larger network dimension.
+    ///
+    /// The order on `NetworkDimension` is canonically defined by `(size, faulty)`. The `succ`
+    /// function returns the next-higher valid instance by first trying to increase `faulty`, then
+    /// `size`.
+    pub fn succ(&self) -> NetworkDimension {
+        let mut n = self.size;
+        let mut f = self.faulty + 1;
+
+        if 3 * f >= n {
+            f = 0;
+            n += 1;
+        }
+
+        NetworkDimension { size: n, faulty: f }
     }
 }
 
@@ -121,7 +139,7 @@ impl NetworkDimensionTree {
     /// # Panics
     ///
     /// The minimum `min_size` is 1 and `min_size` must be less than or equal `max_size`.
-    pub fn gen<R: Rng>(mut rng: R, min_size: usize, max_size: usize) -> Self {
+    pub fn gen<R: Rng>(mut rng: R, min_size: u16, max_size: u16) -> Self {
         // A common mistake, add an extra assert for a more helpful error message.
         assert!(min_size > 0, "minimum network size is 1");
 
@@ -190,13 +208,70 @@ impl ValueTree for NetworkDimensionTree {
     }
 }
 
+impl From<NetworkDimension> for u32 {
+    fn from(dim: NetworkDimension) -> u32 {
+        // `b` is the "Block index" here. Counting through `NetworkDimensions` a pattern shows:
+        //
+        //  n   f
+        //  1   0  \
+        //  2   0   |- Block 0
+        //  3   0  /
+        //  4   0 \
+        //  4   1  \
+        //  5   0   >  Block 1
+        //  5   1   |
+        //  6   0  /
+        //  6   1 /
+        //  7   0 ...
+        //
+        // We observe that each block starts at index `3 * (b(b+1)/2)`. Along with the offset,
+        // we can calculate a mapping onto the natural numbers using this:
+
+        let b = (dim.size as u32 - 1) / 3;
+        let start = 3 * b * (b + 1) / 2;
+        let offset = (dim.size as u32 - 3 * b - 1) * (b + 1) + dim.faulty as u32;
+
+        start + offset
+    }
+}
+
+impl From<u32> for NetworkDimension {
+    fn from(n: u32) -> NetworkDimension {
+        // Inverse of `u32 as From<NetworkDimension>`:
+
+        // Find the block number first:
+        let b = max_sum(n / 3);
+
+        // Calculate the block start and the resulting offset of `n`:
+        let start = 3 * b * (b + 1) / 2;
+        let offset = n - start;
+
+        let faulty = offset % (b + 1);
+        let size = 3 * b + 1 + offset / (b + 1);
+
+        NetworkDimension {
+            size: size as u16,
+            faulty: faulty as u16,
+        }
+    }
+}
+
+/// Finds the largest consecutive summand less or equal than `n`.
+///
+/// The return value `k` will satisfy `SUM 1..k <= n`.
+pub fn max_sum(n: u32) -> u32 {
+    // Derived by quadratically solving `n(n+1)/2`; we only want the "positive" result.
+    // `integer_sqrt` functions as a `floor` function here.
+    ((1 + 8 * n).integer_sqrt() - 1) / 2
+}
+
 /// Network dimension strategy for proptest.
 #[derive(Debug)]
 pub struct NetworkDimensionStrategy {
     /// Minimum number of nodes for newly generated networks dimensions.
-    pub min_size: usize,
+    pub min_size: u16,
     /// Maximum number of nodes for newly generated networks dimensions.
-    pub max_size: usize,
+    pub max_size: u16,
 }
 
 impl Strategy for NetworkDimensionStrategy {
