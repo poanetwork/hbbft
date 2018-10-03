@@ -82,8 +82,12 @@ impl NetworkDimension {
             half.faulty -= 1;
         }
 
-        // This assert just checks for bugs.
+        // Perform invariant checking.
         assert!(half.is_bft());
+        assert!(half.size >= self.size);
+        assert!(half.faulty >= self.faulty);
+        assert!(half.size <= high.size);
+        assert!(half.faulty <= high.faulty);
 
         half
     }
