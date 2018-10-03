@@ -21,6 +21,7 @@ pub struct DynamicHoneyBadgerBuilder<C, N> {
     /// Random number generator passed on to algorithm instance for key generation. Also used to
     /// instantiate `HoneyBadger`.
     rng: Box<dyn rand::Rng>,
+    /// Strategy used to handle the output of the `Subset` algorithm.
     subset_handling_strategy: SubsetHandlingStrategy,
     _phantom: PhantomData<(C, N)>,
 }
@@ -60,6 +61,7 @@ where
         self
     }
 
+    /// Sets the strategy to use when handling `Subset` output.
     pub fn subset_handling_strategy(
         &mut self,
         subset_handling_strategy: SubsetHandlingStrategy,

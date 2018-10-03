@@ -110,20 +110,26 @@ where
 /// proposals from a `Subset` instance.
 #[derive(Debug, Clone)]
 pub enum SubsetHandlingStrategy {
+    /// Sets the `EpochState` to return proposals as they are contributed.
     Incremental,
+    /// Sets the `EpochState` to return all received proposals once consensus has been finalized.
     AllAtEnd,
 }
 
 /// Used in an `EpochState` to encapsulate the state necessary to maintain each
 /// `SubsetHandlingStrategy`.
 #[derive(Debug, Clone)]
-pub enum SubsetHandler<N> {
+enum SubsetHandler<N> {
     Incremental,
     AllAtEnd(Vec<(N, Vec<u8>)>),
 }
 
-pub struct SubsetHandleData<N> {
+/// The result of a call to `SubsetHandler::handle(...)`.
+struct SubsetHandleData<N> {
+    /// The number of contributions propagated from the handler.
     contributions: Vec<(N, Vec<u8>)>,
+    /// Indicates whether the underlying `Subset` algorithm has achieved consensus and whether
+    /// there may be more contributions or not.
     is_done: bool,
 }
 

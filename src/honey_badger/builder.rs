@@ -22,6 +22,7 @@ where
     max_future_epochs: usize,
     /// Random number generator passed on to algorithm instance for signing and encrypting.
     rng: Box<dyn Rng>,
+    /// Strategy used to handle the output of the `Subset` algorithm.
     subset_handling_strategy: SubsetHandlingStrategy,
     _phantom: PhantomData<C>,
 }
@@ -55,6 +56,7 @@ where
         self
     }
 
+    /// Sets the strategy to use when handling `Subset` output.
     pub fn subset_handling_strategy(
         &mut self,
         subset_handling_strategy: SubsetHandlingStrategy,
