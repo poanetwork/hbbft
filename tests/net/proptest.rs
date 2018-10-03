@@ -47,11 +47,13 @@ impl NetworkDimension {
     ///
     /// Dimensions that do not satisfy BFT conditions (see `is_bft`) can be created using this
     /// function.
+    #[inline]
     pub fn new(size: usize, faulty: usize) -> Self {
         NetworkDimension { size, faulty }
     }
 
     /// Checks whether the network dimension satisfies the `3 * faulty + 1 <= size` condition.
+    #[inline]
     pub fn is_bft(&self) -> bool {
         self.faulty * 3 < self.size
     }
@@ -87,6 +89,7 @@ impl NetworkDimension {
     }
 
     /// Creates a proptest strategy to create network dimensions within a certain range.
+    #[inline]
     pub fn range(min_size: usize, max_size: usize) -> NetworkDimensionStrategy {
         NetworkDimensionStrategy { min_size, max_size }
     }
