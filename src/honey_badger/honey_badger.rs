@@ -32,7 +32,7 @@ pub struct HoneyBadger<C, N: Rand> {
     pub(super) remote_epochs: BTreeMap<N, u64>,
     /// A random number generator used for secret key generation.
     // Boxed to avoid overloading the algorithm's type with more generics.
-    pub(super) rng: Box<dyn Rng + Send>,
+    pub(super) rng: Box<dyn Rng + Send + Sync>,
     /// Represents the optimization strategy to use for output of the `Subset` algorithm.
     pub(super) subset_handling_strategy: SubsetHandlingStrategy,
 }

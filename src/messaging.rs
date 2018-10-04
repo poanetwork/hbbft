@@ -185,7 +185,7 @@ impl<D: DistAlgorithm> From<TargetedMessage<D::Message, D::NodeId>> for Step<D> 
 }
 
 /// A distributed algorithm that defines a message flow.
-pub trait DistAlgorithm: Send {
+pub trait DistAlgorithm: Send + Sync {
     /// Unique node identifier.
     type NodeId: NodeIdT;
     /// The input provided by the user.
