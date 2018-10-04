@@ -41,8 +41,6 @@ pub struct NetworkDimension {
     size: u16,
     /// Number of faulty nodes in a network.
     faulty: u16,
-    /// Hidden value to prevent instantion outside of `new`:
-    _hidden: (),
 }
 
 impl NetworkDimension {
@@ -53,11 +51,7 @@ impl NetworkDimension {
 
     #[inline]
     pub fn new(size: u16, faulty: u16) -> Self {
-        let dim = NetworkDimension {
-            size,
-            faulty,
-            _hidden: (),
-        };
+        let dim = NetworkDimension { size, faulty };
         assert!(
             dim.is_bft(),
             "Tried to create network dimension that violates BFT-property."
