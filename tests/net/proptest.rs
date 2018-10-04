@@ -60,18 +60,18 @@ impl NetworkDimension {
     }
 
     #[inline]
-    pub fn faulty(&self) -> usize {
+    pub fn faulty(self) -> usize {
         self.faulty.into()
     }
 
     #[inline]
-    pub fn size(&self) -> usize {
+    pub fn size(self) -> usize {
         self.size.into()
     }
 
     /// Checks whether the network dimension satisfies the `3 * faulty + 1 <= size` condition.
     #[inline]
-    fn is_bft(&self) -> bool {
+    fn is_bft(self) -> bool {
         self.faulty * 3 < self.size
     }
 
@@ -87,7 +87,7 @@ impl NetworkDimension {
     /// function returns the next-higher valid instance by first trying to increase `faulty`, then
     /// `size`.
     #[inline]
-    pub fn succ(&self) -> NetworkDimension {
+    pub fn succ(self) -> NetworkDimension {
         let mut n = self.size;
         let mut f = self.faulty + 1;
 
@@ -189,9 +189,9 @@ impl From<NetworkDimension> for u32 {
         // We observe that each block starts at index `3 * (b(b+1)/2)`. Along with the offset,
         // we can calculate a mapping onto the natural numbers using this:
 
-        let b = (dim.size as u32 - 1) / 3;
+        let b = (u32::from(dim.size) - 1) / 3;
         let start = 3 * b * (b + 1) / 2;
-        let offset = (dim.size as u32 - 3 * b - 1) * (b + 1) + dim.faulty as u32;
+        let offset = (u32::from(dim.size) - 3 * b - 1) * (b + 1) + u32::from(dim.faulty);
 
         start + offset
     }

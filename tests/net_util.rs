@@ -86,7 +86,7 @@ proptest!{
         let mut tree = NetworkDimensionTree::gen(&mut rng5, 1, 40);
         println!("Start: {:?}", tree);
 
-        for op in ops.iter() {
+        for op in ops {
             println!("Op: {:?}", op);
             match op {
                 Op::Simplify => tree.simplify(),
