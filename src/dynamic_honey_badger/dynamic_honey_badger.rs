@@ -39,7 +39,7 @@ pub struct DynamicHoneyBadger<C, N: Rand> {
     pub(super) incoming_queue: Vec<(N, Message<N>)>,
     /// A random number generator used for secret key generation.
     // Boxed to avoid overloading the algorithm's type with more generics.
-    pub(super) rng: Box<dyn rand::Rng>,
+    pub(super) rng: Box<dyn rand::Rng + Send>,
 }
 
 impl<C, N> fmt::Debug for DynamicHoneyBadger<C, N>
