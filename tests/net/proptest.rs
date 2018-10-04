@@ -3,6 +3,7 @@
 //! This module houses strategies to generate (and reduce/expand) various `hbbft` and `net` related
 //! structures.
 
+use integer_sqrt::IntegerSquareRoot;
 use proptest::arbitrary::any;
 use proptest::prelude::Rng;
 use proptest::strategy::{Strategy, ValueTree};
@@ -34,61 +35,68 @@ pub fn gen_seed() -> impl Strategy<Value = TestRngSeed> {
 /// A `NetworkDimension` describes the number of correct and faulty nodes in a network. It can also
 /// be checked, "averaged" (using the `average_higher` function) and generated using
 /// `NetworkDimensionTree`.
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub struct NetworkDimension {
     /// Total number of nodes in network.
-    pub size: usize,
+    size: u16,
     /// Number of faulty nodes in a network.
-    pub faulty: usize,
+    faulty: u16,
 }
 
 impl NetworkDimension {
     /// Creates a new `NetworkDimension` with the supplied parameters.
     ///
-    /// Dimensions that do not satisfy BFT conditions (see `is_bft`) can be created using this
-    /// function.
-    pub fn new(size: usize, faulty: usize) -> Self {
-        NetworkDimension { size, faulty }
+    /// # Panics
+    ///
+
+    #[inline]
+    pub fn new(size: u16, faulty: u16) -> Self {
+        let dim = NetworkDimension { size, faulty };
+        assert!(
+            dim.is_bft(),
+            "Tried to create network dimension that violates BFT-property."
+        );
+        dim
+    }
+
+    #[inline]
+    pub fn faulty(self) -> usize {
+        self.faulty.into()
+    }
+
+    #[inline]
+    pub fn size(self) -> usize {
+        self.size.into()
     }
 
     /// Checks whether the network dimension satisfies the `3 * faulty + 1 <= size` condition.
-    pub fn is_bft(&self) -> bool {
+    #[inline]
+    fn is_bft(self) -> bool {
         self.faulty * 3 < self.size
     }
 
-    /// Creates a new dimension of average complexity.
-    ///
-    /// The new dimension is approximately half way in the interval of `[self, high]` and will
-    /// conform to the constraint checked by `is_bft()`.
-    ///
-    /// # Panics
-    ///
-    /// `high` must be have a higher or equal size and faulty node count.
-    pub fn average_higher(&self, high: NetworkDimension) -> NetworkDimension {
-        assert!(high.size >= self.size);
-        assert!(high.faulty >= self.faulty);
-
-        // We try halving both values, rounding down. If `size` is at the minimum, `faulty` will
-        // shrink afterwards.
-        let mut half = NetworkDimension {
-            size: self.size + (high.size - self.size) / 2,
-            faulty: self.faulty + (high.faulty - self.faulty) / 2,
-        };
-
-        // Reduce the number of faulty nodes, if we are outside our limits.
-        if half.faulty * 3 > half.size {
-            half.faulty -= 1;
-        }
-
-        // This assert just checks for bugs.
-        assert!(half.is_bft());
-
-        half
+    /// Creates a proptest strategy to create network dimensions within a certain range.
+    #[inline]
+    pub fn range(min_size: u16, max_size: u16) -> NetworkDimensionStrategy {
+        NetworkDimensionStrategy { min_size, max_size }
     }
 
-    /// Creates a proptest strategy to create network dimensions within a certain range.
-    pub fn range(min_size: usize, max_size: usize) -> NetworkDimensionStrategy {
-        NetworkDimensionStrategy { min_size, max_size }
+    /// Returns next-larger network dimension.
+    ///
+    /// The order on `NetworkDimension` is canonically defined by `(size, faulty)`. The `succ`
+    /// function returns the next-higher valid instance by first trying to increase `faulty`, then
+    /// `size`.
+    #[inline]
+    pub fn succ(self) -> NetworkDimension {
+        let mut n = self.size;
+        let mut f = self.faulty + 1;
+
+        if 3 * f >= n {
+            f = 0;
+            n += 1;
+        }
+
+        NetworkDimension::new(n, f)
     }
 }
 
@@ -98,11 +106,11 @@ impl NetworkDimension {
 #[derive(Copy, Clone, Debug)]
 pub struct NetworkDimensionTree {
     /// The upper bound for any generated dimension.
-    high: NetworkDimension,
+    high: u32,
     /// The currently generated network dimension.
-    current: NetworkDimension,
+    current: u32,
     /// The lower bound for any generated dimension value (changes during generation or shrinking).
-    low: NetworkDimension,
+    low: u32,
 }
 
 impl NetworkDimensionTree {
@@ -114,7 +122,7 @@ impl NetworkDimensionTree {
     /// # Panics
     ///
     /// The minimum `min_size` is 1 and `min_size` must be less than or equal `max_size`.
-    pub fn gen<R: Rng>(mut rng: R, min_size: usize, max_size: usize) -> Self {
+    pub fn gen<R: Rng>(mut rng: R, min_size: u16, max_size: u16) -> Self {
         // A common mistake, add an extra assert for a more helpful error message.
         assert!(min_size > 0, "minimum network size is 1");
 
@@ -122,22 +130,12 @@ impl NetworkDimensionTree {
         let max_faulty = (total - 1) / 3;
         let faulty = rng.gen_range(0, max_faulty + 1);
 
-        let high = NetworkDimension {
-            size: total,
-            faulty,
-        };
-        assert!(high.is_bft());
-
-        let low = NetworkDimension {
-            size: min_size,
-            faulty: 0,
-        };
-        assert!(low.is_bft());
+        let high = NetworkDimension::new(total, faulty);
 
         NetworkDimensionTree {
-            high,
-            current: high,
-            low,
+            high: high.into(),
+            current: high.into(),
+            low: 0,
         }
     }
 }
@@ -146,15 +144,14 @@ impl ValueTree for NetworkDimensionTree {
     type Value = NetworkDimension;
 
     fn current(&self) -> Self::Value {
-        self.current
+        self.current.into()
     }
 
     fn simplify(&mut self) -> bool {
-        // Shrinking is simply done through `average_higher`.
         let prev = *self;
 
-        self.high = prev.current;
-        self.current = self.low.average_higher(prev.high);
+        self.high = self.current;
+        self.current = (self.low + self.high) / 2;
 
         (prev.high != self.high || prev.current != self.current)
     }
@@ -162,34 +159,78 @@ impl ValueTree for NetworkDimensionTree {
     fn complicate(&mut self) -> bool {
         let prev = *self;
 
-        // Minimally increase the faulty-node ratio by adjusting the number of faulty nodes and the
-        // size slightly less. If we are at the maximum number of faulty nodes, we would end up
-        // increasing the network size instead (see branch below though).
-        let mut new_low = self.current;
-        new_low.faulty += 1;
-        new_low.size = (new_low.size + 2).max(new_low.faulty * 3 + 1);
-        assert!(new_low.is_bft());
-
-        // Instead of growing the network, return unchanged if the new network would be larger than
-        // the current high.
-        if new_low.size > self.high.size {
+        if self.high == self.current {
             return false;
         }
 
-        self.current = new_low.average_higher(self.high);
-        self.low = new_low;
+        self.low = self.current + 1;
+        self.current = (self.low + self.high) / 2;
 
         (prev.current != self.current || prev.low != self.low)
     }
+}
+
+impl From<NetworkDimension> for u32 {
+    fn from(dim: NetworkDimension) -> u32 {
+        // `b` is the "Block index" here. Counting through `NetworkDimensions` a pattern shows:
+        //
+        //  n   f
+        //  1   0  \
+        //  2   0   |- Block 0
+        //  3   0  /
+        //  4   0 \
+        //  4   1  \
+        //  5   0   >  Block 1
+        //  5   1   |
+        //  6   0  /
+        //  6   1 /
+        //  7   0 ...
+        //
+        // We observe that each block starts at index `3 * (b(b+1)/2)`. Along with the offset,
+        // we can calculate a mapping onto the natural numbers using this:
+
+        let b = (u32::from(dim.size) - 1) / 3;
+        let start = 3 * b * (b + 1) / 2;
+        let offset = (u32::from(dim.size) - 3 * b - 1) * (b + 1) + u32::from(dim.faulty);
+
+        start + offset
+    }
+}
+
+impl From<u32> for NetworkDimension {
+    fn from(n: u32) -> NetworkDimension {
+        // Inverse of `u32 as From<NetworkDimension>`:
+
+        // Find the block number first:
+        let b = max_sum(n / 3);
+
+        // Calculate the block start and the resulting offset of `n`:
+        let start = 3 * b * (b + 1) / 2;
+        let offset = n - start;
+
+        let faulty = offset % (b + 1);
+        let size = 3 * b + 1 + offset / (b + 1);
+
+        NetworkDimension::new(size as u16, faulty as u16)
+    }
+}
+
+/// Finds the largest consecutive summand less or equal than `n`.
+///
+/// The return value `k` will satisfy `SUM 1..k <= n`.
+pub fn max_sum(n: u32) -> u32 {
+    // Derived by quadratically solving `n(n+1)/2`; we only want the "positive" result.
+    // `integer_sqrt` functions as a `floor` function here.
+    ((1 + 8 * n).integer_sqrt() - 1) / 2
 }
 
 /// Network dimension strategy for proptest.
 #[derive(Debug)]
 pub struct NetworkDimensionStrategy {
     /// Minimum number of nodes for newly generated networks dimensions.
-    pub min_size: usize,
+    pub min_size: u16,
     /// Maximum number of nodes for newly generated networks dimensions.
-    pub max_size: usize,
+    pub max_size: u16,
 }
 
 impl Strategy for NetworkDimensionStrategy {

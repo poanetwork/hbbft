@@ -2,128 +2,219 @@ extern crate failure;
 extern crate hbbft;
 #[macro_use]
 extern crate proptest;
+extern crate integer_sqrt;
 extern crate rand;
+extern crate rand_core;
 extern crate threshold_crypto;
 
 pub mod net;
 
-use proptest::strategy::ValueTree;
-use proptest::test_runner::TestRunner;
+use proptest::arbitrary::any;
+use proptest::prelude::RngCore;
+use proptest::strategy::{Strategy, ValueTree};
+use rand::{Rng as Rng4, SeedableRng as SeedableRng4};
 
-use net::proptest::{NetworkDimension, NetworkDimensionTree};
+use net::proptest::{max_sum, NetworkDimension, NetworkDimensionTree};
 
-/// Checks the `check_sanity` function with various inputs.
-#[test]
-fn check_sanity_works() {
-    assert!(NetworkDimension::new(3, 0).is_bft());
-    assert!(NetworkDimension::new(4, 0).is_bft());
-    assert!(NetworkDimension::new(5, 0).is_bft());
-    assert!(NetworkDimension::new(6, 0).is_bft());
-    assert!(!NetworkDimension::new(3, 1).is_bft());
-    assert!(NetworkDimension::new(4, 1).is_bft());
-    assert!(NetworkDimension::new(5, 1).is_bft());
-    assert!(NetworkDimension::new(6, 1).is_bft());
-    assert!(NetworkDimension::new(16, 3).is_bft());
-    assert!(NetworkDimension::new(17, 3).is_bft());
-    assert!(NetworkDimension::new(18, 3).is_bft());
-    assert!(NetworkDimension::new(19, 3).is_bft());
-    assert!(NetworkDimension::new(16, 5).is_bft());
-    assert!(NetworkDimension::new(17, 5).is_bft());
-    assert!(NetworkDimension::new(18, 5).is_bft());
-    assert!(NetworkDimension::new(19, 5).is_bft());
-    assert!(!NetworkDimension::new(16, 6).is_bft());
-    assert!(!NetworkDimension::new(17, 6).is_bft());
-    assert!(!NetworkDimension::new(18, 6).is_bft());
-    assert!(NetworkDimension::new(19, 6).is_bft());
-    assert!(!NetworkDimension::new(19, 19).is_bft());
-    assert!(!NetworkDimension::new(19, 21).is_bft());
+struct RngAdapter4To5<T>(pub T);
 
-    // Edge cases:
-    assert!(NetworkDimension::new(1, 0).is_bft());
-    assert!(!NetworkDimension::new(0, 0).is_bft());
-    assert!(!NetworkDimension::new(1, 1).is_bft());
-}
-
-proptest!{
-    /// Ensure that `.average_higher()` produces valid new dimensions.
-    #[test]
-    fn average_higher_is_bft(size in 4..40usize) {
-        let mut faulty: usize = size/3;
-        if faulty > 0 {
-            faulty -= 1;
-        }
-
-        let high = NetworkDimension::new(size, faulty);
-        let low = NetworkDimension::new(size/4, faulty/12);
-
-        println!("high: {:?}, low: {:?}", high, low);
-        assert!(high.is_bft());
-        assert!(low.is_bft());
-
-        let average_higher = low.average_higher(high);
-        println!("average_higher: {:?}", average_higher);
-        assert!(average_higher.is_bft());
+impl<T> Rng4 for RngAdapter4To5<T>
+where
+    T: Rng4,
+{
+    #[inline]
+    fn next_u32(&mut self) -> u32 {
+        self.0.next_u32()
     }
 }
 
-/// Ensure `.average_higher()` works for edge cases.
-#[test]
-fn average_higher_handles_edge_cases() {
-    let high = NetworkDimension::new(1, 0);
-    let low = NetworkDimension::new(1, 0);
-    let average_higher = low.average_higher(high);
-    assert!(average_higher.is_bft());
+impl<T> RngCore for RngAdapter4To5<T>
+where
+    T: Rng4,
+{
+    #[inline]
+    fn next_u32(&mut self) -> u32 {
+        self.0.next_u32()
+    }
 
-    let high = NetworkDimension::new(10, 0);
-    let low = NetworkDimension::new(10, 0);
-    let average_higher = low.average_higher(high);
-    assert!(average_higher.is_bft());
+    #[inline]
+    fn next_u64(&mut self) -> u64 {
+        self.0.next_u64()
+    }
 
-    let high = NetworkDimension::new(10, 3);
-    let low = NetworkDimension::new(10, 3);
-    let average_higher = low.average_higher(high);
-    assert!(average_higher.is_bft());
+    #[inline]
+    fn fill_bytes(&mut self, bytes: &mut [u8]) {
+        self.0.fill_bytes(bytes);
+    }
 
-    let high = NetworkDimension::new(11, 3);
-    let low = NetworkDimension::new(10, 3);
-    let average_higher = low.average_higher(high);
-    assert!(average_higher.is_bft());
+    #[inline]
+    fn try_fill_bytes(&mut self, bytes: &mut [u8]) -> Result<(), rand_core::Error> {
+        self.0.fill_bytes(bytes);
+        Ok(())
+    }
 }
 
 proptest!{
     /// Ensures all generated network dimensions are actually sane.
     #[test]
-    fn generated_network_dimensions_are_sane(nt in NetworkDimension::range(1, 400)) {
-        assert!(nt.is_bft());
+    fn generated_network_dimensions_are_sane(_nt in NetworkDimension::range(1, 400)) {
+        // Nothing to do here, assert already in `NetworkDimension::new`.
     }
 }
 
-/// Verifies generated network dimensions can be grown and shrunk multiple times.
+#[derive(Debug)]
+enum Op {
+    Simplify,
+    Complicate,
+}
+
+fn any_op() -> impl Strategy<Value = Op> {
+    any::<bool>().prop_map(|v| if v { Op::Simplify } else { Op::Complicate })
+}
+
+proptest!{
+    /// Verifies generated network dimensions can be grown and shrunk multiple times.
+    #[test]
+    fn network_dimensions_shrink_and_grow(
+        // dim in NetworkDimension::range(1, 400).no_shrink(),
+        seed in any::<[u32; 4]>().no_shrink(),
+        // num_ops in 10..10000,
+        ops in proptest::collection::vec(any_op(), 1..100)
+    ) {
+        let mut rng5 = RngAdapter4To5(rand::XorShiftRng::from_seed(seed));
+
+        let mut tree = NetworkDimensionTree::gen(&mut rng5, 1, 40);
+        println!("Start: {:?}", tree);
+
+        for op in ops {
+            println!("Op: {:?}", op);
+            match op {
+                Op::Simplify => tree.simplify(),
+                Op::Complicate => tree.complicate(),
+            };
+            println!("Result: {:?}", tree);
+        }
+    }
+}
+
 #[test]
-fn network_dimensions_shrink_and_grow() {
-    let mut runner = TestRunner::new(Default::default());
+fn network_succ_works() {
+    let expected = (&[
+        (1, 0),
+        (2, 0),
+        (3, 0),
+        (4, 0),
+        (4, 1),
+        (5, 0),
+        (5, 1),
+        (6, 0),
+        (6, 1),
+        (7, 0),
+        (7, 1),
+        (7, 2),
+        (8, 0),
+        (8, 1),
+        (8, 2),
+        (9, 0),
+        (9, 1),
+        (9, 2),
+        (10, 0),
+        (10, 1),
+        (10, 2),
+        (10, 3),
+    ])
+        .iter()
+        .map(|&(n, f)| NetworkDimension::new(n, f));
 
-    let mut tree = NetworkDimensionTree::gen(runner.rng(), 1, 40);
-    assert!(tree.current().is_bft());
+    let mut dim = NetworkDimension::new(1, 0);
 
-    // We complicate and simplify a few times.
-    for _ in 0..10 {
-        tree.complicate();
-        assert!(tree.current().is_bft());
+    for exp in expected {
+        assert_eq!(dim, exp);
+        dim = dim.succ();
     }
+}
 
-    for _ in 0..20 {
-        tree.simplify();
-        assert!(tree.current().is_bft());
-    }
+#[test]
+fn test_max_sum() {
+    assert_eq!(max_sum(0), 0);
+    assert_eq!(max_sum(1), 1);
+    assert_eq!(max_sum(2), 1);
+    assert_eq!(max_sum(3), 2);
+    assert_eq!(max_sum(4), 2);
+    assert_eq!(max_sum(5), 2);
+    assert_eq!(max_sum(6), 3);
+    assert_eq!(max_sum(7), 3);
+    assert_eq!(max_sum(8), 3);
+    assert_eq!(max_sum(9), 3);
+    assert_eq!(max_sum(10), 4);
+    assert_eq!(max_sum(5049), 99);
+    assert_eq!(max_sum(5050), 100);
+    assert_eq!(max_sum(5051), 100);
+    assert_eq!(max_sum(5150), 100);
+    assert_eq!(max_sum(5151), 101);
+}
 
-    for _ in 0..10 {
-        tree.complicate();
-        assert!(tree.current().is_bft());
-    }
+#[test]
+fn network_to_u32_is_correct() {
+    assert_eq!(u32::from(NetworkDimension::new(1, 0)), 0u32);
+    assert_eq!(u32::from(NetworkDimension::new(2, 0)), 1u32);
+    assert_eq!(u32::from(NetworkDimension::new(3, 0)), 2u32);
+    assert_eq!(u32::from(NetworkDimension::new(4, 0)), 3u32);
+    assert_eq!(u32::from(NetworkDimension::new(4, 1)), 4u32);
+    assert_eq!(u32::from(NetworkDimension::new(5, 0)), 5u32);
+    assert_eq!(u32::from(NetworkDimension::new(5, 1)), 6u32);
+    assert_eq!(u32::from(NetworkDimension::new(6, 0)), 7u32);
+    assert_eq!(u32::from(NetworkDimension::new(6, 1)), 8u32);
+    assert_eq!(u32::from(NetworkDimension::new(7, 0)), 9u32);
+    assert_eq!(u32::from(NetworkDimension::new(7, 1)), 10u32);
+    assert_eq!(u32::from(NetworkDimension::new(7, 2)), 11u32);
+    assert_eq!(u32::from(NetworkDimension::new(8, 0)), 12u32);
+    assert_eq!(u32::from(NetworkDimension::new(8, 1)), 13u32);
+    assert_eq!(u32::from(NetworkDimension::new(8, 2)), 14u32);
+    assert_eq!(u32::from(NetworkDimension::new(9, 0)), 15u32);
+    assert_eq!(u32::from(NetworkDimension::new(9, 1)), 16u32);
+    assert_eq!(u32::from(NetworkDimension::new(9, 2)), 17u32);
+    assert_eq!(u32::from(NetworkDimension::new(10, 0)), 18u32);
+    assert_eq!(u32::from(NetworkDimension::new(10, 1)), 19u32);
+    assert_eq!(u32::from(NetworkDimension::new(10, 2)), 20u32);
+    assert_eq!(u32::from(NetworkDimension::new(10, 3)), 21u32);
+}
 
-    for _ in 0..10 {
-        tree.simplify();
-        assert!(tree.current().is_bft());
-    }
+#[test]
+fn network_from_u32_is_correct() {
+    assert_eq!(NetworkDimension::new(1, 0), NetworkDimension::from(0u32));
+    assert_eq!(NetworkDimension::new(2, 0), NetworkDimension::from(1u32));
+    assert_eq!(NetworkDimension::new(3, 0), NetworkDimension::from(2u32));
+    assert_eq!(NetworkDimension::new(4, 0), NetworkDimension::from(3u32));
+    assert_eq!(NetworkDimension::new(4, 1), NetworkDimension::from(4u32));
+    assert_eq!(NetworkDimension::new(5, 0), NetworkDimension::from(5u32));
+    assert_eq!(NetworkDimension::new(5, 1), NetworkDimension::from(6u32));
+    assert_eq!(NetworkDimension::new(6, 0), NetworkDimension::from(7u32));
+    assert_eq!(NetworkDimension::new(6, 1), NetworkDimension::from(8u32));
+    assert_eq!(NetworkDimension::new(7, 0), NetworkDimension::from(9u32));
+    assert_eq!(NetworkDimension::new(7, 1), NetworkDimension::from(10u32));
+    assert_eq!(NetworkDimension::new(7, 2), NetworkDimension::from(11u32));
+    assert_eq!(NetworkDimension::new(8, 0), NetworkDimension::from(12u32));
+    assert_eq!(NetworkDimension::new(8, 1), NetworkDimension::from(13u32));
+    assert_eq!(NetworkDimension::new(8, 2), NetworkDimension::from(14u32));
+    assert_eq!(NetworkDimension::new(9, 0), NetworkDimension::from(15u32));
+    assert_eq!(NetworkDimension::new(9, 1), NetworkDimension::from(16u32));
+    assert_eq!(NetworkDimension::new(9, 2), NetworkDimension::from(17u32));
+    assert_eq!(NetworkDimension::new(10, 0), NetworkDimension::from(18u32));
+    assert_eq!(NetworkDimension::new(10, 1), NetworkDimension::from(19u32));
+    assert_eq!(NetworkDimension::new(10, 2), NetworkDimension::from(20u32));
+    assert_eq!(NetworkDimension::new(10, 3), NetworkDimension::from(21u32));
+    assert_eq!(NetworkDimension::new(11, 0), NetworkDimension::from(22u32));
+    assert_eq!(NetworkDimension::new(11, 1), NetworkDimension::from(23u32));
+    assert_eq!(NetworkDimension::new(11, 2), NetworkDimension::from(24u32));
+    assert_eq!(NetworkDimension::new(11, 3), NetworkDimension::from(25u32));
+    assert_eq!(NetworkDimension::new(12, 0), NetworkDimension::from(26u32));
+    assert_eq!(NetworkDimension::new(12, 1), NetworkDimension::from(27u32));
+    assert_eq!(NetworkDimension::new(12, 2), NetworkDimension::from(28u32));
+    assert_eq!(NetworkDimension::new(12, 3), NetworkDimension::from(29u32));
+    assert_eq!(NetworkDimension::new(13, 0), NetworkDimension::from(30u32));
+    assert_eq!(NetworkDimension::new(13, 1), NetworkDimension::from(31u32));
+    assert_eq!(NetworkDimension::new(13, 2), NetworkDimension::from(32u32));
+    assert_eq!(NetworkDimension::new(13, 3), NetworkDimension::from(33u32));
+    assert_eq!(NetworkDimension::new(13, 4), NetworkDimension::from(34u32));
 }

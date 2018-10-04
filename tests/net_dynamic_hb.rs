@@ -2,12 +2,13 @@ extern crate failure;
 extern crate hbbft;
 #[macro_use]
 extern crate proptest;
+extern crate integer_sqrt;
 extern crate rand;
 extern crate threshold_crypto;
 
 pub mod net;
 
-use std::collections;
+use std::{collections, time};
 
 use hbbft::dynamic_honey_badger::{Change, ChangeState, DynamicHoneyBadger, Input};
 use hbbft::messaging::DistAlgorithm;
@@ -92,10 +93,14 @@ fn do_drop_and_readd(cfg: TestConfig) {
     let mut rng: TestRng = TestRng::from_seed(cfg.seed);
 
     // First, we create a new test network with Honey Badger instances.
-    let mut net = NetBuilder::new(0..cfg.dimension.size)
-        .num_faulty(cfg.dimension.faulty)
-        .message_limit(200_000) // Limited to 200k messages for now.
-        .rng(rng.gen::<TestRng>()) // Ensure runs are reproducible.
+    let mut net = NetBuilder::new(0..cfg.dimension.size())
+        .num_faulty(cfg.dimension.faulty())
+        // Limited to 15k messages per node.
+        .message_limit(15_000 * cfg.dimension.size() as usize)
+        // 30 secs per node.
+        .time_limit(time::Duration::from_secs(30 * cfg.dimension.size() as u64))
+        // Ensure runs are reproducible.
+        .rng(rng.gen::<TestRng>())
         .using_step(move |node| {
             println!("Constructing new dynamic honey badger node #{}", node.id);
             DynamicHoneyBadger::builder()

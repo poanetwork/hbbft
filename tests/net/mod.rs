@@ -491,7 +491,9 @@ where
 
         // Note: Closure is not redundant, won't compile without it.
         #[cfg_attr(feature = "cargo-clippy", allow(redundant_closure))]
-        let mut net = VirtualNet::new(self.node_ids, self.num_faulty, rng, move |node| cons(node))?;
+        let mut net = VirtualNet::new(self.node_ids, self.num_faulty as usize, rng, move |node| {
+            cons(node)
+        })?;
 
         if self.adversary.is_some() {
             net.adversary = self.adversary;
