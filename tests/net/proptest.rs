@@ -151,7 +151,7 @@ impl ValueTree for NetworkDimensionTree {
         let prev = *self;
 
         self.high = self.current;
-        self.current = self.low + (self.high - self.low) / 2;
+        self.current = (self.low + self.high) / 2;
 
         (prev.high != self.high || prev.current != self.current)
     }
@@ -164,7 +164,7 @@ impl ValueTree for NetworkDimensionTree {
         }
 
         self.low = self.current + 1;
-        self.current = self.low + (self.high - self.low) / 2;
+        self.current = (self.low + self.high) / 2;
 
         (prev.current != self.current || prev.low != self.low)
     }
