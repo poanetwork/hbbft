@@ -12,6 +12,8 @@ use super::{Batch, Error, ErrorKind, HoneyBadgerBuilder, Message, MessageContent
 use messaging::{self, DistAlgorithm, NetworkInfo, Target};
 use traits::{Contribution, NodeIdT};
 
+pub use super::epoch_state::SubsetHandlingStrategy;
+
 /// An instance of the Honey Badger Byzantine fault tolerant consensus algorithm.
 pub struct HoneyBadger<C, N: Rand> {
     /// Shared network data.
@@ -31,6 +33,8 @@ pub struct HoneyBadger<C, N: Rand> {
     /// A random number generator used for secret key generation.
     // Boxed to avoid overloading the algorithm's type with more generics.
     pub(super) rng: Box<dyn Rng>,
+    /// Represents the optimization strategy to use for output of the `Subset` algorithm.
+    pub(super) subset_handling_strategy: SubsetHandlingStrategy,
 }
 
 impl<C, N> fmt::Debug for HoneyBadger<C, N>
@@ -216,7 +220,11 @@ where
     fn epoch_state_mut(&mut self, epoch: u64) -> Result<&mut EpochState<C, N>> {
         Ok(match self.epochs.entry(epoch) {
             Entry::Occupied(entry) => entry.into_mut(),
-            Entry::Vacant(entry) => entry.insert(EpochState::new(self.netinfo.clone(), epoch)?),
+            Entry::Vacant(entry) => entry.insert(EpochState::new(
+                self.netinfo.clone(),
+                epoch,
+                self.subset_handling_strategy.clone(),
+            )?),
         })
     }
 }
