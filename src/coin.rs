@@ -78,7 +78,7 @@ pub type Step<N, T> = messaging::Step<Coin<N, T>>;
 impl<N, T> DistAlgorithm for Coin<N, T>
 where
     N: NodeIdT,
-    T: Clone + AsRef<[u8]>,
+    T: Clone + AsRef<[u8]> + Send,
 {
     type NodeId = N;
     type Input = ();
@@ -123,7 +123,7 @@ where
 impl<N, T> Coin<N, T>
 where
     N: NodeIdT,
-    T: Clone + AsRef<[u8]>,
+    T: Clone + AsRef<[u8]> + Send,
 {
     pub fn new(netinfo: Arc<NetworkInfo<N>>, nonce: T) -> Self {
         Coin {
