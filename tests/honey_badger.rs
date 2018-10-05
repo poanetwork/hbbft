@@ -20,7 +20,7 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use itertools::Itertools;
-use rand::Rng;
+use rand::{Isaac64Rng, Rng};
 
 use hbbft::honey_badger::{self, Batch, HoneyBadger, MessageContent};
 use hbbft::transaction_queue::TransactionQueue;
@@ -127,7 +127,8 @@ fn test_honey_badger<A>(mut network: TestNetwork<A, UsizeHoneyBadger>, num_txs: 
 where
     A: Adversary<UsizeHoneyBadger>,
 {
-    let new_queue = |id: &NodeId| (*id, TransactionQueue((0..num_txs).collect()));
+    let mut rng = rand::thread_rng().gen::<Isaac64Rng>();
+    let new_queue = |id: &NodeId| (*id, TransactionQueue::new(&mut rng, (0..num_txs).collect()));
     let mut queues: BTreeMap<_, _> = network.nodes.keys().map(new_queue).collect();
 
     // Returns `true` if the node has not output all transactions yet.
