@@ -126,7 +126,6 @@ extern crate hex_fmt;
 extern crate init_with;
 #[macro_use]
 extern crate log;
-extern crate pairing;
 extern crate rand;
 #[macro_use]
 extern crate rand_derive;
@@ -153,6 +152,7 @@ mod traits;
 pub mod transaction_queue;
 pub mod util;
 
+pub use crypto::pairing;
 pub use messaging::{SourcedMessage, Target, TargetedMessage};
 pub use network_info::NetworkInfo;
 pub use traits::{Contribution, DistAlgorithm, Message, NodeIdT, Step};
