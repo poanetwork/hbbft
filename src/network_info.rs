@@ -158,7 +158,7 @@ impl<N: NodeIdT> NetworkInfo<N> {
         let num_faulty = (all_ids.len() - 1) / 3;
 
         // Generate the keys for threshold cryptography.
-        let sk_set = SecretKeySet::random(num_faulty, rng)?;
+        let sk_set = SecretKeySet::random(num_faulty, rng);
         let pk_set = sk_set.public_keys();
 
         // Generate keys for individually signing and encrypting messages.
@@ -173,7 +173,7 @@ impl<N: NodeIdT> NetworkInfo<N> {
         let create_netinfo = |(i, id): (usize, N)| {
             let netinfo = NetworkInfo::new(
                 id.clone(),
-                sk_set.secret_key_share(i)?,
+                sk_set.secret_key_share(i),
                 pk_set.clone(),
                 sec_keys[&id].clone(),
                 pub_keys.clone(),

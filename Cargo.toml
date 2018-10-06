@@ -25,13 +25,12 @@ failure = "0.1"
 hex_fmt = "0.1"
 init_with = "1.1.0"
 log = "0.4.1"
-pairing = { version = "0.14.2", features = ["u128-support"] }
 rand = "0.4.2"
 rand_derive = "0.3.1"
 reed-solomon-erasure = "3.1.0"
 serde = "1.0.55"
 serde_derive = "1.0.55"
-threshold_crypto = { git = "https://github.com/poanetwork/threshold_crypto", tag = "0.1.0-rng-fix" }
+threshold_crypto = { git = "https://github.com/poanetwork/threshold_crypto", tag = "0.2.0-beta" }
 tiny-keccak = "1.4"
 
 [dev-dependencies]
@@ -60,3 +59,6 @@ name = "simulation"
 # `[profile.release]` block in both cases.
 [profile.bench]
 overflow-checks = true
+
+[features]
+use-insecure-test-only-mock-crypto = ["threshold_crypto/use-insecure-test-only-mock-crypto"]

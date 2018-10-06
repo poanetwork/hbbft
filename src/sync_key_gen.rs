@@ -170,7 +170,7 @@ use crypto::{
     serde_impl::field_vec::FieldWrap,
     Ciphertext, PublicKey, PublicKeySet, SecretKey, SecretKeyShare,
 };
-use pairing::bls12_381::{Fr, G1Affine};
+use crypto::{Fr, G1Affine};
 use pairing::{CurveAffine, Field};
 use rand;
 
@@ -312,10 +312,10 @@ impl<N: NodeIdT> SyncKeyGen<N> {
             return Ok((key_gen, None)); // No part: we are an observer.
         }
 
-        let our_part = BivarPoly::random(threshold, rng).map_err(Error::Creation)?;
+        let our_part = BivarPoly::random(threshold, rng);
         let commit = our_part.commitment();
         let encrypt = |(i, pk): (usize, &PublicKey)| {
-            let row = our_part.row(i + 1).map_err(Error::Creation)?;
+            let row = our_part.row(i + 1);
             let bytes = bincode::serialize(&row).expect("failed to serialize row");
             Ok(pk.encrypt_with_rng(rng, &bytes))
         };
@@ -425,19 +425,18 @@ impl<N: NodeIdT> SyncKeyGen<N> {
     /// All participating nodes must have handled the exact same sequence of `Part` and `Ack`
     /// messages before calling this method. Otherwise their key shares will not match.
     pub fn generate(&self) -> Result<(PublicKeySet, Option<SecretKeyShare>), Error> {
-        let mut pk_commit = Poly::zero().map_err(Error::Generation)?.commitment();
+        let mut pk_commit = Poly::zero().commitment();
         let mut opt_sk_val = self.our_idx.map(|_| Fr::zero());
         let is_complete = |part: &&ProposalState| part.is_complete(self.threshold);
         for part in self.parts.values().filter(is_complete) {
             pk_commit += part.commit.row(0);
             if let Some(sk_val) = opt_sk_val.as_mut() {
-                let row = Poly::interpolate(part.values.iter().take(self.threshold + 1))
-                    .map_err(Error::Generation)?;
+                let row = Poly::interpolate(part.values.iter().take(self.threshold + 1));
                 sk_val.add_assign(&row.evaluate(0));
             }
         }
         let opt_sk = if let Some(mut fr) = opt_sk_val {
-            let sk = SecretKeyShare::from_mut_ptr(&mut fr as *mut Fr).map_err(Error::Generation)?;
+            let sk = SecretKeyShare::from_mut(&mut fr);
             Some(sk)
         } else {
             None

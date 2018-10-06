@@ -27,8 +27,9 @@ env:
     - RUSTFLAGS="-D warnings -C target-cpu=native"
     - MLOCK_SECRETS=false
 script:
-  - cargo clippy --tests --examples -- --deny clippy
+  - cargo clippy --all-targets -- --deny clippy
+  - cargo clippy --all-features --all-targets -- --deny clippy
   - cargo fmt -- --check
-  - cargo test --all-features --release -- --test-threads 1
+  - cargo test --features=use-insecure-test-only-mock-crypto --release
   - cargo doc
   - cargo deadlinks --dir target/doc/hbbft/
