@@ -22,7 +22,7 @@ use itertools::Itertools;
 use rand::{Isaac64Rng, Rng};
 
 use hbbft::dynamic_honey_badger::{Batch, Change, ChangeState, DynamicHoneyBadger, Input};
-use hbbft::transaction_queue::TransactionQueue;
+use hbbft::transaction_queue::{TransactionQueue, VecDequeTransactionQueue};
 use hbbft::NetworkInfo;
 
 use network::{Adversary, MessageScheduler, NodeId, SilentAdversary, TestNetwork, TestNode};
@@ -35,7 +35,12 @@ where
     A: Adversary<UsizeDhb>,
 {
     let mut rng = rand::thread_rng().gen::<Isaac64Rng>();
-    let new_queue = |id: &NodeId| (*id, TransactionQueue::new(&mut rng, (0..num_txs).collect()));
+    let new_queue = |id: &NodeId| {
+        (
+            *id,
+            VecDequeTransactionQueue::new(&mut rng, (0..num_txs).collect()),
+        )
+    };
     let mut queues: BTreeMap<_, _> = network.nodes.keys().map(new_queue).collect();
     for (id, queue) in &mut queues {
         network.input(*id, Input::User(queue.choose(3, 10)));

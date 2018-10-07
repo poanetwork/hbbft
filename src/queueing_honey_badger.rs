@@ -93,18 +93,23 @@ pub type Result<T> = ::std::result::Result<T, Error>;
 
 /// A Queueing Honey Badger builder, to configure the parameters and create new instances of
 /// `QueueingHoneyBadger`.
-pub struct QueueingHoneyBadgerBuilder<T, N: Rand> {
+pub struct QueueingHoneyBadgerBuilder<T, N: Rand, Q> {
     /// Shared network data.
     dyn_hb: DynamicHoneyBadger<Vec<T>, N>,
     /// The target number of transactions to be included in each batch.
     batch_size: usize,
+    /// The queue of pending transactions that haven't been output in a batch yet.
+    queue: Q,
     _phantom: PhantomData<T>,
 }
 
-impl<T, N> QueueingHoneyBadgerBuilder<T, N>
+pub type QueueingHoneyBadgerWithStep<T, N, Q> = (QueueingHoneyBadger<T, N, Q>, Step<T, N, Q>);
+
+impl<T, N, Q> QueueingHoneyBadgerBuilder<T, N, Q>
 where
     T: Contribution + Serialize + for<'r> Deserialize<'r> + Clone,
     N: NodeIdT + Serialize + for<'r> Deserialize<'r> + Rand,
+    Q: TransactionQueue<T> + Debug + Default + Extend<T> + Sync + Send,
 {
     /// Returns a new `QueueingHoneyBadgerBuilder` configured to use the node IDs and cryptographic
     /// keys specified by `netinfo`.
@@ -115,6 +120,7 @@ where
         QueueingHoneyBadgerBuilder {
             dyn_hb,
             batch_size: 100,
+            queue: Default::default(),
             _phantom: PhantomData,
         }
     }
@@ -125,8 +131,14 @@ where
         self
     }
 
+    /// Sets the transaction queue object.
+    pub fn queue(mut self, queue: Q) -> Self {
+        self.queue = queue;
+        self
+    }
+
     /// Creates a new Queueing Honey Badger instance with an empty buffer.
-    pub fn build(self) -> (QueueingHoneyBadger<T, N>, Step<T, N>)
+    pub fn build(self) -> QueueingHoneyBadgerWithStep<T, N, Q>
     where
         T: Contribution + Serialize + for<'r> Deserialize<'r>,
     {
@@ -139,16 +151,16 @@ where
     pub fn build_with_transactions<TI>(
         mut self,
         txs: TI,
-    ) -> Result<(QueueingHoneyBadger<T, N>, Step<T, N>)>
+    ) -> Result<QueueingHoneyBadgerWithStep<T, N, Q>>
     where
         TI: IntoIterator<Item = T>,
         T: Contribution + Serialize + for<'r> Deserialize<'r>,
     {
-        let queue = TransactionQueue::new(&mut self.dyn_hb.rng, txs.into_iter().collect());
+        self.queue.extend(txs);
         let mut qhb = QueueingHoneyBadger {
             dyn_hb: self.dyn_hb,
-            queue,
             batch_size: self.batch_size,
+            queue: self.queue,
         };
         let step = qhb.propose()?;
         Ok((qhb, step))
@@ -157,39 +169,28 @@ where
 
 /// A Honey Badger instance that can handle adding and removing nodes and manages a transaction
 /// queue.
-pub struct QueueingHoneyBadger<T, N>
+#[derive(Debug)]
+pub struct QueueingHoneyBadger<T, N, Q>
 where
     T: Contribution + Serialize + for<'r> Deserialize<'r>,
     N: NodeIdT + Serialize + for<'r> Deserialize<'r> + Rand,
+    Q: TransactionQueue<T> + Debug,
 {
     /// The target number of transactions to be included in each batch.
     batch_size: usize,
     /// The internal `DynamicHoneyBadger` instance.
     dyn_hb: DynamicHoneyBadger<Vec<T>, N>,
     /// The queue of pending transactions that haven't been output in a batch yet.
-    queue: TransactionQueue<T>,
+    queue: Q,
 }
 
-impl<T, N> Debug for QueueingHoneyBadger<T, N>
-where
-    T: Contribution + Serialize + for<'r> Deserialize<'r> + Debug,
-    N: NodeIdT + Serialize + for<'r> Deserialize<'r> + Rand + Debug,
-{
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        f.debug_struct("QueueingHoneyBadger")
-            .field("batch_size", &self.batch_size)
-            .field("dyn_hb", &self.dyn_hb)
-            .field("queue", &self.queue)
-            .finish()
-    }
-}
+pub type Step<T, N, Q> = ::Step<QueueingHoneyBadger<T, N, Q>>;
 
-pub type Step<T, N> = ::Step<QueueingHoneyBadger<T, N>>;
-
-impl<T, N> DistAlgorithm for QueueingHoneyBadger<T, N>
+impl<T, N, Q> DistAlgorithm for QueueingHoneyBadger<T, N, Q>
 where
     T: Contribution + Serialize + for<'r> Deserialize<'r> + Clone,
     N: NodeIdT + Serialize + for<'r> Deserialize<'r> + Rand,
+    Q: TransactionQueue<T> + Debug + Default + Extend<T> + Sync + Send,
 {
     type NodeId = N;
     type Input = Input<T, N>;
@@ -197,12 +198,12 @@ where
     type Message = Message<N>;
     type Error = Error;
 
-    fn handle_input(&mut self, input: Self::Input) -> Result<Step<T, N>> {
+    fn handle_input(&mut self, input: Self::Input) -> Result<Step<T, N, Q>> {
         // User transactions are forwarded to `HoneyBadger` right away. Internal messages are
         // in addition signed and broadcast.
         let mut step = match input {
             Input::User(tx) => {
-                self.queue.transactions.push_back(tx);
+                self.queue.push_back(tx);
                 Step::default()
             }
             Input::Change(change) => self
@@ -215,7 +216,7 @@ where
         Ok(step)
     }
 
-    fn handle_message(&mut self, sender_id: &N, message: Self::Message) -> Result<Step<T, N>> {
+    fn handle_message(&mut self, sender_id: &N, message: Self::Message) -> Result<Step<T, N, Q>> {
         let mut step = self
             .dyn_hb
             .handle_message(sender_id, message)
@@ -237,14 +238,15 @@ where
     }
 }
 
-impl<T, N> QueueingHoneyBadger<T, N>
+impl<T, N, Q> QueueingHoneyBadger<T, N, Q>
 where
     T: Contribution + Serialize + for<'r> Deserialize<'r> + Clone,
     N: NodeIdT + Serialize + for<'r> Deserialize<'r> + Rand,
+    Q: TransactionQueue<T> + Debug + Default + Extend<T> + Sync + Send,
 {
     /// Returns a new `QueueingHoneyBadgerBuilder` configured to use the node IDs and cryptographic
     /// keys specified by `netinfo`.
-    pub fn builder(dyn_hb: DynamicHoneyBadger<Vec<T>, N>) -> QueueingHoneyBadgerBuilder<T, N> {
+    pub fn builder(dyn_hb: DynamicHoneyBadger<Vec<T>, N>) -> QueueingHoneyBadgerBuilder<T, N, Q> {
         QueueingHoneyBadgerBuilder::new(dyn_hb)
     }
 
@@ -260,11 +262,11 @@ where
         if self.dyn_hb.has_input() {
             return false; // Previous epoch is still in progress.
         }
-        !self.queue.transactions.is_empty() || self.dyn_hb.should_propose()
+        !self.queue.is_empty() || self.dyn_hb.should_propose()
     }
 
     /// Initiates the next epoch by proposing a batch from the queue.
-    fn propose(&mut self) -> Result<Step<T, N>> {
+    fn propose(&mut self) -> Result<Step<T, N, Q>> {
         let mut step = Step::default();
         while self.can_propose() {
             let amount = cmp::max(1, self.batch_size / self.dyn_hb.netinfo().num_nodes());
