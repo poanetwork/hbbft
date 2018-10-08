@@ -9,10 +9,16 @@ use util::SubRng;
 /// An interface to the transaction queue. A transaction queue is a structural part of
 /// `QueueingHoneyBadger` that manages enqueueing of transactions for a future batch and dequeueing
 /// of transactions to become part of a current batch.
-pub trait TransactionQueue<T> {
+pub trait TransactionQueue<T>: fmt::Debug + Default + Extend<T> + Sync + Send {
+    /// Checks whether the queue is empty.
     fn is_empty(&self) -> bool;
+    /// Appends an element at the end of the queue.
     fn push_back(&mut self, t: T);
+    /// Returns a new set of `amount` transactions, chosen from the first `batch_size`.  No
+    /// transactions are removed from the queue.
+    // TODO: Return references, once the `HoneyBadger` API accepts them.
     fn choose(&mut self, amount: usize, batch_size: usize) -> Vec<T>;
+    /// Removes the given transactions from the queue.
     fn remove_all<'a, I>(&mut self, txs: I)
     where
         I: IntoIterator<Item = &'a T>,
@@ -21,19 +27,21 @@ pub trait TransactionQueue<T> {
 
 /// A wrapper providing a few convenience methods for a queue of pending transactions.
 pub struct VecDequeTransactionQueue<T> {
-    /// Random number generator passed on from the algorithm instance.
+    /// Random number generator used for choosing transactions from the queue.
     rng: Box<dyn Rng + Send + Sync>,
-    pub transactions: VecDeque<T>,
+    transactions: VecDeque<T>,
 }
 
 impl<T> TransactionQueue<T> for VecDequeTransactionQueue<T>
 where
-    T: Clone,
+    T: Clone + fmt::Debug + Sync + Send,
 {
+    /// Checks whether the queue is empty.
     fn is_empty(&self) -> bool {
         self.transactions.is_empty()
     }
 
+    /// Appends an element at the end of the queue.
     fn push_back(&mut self, t: T) {
         self.transactions.push_back(t);
     }
@@ -91,9 +99,7 @@ where
 impl<T> Extend<T> for VecDequeTransactionQueue<T> {
     /// Extends the transaction queue with the contents of a given iterator.
     fn extend<I: IntoIterator<Item = T>>(&mut self, iter: I) {
-        for tx in iter {
-            self.transactions.push_back(tx);
-        }
+        self.transactions.extend(iter);
     }
 }
 impl<T: Clone> VecDequeTransactionQueue<T> {
