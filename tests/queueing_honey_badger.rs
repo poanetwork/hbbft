@@ -18,16 +18,16 @@ mod network;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
+use itertools::Itertools;
+use rand::{Isaac64Rng, Rng};
+
 use hbbft::dynamic_honey_badger::DynamicHoneyBadger;
 use hbbft::queueing_honey_badger::{Batch, Change, ChangeState, Input, QueueingHoneyBadger, Step};
-use hbbft::transaction_queue::VecDequeTransactionQueue;
 use hbbft::NetworkInfo;
-use itertools::Itertools;
-use rand::Rng;
 
 use network::{Adversary, MessageScheduler, NodeId, SilentAdversary, TestNetwork, TestNode};
 
-type QHB = QueueingHoneyBadger<usize, NodeId, VecDequeTransactionQueue<usize>>;
+type QHB = QueueingHoneyBadger<usize, NodeId, Vec<usize>>;
 
 /// Proposes `num_txs` values and expects nodes to output and order them.
 fn test_queueing_honey_badger<A>(mut network: TestNetwork<A, QHB>, num_txs: usize)
@@ -90,9 +90,10 @@ where
 #[cfg_attr(feature = "cargo-clippy", allow(needless_pass_by_value))]
 fn new_queueing_hb(
     netinfo: Arc<NetworkInfo<NodeId>>,
-) -> (QHB, Step<usize, NodeId, VecDequeTransactionQueue<usize>>) {
+) -> (QHB, Step<usize, NodeId, Vec<usize>>) {
     let dyn_hb = DynamicHoneyBadger::builder().build((*netinfo).clone());
-    QueueingHoneyBadger::builder(dyn_hb).batch_size(3).build()
+    let rng = rand::thread_rng().gen::<Isaac64Rng>();
+    QueueingHoneyBadger::builder(dyn_hb).batch_size(3).build(rng)
 }
 
 fn test_queueing_honey_badger_different_sizes<A, F>(new_adversary: F, num_txs: usize)

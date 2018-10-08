@@ -20,10 +20,10 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use itertools::Itertools;
-use rand::{Isaac64Rng, Rng};
+use rand::Rng;
 
 use hbbft::honey_badger::{self, Batch, HoneyBadger, MessageContent};
-use hbbft::transaction_queue::{TransactionQueue, VecDequeTransactionQueue};
+use hbbft::transaction_queue::TransactionQueue;
 use hbbft::{threshold_decryption, NetworkInfo, Target, TargetedMessage};
 
 use network::{
@@ -127,13 +127,7 @@ fn test_honey_badger<A>(mut network: TestNetwork<A, UsizeHoneyBadger>, num_txs: 
 where
     A: Adversary<UsizeHoneyBadger>,
 {
-    let mut rng = rand::thread_rng().gen::<Isaac64Rng>();
-    let new_queue = |id: &NodeId| {
-        (
-            *id,
-            VecDequeTransactionQueue::new(&mut rng, (0..num_txs).collect()),
-        )
-    };
+    let new_queue = |id: &NodeId| (*id, (0..num_txs).collect::<Vec<usize>>());
     let mut queues: BTreeMap<_, _> = network.nodes.keys().map(new_queue).collect();
 
     // Returns `true` if the node has not output all transactions yet.
@@ -155,8 +149,8 @@ where
             .collect();
         if let Some(id) = rng.choose(&input_ids) {
             let queue = queues.get_mut(id).unwrap();
-            queue.remove_all(network.nodes[id].outputs().iter().flat_map(Batch::iter));
-            network.input(*id, queue.choose(3, 10));
+            queue.remove_multiple(network.nodes[id].outputs().iter().flat_map(Batch::iter));
+            network.input(*id, queue.choose(&mut rng, 3, 10));
         } else {
             network.step();
         }

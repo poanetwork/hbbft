@@ -27,7 +27,7 @@ use std::fmt::{self, Display};
 use std::marker::PhantomData;
 
 use failure::{Backtrace, Context, Fail};
-use rand::Rand;
+use rand::{Rand, Rng};
 use serde::{Deserialize, Serialize};
 
 use dynamic_honey_badger::{self, Batch as DhbBatch, DynamicHoneyBadger, Message};
@@ -138,29 +138,33 @@ where
     }
 
     /// Creates a new Queueing Honey Badger instance with an empty buffer.
-    pub fn build(self) -> QueueingHoneyBadgerWithStep<T, N, Q>
+    pub fn build<R>(self, rng: R) -> QueueingHoneyBadgerWithStep<T, N, Q>
     where
         T: Contribution + Serialize + for<'r> Deserialize<'r>,
+        R: 'static + Rng + Send + Sync,
     {
-        self.build_with_transactions(None)
+        self.build_with_transactions(None, rng)
             .expect("building without transactions cannot fail")
     }
 
     /// Returns a new Queueing Honey Badger instance that starts with the given transactions in its
     /// buffer.
-    pub fn build_with_transactions<TI>(
+    pub fn build_with_transactions<TI, R>(
         mut self,
         txs: TI,
+        rng: R,
     ) -> Result<QueueingHoneyBadgerWithStep<T, N, Q>>
     where
         TI: IntoIterator<Item = T>,
         T: Contribution + Serialize + for<'r> Deserialize<'r>,
+        R: 'static + Rng + Send + Sync,
     {
         self.queue.extend(txs);
         let mut qhb = QueueingHoneyBadger {
             dyn_hb: self.dyn_hb,
             batch_size: self.batch_size,
             queue: self.queue,
+            rng: Box::new(rng),
         };
         let step = qhb.propose()?;
         Ok((qhb, step))
@@ -169,7 +173,6 @@ where
 
 /// A Honey Badger instance that can handle adding and removing nodes and manages a transaction
 /// queue.
-#[derive(Debug)]
 pub struct QueueingHoneyBadger<T, N, Q>
 where
     T: Contribution + Serialize + for<'r> Deserialize<'r>,
@@ -182,6 +185,24 @@ where
     dyn_hb: DynamicHoneyBadger<Vec<T>, N>,
     /// The queue of pending transactions that haven't been output in a batch yet.
     queue: Q,
+    /// Random number generator used for choosing transactions from the queue.
+    rng: Box<dyn Rng + Send + Sync>,
+}
+
+impl<T, N, Q> fmt::Debug for QueueingHoneyBadger<T, N, Q>
+where
+    T: Contribution + Serialize + for<'r> Deserialize<'r>,
+    N: NodeIdT + Serialize + for<'r> Deserialize<'r> + Rand,
+    Q: TransactionQueue<T>,
+{
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.debug_struct("QueueingHoneyBadger")
+            .field("batch_size", &self.batch_size)
+            .field("dyn_hb", &self.dyn_hb)
+            .field("queue", &self.queue)
+            .field("rng", &"<RNG>")
+            .finish()
+    }
 }
 
 pub type Step<T, N, Q> = ::Step<QueueingHoneyBadger<T, N, Q>>;
@@ -203,7 +224,7 @@ where
         // in addition signed and broadcast.
         let mut step = match input {
             Input::User(tx) => {
-                self.queue.push_back(tx);
+                self.queue.push(tx);
                 Step::default()
             }
             Input::Change(change) => self
@@ -223,7 +244,7 @@ where
             .map_err(ErrorKind::HandleMessage)?
             .convert::<Self>();
         for batch in &step.output {
-            self.queue.remove_all(batch.iter());
+            self.queue.remove_multiple(batch.iter());
         }
         step.extend(self.propose()?);
         Ok(step)
@@ -270,7 +291,7 @@ where
         let mut step = Step::default();
         while self.can_propose() {
             let amount = cmp::max(1, self.batch_size / self.dyn_hb.netinfo().num_nodes());
-            let proposal = self.queue.choose(amount, self.batch_size);
+            let proposal = self.queue.choose(&mut self.rng, amount, self.batch_size);
             step.extend(
                 self.dyn_hb
                     .handle_input(Input::User(proposal))
