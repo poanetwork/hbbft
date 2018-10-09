@@ -193,6 +193,10 @@ where
         sender_id: &N,
         message: HbMessage<N>,
     ) -> Result<Step<C, N>> {
+        if !self.netinfo.is_node_validator(sender_id) {
+            info!("Unknown sender {:?} of message {:?}", sender_id, message);
+            return Err(ErrorKind::UnknownSender.into());
+        }
         // Handle the message.
         let step = self
             .honey_badger
@@ -246,7 +250,7 @@ where
     }
 
     /// Processes all pending batches output by Honey Badger.
-    pub(super) fn process_output(
+    fn process_output(
         &mut self,
         hb_step: honey_badger::Step<InternalContrib<C, N>, N>,
     ) -> Result<Step<C, N>> {
@@ -295,8 +299,7 @@ where
                 // If DKG completed, apply the change, restart Honey Badger, and inform the user.
                 debug!("{:?} DKG for {:?} complete!", self.our_id(), kgs.change);
                 self.netinfo = kgs.key_gen.into_network_info()?;
-                let step_on_restart = self.restart_honey_badger(batch.epoch + 1)?;
-                step.extend(step_on_restart);
+                self.restart_honey_badger(batch.epoch + 1);
                 batch.set_change(ChangeState::Complete(kgs.change), &self.netinfo);
             } else if let Some(change) = self.vote_counter.compute_winner().cloned() {
                 // If there is a new change, restart DKG. Inform the user about the current change.
@@ -330,7 +333,7 @@ where
         } {
             info!("{:?} No-op change: {:?}", self.our_id(), change);
         }
-        let mut step = self.restart_honey_badger(epoch)?;
+        self.restart_honey_badger(epoch);
         // TODO: This needs to be the same as `num_faulty` will be in the _new_
         // `NetworkInfo` if the change goes through. It would be safer to deduplicate.
         let threshold = (pub_keys.len() - 1) / 3;
@@ -339,25 +342,23 @@ where
         let (key_gen, part) = SyncKeyGen::new(&mut self.rng, our_id, sk, pub_keys, threshold)?;
         self.key_gen_state = Some(KeyGenState::new(key_gen, change.clone()));
         if let Some(part) = part {
-            let step_on_send = self.send_transaction(KeyGenMessage::Part(part))?;
-            step.extend(step_on_send);
+            self.send_transaction(KeyGenMessage::Part(part))
+        } else {
+            Ok(Step::default())
         }
-        Ok(step)
     }
 
     /// Starts a new `HoneyBadger` instance and resets the vote counter.
-    fn restart_honey_badger(&mut self, epoch: u64) -> Result<Step<C, N>> {
+    fn restart_honey_badger(&mut self, epoch: u64) {
         self.start_epoch = epoch;
         self.key_gen_msg_buffer.retain(|kg_msg| kg_msg.0 >= epoch);
         let netinfo = Arc::new(self.netinfo.clone());
         let counter = VoteCounter::new(netinfo.clone(), epoch);
         mem::replace(&mut self.vote_counter, counter);
-        let (hb, hb_step) = HoneyBadger::builder(netinfo)
+        self.honey_badger = HoneyBadger::builder(netinfo)
             .max_future_epochs(self.max_future_epochs)
             .rng(self.rng.sub_rng())
             .build();
-        self.honey_badger = hb;
-        self.process_output(hb_step)
     }
 
     /// Handles a `Part` message that was output by Honey Badger.
