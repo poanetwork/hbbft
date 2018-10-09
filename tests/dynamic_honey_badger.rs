@@ -22,7 +22,7 @@ use std::sync::Arc;
 use itertools::Itertools;
 use rand::Rng;
 
-use hbbft::dynamic_honey_badger::{Batch, Change, ChangeState, DynamicHoneyBadger, Input, Step};
+use hbbft::dynamic_honey_badger::{Batch, Change, ChangeState, DynamicHoneyBadger, Input};
 use hbbft::messaging::NetworkInfo;
 use hbbft::transaction_queue::TransactionQueue;
 
@@ -121,10 +121,8 @@ where
 
 // Allow passing `netinfo` by value. `TestNetwork` expects this function signature.
 #[cfg_attr(feature = "cargo-clippy", allow(needless_pass_by_value))]
-fn new_dynamic_hb(netinfo: Arc<NetworkInfo<NodeId>>) -> (UsizeDhb, Step<Vec<usize>, NodeId>) {
-    DynamicHoneyBadger::builder()
-        .build((*netinfo).clone())
-        .expect("`new_dynamic_hb` failed")
+fn new_dynamic_hb(netinfo: Arc<NetworkInfo<NodeId>>) -> UsizeDhb {
+    DynamicHoneyBadger::builder().build((*netinfo).clone())
 }
 
 fn test_dynamic_honey_badger_different_sizes<A, F>(new_adversary: F, num_txs: usize)
@@ -146,8 +144,7 @@ where
             num_good_nodes, num_adv_nodes
         );
         let adversary = |adv_nodes| new_adversary(num_good_nodes, num_adv_nodes, adv_nodes);
-        let network =
-            TestNetwork::new_with_step(num_good_nodes, num_adv_nodes, adversary, new_dynamic_hb);
+        let network = TestNetwork::new(num_good_nodes, num_adv_nodes, adversary, new_dynamic_hb);
         test_dynamic_honey_badger(network, num_txs);
     }
 }

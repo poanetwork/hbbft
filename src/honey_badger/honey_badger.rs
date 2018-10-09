@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use super::epoch_state::EpochState;
 use super::{Batch, Error, ErrorKind, HoneyBadgerBuilder, Message, MessageContent, Result};
-use messaging::{self, DistAlgorithm, NetworkInfo, Target};
+use messaging::{self, DistAlgorithm, NetworkInfo};
 use traits::{Contribution, NodeIdT};
 
 pub use super::epoch_state::SubsetHandlingStrategy;
@@ -28,8 +28,6 @@ pub struct HoneyBadger<C, N: Rand> {
     pub(super) max_future_epochs: u64,
     /// Messages for future epochs that couldn't be handled yet.
     pub(super) incoming_queue: BTreeMap<u64, Vec<(N, MessageContent<N>)>>,
-    /// Known current epochs of remote nodes.
-    pub(super) remote_epochs: BTreeMap<N, u64>,
     /// A random number generator used for secret key generation.
     // Boxed to avoid overloading the algorithm's type with more generics.
     pub(super) rng: Box<dyn Rng + Send + Sync>,
@@ -50,7 +48,6 @@ where
             .field("epochs", &self.epochs)
             .field("max_future_epochs", &self.max_future_epochs)
             .field("incoming_queue", &self.incoming_queue)
-            .field("remote_epochs", &self.remote_epochs)
             .field("rng", &"<RNG>")
             .finish()
     }
@@ -118,27 +115,10 @@ where
 
     /// Handles a message received from `sender_id`.
     fn handle_message(&mut self, sender_id: &N, message: Message<N>) -> Result<Step<C, N>> {
-        match message {
-            Message::HoneyBadger { epoch, content } => {
-                if !self.netinfo.is_node_validator(sender_id) {
-                    return Err(ErrorKind::SenderNotValidator.into());
-                }
-                self.handle_honey_badger_message(sender_id, epoch, content)
-            }
-            Message::EpochStarted(epoch) => {
-                self.handle_epoch_started(sender_id, epoch);
-                Ok(Step::default())
-            }
+        if !self.netinfo.is_node_validator(sender_id) {
+            return Err(ErrorKind::UnknownSender.into());
         }
-    }
-
-    /// Handles a Honey Badger algorithm message in a given epoch.
-    fn handle_honey_badger_message(
-        &mut self,
-        sender_id: &N,
-        epoch: u64,
-        content: MessageContent<N>,
-    ) -> Result<Step<C, N>> {
+        let Message { epoch, content } = message;
         if epoch > self.epoch + self.max_future_epochs {
             // Postpone handling this message.
             self.incoming_queue
@@ -153,17 +133,6 @@ where
             return Ok(step);
         } // And ignore all messages from past epochs.
         Ok(Step::default())
-    }
-
-    /// Handles an epoch start announcement.
-    fn handle_epoch_started(&mut self, sender_id: &N, epoch: u64) {
-        self.remote_epochs
-            .entry(sender_id.clone())
-            .and_modify(|e| {
-                if *e < epoch {
-                    *e = epoch;
-                }
-            }).or_insert(epoch);
     }
 
     /// Returns `true` if input for the current epoch has already been provided.
@@ -186,10 +155,7 @@ where
         self.epoch += 1;
         self.has_input = false;
         let max_epoch = self.epoch + self.max_future_epochs;
-        // The first message in an epoch announces the epoch transition.
-        let mut step: Step<C, N> = Target::All
-            .message(Message::EpochStarted(self.epoch))
-            .into();
+        let mut step = Step::default();
         if let Some(messages) = self.incoming_queue.remove(&max_epoch) {
             let epoch_state = self.epoch_state_mut(max_epoch)?;
             for (sender_id, content) in messages {

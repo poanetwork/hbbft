@@ -22,7 +22,7 @@ use std::sync::Arc;
 use itertools::Itertools;
 use rand::Rng;
 
-use hbbft::honey_badger::{self, Batch, HoneyBadger, MessageContent, Step};
+use hbbft::honey_badger::{self, Batch, HoneyBadger, MessageContent};
 use hbbft::messaging::{NetworkInfo, Target, TargetedMessage};
 use hbbft::threshold_decryption;
 use hbbft::transaction_queue::TransactionQueue;
@@ -184,9 +184,7 @@ where
     }
 }
 
-fn new_honey_badger(
-    netinfo: Arc<NetworkInfo<NodeId>>,
-) -> (UsizeHoneyBadger, Step<Vec<usize>, NodeId>) {
+fn new_honey_badger(netinfo: Arc<NetworkInfo<NodeId>>) -> UsizeHoneyBadger {
     HoneyBadger::builder(netinfo).build()
 }
 
@@ -208,8 +206,7 @@ where
             num_good_nodes, num_adv_nodes
         );
         let adversary = |adv_nodes| new_adversary(num_good_nodes, num_adv_nodes, adv_nodes);
-        let network =
-            TestNetwork::new_with_step(num_good_nodes, num_adv_nodes, adversary, new_honey_badger);
+        let network = TestNetwork::new(num_good_nodes, num_adv_nodes, adversary, new_honey_badger);
         test_honey_badger(network, num_txs);
     }
 }

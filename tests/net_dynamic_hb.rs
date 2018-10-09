@@ -101,12 +101,11 @@ fn do_drop_and_readd(cfg: TestConfig) {
         .time_limit(time::Duration::from_secs(30 * cfg.dimension.size() as u64))
         // Ensure runs are reproducible.
         .rng(rng.gen::<TestRng>())
-        .using_step(move |node| {
+        .using(move |node| {
             println!("Constructing new dynamic honey badger node #{}", node.id);
             DynamicHoneyBadger::builder()
                 .rng(node.rng)
                 .build(node.netinfo)
-                .expect("cannot build instance")
         }).build()
         .expect("could not construct test network");
 

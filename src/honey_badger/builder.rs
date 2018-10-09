@@ -5,17 +5,14 @@ use std::sync::Arc;
 use rand::{self, Rand, Rng};
 use serde::{Deserialize, Serialize};
 
-use super::{HoneyBadger, Message, Step};
+use super::HoneyBadger;
 use honey_badger::SubsetHandlingStrategy;
-use messaging::{NetworkInfo, Target};
+use messaging::NetworkInfo;
 use traits::{Contribution, NodeIdT};
 use util::SubRng;
 
 /// A Honey Badger builder, to configure the parameters and create new instances of `HoneyBadger`.
-pub struct HoneyBadgerBuilder<C, N>
-where
-    N: Rand,
-{
+pub struct HoneyBadgerBuilder<C, N> {
     /// Shared network data.
     netinfo: Arc<NetworkInfo<N>>,
     /// The maximum number of future epochs for which we handle messages simultaneously.
@@ -65,26 +62,17 @@ where
         self
     }
 
-    /// Creates a new Honey Badger instance in epoch 0 and makes the initial `Step` on that
-    /// instance.
-    pub fn build(&mut self) -> (HoneyBadger<C, N>, Step<C, N>) {
-        let hb = HoneyBadger {
+    /// Creates a new Honey Badger instance.
+    pub fn build(&mut self) -> HoneyBadger<C, N> {
+        HoneyBadger {
             netinfo: self.netinfo.clone(),
             epoch: 0,
             has_input: false,
             epochs: BTreeMap::new(),
             max_future_epochs: self.max_future_epochs as u64,
             incoming_queue: BTreeMap::new(),
-            remote_epochs: BTreeMap::new(),
             rng: Box::new(self.rng.sub_rng()),
             subset_handling_strategy: self.subset_handling_strategy.clone(),
-        };
-        let step = if self.netinfo.is_validator() {
-            // The first message in an epoch announces the epoch transition.
-            Target::All.message(Message::EpochStarted(0)).into()
-        } else {
-            Step::default()
-        };
-        (hb, step)
+        }
     }
 }

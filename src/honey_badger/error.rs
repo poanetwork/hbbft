@@ -19,8 +19,8 @@ pub enum ErrorKind {
     HandleSubsetMessage(subset::Error),
     #[fail(display = "Threshold decryption error: {}", _0)]
     ThresholdDecryption(threshold_decryption::Error),
-    #[fail(display = "HoneyBadger message sender is not a validator")]
-    SenderNotValidator,
+    #[fail(display = "Unknown sender")]
+    UnknownSender,
 }
 
 /// A honey badger error.
