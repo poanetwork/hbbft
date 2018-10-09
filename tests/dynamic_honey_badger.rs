@@ -6,7 +6,6 @@ extern crate itertools;
 #[macro_use]
 extern crate log;
 extern crate env_logger;
-extern crate pairing;
 extern crate rand;
 #[macro_use]
 extern crate serde_derive;

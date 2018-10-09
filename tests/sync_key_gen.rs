@@ -3,7 +3,6 @@
 
 extern crate env_logger;
 extern crate hbbft;
-extern crate pairing;
 extern crate rand;
 extern crate threshold_crypto as crypto;
 

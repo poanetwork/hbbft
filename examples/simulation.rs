@@ -4,7 +4,6 @@ extern crate docopt;
 extern crate env_logger;
 extern crate hbbft;
 extern crate itertools;
-extern crate pairing;
 extern crate rand;
 #[macro_use]
 extern crate rand_derive;
