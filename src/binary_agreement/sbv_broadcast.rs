@@ -16,10 +16,9 @@ use super::bool_multimap::BoolMultimap;
 use super::bool_set::{self, BoolSet};
 use super::{Error, Result};
 use fault_log::{Fault, FaultKind};
-use messaging::{self, DistAlgorithm, NetworkInfo, Target};
-use traits::NodeIdT;
+use {DistAlgorithm, NetworkInfo, NodeIdT, Target};
 
-pub type Step<N> = messaging::Step<SbvBroadcast<N>>;
+pub type Step<N> = ::Step<SbvBroadcast<N>>;
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub enum Message {

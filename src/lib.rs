@@ -143,28 +143,16 @@ pub mod dynamic_honey_badger;
 pub mod fault_log;
 mod fmt;
 pub mod honey_badger;
-pub mod messaging;
+mod messaging;
+mod network_info;
 pub mod queueing_honey_badger;
 pub mod subset;
 pub mod sync_key_gen;
 pub mod threshold_decryption;
+mod traits;
 pub mod transaction_queue;
 pub mod util;
 
-/// Common supertraits.
-pub mod traits {
-    use std::fmt::Debug;
-    use std::hash::Hash;
-
-    /// A transaction, user message, etc.
-    pub trait Contribution: Eq + Debug + Hash + Send + Sync {}
-    impl<C> Contribution for C where C: Eq + Debug + Hash + Send + Sync {}
-
-    /// A peer node's unique identifier.
-    pub trait NodeIdT: Eq + Ord + Clone + Debug + Hash + Send + Sync {}
-    impl<N> NodeIdT for N where N: Eq + Ord + Clone + Debug + Hash + Send + Sync {}
-
-    /// Messages.
-    pub trait Message: Debug + Send + Sync {}
-    impl<M> Message for M where M: Debug + Send + Sync {}
-}
+pub use messaging::{SourcedMessage, Target, TargetedMessage};
+pub use network_info::NetworkInfo;
+pub use traits::{Contribution, DistAlgorithm, Message, NodeIdT, Step};

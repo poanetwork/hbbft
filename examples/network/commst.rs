@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use std::io;
 use std::net::TcpStream;
 
-use hbbft::messaging::SourcedMessage;
+use hbbft::SourcedMessage;
 
 #[derive(Debug)]
 pub enum Error {

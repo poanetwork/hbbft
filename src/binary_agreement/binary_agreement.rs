@@ -6,8 +6,7 @@ use super::bool_set::BoolSet;
 use super::sbv_broadcast::{self, SbvBroadcast};
 use super::{Error, Message, MessageContent, Nonce, Result, Step};
 use coin::{self, Coin, CoinMessage};
-use messaging::{DistAlgorithm, NetworkInfo, Target};
-use traits::NodeIdT;
+use {DistAlgorithm, NetworkInfo, NodeIdT, Target};
 
 /// The state of the current epoch's coin. In some epochs this is fixed, in others it starts
 /// with in `InProgress`.

@@ -3,7 +3,7 @@
 use std::{fmt, time};
 
 use failure;
-use hbbft::messaging::DistAlgorithm;
+use hbbft::DistAlgorithm;
 
 use super::NetMessage;
 

@@ -72,7 +72,6 @@ use rand;
 
 use self::bool_set::BoolSet;
 use coin::{self, CoinMessage};
-use messaging;
 
 pub use self::binary_agreement::BinaryAgreement;
 
@@ -92,7 +91,7 @@ pub enum Error {
 /// An Binary Agreement result.
 pub type Result<T> = ::std::result::Result<T, Error>;
 
-pub type Step<N> = messaging::Step<BinaryAgreement<N>>;
+pub type Step<N> = ::Step<BinaryAgreement<N>>;
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub enum MessageContent {

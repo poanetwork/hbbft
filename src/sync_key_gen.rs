@@ -175,8 +175,7 @@ use pairing::{CurveAffine, Field};
 use rand;
 
 use fault_log::{AckMessageFault as Fault, FaultKind, FaultLog};
-use messaging::NetworkInfo;
-use traits::NodeIdT;
+use {NetworkInfo, NodeIdT};
 
 // TODO: No need to send our own row and value to ourselves.
 

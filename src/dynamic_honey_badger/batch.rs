@@ -4,8 +4,7 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 
 use super::{ChangeState, JoinPlan};
-use messaging::NetworkInfo;
-use traits::NodeIdT;
+use {NetworkInfo, NodeIdT};
 
 /// A batch of transactions the algorithm has output.
 #[derive(Clone, Debug)]

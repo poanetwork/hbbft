@@ -7,8 +7,7 @@ use crypto::SecretKeyShare;
 use rand::{self, Rng};
 
 use hbbft::dynamic_honey_badger::Batch;
-use hbbft::messaging::{DistAlgorithm, NetworkInfo, Step, Target, TargetedMessage};
-use hbbft::traits::Contribution;
+use hbbft::{Contribution, DistAlgorithm, NetworkInfo, Step, Target, TargetedMessage};
 
 /// A node identifier. In the tests, nodes are simply numbered.
 #[derive(Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Clone, Copy, Serialize, Deserialize, Rand)]

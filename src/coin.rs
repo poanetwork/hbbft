@@ -24,17 +24,15 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use crypto::error as cerror;
-use crypto::{Signature, SignatureShare};
+use crypto::{self, Signature, SignatureShare};
 use fault_log::{Fault, FaultKind};
-use messaging::{self, DistAlgorithm, NetworkInfo, Target};
-use traits::NodeIdT;
+use {DistAlgorithm, NetworkInfo, NodeIdT, Target};
 
 /// A coin error.
 #[derive(Clone, Eq, PartialEq, Debug, Fail)]
 pub enum Error {
     #[fail(display = "CombineAndVerifySigCrypto error: {}", _0)]
-    CombineAndVerifySigCrypto(cerror::Error),
+    CombineAndVerifySigCrypto(crypto::error::Error),
     #[fail(display = "Unknown sender")]
     UnknownSender,
     #[fail(display = "Signature verification failed")]
@@ -73,7 +71,7 @@ pub struct Coin<N, T> {
     terminated: bool,
 }
 
-pub type Step<N, T> = messaging::Step<Coin<N, T>>;
+pub type Step<N, T> = ::Step<Coin<N, T>>;
 
 impl<N, T> DistAlgorithm for Coin<N, T>
 where

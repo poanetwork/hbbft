@@ -31,9 +31,8 @@ use rand::Rand;
 use serde::{Deserialize, Serialize};
 
 use dynamic_honey_badger::{self, Batch as DhbBatch, DynamicHoneyBadger, Message};
-use messaging::{self, DistAlgorithm};
-use traits::{Contribution, NodeIdT};
 use transaction_queue::TransactionQueue;
+use {Contribution, DistAlgorithm, NodeIdT};
 
 pub use dynamic_honey_badger::{Change, ChangeState, Input};
 
@@ -172,7 +171,7 @@ where
     queue: TransactionQueue<T>,
 }
 
-pub type Step<T, N> = messaging::Step<QueueingHoneyBadger<T, N>>;
+pub type Step<T, N> = ::Step<QueueingHoneyBadger<T, N>>;
 
 impl<T, N> DistAlgorithm for QueueingHoneyBadger<T, N>
 where

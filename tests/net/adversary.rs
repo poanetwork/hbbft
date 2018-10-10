@@ -35,7 +35,8 @@
 
 use std::cmp;
 
-use hbbft::messaging::{DistAlgorithm, Step};
+use hbbft::{DistAlgorithm, Step};
+
 use net::{CrankError, NetMessage, Node, VirtualNet};
 
 /// Immutable network handle.

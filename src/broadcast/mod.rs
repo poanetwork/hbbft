@@ -56,7 +56,7 @@
 //! extern crate rand;
 //!
 //! use hbbft::broadcast::{Broadcast, Error, Step};
-//! use hbbft::messaging::{DistAlgorithm, NetworkInfo, SourcedMessage, Target, TargetedMessage};
+//! use hbbft::{DistAlgorithm, NetworkInfo, SourcedMessage, Target, TargetedMessage};
 //! use rand::{thread_rng, Rng};
 //! use std::collections::{BTreeMap, BTreeSet, VecDeque};
 //! use std::iter::once;

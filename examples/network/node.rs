@@ -46,10 +46,9 @@ use crypto::poly::Poly;
 use crypto::{SecretKey, SecretKeySet};
 
 use hbbft::broadcast::{Broadcast, Message};
-use hbbft::messaging::{DistAlgorithm, NetworkInfo, SourcedMessage};
-use network::commst;
-use network::connection;
+use hbbft::{DistAlgorithm, NetworkInfo, SourcedMessage};
 use network::messaging::Messaging;
+use network::{commst, connection};
 
 #[derive(Debug)]
 pub enum Error {
