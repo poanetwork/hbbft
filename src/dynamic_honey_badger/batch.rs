@@ -1,15 +1,14 @@
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
-use rand::Rand;
 use serde::{Deserialize, Serialize};
 
 use super::{ChangeState, JoinPlan};
-use crypto::{PublicKey, PublicKeySet};
 use messaging::NetworkInfo;
 use traits::NodeIdT;
 
 /// A batch of transactions the algorithm has output.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug)]
 pub struct Batch<C, N> {
     /// The sequence number: there is exactly one batch in each epoch.
     pub(super) epoch: u64,
@@ -17,22 +16,12 @@ pub struct Batch<C, N> {
     pub(super) contributions: BTreeMap<N, C>,
     /// The current state of adding or removing a node: whether any is in progress, or completed
     /// this epoch.
-    change: ChangeState<N>,
-    /// The public network info, if `change` is not `None`.
-    pub_netinfo: Option<(PublicKeySet, BTreeMap<N, PublicKey>)>,
+    pub(super) change: ChangeState<N>,
+    /// The network info that applies to the _next_ epoch.
+    pub(super) netinfo: Arc<NetworkInfo<N>>,
 }
 
-impl<C, N: NodeIdT + Rand> Batch<C, N> {
-    /// Returns a new, empty batch with the given epoch.
-    pub fn new(epoch: u64) -> Self {
-        Batch {
-            epoch,
-            contributions: BTreeMap::new(),
-            change: ChangeState::None,
-            pub_netinfo: None,
-        }
-    }
-
+impl<C, N: NodeIdT> Batch<C, N> {
     pub fn epoch(&self) -> u64 {
         self.epoch
     }
@@ -41,6 +30,12 @@ impl<C, N: NodeIdT + Rand> Batch<C, N> {
     /// completed in this epoch.
     pub fn change(&self) -> &ChangeState<N> {
         &self.change
+    }
+
+    /// Returns the `NetworkInfo` containing the information about the validators that will produce
+    /// the _next_ epoch after this one.
+    pub fn network_info(&self) -> &Arc<NetworkInfo<N>> {
+        &self.netinfo
     }
 
     /// Returns an iterator over references to all transactions included in the batch.
@@ -88,25 +83,27 @@ impl<C, N: NodeIdT + Rand> Batch<C, N> {
     where
         N: Serialize + for<'r> Deserialize<'r>,
     {
-        self.pub_netinfo
-            .as_ref()
-            .map(|&(ref pub_key_set, ref pub_keys)| JoinPlan {
-                epoch: self.epoch + 1,
-                change: self.change.clone(),
-                pub_key_set: pub_key_set.clone(),
-                pub_keys: pub_keys.clone(),
-            })
+        if self.change == ChangeState::None {
+            return None;
+        }
+        Some(JoinPlan {
+            epoch: self.epoch + 1,
+            change: self.change.clone(),
+            pub_key_set: self.netinfo.public_key_set().clone(),
+            pub_keys: self.netinfo.public_key_map().clone(),
+        })
     }
 
-    /// Sets the current change state, and if it is not `None`, inserts the network information so
-    /// that a `JoinPlan` can be generated for the next epoch.
-    pub(super) fn set_change(&mut self, change: ChangeState<N>, netinfo: &NetworkInfo<N>) {
-        self.change = change;
-        if self.change != ChangeState::None {
-            self.pub_netinfo = Some((
-                netinfo.public_key_set().clone(),
-                netinfo.public_key_map().clone(),
-            ));
-        }
+    /// Returns `true` if all public parts of the batch are equal to `other`. Secret keys and our
+    /// own node ID are ignored.
+    pub fn public_eq(&self, other: &Self) -> bool
+    where
+        C: PartialEq,
+    {
+        self.epoch == other.epoch
+            && self.contributions == other.contributions
+            && self.change == other.change
+            && self.netinfo.public_key_set() == other.netinfo.public_key_set()
+            && self.netinfo.public_key_map() == other.netinfo.public_key_map()
     }
 }

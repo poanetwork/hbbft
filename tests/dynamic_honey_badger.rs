@@ -15,7 +15,6 @@ extern crate threshold_crypto as crypto;
 
 mod network;
 
-use std::cmp;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
@@ -101,22 +100,7 @@ where
             input_add = true;
         }
     }
-    verify_output_sequence(&network);
-}
-
-/// Verifies that all instances output the same sequence of batches. We already know that all of
-/// them have output all transactions and events, but some may have advanced a few empty batches
-/// more than others, so we ignore those.
-fn verify_output_sequence<A>(network: &TestNetwork<A, UsizeDhb>)
-where
-    A: Adversary<UsizeDhb>,
-{
-    let expected = network.nodes[&NodeId(0)].outputs().to_vec();
-    assert!(!expected.is_empty());
-    for node in network.nodes.values() {
-        let len = cmp::min(expected.len(), node.outputs().len());
-        assert_eq!(&expected[..len], &node.outputs()[..len]);
-    }
+    network.verify_batches();
 }
 
 // Allow passing `netinfo` by value. `TestNetwork` expects this function signature.
