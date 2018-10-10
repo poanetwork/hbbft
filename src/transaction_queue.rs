@@ -3,7 +3,7 @@ use std::collections::{HashSet, VecDeque};
 
 use rand;
 
-use traits::Contribution;
+use Contribution;
 
 /// A wrapper providing a few convenience methods for a queue of pending transactions.
 #[derive(Debug)]

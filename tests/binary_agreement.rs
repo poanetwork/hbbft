@@ -33,7 +33,7 @@ use std::sync::Arc;
 use rand::Rng;
 
 use hbbft::binary_agreement::BinaryAgreement;
-use hbbft::messaging::NetworkInfo;
+use hbbft::NetworkInfo;
 
 use network::{Adversary, MessageScheduler, NodeId, SilentAdversary, TestNetwork, TestNode};
 

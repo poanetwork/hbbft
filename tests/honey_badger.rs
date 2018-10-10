@@ -23,9 +23,8 @@ use itertools::Itertools;
 use rand::Rng;
 
 use hbbft::honey_badger::{self, Batch, HoneyBadger, MessageContent};
-use hbbft::messaging::{NetworkInfo, Target, TargetedMessage};
-use hbbft::threshold_decryption;
 use hbbft::transaction_queue::TransactionQueue;
+use hbbft::{threshold_decryption, NetworkInfo, Target, TargetedMessage};
 
 use network::{
     Adversary, MessageScheduler, MessageWithSender, NodeId, RandomAdversary, SilentAdversary,

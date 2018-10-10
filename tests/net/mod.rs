@@ -26,9 +26,8 @@ use rand::{Rand, Rng};
 use threshold_crypto as crypto;
 
 use hbbft::dynamic_honey_badger::Batch;
-use hbbft::messaging::{self, DistAlgorithm, NetworkInfo, Step};
-use hbbft::traits::{Contribution, NodeIdT};
 use hbbft::util::SubRng;
+use hbbft::{self, Contribution, DistAlgorithm, NetworkInfo, NodeIdT, Step};
 
 pub use self::adversary::Adversary;
 pub use self::err::CrankError;
@@ -135,7 +134,7 @@ impl<D: DistAlgorithm> Node<D> {
 }
 
 /// A network message on the virtual network.
-// Note: We do not use `messaging::TargetedMessage` and `messaging::SourceMessage` here, the nesting
+// Note: We do not use `hbbft::TargetedMessage` and `hbbft::SourceMessage` here, the nesting
 //       is inconvenient and we do not want to support broadcasts at this level.
 #[derive(Clone, Debug)]
 pub struct NetworkMessage<M, N> {
@@ -198,7 +197,7 @@ where
     for tmsg in &step.messages {
         match &tmsg.target {
             // Single target message.
-            messaging::Target::Node(to) => {
+            hbbft::Target::Node(to) => {
                 if !faulty {
                     message_count = message_count.saturating_add(1);
                 }
@@ -210,7 +209,7 @@ where
                 ));
             }
             // Broadcast messages get expanded into multiple direct messages.
-            messaging::Target::All => for to in nodes.keys().filter(|&to| to != &sender) {
+            hbbft::Target::All => for to in nodes.keys().filter(|&to| to != &sender) {
                 if !faulty {
                     message_count = message_count.saturating_add(1);
                 }
@@ -706,7 +705,7 @@ where
         R: rand::Rng,
     {
         // Generate a new set of cryptographic keys for threshold cryptography.
-        let net_infos = messaging::NetworkInfo::generate_map(node_ids, &mut rng)?;
+        let net_infos = NetworkInfo::generate_map(node_ids, &mut rng)?;
 
         assert!(
             faulty * 3 < net_infos.len(),

@@ -30,9 +30,8 @@ use std::sync::Arc;
 use binary_agreement::{self, BinaryAgreement};
 use broadcast::{self, Broadcast};
 use fmt::HexBytes;
-use messaging::{self, DistAlgorithm, NetworkInfo};
 use rand::Rand;
-use traits::NodeIdT;
+use {DistAlgorithm, NetworkInfo, NodeIdT};
 
 /// A subset error.
 #[derive(Clone, PartialEq, Debug, Fail)]
@@ -85,7 +84,7 @@ pub struct Subset<N: Rand> {
     decided: bool,
 }
 
-pub type Step<N> = messaging::Step<Subset<N>>;
+pub type Step<N> = ::Step<Subset<N>>;
 
 impl<N: NodeIdT + Rand> DistAlgorithm for Subset<N> {
     type NodeId = N;

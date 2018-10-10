@@ -11,10 +11,9 @@ use serde::{Deserialize, Serialize};
 
 use super::{Batch, ErrorKind, MessageContent, Result, Step};
 use fault_log::{Fault, FaultKind, FaultLog};
-use messaging::{DistAlgorithm, NetworkInfo};
 use subset::{self as cs, Subset, SubsetOutput};
 use threshold_decryption::{self as td, ThresholdDecryption};
-use traits::{Contribution, NodeIdT};
+use {Contribution, DistAlgorithm, NetworkInfo, NodeIdT};
 
 /// The status of an encrypted contribution.
 #[derive(Debug)]

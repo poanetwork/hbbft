@@ -21,7 +21,7 @@ use std::sync::Arc;
 use rand::Rng;
 
 use hbbft::broadcast::{Broadcast, Message};
-use hbbft::messaging::{DistAlgorithm, NetworkInfo, Target, TargetedMessage};
+use hbbft::{DistAlgorithm, NetworkInfo, Target, TargetedMessage};
 use network::{
     Adversary, MessageScheduler, MessageWithSender, NodeId, RandomAdversary, SilentAdversary,
     TestNetwork, TestNode,

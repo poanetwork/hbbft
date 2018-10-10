@@ -2,7 +2,7 @@
 use crossbeam::{Scope, ScopedJoinHandle};
 use crossbeam_channel;
 use crossbeam_channel::{bounded, unbounded, Receiver, Sender};
-use hbbft::messaging::{SourcedMessage, Target, TargetedMessage};
+use hbbft::{SourcedMessage, Target, TargetedMessage};
 
 /// The queue functionality for messages sent between algorithm instances.
 /// The messaging struct allows for targeted message exchange between comms

@@ -7,8 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use super::{Change, ErrorKind, Result};
 use fault_log::{FaultKind, FaultLog};
-use messaging::NetworkInfo;
-use traits::NodeIdT;
+use {NetworkInfo, NodeIdT};
 
 /// A buffer and counter collecting pending and committed votes for validator set changes.
 ///
@@ -192,7 +191,7 @@ mod tests {
 
     use super::{Change, SignedVote, VoteCounter};
     use fault_log::{FaultKind, FaultLog};
-    use messaging::NetworkInfo;
+    use NetworkInfo;
 
     /// Returns a vector of `node_num` `VoteCounter`s, and some signed example votes.
     ///

@@ -18,8 +18,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::iter::once;
 use std::sync::Arc;
 
-use hbbft::messaging::NetworkInfo;
 use hbbft::subset::{Subset, SubsetOutput};
+use hbbft::NetworkInfo;
 
 use network::{Adversary, MessageScheduler, NodeId, SilentAdversary, TestNetwork, TestNode};
 

@@ -11,7 +11,7 @@ pub mod net;
 use std::{collections, time};
 
 use hbbft::dynamic_honey_badger::{Change, ChangeState, DynamicHoneyBadger, Input};
-use hbbft::messaging::DistAlgorithm;
+use hbbft::DistAlgorithm;
 use net::proptest::{gen_seed, NetworkDimension, TestRng, TestRngSeed};
 use net::NetBuilder;
 use proptest::prelude::ProptestConfig;

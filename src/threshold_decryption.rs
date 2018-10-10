@@ -13,11 +13,9 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use crypto::error as cerror;
-use crypto::{Ciphertext, DecryptionShare};
+use crypto::{self, Ciphertext, DecryptionShare};
 use fault_log::{Fault, FaultKind, FaultLog};
-use messaging::{self, DistAlgorithm, NetworkInfo, Target};
-use traits::NodeIdT;
+use {DistAlgorithm, NetworkInfo, NodeIdT, Target};
 
 /// A threshold decryption error.
 #[derive(Clone, Eq, PartialEq, Debug, Fail)]
@@ -29,7 +27,7 @@ pub enum Error {
     #[fail(display = "Unknown sender")]
     UnknownSender,
     #[fail(display = "Decryption failed: {:?}", _0)]
-    Decryption(cerror::Error),
+    Decryption(crypto::error::Error),
 }
 
 /// A threshold decryption result.
@@ -52,7 +50,7 @@ pub struct ThresholdDecryption<N> {
     terminated: bool,
 }
 
-pub type Step<N> = messaging::Step<ThresholdDecryption<N>>;
+pub type Step<N> = ::Step<ThresholdDecryption<N>>;
 
 impl<N: NodeIdT> DistAlgorithm for ThresholdDecryption<N> {
     type NodeId = N;

@@ -68,9 +68,8 @@ use std::collections::BTreeMap;
 
 use self::votes::{SignedVote, VoteCounter};
 use honey_badger::Message as HbMessage;
-use messaging;
 use sync_key_gen::{Ack, Part, SyncKeyGen};
-use traits::NodeIdT;
+use NodeIdT;
 
 pub use self::batch::Batch;
 pub use self::builder::DynamicHoneyBadgerBuilder;
@@ -78,7 +77,7 @@ pub use self::change::{Change, ChangeState};
 pub use self::dynamic_honey_badger::DynamicHoneyBadger;
 pub use self::error::{Error, ErrorKind, Result};
 
-pub type Step<C, N> = messaging::Step<DynamicHoneyBadger<C, N>>;
+pub type Step<C, N> = ::Step<DynamicHoneyBadger<C, N>>;
 
 /// The user input for `DynamicHoneyBadger`.
 #[derive(Clone, Debug)]

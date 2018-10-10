@@ -19,8 +19,8 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use hbbft::dynamic_honey_badger::DynamicHoneyBadger;
-use hbbft::messaging::NetworkInfo;
 use hbbft::queueing_honey_badger::{Batch, Change, ChangeState, Input, QueueingHoneyBadger, Step};
+use hbbft::NetworkInfo;
 use itertools::Itertools;
 use rand::Rng;
 

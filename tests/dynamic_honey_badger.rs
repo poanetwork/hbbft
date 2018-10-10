@@ -22,8 +22,8 @@ use itertools::Itertools;
 use rand::Rng;
 
 use hbbft::dynamic_honey_badger::{Batch, Change, ChangeState, DynamicHoneyBadger, Input};
-use hbbft::messaging::NetworkInfo;
 use hbbft::transaction_queue::TransactionQueue;
+use hbbft::NetworkInfo;
 
 use network::{Adversary, MessageScheduler, NodeId, SilentAdversary, TestNetwork, TestNode};
 

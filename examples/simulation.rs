@@ -25,8 +25,8 @@ use serde::Serialize;
 use signifix::{metric, TryFrom};
 
 use hbbft::dynamic_honey_badger::DynamicHoneyBadger;
-use hbbft::messaging::{DistAlgorithm, NetworkInfo, Step, Target};
 use hbbft::queueing_honey_badger::{Batch, QueueingHoneyBadger};
+use hbbft::{DistAlgorithm, NetworkInfo, Step, Target};
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 const USAGE: &str = "

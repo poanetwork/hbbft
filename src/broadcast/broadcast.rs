@@ -11,8 +11,7 @@ use super::merkle::{Digest, MerkleTree, Proof};
 use super::{Error, Result};
 use fault_log::{Fault, FaultKind};
 use fmt::{HexBytes, HexList, HexProof};
-use messaging::{self, DistAlgorithm, NetworkInfo, Target};
-use traits::NodeIdT;
+use {DistAlgorithm, NetworkInfo, NodeIdT, Target};
 
 /// The three kinds of message sent during the reliable broadcast stage of the
 /// consensus algorithm.
@@ -77,7 +76,7 @@ pub struct Broadcast<N> {
     readys: BTreeMap<N, Vec<u8>>,
 }
 
-pub type Step<N> = messaging::Step<Broadcast<N>>;
+pub type Step<N> = ::Step<Broadcast<N>>;
 
 impl<N: NodeIdT> DistAlgorithm for Broadcast<N> {
     type NodeId = N;

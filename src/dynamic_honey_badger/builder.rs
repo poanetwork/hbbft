@@ -9,9 +9,8 @@ use serde::{Deserialize, Serialize};
 
 use super::{ChangeState, DynamicHoneyBadger, JoinPlan, Result, Step, VoteCounter};
 use honey_badger::{HoneyBadger, SubsetHandlingStrategy};
-use messaging::NetworkInfo;
-use traits::{Contribution, NodeIdT};
 use util::SubRng;
+use {Contribution, NetworkInfo, NodeIdT};
 
 /// A Dynamic Honey Badger builder, to configure the parameters and create new instances of
 /// `DynamicHoneyBadger`.

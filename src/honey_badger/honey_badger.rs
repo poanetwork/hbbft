@@ -9,8 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use super::epoch_state::EpochState;
 use super::{Batch, Error, ErrorKind, HoneyBadgerBuilder, Message, MessageContent, Result};
-use messaging::{self, DistAlgorithm, NetworkInfo};
-use traits::{Contribution, NodeIdT};
+use {Contribution, DistAlgorithm, NetworkInfo, NodeIdT};
 
 pub use super::epoch_state::SubsetHandlingStrategy;
 
@@ -53,7 +52,7 @@ where
     }
 }
 
-pub type Step<C, N> = messaging::Step<HoneyBadger<C, N>>;
+pub type Step<C, N> = ::Step<HoneyBadger<C, N>>;
 
 impl<C, N> DistAlgorithm for HoneyBadger<C, N>
 where

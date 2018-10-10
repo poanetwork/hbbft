@@ -7,9 +7,8 @@ use serde::{Deserialize, Serialize};
 
 use super::HoneyBadger;
 use honey_badger::SubsetHandlingStrategy;
-use messaging::NetworkInfo;
-use traits::{Contribution, NodeIdT};
 use util::SubRng;
+use {Contribution, NetworkInfo, NodeIdT};
 
 /// A Honey Badger builder, to configure the parameters and create new instances of `HoneyBadger`.
 pub struct HoneyBadgerBuilder<C, N> {
