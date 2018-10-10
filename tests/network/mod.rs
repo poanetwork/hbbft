@@ -6,7 +6,9 @@ use std::sync::Arc;
 use crypto::SecretKeyShare;
 use rand::{self, Rng};
 
+use hbbft::dynamic_honey_badger::Batch;
 use hbbft::messaging::{DistAlgorithm, NetworkInfo, Step, Target, TargetedMessage};
+use hbbft::traits::Contribution;
 
 /// A node identifier. In the tests, nodes are simply numbered.
 #[derive(Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Clone, Copy, Serialize, Deserialize, Rand)]
@@ -538,6 +540,30 @@ where
         let ids: Vec<D::NodeId> = self.nodes.keys().cloned().collect();
         for id in ids {
             self.input(id, value.clone());
+        }
+    }
+}
+
+impl<A: Adversary<D>, C, D> TestNetwork<A, D>
+where
+    D: DistAlgorithm<Output = Batch<C, NodeId>, NodeId = NodeId>,
+    C: Contribution + Clone,
+{
+    /// Verifies that all nodes' outputs agree.
+    #[allow(unused)] // Not used in all tests.
+    pub fn verify_batches(&self) {
+        let expected = self.nodes[&NodeId(0)].outputs().to_vec();
+        assert!(!expected.is_empty());
+        let pub_eq = |(b0, b1): (&Batch<C, _>, &Batch<C, _>)| b0.public_eq(b1);
+        for node in self.nodes.values() {
+            assert_eq!(expected.len(), node.outputs().len());
+            assert!(
+                expected.iter().zip(node.outputs()).all(pub_eq),
+                "Outputs of nodes 0 and {} differ: {:?} != {:?}",
+                node.instance().our_id().0,
+                expected,
+                node.outputs()
+            );
         }
     }
 }

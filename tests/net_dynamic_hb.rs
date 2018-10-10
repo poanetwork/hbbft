@@ -245,8 +245,7 @@ fn do_drop_and_readd(cfg: TestConfig) {
     }
 
     // As a final step, we verify that all nodes have arrived at the same conclusion.
-    let first = net.correct_nodes().nth(0).unwrap().outputs();
-    assert!(net.nodes().all(|node| node.outputs() == first));
+    let out = net.verify_batches();
 
-    println!("End result: {:?}", first);
+    println!("End result: {:?}", out);
 }

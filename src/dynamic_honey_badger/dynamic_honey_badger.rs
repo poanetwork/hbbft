@@ -1,10 +1,10 @@
-use rand::Rand;
+use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::{fmt, mem};
 
 use bincode;
 use crypto::Signature;
-use rand;
+use rand::{self, Rand};
 use serde::{Deserialize, Serialize};
 
 use super::votes::{SignedVote, VoteCounter};
@@ -258,9 +258,8 @@ where
         let start_epoch = self.start_epoch;
         let output = step.extend_with(hb_step, |hb_msg| Message::HoneyBadger(start_epoch, hb_msg));
         for hb_batch in output {
-            // Create the batch we output ourselves. It will contain the _user_ transactions of
-            // `hb_batch`, and the current change state.
-            let mut batch = Batch::new(hb_batch.epoch + self.start_epoch);
+            let batch_epoch = hb_batch.epoch + self.start_epoch;
+            let mut batch_contributions = BTreeMap::new();
 
             // Add the user transactions to `batch` and handle votes and DKG messages.
             for (id, int_contrib) in hb_batch.contributions {
@@ -271,7 +270,7 @@ where
                 } = int_contrib;
                 step.fault_log
                     .extend(self.vote_counter.add_committed_votes(&id, votes)?);
-                batch.contributions.insert(id.clone(), contrib);
+                batch_contributions.insert(id.clone(), contrib);
                 self.key_gen_msg_buffer
                     .retain(|skgm| !key_gen_messages.contains(skgm));
                 for SignedKeyGenMsg(epoch, s_id, kg_msg, sig) in key_gen_messages {
@@ -295,18 +294,25 @@ where
                 }
             }
 
-            if let Some(kgs) = self.take_ready_key_gen() {
+            let change = if let Some(kgs) = self.take_ready_key_gen() {
                 // If DKG completed, apply the change, restart Honey Badger, and inform the user.
                 debug!("{:?} DKG for {:?} complete!", self.our_id(), kgs.change);
                 self.netinfo = kgs.key_gen.into_network_info()?;
-                self.restart_honey_badger(batch.epoch + 1);
-                batch.set_change(ChangeState::Complete(kgs.change), &self.netinfo);
+                self.restart_honey_badger(batch_epoch + 1);
+                ChangeState::Complete(kgs.change)
             } else if let Some(change) = self.vote_counter.compute_winner().cloned() {
                 // If there is a new change, restart DKG. Inform the user about the current change.
-                step.extend(self.update_key_gen(batch.epoch + 1, &change)?);
-                batch.set_change(ChangeState::InProgress(change), &self.netinfo);
-            }
-            step.output.push_back(batch);
+                step.extend(self.update_key_gen(batch_epoch + 1, &change)?);
+                ChangeState::InProgress(change)
+            } else {
+                ChangeState::None
+            };
+            step.output.push_back(Batch {
+                epoch: batch_epoch,
+                change,
+                netinfo: Arc::new(self.netinfo.clone()),
+                contributions: batch_contributions,
+            });
         }
         // If `start_epoch` changed, we can now handle some queued messages.
         if start_epoch < self.start_epoch {

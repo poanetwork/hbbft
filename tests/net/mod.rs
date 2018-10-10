@@ -25,7 +25,9 @@ use rand;
 use rand::{Rand, Rng};
 use threshold_crypto as crypto;
 
+use hbbft::dynamic_honey_badger::Batch;
 use hbbft::messaging::{self, DistAlgorithm, NetworkInfo, Step};
+use hbbft::traits::{Contribution, NodeIdT};
 use hbbft::util::SubRng;
 
 pub use self::adversary::Adversary;
@@ -955,6 +957,29 @@ where
         });
 
         Ok(steps)
+    }
+}
+
+impl<C, D, N> VirtualNet<D>
+where
+    D: DistAlgorithm<Output = Batch<C, N>>,
+    C: Contribution + Clone,
+    N: NodeIdT,
+{
+    /// Verifies that all nodes' outputs agree, and returns the output.
+    pub fn verify_batches(&self) -> &[Batch<C, N>] {
+        let first = self.correct_nodes().nth(0).unwrap().outputs();
+        let pub_eq = |(b0, b1): (&Batch<C, _>, &Batch<C, _>)| b0.public_eq(b1);
+        for (i, node) in self.correct_nodes().enumerate().skip(0) {
+            assert!(
+                first.iter().zip(node.outputs()).all(pub_eq),
+                "Outputs of nodes 0 and {} differ: {:?} != {:?}",
+                i,
+                first,
+                node.outputs()
+            );
+        }
+        first
     }
 }
 
