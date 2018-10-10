@@ -125,7 +125,7 @@ where
                 .entry(epoch)
                 .or_insert_with(Vec::new)
                 .push((sender_id.clone(), content));
-        } else if self.epoch <= epoch || epoch <= self.epoch + self.max_future_epochs {
+        } else if self.epoch <= epoch {
             let mut step = self
                 .epoch_state_mut(epoch)?
                 .handle_message_content(sender_id, content)?;
