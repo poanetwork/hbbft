@@ -35,7 +35,7 @@ In addition to **validators**, the algorithms support **observers**: These don't
 
 - **[Broadcast](src/broadcast/broadcast.rs):** A proposer node inputs data and every node receives this output.
 
-- **[Binary Agreement](src/agreement/agreement.rs):** Each node inputs a binary value. The nodes agree on a value that was input by at least one correct node.
+- **[Binary Agreement](src/binary_agreement/binary_agreement.rs):** Each node inputs a binary value. The nodes agree on a value that was input by at least one correct node.
 
 - **[Coin](src/coin.rs):** A pseudorandom binary value used by the Binary Agreement protocol.
 
@@ -66,9 +66,8 @@ $ cargo build [--release]
 ### Testing
 
 ```
-$ MLOCK_SECRETS=false cargo test --release
+$ cargo test --release
 ```
-The [MLOCK_SECRETS](https://github.com/poanetwork/threshold_crypto#environment-variables) envvar is associated with the `threshold_crypto` dependency and **should only be used in development and testing**. The test suite can run without setting `MLOCK_SECRETS=false`, however, it runs faster when it is set and ensures tests won't fail if the testing system's locked memory limit is reached.
 
 See the [tests README](tests/README.md) for more information on our testing toolkit.
 
@@ -125,13 +124,9 @@ $ cargo run --example simulation --release -- -b 500
 
 ```
 
-
 ## Current TODOs
 
 See [Issues](https://github.com/poanetwork/hbbft/issues) for all tasks.
-
-- [ ] Create additional adversarial scenarios and tests
-- [ ] Networking example to detail Honey Badger implementation
 
 ## Protocol Modifications
 
@@ -172,6 +167,8 @@ at your option.
 * [The Honey Badger of BFT Protocols](https://eprint.iacr.org/2016/199.pdf)
 
 * [Honey Badger Video](https://www.youtube.com/watch?v=Qone4j1hCt8)
+
+* [POA Network: Building Honey Badger BFT](https://medium.com/poa-network/poa-network-building-honey-badger-bft-c953afa4d926)
 
 * Other language implementations
 
