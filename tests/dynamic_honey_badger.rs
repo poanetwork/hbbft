@@ -19,7 +19,7 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use itertools::Itertools;
-use rand::Rng;
+use rand::{Isaac64Rng, Rng};
 
 use hbbft::dynamic_honey_badger::{Batch, Change, ChangeState, DynamicHoneyBadger, Input};
 use hbbft::transaction_queue::TransactionQueue;
@@ -34,10 +34,11 @@ fn test_dynamic_honey_badger<A>(mut network: TestNetwork<A, UsizeDhb>, num_txs: 
 where
     A: Adversary<UsizeDhb>,
 {
-    let new_queue = |id: &NodeId| (*id, TransactionQueue((0..num_txs).collect()));
+    let mut rng = rand::thread_rng().gen::<Isaac64Rng>();
+    let new_queue = |id: &NodeId| (*id, (0..num_txs).collect::<Vec<usize>>());
     let mut queues: BTreeMap<_, _> = network.nodes.keys().map(new_queue).collect();
-    for (id, queue) in &queues {
-        network.input(*id, Input::User(queue.choose(3, 10)));
+    for (id, queue) in &mut queues {
+        network.input(*id, Input::User(queue.choose(&mut rng, 3, 10)));
     }
 
     network.input_all(Input::Change(Change::Remove(NodeId(0))));
@@ -85,8 +86,8 @@ where
             .collect();
         if let Some(id) = rng.choose(&input_ids) {
             let queue = queues.get_mut(id).unwrap();
-            queue.remove_all(network.nodes[id].outputs().iter().flat_map(Batch::iter));
-            network.input(*id, Input::User(queue.choose(3, 10)));
+            queue.remove_multiple(network.nodes[id].outputs().iter().flat_map(Batch::iter));
+            network.input(*id, Input::User(queue.choose(&mut rng, 3, 10)));
         }
         network.step();
         // Once all nodes have processed the removal of node 0, add it again.

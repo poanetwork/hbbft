@@ -1,32 +1,56 @@
-use std::cmp;
-use std::collections::{HashSet, VecDeque};
+use std::collections::HashSet;
+use std::{cmp, fmt};
 
-use rand;
+use rand::{self, Rng};
 
 use Contribution;
 
-/// A wrapper providing a few convenience methods for a queue of pending transactions.
-#[derive(Debug)]
-pub struct TransactionQueue<T>(pub VecDeque<T>);
-
-impl<T: Clone> TransactionQueue<T> {
+/// An interface to the transaction queue. A transaction queue is a structural part of
+/// `QueueingHoneyBadger` that manages enqueueing of transactions for a future batch and dequeueing
+/// of transactions to become part of a current batch.
+pub trait TransactionQueue<T>: fmt::Debug + Default + Extend<T> + Sync + Send {
+    /// Checks whether the queue is empty.
+    fn is_empty(&self) -> bool;
+    /// Appends an element at the end of the queue.
+    fn push(&mut self, t: T);
+    /// Returns a new set of `amount` transactions, randomly chosen from the first `batch_size`.
+    /// No transactions are removed from the queue.
+    // TODO: Return references, once the `HoneyBadger` API accepts them.
+    fn choose<R: Rng>(&mut self, rng: &mut R, amount: usize, batch_size: usize) -> Vec<T>;
     /// Removes the given transactions from the queue.
-    pub fn remove_all<'a, I>(&mut self, txs: I)
+    fn remove_multiple<'a, I>(&mut self, txs: I)
+    where
+        I: IntoIterator<Item = &'a T>,
+        T: 'a + Contribution;
+}
+
+impl<T> TransactionQueue<T> for Vec<T>
+where
+    T: Clone + fmt::Debug + Sync + Send,
+{
+    #[inline]
+    fn is_empty(&self) -> bool {
+        self.is_empty()
+    }
+
+    #[inline]
+    fn push(&mut self, t: T) {
+        self.push(t);
+    }
+
+    fn remove_multiple<'a, I>(&mut self, txs: I)
     where
         I: IntoIterator<Item = &'a T>,
         T: 'a + Contribution,
     {
         let tx_set: HashSet<_> = txs.into_iter().collect();
-        self.0.retain(|tx| !tx_set.contains(tx));
+        self.retain(|tx| !tx_set.contains(tx));
     }
 
-    /// Returns a new set of `amount` transactions, randomly chosen from the first `batch_size`.
-    /// No transactions are removed from the queue.
     // TODO: Return references, once the `HoneyBadger` API accepts them. Remove `Clone` bound.
-    pub fn choose(&self, amount: usize, batch_size: usize) -> Vec<T> {
-        let mut rng = rand::thread_rng();
-        let limit = cmp::min(batch_size, self.0.len());
-        let sample = match rand::seq::sample_iter(&mut rng, self.0.iter().take(limit), amount) {
+    fn choose<R: Rng>(&mut self, rng: &mut R, amount: usize, batch_size: usize) -> Vec<T> {
+        let limit = cmp::min(batch_size, self.len());
+        let sample = match rand::seq::sample_iter(rng, self.iter().take(limit), amount) {
             Ok(choice) => choice,
             Err(choice) => choice, // Fewer than `amount` were available, which is fine.
         };

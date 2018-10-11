@@ -19,7 +19,7 @@ use std::{cmp, u64};
 use colored::*;
 use docopt::Docopt;
 use itertools::Itertools;
-use rand::Rng;
+use rand::{Isaac64Rng, Rng};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use signifix::{metric, TryFrom};
@@ -354,7 +354,7 @@ impl EpochInfo {
         id: NodeId,
         time: Duration,
         batch: &Batch<Transaction, NodeId>,
-        network: &TestNetwork<QueueingHoneyBadger<Transaction, NodeId>>,
+        network: &TestNetwork<QueueingHoneyBadger<Transaction, NodeId, Vec<Transaction>>>,
     ) {
         if self.nodes.contains_key(&id) {
             return;
@@ -385,7 +385,9 @@ impl EpochInfo {
 }
 
 /// Proposes `num_txs` values and expects nodes to output and order them.
-fn simulate_honey_badger(mut network: TestNetwork<QueueingHoneyBadger<Transaction, NodeId>>) {
+fn simulate_honey_badger(
+    mut network: TestNetwork<QueueingHoneyBadger<Transaction, NodeId, Vec<Transaction>>>,
+) {
     // Handle messages until all nodes have output all transactions.
     println!(
         "{}",
@@ -437,7 +439,7 @@ fn main() {
         let dyn_hb = DynamicHoneyBadger::builder().build(netinfo);
         QueueingHoneyBadger::builder(dyn_hb)
             .batch_size(args.flag_b)
-            .build_with_transactions(txs.clone())
+            .build_with_transactions(txs.clone(), rand::thread_rng().gen::<Isaac64Rng>())
             .expect("instantiate QueueingHoneyBadger")
     };
     let hw_quality = HwQuality {
