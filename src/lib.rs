@@ -122,6 +122,7 @@ extern crate bincode;
 extern crate byteorder;
 #[macro_use]
 extern crate failure;
+extern crate hex_fmt;
 extern crate init_with;
 #[macro_use]
 extern crate log;
@@ -141,7 +142,6 @@ pub mod broadcast;
 pub mod coin;
 pub mod dynamic_honey_badger;
 pub mod fault_log;
-mod fmt;
 pub mod honey_badger;
 mod messaging;
 mod network_info;

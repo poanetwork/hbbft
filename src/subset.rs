@@ -27,9 +27,10 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::result;
 use std::sync::Arc;
 
+use hex_fmt::HexFmt;
+
 use binary_agreement::{self, BinaryAgreement};
 use broadcast::{self, Broadcast};
-use fmt::HexBytes;
 use rand::Rand;
 use {DistAlgorithm, NetworkInfo, NodeIdT};
 
@@ -94,11 +95,7 @@ impl<N: NodeIdT + Rand> DistAlgorithm for Subset<N> {
     type Error = Error;
 
     fn handle_input(&mut self, input: Self::Input) -> Result<Step<N>> {
-        debug!(
-            "{:?} Proposing {:?}",
-            self.netinfo.our_id(),
-            HexBytes(&input)
-        );
+        debug!("{:?} Proposing {:?}", self.netinfo.our_id(), HexFmt(&input));
         self.send_proposed_value(input)
     }
 
@@ -228,7 +225,7 @@ impl<N: NodeIdT + Rand> Subset<N> {
         };
 
         let val_to_insert = if let Some(true) = self.ba_results.get(proposer_id) {
-            debug!("    {:?} → {:?}", proposer_id, HexBytes(&value));
+            debug!("    {:?} → {:?}", proposer_id, HexFmt(&value));
             step.output
                 .extend(Some(SubsetOutput::Contribution(proposer_id.clone(), value)));
             None
@@ -316,7 +313,7 @@ impl<N: NodeIdT + Rand> Subset<N> {
                 }
             }
             if let Some(Some(value)) = self.broadcast_results.insert(proposer_id.clone(), None) {
-                debug!("    {:?} → {:?}", proposer_id, HexBytes(&value));
+                debug!("    {:?} → {:?}", proposer_id, HexFmt(&value));
                 step.output
                     .extend(Some(SubsetOutput::Contribution(proposer_id.clone(), value)));
             }
