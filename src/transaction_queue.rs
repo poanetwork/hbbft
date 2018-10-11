@@ -11,8 +11,6 @@ use Contribution;
 pub trait TransactionQueue<T>: fmt::Debug + Default + Extend<T> + Sync + Send {
     /// Checks whether the queue is empty.
     fn is_empty(&self) -> bool;
-    /// Appends an element at the end of the queue.
-    fn push(&mut self, t: T);
     /// Returns a new set of `amount` transactions, randomly chosen from the first `batch_size`.
     /// No transactions are removed from the queue.
     // TODO: Return references, once the `HoneyBadger` API accepts them.
@@ -31,11 +29,6 @@ where
     #[inline]
     fn is_empty(&self) -> bool {
         self.is_empty()
-    }
-
-    #[inline]
-    fn push(&mut self, t: T) {
-        self.push(t);
     }
 
     fn remove_multiple<'a, I>(&mut self, txs: I)

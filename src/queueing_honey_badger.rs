@@ -22,9 +22,9 @@
 //! entries, any two nodes will likely make almost disjoint contributions instead of proposing
 //! the same transaction multiple times.
 
-use std::cmp;
 use std::fmt::{self, Display};
 use std::marker::PhantomData;
+use std::{cmp, iter};
 
 use failure::{Backtrace, Context, Fail};
 use rand::{Rand, Rng};
@@ -224,7 +224,7 @@ where
         // in addition signed and broadcast.
         let mut step = match input {
             Input::User(tx) => {
-                self.queue.push(tx);
+                self.queue.extend(iter::once(tx));
                 Step::default()
             }
             Input::Change(change) => self
