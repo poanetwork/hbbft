@@ -11,8 +11,6 @@ use Contribution;
 pub trait TransactionQueue<T>: fmt::Debug + Default + Extend<T> + Sync + Send {
     /// Checks whether the queue is empty.
     fn is_empty(&self) -> bool;
-    /// Appends an element at the end of the queue.
-    fn push(&mut self, t: T);
     /// Returns a new set of `amount` transactions, randomly chosen from the first `batch_size`.
     /// No transactions are removed from the queue.
     // TODO: Return references, once the `HoneyBadger` API accepts them.
@@ -34,10 +32,6 @@ where
     }
 
     #[inline]
-    fn push(&mut self, t: T) {
-        self.push(t);
-    }
-
     fn remove_multiple<'a, I>(&mut self, txs: I)
     where
         I: IntoIterator<Item = &'a T>,
@@ -48,6 +42,7 @@ where
     }
 
     // TODO: Return references, once the `HoneyBadger` API accepts them. Remove `Clone` bound.
+    #[inline]
     fn choose<R: Rng>(&mut self, rng: &mut R, amount: usize, batch_size: usize) -> Vec<T> {
         let limit = cmp::min(batch_size, self.len());
         let sample = match rand::seq::sample_iter(rng, self.iter().take(limit), amount) {
