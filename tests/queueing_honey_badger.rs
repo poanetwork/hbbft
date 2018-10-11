@@ -88,12 +88,12 @@ where
 
 // Allow passing `netinfo` by value. `TestNetwork` expects this function signature.
 #[cfg_attr(feature = "cargo-clippy", allow(needless_pass_by_value))]
-fn new_queueing_hb(
-    netinfo: Arc<NetworkInfo<NodeId>>,
-) -> (QHB, Step<usize, NodeId, Vec<usize>>) {
+fn new_queueing_hb(netinfo: Arc<NetworkInfo<NodeId>>) -> (QHB, Step<usize, NodeId, Vec<usize>>) {
     let dyn_hb = DynamicHoneyBadger::builder().build((*netinfo).clone());
     let rng = rand::thread_rng().gen::<Isaac64Rng>();
-    QueueingHoneyBadger::builder(dyn_hb).batch_size(3).build(rng)
+    QueueingHoneyBadger::builder(dyn_hb)
+        .batch_size(3)
+        .build(rng)
 }
 
 fn test_queueing_honey_badger_different_sizes<A, F>(new_adversary: F, num_txs: usize)
