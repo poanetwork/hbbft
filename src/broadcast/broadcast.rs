@@ -3,6 +3,7 @@ use std::fmt::{self, Debug};
 use std::sync::Arc;
 
 use byteorder::{BigEndian, ByteOrder};
+use hex_fmt::{HexFmt, HexList};
 use rand;
 use reed_solomon_erasure as rse;
 use reed_solomon_erasure::ReedSolomon;
@@ -10,7 +11,6 @@ use reed_solomon_erasure::ReedSolomon;
 use super::merkle::{Digest, MerkleTree, Proof};
 use super::{Error, Result};
 use fault_log::{Fault, FaultKind};
-use fmt::{HexBytes, HexList, HexProof};
 use {DistAlgorithm, NetworkInfo, NodeIdT, Target};
 
 /// The three kinds of message sent during the reliable broadcast stage of the
@@ -50,7 +50,7 @@ impl Debug for Message {
         match *self {
             Message::Value(ref v) => f.debug_tuple("Value").field(&HexProof(v)).finish(),
             Message::Echo(ref v) => f.debug_tuple("Echo").field(&HexProof(v)).finish(),
-            Message::Ready(ref b) => f.debug_tuple("Ready").field(&HexBytes(b)).finish(),
+            Message::Ready(ref b) => f.debug_tuple("Ready").field(&HexFmt(b)).finish(),
         }
     }
 }
@@ -502,6 +502,21 @@ fn glue_shards(m: MerkleTree<Vec<u8>>, n: usize) -> Option<Vec<u8>> {
         _ => return None, // The proposing node is faulty: no payload size.
     };
     let payload: Vec<u8> = bytes.take(payload_len).collect();
-    debug!("Glued data shards {:?}", HexBytes(&payload));
+    debug!("Glued data shards {:?}", HexFmt(&payload));
     Some(payload)
+}
+
+/// Wrapper for a `Proof`, to print the bytes as a shortened hexadecimal number.
+struct HexProof<'a, T: 'a>(pub &'a Proof<T>);
+
+impl<'a, T: AsRef<[u8]>> fmt::Debug for HexProof<'a, T> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "Proof {{ #{}, root_hash: {:?}, value: {:?}, .. }}",
+            &self.0.index(),
+            HexFmt(self.0.root_hash()),
+            HexFmt(self.0.value())
+        )
+    }
 }
