@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+xs 4105858618 1450573664 2226696729 3787144790 # shrinks to cfg = TestConfig { dimension: NetworkDimension { size: 13, faulty: 0, _hidden: () }, total_txs: 20, batch_size: 10, contribution_size: 1, seed: [3923024402, 3609989464, 4075880450, 1102868230] }
