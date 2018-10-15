@@ -133,8 +133,13 @@ extern crate reed_solomon_erasure;
 extern crate serde;
 #[macro_use]
 extern crate serde_derive;
-pub extern crate threshold_crypto as crypto;
 extern crate tiny_keccak;
+
+pub extern crate threshold_crypto as crypto;
+
+mod messaging;
+mod network_info;
+mod traits;
 
 pub mod binary_agreement;
 pub mod broadcast;
@@ -142,13 +147,10 @@ pub mod coin;
 pub mod dynamic_honey_badger;
 pub mod fault_log;
 pub mod honey_badger;
-mod messaging;
-mod network_info;
 pub mod queueing_honey_badger;
 pub mod subset;
 pub mod sync_key_gen;
 pub mod threshold_decryption;
-mod traits;
 pub mod transaction_queue;
 pub mod util;
 
