@@ -37,6 +37,11 @@ impl<C, N: NodeIdT> Batch<C, N> {
         &self.netinfo
     }
 
+    /// Returns the contributions and their proposers.
+    pub fn contributions(&self) -> impl Iterator<Item = (&N, &C)> {
+        self.contributions.iter()
+    }
+
     /// Returns an iterator over references to all transactions included in the batch.
     pub fn iter<'a>(&'a self) -> impl Iterator<Item = <&'a C as IntoIterator>::Item>
     where
