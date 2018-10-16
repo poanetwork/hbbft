@@ -95,7 +95,11 @@ impl<N: NodeIdT + Rand> DistAlgorithm for Subset<N> {
     type Error = Error;
 
     fn handle_input(&mut self, input: Self::Input) -> Result<Step<N>> {
-        debug!("{:?} Proposing {:?}", self.netinfo.our_id(), HexFmt(&input));
+        debug!(
+            "{:?} Proposing {:0.10}",
+            self.netinfo.our_id(),
+            HexFmt(&input)
+        );
         self.send_proposed_value(input)
     }
 
@@ -225,7 +229,7 @@ impl<N: NodeIdT + Rand> Subset<N> {
         };
 
         let val_to_insert = if let Some(true) = self.ba_results.get(proposer_id) {
-            debug!("    {:?} → {:?}", proposer_id, HexFmt(&value));
+            debug!("    {:?} → {:0.10}", proposer_id, HexFmt(&value));
             step.output
                 .extend(Some(SubsetOutput::Contribution(proposer_id.clone(), value)));
             None
@@ -313,7 +317,7 @@ impl<N: NodeIdT + Rand> Subset<N> {
                 }
             }
             if let Some(Some(value)) = self.broadcast_results.insert(proposer_id.clone(), None) {
-                debug!("    {:?} → {:?}", proposer_id, HexFmt(&value));
+                debug!("    {:?} → {:0.10}", proposer_id, HexFmt(&value));
                 step.output
                     .extend(Some(SubsetOutput::Contribution(proposer_id.clone(), value)));
             }

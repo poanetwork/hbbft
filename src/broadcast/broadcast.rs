@@ -133,14 +133,14 @@ impl<N: NodeIdT> Broadcast<N> {
         // Convert the iterator over slices into a vector of slices.
         let mut shards: Vec<&mut [u8]> = shards_iter.collect();
 
-        debug!("Shards before encoding: {:?}", HexList(&shards));
+        debug!("Shards before encoding: {:0.10}", HexList(&shards));
 
         // Construct the parity chunks/shards
         self.coding
             .encode(&mut shards)
             .expect("the size and number of shards is correct");
 
-        debug!("Shards: {:?}", HexList(&shards));
+        debug!("Shards: {:0.10}", HexList(&shards));
 
         // Create a Merkle tree from the shards.
         let mtree = MerkleTree::from_vec(shards.into_iter().map(|shard| shard.to_vec()).collect());
@@ -434,7 +434,7 @@ fn decode_from_shards(
         .filter_map(|l| l.as_ref().map(|v| v.to_vec()))
         .collect();
 
-    debug!("Reconstructed shards: {:?}", HexList(&shards));
+    debug!("Reconstructed shards: {:0.10}", HexList(&shards));
 
     // Construct the Merkle tree.
     let mtree = MerkleTree::from_vec(shards);
@@ -459,6 +459,6 @@ fn glue_shards(m: MerkleTree<Vec<u8>>, n: usize) -> Option<Vec<u8>> {
         _ => return None, // The proposing node is faulty: no payload size.
     };
     let payload: Vec<u8> = bytes.take(payload_len).collect();
-    debug!("Glued data shards {:?}", HexFmt(&payload));
+    debug!("Glued data shards {:0.10}", HexFmt(&payload));
     Some(payload)
 }
