@@ -17,3 +17,4 @@ cargo fmt -- --check
 cargo test --features=use-insecure-test-only-mock-crypto --release
 cargo doc
 cargo deadlinks --dir target/doc/hbbft/
+cargo audit
