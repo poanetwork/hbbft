@@ -20,16 +20,4 @@ before_install:
 #   # causing a CI slowdown, so this option is commented out by default. It can
 #   # be enabled per-branch to debug issues.
 #   - sudo tail -n 250 /var/log/syslog
-env:
-  global:
-    - RUST_BACKTRACE=1
-    # Enables additional cpu-specific optimizations.
-    - RUSTFLAGS="-D warnings -C target-cpu=native"
-    - MLOCK_SECRETS=false
-script:
-  - cargo clippy --all-targets -- --deny clippy
-  - cargo clippy --all-features --all-targets -- --deny clippy
-  - cargo fmt -- --check
-  - cargo test --features=use-insecure-test-only-mock-crypto --release
-  - cargo doc
-  - cargo deadlinks --dir target/doc/hbbft/
+script: ./ci.sh
