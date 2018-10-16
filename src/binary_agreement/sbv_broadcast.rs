@@ -16,7 +16,7 @@ use super::bool_multimap::BoolMultimap;
 use super::bool_set::{self, BoolSet};
 use super::{Error, Result};
 use fault_log::{Fault, FaultKind};
-use {DistAlgorithm, NetworkInfo, NodeIdT, Target};
+use {DistAlgorithm, HasNetworkInfo, NetworkInfo, NodeIdT, Target};
 
 pub type Step<N> = ::Step<SbvBroadcast<N>>;
 
@@ -81,6 +81,13 @@ impl<N: NodeIdT> DistAlgorithm for SbvBroadcast<N> {
 
     fn our_id(&self) -> &Self::NodeId {
         self.netinfo.our_id()
+    }
+}
+
+impl<N: NodeIdT> HasNetworkInfo for SbvBroadcast<N> {
+    type N = N;
+    fn netinfo(&self) -> &NetworkInfo<N> {
+        &self.netinfo
     }
 }
 

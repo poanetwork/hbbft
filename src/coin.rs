@@ -26,7 +26,7 @@ use std::sync::Arc;
 
 use crypto::{self, Signature, SignatureShare};
 use fault_log::{Fault, FaultKind};
-use {DistAlgorithm, NetworkInfo, NodeIdT, Target};
+use {DistAlgorithm, HasNetworkInfo, NetworkInfo, NodeIdT, Target};
 
 /// A coin error.
 #[derive(Clone, Eq, PartialEq, Debug, Fail)]
@@ -115,6 +115,13 @@ where
 
     fn our_id(&self) -> &Self::NodeId {
         self.netinfo.our_id()
+    }
+}
+
+impl<N, T> HasNetworkInfo for Coin<N, T> {
+    type N = N;
+    fn netinfo(&self) -> &NetworkInfo<N> {
+        &self.netinfo
     }
 }
 

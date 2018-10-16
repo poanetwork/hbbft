@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use super::epoch_state::EpochState;
 use super::{Batch, Error, ErrorKind, HoneyBadgerBuilder, Message, MessageContent, Result};
-use {Contribution, DistAlgorithm, NetworkInfo, NodeIdT};
+use {Contribution, DistAlgorithm, HasNetworkInfo, NetworkInfo, NodeIdT};
 
 pub use super::epoch_state::SubsetHandlingStrategy;
 
@@ -79,6 +79,13 @@ where
 
     fn our_id(&self) -> &N {
         self.netinfo.our_id()
+    }
+}
+
+impl<C, N: Rand> HasNetworkInfo for HoneyBadger<C, N> {
+    type N = N;
+    fn netinfo(&self) -> &NetworkInfo<N> {
+        &self.netinfo
     }
 }
 

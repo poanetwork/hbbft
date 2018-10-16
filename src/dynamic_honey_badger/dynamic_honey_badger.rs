@@ -16,7 +16,7 @@ use fault_log::{Fault, FaultKind, FaultLog};
 use honey_badger::{self, HoneyBadger, Message as HbMessage};
 use sync_key_gen::{Ack, Part, PartOutcome, SyncKeyGen};
 use util::SubRng;
-use {Contribution, DistAlgorithm, NetworkInfo, NodeIdT, Target};
+use {Contribution, DistAlgorithm, HasNetworkInfo, NetworkInfo, NodeIdT, Target};
 
 /// A Honey Badger instance that can handle adding and removing nodes.
 pub struct DynamicHoneyBadger<C, N: Rand> {
@@ -113,6 +113,13 @@ where
 
     fn our_id(&self) -> &N {
         self.netinfo.our_id()
+    }
+}
+
+impl<C, N: Rand> HasNetworkInfo for DynamicHoneyBadger<C, N> {
+    type N = N;
+    fn netinfo(&self) -> &NetworkInfo<N> {
+        &self.netinfo
     }
 }
 

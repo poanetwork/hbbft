@@ -10,7 +10,7 @@ use super::merkle::{Digest, MerkleTree, Proof};
 use super::message::HexProof;
 use super::{Error, Message, Result};
 use fault_log::{Fault, FaultKind};
-use {DistAlgorithm, NetworkInfo, NodeIdT, Target};
+use {DistAlgorithm, HasNetworkInfo, NetworkInfo, NodeIdT, Target};
 
 /// Broadcast algorithm instance.
 #[derive(Debug)]
@@ -74,6 +74,13 @@ impl<N: NodeIdT> DistAlgorithm for Broadcast<N> {
 
     fn our_id(&self) -> &N {
         self.netinfo.our_id()
+    }
+}
+
+impl<N: NodeIdT> HasNetworkInfo for Broadcast<N> {
+    type N = N;
+    fn netinfo(&self) -> &NetworkInfo<N> {
+        &self.netinfo
     }
 }
 

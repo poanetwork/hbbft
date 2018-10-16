@@ -6,7 +6,7 @@ use super::bool_set::BoolSet;
 use super::sbv_broadcast::{self, SbvBroadcast};
 use super::{Error, Message, MessageContent, Nonce, Result, Step};
 use coin::{self, Coin, CoinMessage};
-use {DistAlgorithm, NetworkInfo, NodeIdT, Target};
+use {DistAlgorithm, HasNetworkInfo, NetworkInfo, NodeIdT, Target};
 
 /// The state of the current epoch's coin. In some epochs this is fixed, in others it starts
 /// with in `InProgress`.
@@ -103,6 +103,13 @@ impl<N: NodeIdT> DistAlgorithm for BinaryAgreement<N> {
 
     fn our_id(&self) -> &Self::NodeId {
         self.netinfo.our_id()
+    }
+}
+
+impl<N: NodeIdT> HasNetworkInfo for BinaryAgreement<N> {
+    type N = N;
+    fn netinfo(&self) -> &NetworkInfo<N> {
+        &self.netinfo
     }
 }
 

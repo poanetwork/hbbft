@@ -32,7 +32,7 @@ use hex_fmt::HexFmt;
 use binary_agreement::{self, BinaryAgreement};
 use broadcast::{self, Broadcast};
 use rand::Rand;
-use {DistAlgorithm, NetworkInfo, NodeIdT};
+use {DistAlgorithm, HasNetworkInfo, NetworkInfo, NodeIdT};
 
 /// A subset error.
 #[derive(Clone, PartialEq, Debug, Fail)]
@@ -118,6 +118,13 @@ impl<N: NodeIdT + Rand> DistAlgorithm for Subset<N> {
 
     fn our_id(&self) -> &Self::NodeId {
         self.netinfo.our_id()
+    }
+}
+
+impl<N: Rand> HasNetworkInfo for Subset<N> {
+    type N = N;
+    fn netinfo(&self) -> &NetworkInfo<N> {
+        &self.netinfo
     }
 }
 

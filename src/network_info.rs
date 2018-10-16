@@ -187,3 +187,9 @@ impl<N: NodeIdT> NetworkInfo<N> {
             .collect()
     }
 }
+
+/// An interface to algorithms that carry a `NetworkInfo`.
+pub trait HasNetworkInfo {
+    type N;
+    fn netinfo(&self) -> &NetworkInfo<Self::N>;
+}

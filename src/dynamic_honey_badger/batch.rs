@@ -4,7 +4,7 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 
 use super::{ChangeState, JoinPlan};
-use {NetworkInfo, NodeIdT};
+use {HasNetworkInfo, NetworkInfo, NodeIdT};
 
 /// A batch of transactions the algorithm has output.
 #[derive(Clone, Debug)]
@@ -18,6 +18,13 @@ pub struct Batch<C, N> {
     pub(super) change: ChangeState<N>,
     /// The network info that applies to the _next_ epoch.
     pub(super) netinfo: Arc<NetworkInfo<N>>,
+}
+
+impl<C, N> HasNetworkInfo for Batch<C, N> {
+    type N = N;
+    fn netinfo(&self) -> &NetworkInfo<N> {
+        &self.netinfo
+    }
 }
 
 impl<C, N: NodeIdT> Batch<C, N> {

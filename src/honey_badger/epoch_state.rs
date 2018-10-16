@@ -13,7 +13,7 @@ use super::{Batch, ErrorKind, MessageContent, Result, Step};
 use fault_log::{Fault, FaultKind, FaultLog};
 use subset::{self as cs, Subset, SubsetOutput};
 use threshold_decryption::{self as td, ThresholdDecryption};
-use {Contribution, DistAlgorithm, NetworkInfo, NodeIdT};
+use {Contribution, DistAlgorithm, HasNetworkInfo, NetworkInfo, NodeIdT};
 
 /// The status of an encrypted contribution.
 #[derive(Debug)]
@@ -192,6 +192,13 @@ pub struct EpochState<C, N: Rand> {
     /// Determines the behavior upon receiving proposals from `subset`.
     subset_handler: SubsetHandler<N>,
     _phantom: PhantomData<C>,
+}
+
+impl<C, N: Rand> HasNetworkInfo for EpochState<C, N> {
+    type N = N;
+    fn netinfo(&self) -> &NetworkInfo<N> {
+        &self.netinfo
+    }
 }
 
 impl<C, N> EpochState<C, N>

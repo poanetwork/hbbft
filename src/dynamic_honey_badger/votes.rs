@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use super::{Change, ErrorKind, Result};
 use fault_log::{FaultKind, FaultLog};
-use {NetworkInfo, NodeIdT};
+use {HasNetworkInfo, NetworkInfo, NodeIdT};
 
 /// A buffer and counter collecting pending and committed votes for validator set changes.
 ///
@@ -24,6 +24,13 @@ pub struct VoteCounter<N> {
     /// Collected votes for adding or removing nodes. Each node has one vote, and casting another
     /// vote revokes the previous one.
     committed: BTreeMap<N, Vote<N>>,
+}
+
+impl<N> HasNetworkInfo for VoteCounter<N> {
+    type N = N;
+    fn netinfo(&self) -> &NetworkInfo<N> {
+        &self.netinfo
+    }
 }
 
 impl<N> VoteCounter<N>
