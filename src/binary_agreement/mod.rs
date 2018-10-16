@@ -78,6 +78,7 @@ use self::bool_set::BoolSet;
 use threshold_sign;
 
 pub use self::binary_agreement::BinaryAgreement;
+pub use self::sbv_broadcast::Message as SbvMessage;
 
 /// An Binary Agreement error.
 #[derive(Clone, Eq, PartialEq, Debug, Fail)]

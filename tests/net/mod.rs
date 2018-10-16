@@ -150,8 +150,26 @@ pub struct NetworkMessage<M, N> {
 impl<M, N> NetworkMessage<M, N> {
     /// Create a new network message.
     #[inline]
-    fn new(from: N, payload: M, to: N) -> NetworkMessage<M, N> {
+    pub fn new(from: N, payload: M, to: N) -> NetworkMessage<M, N> {
         NetworkMessage { from, to, payload }
+    }
+
+    /// Returns the source of the message
+    #[inline]
+    pub fn from(&self) -> &N {
+        &self.from
+    }
+
+    /// Returns the destination of the message
+    #[inline]
+    pub fn to(&self) -> &N {
+        &self.to
+    }
+
+    /// Returns the contents of the message
+    #[inline]
+    pub fn payload(&self) -> &M {
+        &self.payload
     }
 }
 
