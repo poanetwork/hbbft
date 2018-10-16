@@ -14,6 +14,7 @@ before_install:
     fi
   - rustup component add --toolchain=$TRAVIS_RUST_VERSION rustfmt-preview clippy-preview
   - cargo deadlinks --version || cargo install cargo-deadlinks
+  - cargo audit --version || cargo install cargo-audit
 # after_failure:
 #   # Outputs the syslog after a failed build, e.g. to debug `SIGILL` occurrences.
 #   # Unfortunately this is likely to disable container-based travis images,
