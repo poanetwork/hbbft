@@ -42,7 +42,7 @@ impl Debug for Message {
         match *self {
             Message::Value(ref v) => f.debug_tuple("Value").field(&HexProof(v)).finish(),
             Message::Echo(ref v) => f.debug_tuple("Echo").field(&HexProof(v)).finish(),
-            Message::Ready(ref b) => f.debug_tuple("Ready").field(&HexFmt(b)).finish(),
+            Message::Ready(ref b) => write!(f, "Ready({:0.10})", HexFmt(b)),
         }
     }
 }
@@ -53,7 +53,7 @@ impl<'a, T: AsRef<[u8]>> fmt::Debug for HexProof<'a, T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
-            "Proof {{ #{}, root_hash: {:?}, value: {:?}, .. }}",
+            "Proof {{ #{}, root_hash: {:0.10}, value: {:0.10}, .. }}",
             &self.0.index(),
             HexFmt(self.0.root_hash()),
             HexFmt(self.0.value())

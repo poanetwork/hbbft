@@ -22,7 +22,7 @@ bincode = "1.0.0"
 byteorder = "1.2.3"
 env_logger = "0.5.10"
 failure = "0.1"
-hex_fmt = "0.1"
+hex_fmt = "0.2"
 init_with = "1.1.0"
 log = "0.4.1"
 rand = "0.4.2"
@@ -30,7 +30,7 @@ rand_derive = "0.3.1"
 reed-solomon-erasure = "3.1.0"
 serde = "1.0.55"
 serde_derive = "1.0.55"
-threshold_crypto = { git = "https://github.com/poanetwork/threshold_crypto", tag = "0.2.0-beta" }
+threshold_crypto = { git = "https://github.com/poanetwork/threshold_crypto", tag = "0.2.0-beta2" }
 tiny-keccak = "1.4"
 
 [dev-dependencies]
