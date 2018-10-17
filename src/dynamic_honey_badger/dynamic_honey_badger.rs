@@ -301,7 +301,10 @@ where
                 ChangeState::Complete(kgs.change)
             } else if let Some(change) = self.vote_counter.compute_winner().cloned() {
                 // If there is a new change, restart DKG. Inform the user about the current change.
-                step.extend(self.update_key_gen(batch_epoch + 1, &change)?);
+                step.extend(match change {
+                    Change::Add(_,_) | Change::Remove(_) => self.update_key_gen(batch_epoch + 1, &change)?,
+                    Change::EncryptionSchedule(_) => Step::default(), // TODO: Should this `step` contain something?
+                });
                 ChangeState::InProgress(change)
             } else {
                 ChangeState::None
@@ -335,6 +338,7 @@ where
         if match *change {
             Change::Remove(ref id) => pub_keys.remove(id).is_none(),
             Change::Add(ref id, ref pk) => pub_keys.insert(id.clone(), pk.clone()).is_some(),
+            _ => unreachable!(), // Unreachable by construction. Will be more clear once Change is refactored to have `NodeChange` so there won't be other variants.
         } {
             info!("{:?} No-op change: {:?}", self.our_id(), change);
         }

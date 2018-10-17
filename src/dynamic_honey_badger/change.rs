@@ -1,12 +1,16 @@
 use crypto::PublicKey;
+use threshold_decryption::EncryptionSchedule;
 
 /// A node change action: adding or removing a node.
 #[derive(Clone, Eq, PartialEq, Serialize, Deserialize, Hash, Debug)]
 pub enum Change<N> {
+    // TODO: Refactor so that node changes are in a sub-enum of a Change.
     /// Add a node. The public key is used only temporarily, for key generation.
     Add(N, PublicKey),
     /// Remove a node.
     Remove(N),
+    /// Change the threshold encryption schedule. i.e., to increase frequency to prevent censorship or decrease for performance.
+    EncryptionSchedule(EncryptionSchedule),
 }
 
 impl<N> Change<N> {
@@ -15,6 +19,7 @@ impl<N> Change<N> {
         match *self {
             Change::Add(ref id, _) => Some(id),
             Change::Remove(_) => None,
+            Change::EncryptionSchedule(_) => None,
         }
     }
 }

@@ -176,6 +176,7 @@ impl<N: NodeIdT> KeyGenState<N> {
         match self.change {
             Change::Add(ref id, ref pk) if id == node_id => Some(pk),
             Change::Add(_, _) | Change::Remove(_) => None,
+            Change::EncryptionSchedule(_) => None,
         }
     }
 }

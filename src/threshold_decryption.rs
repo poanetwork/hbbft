@@ -17,6 +17,16 @@ use crypto::{self, Ciphertext, DecryptionShare};
 use fault_log::{Fault, FaultKind, FaultLog};
 use {DistAlgorithm, NetworkInfo, NodeIdT, Target};
 
+/// How frequently Threshold Encryption should be used.
+#[derive(Clone, Copy, Eq, PartialEq, Serialize, Deserialize, Hash, Debug)]
+pub enum EncryptionSchedule {
+    Always,
+    Never,
+    EveryNthEpoch(u32),
+    /// How many with encryption, followed by how many without encryption.
+    TickTock(u32, u32),
+}
+
 /// A threshold decryption error.
 #[derive(Clone, Eq, PartialEq, Debug, Fail)]
 pub enum Error {

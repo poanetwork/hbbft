@@ -12,6 +12,7 @@ use super::{Batch, Error, ErrorKind, HoneyBadgerBuilder, Message, MessageContent
 use {Contribution, DistAlgorithm, NetworkInfo, NodeIdT};
 
 pub use super::epoch_state::SubsetHandlingStrategy;
+use threshold_decryption::EncryptionSchedule;
 
 /// An instance of the Honey Badger Byzantine fault tolerant consensus algorithm.
 pub struct HoneyBadger<C, N: Rand> {
@@ -32,6 +33,8 @@ pub struct HoneyBadger<C, N: Rand> {
     pub(super) rng: Box<dyn Rng + Send + Sync>,
     /// Represents the optimization strategy to use for output of the `Subset` algorithm.
     pub(super) subset_handling_strategy: SubsetHandlingStrategy,
+    /// The schedule for which rounds we should use threshold encryption.
+    pub(super) encryption_schedule: EncryptionSchedule,
 }
 
 impl<C, N> fmt::Debug for HoneyBadger<C, N>
@@ -48,6 +51,7 @@ where
             .field("max_future_epochs", &self.max_future_epochs)
             .field("incoming_queue", &self.incoming_queue)
             .field("rng", &"<RNG>")
+            .field("encryption_schedule", &self.encryption_schedule)
             .finish()
     }
 }
