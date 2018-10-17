@@ -14,6 +14,8 @@ use {Contribution, NetworkInfo, NodeIdT};
 pub struct HoneyBadgerBuilder<C, N> {
     /// Shared network data.
     netinfo: Arc<NetworkInfo<N>>,
+    /// Start in this epoch.
+    epoch: u64,
     /// The maximum number of future epochs for which we handle messages simultaneously.
     max_future_epochs: usize,
     /// Random number generator passed on to algorithm instance for signing and encrypting.
@@ -33,6 +35,7 @@ where
     pub fn new(netinfo: Arc<NetworkInfo<N>>) -> Self {
         HoneyBadgerBuilder {
             netinfo,
+            epoch: 0,
             max_future_epochs: 3,
             rng: Box::new(rand::thread_rng()),
             subset_handling_strategy: SubsetHandlingStrategy::Incremental,
@@ -43,6 +46,12 @@ where
     /// Sets the random number generator for the public key cryptography.
     pub fn rng<R: Rng + 'static>(&mut self, rng: R) -> &mut Self {
         self.rng = Box::new(rng);
+        self
+    }
+
+    /// Sets the starting epoch to the given value.
+    pub fn epoch(&mut self, epoch: u64) -> &mut Self {
+        self.epoch = epoch;
         self
     }
 
@@ -65,7 +74,7 @@ where
     pub fn build(&mut self) -> HoneyBadger<C, N> {
         HoneyBadger {
             netinfo: self.netinfo.clone(),
-            epoch: 0,
+            epoch: self.epoch,
             has_input: false,
             epochs: BTreeMap::new(),
             max_future_epochs: self.max_future_epochs as u64,

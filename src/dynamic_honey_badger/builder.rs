@@ -15,6 +15,8 @@ use {Contribution, NetworkInfo, NodeIdT};
 /// A Dynamic Honey Badger builder, to configure the parameters and create new instances of
 /// `DynamicHoneyBadger`.
 pub struct DynamicHoneyBadgerBuilder<C, N> {
+    /// Start in this epoch.
+    epoch: u64,
     /// The maximum number of future epochs for which we handle messages simultaneously.
     max_future_epochs: usize,
     /// Random number generator passed on to algorithm instance for key generation. Also used to
@@ -29,6 +31,7 @@ impl<C, N> Default for DynamicHoneyBadgerBuilder<C, N> {
     fn default() -> Self {
         // TODO: Use the defaults from `HoneyBadgerBuilder`.
         DynamicHoneyBadgerBuilder {
+            epoch: 0,
             max_future_epochs: 3,
             rng: Box::new(rand::thread_rng()),
             subset_handling_strategy: SubsetHandlingStrategy::Incremental,
@@ -46,6 +49,12 @@ where
     /// keys specified by `netinfo`.
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Sets the starting epoch to the given value.
+    pub fn epoch(&mut self, epoch: u64) -> &mut Self {
+        self.epoch = epoch;
+        self
     }
 
     /// Sets the maximum number of future epochs for which we handle messages simultaneously.
@@ -72,11 +81,13 @@ where
     /// Creates a new Dynamic Honey Badger instance with an empty buffer.
     pub fn build(&mut self, netinfo: NetworkInfo<N>) -> DynamicHoneyBadger<C, N> {
         let DynamicHoneyBadgerBuilder {
+            epoch,
             max_future_epochs,
             rng,
             subset_handling_strategy,
             _phantom,
         } = self;
+        let epoch = *epoch;
         let max_future_epochs = *max_future_epochs;
         let arc_netinfo = Arc::new(netinfo.clone());
         let honey_badger = HoneyBadger::builder(arc_netinfo.clone())
@@ -87,7 +98,7 @@ where
         DynamicHoneyBadger {
             netinfo,
             max_future_epochs,
-            start_epoch: 0,
+            start_epoch: epoch,
             vote_counter: VoteCounter::new(arc_netinfo, 0),
             key_gen_msg_buffer: Vec::new(),
             honey_badger,
