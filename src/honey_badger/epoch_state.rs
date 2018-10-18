@@ -48,14 +48,6 @@ where
             DecryptionState::Complete(_) => Ok(td::Step::default()),
         }
     }
-
-    /// Returns the plaintext, if it has already been decrypted.
-    fn plaintext(&self) -> Option<&[u8]> {
-        match self {
-            DecryptionState::Ongoing(_) => None,
-            DecryptionState::Complete(ref plaintext) => Some(&plaintext[..]),
-        }
-    }
 }
 
 /// The status of the subset algorithm.
@@ -265,13 +257,13 @@ where
     /// epoch, moves those contributions into a batch, outputs the batch and updates the epoch.
     pub fn try_output_batch(&self) -> Option<(Batch<C, N>, FaultLog<N>)> {
         let proposer_ids = self.subset.accepted_ids()?;
-        let plaintexts: BTreeMap<N, &[u8]> = self
-            .decryption
-            .iter()
-            .flat_map(|(id, dec_state)| dec_state.plaintext().map(|pt| (id.clone(), pt)))
-            .collect();
-        if !proposer_ids.iter().eq(plaintexts.keys()) {
-            return None; // Not all accepted contributions are decrypted yet.
+        let mut plaintexts = Vec::new();
+        // Collect accepted plaintexts. Return if some are not decrypted yet.
+        for id in proposer_ids {
+            match self.decryption.get(id) {
+                None | Some(DecryptionState::Ongoing(_)) => return None,
+                Some(DecryptionState::Complete(ref pt)) => plaintexts.push((id.clone(), pt)),
+            }
         }
 
         let mut fault_log = FaultLog::default();
