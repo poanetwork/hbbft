@@ -16,7 +16,6 @@ use hbbft::dynamic_honey_badger::{Change, ChangeState, DynamicHoneyBadger, Input
 use hbbft::DistAlgorithm;
 use net::proptest::{gen_seed, NetworkDimension, TestRng, TestRngSeed};
 use net::NetBuilder;
-use proptest::prelude::ProptestConfig;
 use rand::{Rng, SeedableRng};
 
 /// Choose a node's contribution for an epoch.
@@ -70,19 +69,17 @@ prop_compose! {
                   total_txs in 20..60usize,
                   batch_size in 10..20usize,
                   contribution_size in 1..10usize,
-                  seed in gen_seed())
+                  seed in gen_seed(),
+                  adversary in gen_adversary())
                  -> TestConfig {
         TestConfig{
-            dimension, total_txs, batch_size, contribution_size, seed
+            dimension, total_txs, batch_size, contribution_size, seed, adversary
         }
     }
 }
 
 /// Proptest wrapper for `do_drop_and_readd`.
 proptest!{
-    #![proptest_config(ProptestConfig {
-        cases: 1, .. ProptestConfig::default()
-    })]
     #[test]
     #[cfg_attr(feature = "cargo-clippy", allow(unnecessary_operation))]
     fn drop_and_readd(cfg in arb_config()) {
