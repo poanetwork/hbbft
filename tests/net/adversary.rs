@@ -33,7 +33,7 @@
 //! some cases be upgraded to actual references, if the underlying node is faulty (see
 //! `NodeHandle::node()` and `NodeHandle::node_mut()`).
 
-use std::cmp;
+use std::{cmp, fmt};
 
 use hbbft::{DistAlgorithm, Step};
 
@@ -294,7 +294,7 @@ where
 }
 
 /// Network adversary.
-pub trait Adversary<D>
+pub trait Adversary<D>: fmt::Debug
 where
     D: DistAlgorithm,
     D::Message: Clone,
