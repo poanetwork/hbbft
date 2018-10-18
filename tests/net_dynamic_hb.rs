@@ -81,8 +81,8 @@ prop_compose! {
     }
 }
 
-/// Proptest wrapper for `do_drop_and_readd`.
 proptest!{
+    /// Proptest wrapper for `do_drop_and_readd`.
     #[test]
     #[cfg_attr(feature = "cargo-clippy", allow(unnecessary_operation))]
     fn drop_and_readd(cfg in arb_config()) {
@@ -90,17 +90,21 @@ proptest!{
     }
 }
 
-/// Small instance `drop_and_readd`
-#[test]
-fn small_instance_drop_and_readd() {
-    do_drop_and_readd(TestConfig {
-        dimension: NetworkDimension::new(2, 0),
-        total_txs: 20,
-        batch_size: 10,
-        contribution_size: 1,
-        seed: [3376611530, 3987858614, 3775041519, 1710003746],
-        adversary: NullAdversary::new().boxed(),
-    })
+proptest!{
+    /// Small instance `drop_and_readd`.
+    ///
+    /// This is a regression tests that ensures a minimally sized test network works succesfully.
+    #[test]
+    fn small_instance_drop_and_readd(seed in gen_seed()) {
+        do_drop_and_readd(TestConfig {
+            dimension: NetworkDimension::new(2, 0),
+            total_txs: 20,
+            batch_size: 10,
+            contribution_size: 1,
+            seed,
+            adversary: NullAdversary::new().boxed(),
+        })
+    }
 }
 
 /// Dynamic honey badger: Drop a validator node, demoting it to observer, then re-add it, all while
