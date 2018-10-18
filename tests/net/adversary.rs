@@ -330,13 +330,24 @@ where
     ) -> Result<Step<D>, CrankError<D>> {
         net.dispatch_message(msg)
     }
+
+    #[inline]
+    fn boxed(self) -> Box<dyn Adversary<D>>
+    where
+        Self: Sized + 'static,
+        D: DistAlgorithm,
+        D::Message: Clone,
+        D::Output: Clone,
+    {
+        Box::new(self)
+    }
 }
 
 /// Passive adversary.
 ///
 /// The `NullAdversary` does not interfere with operation in any way, it neither reorders messages
 /// nor tampers with message, passing them through unchanged instead.
-#[derive(Debug, Default)]
+#[derive(Copy, Clone, Debug, Default)]
 pub struct NullAdversary;
 
 impl NullAdversary {
@@ -361,7 +372,7 @@ where
 ///
 /// Note: This behavior is equivalent to the default scheduling used by the preceding testing
 ///       framework.
-#[derive(Debug, Default)]
+#[derive(Copy, Clone, Debug, Default)]
 pub struct NodeOrderAdversary;
 
 impl NodeOrderAdversary {
