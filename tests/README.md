@@ -102,7 +102,7 @@ Adversaries can be introduced through the `.adversary` method on the constructor
 
 By default, all network tests write traces of every network message into logfiles, named `net-trace_*.txt` in the current working directory. Each log stores one message per line, in the format of `[SENDER] -> [RECEIVER]: MSG`.
 
-This behavior can be controlled using the `HBBFT_TEST_TRACE` environment variable; if set and equal to `0` or `false`, this functionality is disabled. Tracing is disabled by default.
+This behavior can be controlled using the `HBBFT_TEST_TRACE` environment variable; if set and equal to `1` or `true`, this functionality is enabled. Tracing is disabled by default.
 
 The `NetBuilder` allows hard-coding the trace setting, any value passed will override environment settings:
 
