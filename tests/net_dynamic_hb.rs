@@ -14,7 +14,8 @@ use proptest::strategy::Strategy;
 
 use hbbft::dynamic_honey_badger::{Change, ChangeState, DynamicHoneyBadger, Input};
 use hbbft::DistAlgorithm;
-use net::proptest::{gen_seed, NetworkDimension, TestRng, TestRngSeed};
+use net::adversary::{Adversary, NullAdversary};
+use net::proptest::{gen_adversary, gen_seed, NetworkDimension, TestRng, TestRngSeed};
 use net::NetBuilder;
 use rand::{Rng, SeedableRng};
 
@@ -58,6 +59,8 @@ struct TestConfig {
     contribution_size: usize,
     /// Random number generator to be passed to subsystems.
     seed: TestRngSeed,
+    /// Random general adversary
+    adversary: Box<dyn Adversary<DynamicHoneyBadger<Vec<usize>, usize>>>,
 }
 
 prop_compose! {
@@ -93,6 +96,11 @@ proptest!{
 fn do_drop_and_readd(cfg: TestConfig) {
     let mut rng: TestRng = TestRng::from_seed(cfg.seed);
 
+    println!("Test configuration: {:?}", cfg);
+
+    // Copy total transactions, as it is used multiple times throughout.
+    let total_txs = cfg.total_txs;
+
     // First, we create a new test network with Honey Badger instances.
     let mut net = NetBuilder::new(0..cfg.dimension.size())
         .num_faulty(cfg.dimension.faulty())
@@ -102,6 +110,7 @@ fn do_drop_and_readd(cfg: TestConfig) {
         .time_limit(time::Duration::from_secs(30 * cfg.dimension.size() as u64))
         // Ensure runs are reproducible.
         .rng(rng.gen::<TestRng>())
+        .adversary(cfg.adversary)
         .using(move |node| {
             println!("Constructing new dynamic honey badger node #{}", node.id);
             DynamicHoneyBadger::builder()
@@ -123,7 +132,7 @@ fn do_drop_and_readd(cfg: TestConfig) {
     // a number between 0..total_txs, chosen randomly.
     let mut queues: collections::BTreeMap<_, Vec<usize>> = net
         .nodes()
-        .map(|node| (*node.id(), (0..cfg.total_txs).collect()))
+        .map(|node| (*node.id(), (0..total_txs).collect()))
         .collect();
 
     // For each node, select transactions randomly from the queue and propose them.

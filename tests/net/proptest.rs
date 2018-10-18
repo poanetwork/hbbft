@@ -6,9 +6,13 @@
 use integer_sqrt::IntegerSquareRoot;
 use proptest::arbitrary::any;
 use proptest::prelude::Rng;
-use proptest::strategy::{Strategy, ValueTree};
+use proptest::strategy::{LazyJust, Strategy, ValueTree};
 use proptest::test_runner::{Reason, TestRunner};
 use rand::{self, SeedableRng};
+
+use hbbft;
+
+use net::adversary::{self, Adversary};
 
 /// Random number generator type used in testing.
 pub type TestRng = rand::XorShiftRng;
@@ -244,4 +248,19 @@ impl Strategy for NetworkDimensionStrategy {
             self.max_size,
         ))
     }
+}
+
+/// Generates a fits-all adversary.
+///
+/// The generated adversary will be of random "complexity" and should "fit" all `DistAlgorithm`s.
+pub fn gen_adversary<D>() -> impl Strategy<Value = Box<dyn adversary::Adversary<D> + 'static>>
+where
+    D: hbbft::DistAlgorithm,
+    D::Message: Clone,
+    D::Output: Clone,
+{
+    prop_oneof![
+        LazyJust::new(|| adversary::NullAdversary::new().boxed()),
+        LazyJust::new(|| adversary::NodeOrderAdversary::new().boxed())
+    ]
 }
