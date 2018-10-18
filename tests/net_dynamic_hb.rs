@@ -90,6 +90,19 @@ proptest!{
     }
 }
 
+/// Small instance `drop_and_readd`
+#[test]
+fn small_instance_drop_and_readd() {
+    do_drop_and_readd(TestConfig {
+        dimension: NetworkDimension::new(2, 0),
+        total_txs: 20,
+        batch_size: 10,
+        contribution_size: 1,
+        seed: [3376611530, 3987858614, 3775041519, 1710003746],
+        adversary: NullAdversary::new().boxed(),
+    })
+}
+
 /// Dynamic honey badger: Drop a validator node, demoting it to observer, then re-add it, all while
 /// running a regular honey badger network.
 #[cfg_attr(feature = "cargo-clippy", allow(needless_pass_by_value))]
