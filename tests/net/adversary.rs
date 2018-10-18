@@ -331,6 +331,9 @@ where
         net.dispatch_message(msg)
     }
 
+    /// Create a boxed adversary.
+    ///
+    /// Converts an adversary into a heap-allocated trait object.
     #[inline]
     fn boxed(self) -> Box<dyn Adversary<D>>
     where

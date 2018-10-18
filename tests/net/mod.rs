@@ -352,13 +352,11 @@ where
 
     /// Set an adversary.
     ///
-    /// If not set, the virtual network is constructed with a `NullAdversary`.
+    /// If not set, the virtual network is constructed with a `NullAdversary`. The `boxed` method
+    /// on any `Adversary` can conveniently be used to pass in owned adversaries.
     #[inline]
-    pub fn adversary<A>(mut self, adversary: A) -> Self
-    where
-        A: Adversary<D> + 'static,
-    {
-        self.adversary = Some(Box::new(adversary));
+    pub fn adversary(mut self, boxed_adversary: Box<dyn Adversary<D> + 'static>) -> Self {
+        self.adversary = Some(boxed_adversary);
         self
     }
 
