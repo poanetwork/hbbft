@@ -500,10 +500,12 @@ where
             net.adversary = self.adversary;
         }
 
+        // If the trace setting is not overriden, we use the setting from the environment.
         let trace = self.trace.unwrap_or_else(|| {
-            // If the trace setting is not overriden, we use the setting from the environment.
-            let setting = env::var("HBBFT_TEST_TRACE").unwrap_or_else(|_| "false".to_string());
-            !(setting == "false" || setting == "0")
+            match env::var("HBBFT_TEST_TRACE").as_ref().map(|s| s.as_str()) {
+                Ok("true") | Ok("1") => true,
+                _ => false,
+            }
         });
 
         if trace {
