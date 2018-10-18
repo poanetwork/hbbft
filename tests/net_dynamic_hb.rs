@@ -10,6 +10,8 @@ pub mod net;
 
 use std::{collections, time};
 
+use proptest::strategy::Strategy;
+
 use hbbft::dynamic_honey_badger::{Change, ChangeState, DynamicHoneyBadger, Input};
 use hbbft::DistAlgorithm;
 use net::proptest::{gen_seed, NetworkDimension, TestRng, TestRngSeed};
@@ -62,7 +64,9 @@ struct TestConfig {
 prop_compose! {
     /// Strategy to generate a test configuration.
     fn arb_config()
-                 (dimension in NetworkDimension::range(3, 15),
+                 (dimension in NetworkDimension::range(3, 15)
+                     .prop_filter("Must have at least two nodes to remove one.".to_owned(),
+                                  |dim| dim.size() > 1),
                   total_txs in 20..60usize,
                   batch_size in 10..20usize,
                   contribution_size in 1..10usize,
