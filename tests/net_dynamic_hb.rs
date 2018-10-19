@@ -211,6 +211,9 @@ fn do_drop_and_readd(cfg: TestConfig) {
                     }
                     awaiting_addition.remove(&node_id);
                 }
+                ChangeState::None => {
+                    // Nothing has changed yet.
+                }
                 _ => {
                     println!("Unhandled change: {:?}", change);
                 }
