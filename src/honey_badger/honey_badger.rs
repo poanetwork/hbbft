@@ -34,7 +34,7 @@ pub struct HoneyBadger<C, N: Rand> {
     /// Represents the optimization strategy to use for output of the `Subset` algorithm.
     pub(super) subset_handling_strategy: SubsetHandlingStrategy,
     /// The schedule for which rounds we should use threshold encryption.
-    pub(super) encryption_schedule: EncryptionSchedule,
+    pub(crate) encryption_schedule: EncryptionSchedule,
 }
 
 impl<C, N> fmt::Debug for HoneyBadger<C, N>
@@ -103,15 +103,18 @@ where
             return Ok(Step::default());
         }
         self.has_input = true;
-        let ser_prop =
-            bincode::serialize(&proposal).map_err(|err| ErrorKind::ProposeBincode(*err))?;
-        let ciphertext = self
-            .netinfo
-            .public_key_set()
-            .public_key()
-            .encrypt_with_rng(&mut self.rng, ser_prop);
         let epoch = self.epoch;
-        let mut step = self.epoch_state_mut(epoch)?.propose(&ciphertext)?;
+        let ser_prop = bincode::serialize(&proposal).map_err(|err| ErrorKind::ProposeBincode(*err))?;
+        let mut step = if self.encryption_schedule.use_on_epoch(self.epoch) {
+            let ciphertext = self
+                .netinfo
+                .public_key_set()
+                .public_key()
+                .encrypt_with_rng(&mut self.rng, ser_prop);
+            self.epoch_state_mut(epoch)?.propose(&ciphertext)?
+        } else {
+            self.epoch_state_mut(epoch)?.propose_plain(ser_prop)? 
+        };
         step.extend(self.try_output_batches()?);
         Ok(step)
     }

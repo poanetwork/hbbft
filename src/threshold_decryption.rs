@@ -27,6 +27,17 @@ pub enum EncryptionSchedule {
     TickTock(u32, u32),
 }
 
+impl EncryptionSchedule {
+    pub fn use_on_epoch(self, epoch: u64) -> bool {
+        match self {
+            EncryptionSchedule::Always => true,
+            EncryptionSchedule::Never => false,
+            EncryptionSchedule::EveryNthEpoch(n) => (epoch % n as u64) == 0,
+            EncryptionSchedule::TickTock(on, off) => (epoch % (on + off) as u64) <= on as u64,
+        }
+    }
+}
+
 /// A threshold decryption error.
 #[derive(Clone, Eq, PartialEq, Debug, Fail)]
 pub enum Error {

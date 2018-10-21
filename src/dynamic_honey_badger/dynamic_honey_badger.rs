@@ -303,7 +303,7 @@ where
                 // If there is a new change, restart DKG. Inform the user about the current change.
                 step.extend(match change {
                     Change::Add(_,_) | Change::Remove(_) => self.update_key_gen(batch_epoch + 1, &change)?,
-                    Change::EncryptionSchedule(_) => Step::default(), // TODO: Should this `step` contain something?
+                    Change::EncryptionSchedule(_) => self.update_encryption_schedule(batch_epoch + 1, &change)?,
                 });
                 ChangeState::InProgress(change)
             } else {
@@ -324,6 +324,20 @@ where
             }
         }
         Ok(step)
+    }
+
+    pub(super) fn update_encryption_schedule(&mut self, epoch: u64, change: &Change<N>) -> Result<Step<C, N>> {
+        // TODO: verify this implementation
+        self.restart_honey_badger(epoch);
+        if let Change::EncryptionSchedule(schedule) = change {
+            self.honey_badger.encryption_schedule = *schedule;
+        }
+        if self.netinfo().is_validator() {
+            Ok(Step::default())  
+            // self.send_transaction() TODO: commit a message about changing schedule
+        } else {
+            Ok(Step::default())   
+        }
     }
 
     /// If the winner of the vote has changed, restarts Key Generation for the set of nodes implied
@@ -367,6 +381,7 @@ where
         self.honey_badger = HoneyBadger::builder(netinfo)
             .max_future_epochs(self.max_future_epochs)
             .rng(self.rng.sub_rng())
+            .encryption_schedule(self.honey_badger.encryption_schedule)
             .build();
     }
 
