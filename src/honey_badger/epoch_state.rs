@@ -225,6 +225,14 @@ where
         self.process_subset(cs_step)
     }
 
+    pub fn propose_plain(&mut self, proposal: Vec<u8>) -> Result<Step<C, N>> {
+        let our_id = self.netinfo.our_id().clone();
+        self.decryption.insert(our_id, DecryptionState::Complete(proposal));
+        Ok(Step::default()) // TODO: this is obviously wrong, I need to send the proposal still.
+        // let cs_step = self.subset.handle_input(proposal)?;
+        // self.process_subset(cs_step)
+    }
+
     /// Returns the number of contributions that we have already received or, after completion, how
     /// many have been accepted.
     pub fn received_proposals(&self) -> usize {
