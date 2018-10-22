@@ -24,7 +24,7 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use crypto::{self, Signature, SignatureShare};
+use crypto::{self, hash_g2, Signature, SignatureShare, G2};
 use fault_log::{Fault, FaultKind};
 use {DistAlgorithm, NetworkInfo, NodeIdT, Target};
 
@@ -59,10 +59,10 @@ impl CoinMessage {
 /// receiving at least `num_faulty + 1` shares, attempts to combine them into a signature. If that
 /// signature is valid, the instance outputs it and terminates; otherwise the instance aborts.
 #[derive(Debug)]
-pub struct Coin<N, T> {
+pub struct Coin<N> {
     netinfo: Arc<NetworkInfo<N>>,
     /// The name of this coin. It is required to be unique for each coin round.
-    nonce: T,
+    msg_hash: G2,
     /// All received threshold signature shares.
     received_shares: BTreeMap<N, SignatureShare>,
     /// Whether we provided input to the coin.
@@ -71,13 +71,9 @@ pub struct Coin<N, T> {
     terminated: bool,
 }
 
-pub type Step<N, T> = ::Step<Coin<N, T>>;
+pub type Step<N> = ::Step<Coin<N>>;
 
-impl<N, T> DistAlgorithm for Coin<N, T>
-where
-    N: NodeIdT,
-    T: Clone + AsRef<[u8]> + Send + Sync,
-{
+impl<N: NodeIdT> DistAlgorithm for Coin<N> {
     type NodeId = N;
     type Input = ();
     type Output = bool;
@@ -85,7 +81,7 @@ where
     type Error = Error;
 
     /// Sends our threshold signature share if not yet sent.
-    fn handle_input(&mut self, _input: Self::Input) -> Result<Step<N, T>> {
+    fn handle_input(&mut self, _input: Self::Input) -> Result<Step<N>> {
         if !self.had_input {
             self.had_input = true;
             self.get_coin()
@@ -99,7 +95,7 @@ where
         &mut self,
         sender_id: &Self::NodeId,
         message: Self::Message,
-    ) -> Result<Step<N, T>> {
+    ) -> Result<Step<N>> {
         if !self.terminated {
             let CoinMessage(share) = message;
             self.handle_share(sender_id, share)
@@ -118,35 +114,31 @@ where
     }
 }
 
-impl<N, T> Coin<N, T>
-where
-    N: NodeIdT,
-    T: Clone + AsRef<[u8]> + Send + Sync,
-{
-    pub fn new(netinfo: Arc<NetworkInfo<N>>, nonce: T) -> Self {
+impl<N: NodeIdT> Coin<N> {
+    pub fn new<M: AsRef<[u8]>>(netinfo: Arc<NetworkInfo<N>>, msg: M) -> Self {
         Coin {
             netinfo,
-            nonce,
+            msg_hash: hash_g2(msg),
             received_shares: BTreeMap::new(),
             had_input: false,
             terminated: false,
         }
     }
 
-    fn get_coin(&mut self) -> Result<Step<N, T>> {
+    fn get_coin(&mut self) -> Result<Step<N>> {
         if !self.netinfo.is_validator() {
             return self.try_output();
         }
-        let share = self.netinfo.secret_key_share().sign(&self.nonce);
-        let mut step: Step<_, _> = Target::All.message(CoinMessage(share.clone())).into();
+        let share = self.netinfo.secret_key_share().sign_g2(self.msg_hash);
+        let mut step: Step<_> = Target::All.message(CoinMessage(share.clone())).into();
         let id = self.netinfo.our_id().clone();
         step.extend(self.handle_share(&id, share)?);
         Ok(step)
     }
 
-    fn handle_share(&mut self, sender_id: &N, share: SignatureShare) -> Result<Step<N, T>> {
+    fn handle_share(&mut self, sender_id: &N, share: SignatureShare) -> Result<Step<N>> {
         if let Some(pk_i) = self.netinfo.public_key_share(sender_id) {
-            if !pk_i.verify(&share, &self.nonce) {
+            if !pk_i.verify_g2(&share, self.msg_hash) {
                 // Log the faulty node and ignore the invalid share.
                 let fault_kind = FaultKind::UnverifiedSignatureShareSender;
                 return Ok(Fault::new(sender_id.clone(), fault_kind).into());
@@ -158,7 +150,7 @@ where
         self.try_output()
     }
 
-    fn try_output(&mut self) -> Result<Step<N, T>> {
+    fn try_output(&mut self) -> Result<Step<N>> {
         debug!(
             "{:?} received {} shares, had_input = {}",
             self.netinfo.our_id(),
@@ -191,7 +183,7 @@ where
             .netinfo
             .public_key_set()
             .public_key()
-            .verify(&sig, &self.nonce)
+            .verify_g2(&sig, self.msg_hash)
         {
             // Abort
             error!(

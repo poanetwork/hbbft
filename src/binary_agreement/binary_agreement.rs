@@ -15,7 +15,7 @@ enum CoinState<N> {
     /// The value was fixed in the current epoch, or the coin has already terminated.
     Decided(bool),
     /// The coin value is not known yet.
-    InProgress(Coin<N, Nonce>),
+    InProgress(Box<Coin<N>>),
 }
 
 impl<N> CoinState<N> {
@@ -264,7 +264,7 @@ impl<N: NodeIdT> BinaryAgreement<N> {
     }
 
     /// Handles a step returned from the `Coin`.
-    fn on_coin_step(&mut self, coin_step: coin::Step<N, Nonce>) -> Result<Step<N>> {
+    fn on_coin_step(&mut self, coin_step: coin::Step<N>) -> Result<Step<N>> {
         let mut step = Step::default();
         let epoch = self.epoch;
         let to_msg = |c_msg| MessageContent::Coin(Box::new(c_msg)).with_epoch(epoch);
@@ -316,7 +316,7 @@ impl<N: NodeIdT> BinaryAgreement<N> {
                     self.netinfo.node_index(&self.proposer_id).unwrap(),
                     self.epoch,
                 );
-                CoinState::InProgress(Coin::new(self.netinfo.clone(), nonce))
+                CoinState::InProgress(Box::new(Coin::new(self.netinfo.clone(), nonce)))
             }
         }
     }
