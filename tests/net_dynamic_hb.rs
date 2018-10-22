@@ -13,9 +13,10 @@ use std::{collections, time};
 use proptest::strategy::Strategy;
 
 use hbbft::dynamic_honey_badger::{Change, ChangeState, DynamicHoneyBadger, Input};
+use hbbft::DistAlgorithm;
 use net::adversary::{Adversary, NullAdversary};
 use net::proptest::{gen_adversary, gen_seed, NetworkDimension, TestRng, TestRngSeed};
-use net::NetBuilder;
+use net::{NetBuilder, VirtualNet};
 use rand::{Rng, SeedableRng};
 
 /// Choose a node's contribution for an epoch.
@@ -106,6 +107,35 @@ proptest!{
     }
 }
 
+#[derive(Debug)]
+struct DropAndReAddTest<D, C>
+where
+    D: DistAlgorithm,
+{
+    awaiting_removal: collections::BTreeSet<D::NodeId>,
+    awaiting_addition: collections::BTreeSet<D::NodeId>,
+    expected_outputs: collections::BTreeMap<D::NodeId, collections::BTreeSet<C>>,
+}
+
+// FIXME: Do not pin to `usize`.
+impl<D> DropAndReAddTest<D, usize>
+where
+    D: DistAlgorithm,
+    D::NodeId: Clone,
+{
+    fn from_net(net: &VirtualNet<D>) -> DropAndReAddTest<D, usize> {
+        DropAndReAddTest {
+            awaiting_removal: net.correct_nodes().map(|n| n.id().clone()).collect(),
+            awaiting_addition: net.correct_nodes().map(|n| n.id().clone()).collect(),
+            expected_outputs: net
+                .correct_nodes()
+                // FIXME: This should not be 0..10?!
+                .map(|n| (n.id().clone(), (0..10).collect()))
+                .collect(),
+        }
+    }
+}
+
 /// Dynamic honey badger: Drop a validator node, demoting it to observer, then re-add it, all while
 /// running a regular honey badger network.
 #[cfg_attr(feature = "cargo-clippy", allow(needless_pass_by_value))]
@@ -167,14 +197,7 @@ fn do_drop_and_readd(cfg: TestConfig) {
         .expect("broadcasting failed");
 
     // We are tracking (correct) nodes' state through the process by ticking them off individually.
-    let mut awaiting_removal: collections::BTreeSet<_> =
-        net.correct_nodes().map(|n| *n.id()).collect();
-    let mut awaiting_addition: collections::BTreeSet<_> =
-        net.correct_nodes().map(|n| *n.id()).collect();
-    let mut expected_outputs: collections::BTreeMap<_, collections::BTreeSet<_>> = net
-        .correct_nodes()
-        .map(|n| (*n.id(), (0..10).into_iter().collect()))
-        .collect();
+    let mut state = DropAndReAddTest::from_net(&net);
 
     // Run the network:
     loop {
@@ -185,7 +208,7 @@ fn do_drop_and_readd(cfg: TestConfig) {
                 ChangeState::Complete(Change::Remove(pivot_node_id)) => {
                     println!("Node {:?} done removing.", node_id);
                     // Removal complete, tally:
-                    awaiting_removal.remove(&node_id);
+                    state.awaiting_removal.remove(&node_id);
 
                     // Now we can add the node again. Public keys will be reused.
                     let pk = net[*pivot_node_id]
@@ -202,13 +225,13 @@ fn do_drop_and_readd(cfg: TestConfig) {
                 ChangeState::Complete(Change::Add(pivot_node_id, _)) => {
                     println!("Node {:?} done adding.", node_id);
                     // Node added, ensure it has been removed first.
-                    if awaiting_removal.contains(&node_id) {
+                    if state.awaiting_removal.contains(&node_id) {
                         panic!(
                             "Node {:?} reported a success `Add({}, _)` before `Remove({})`",
                             node_id, pivot_node_id, pivot_node_id
                         );
                     }
-                    awaiting_addition.remove(&node_id);
+                    state.awaiting_addition.remove(&node_id);
                 }
                 ChangeState::None => {
                     // Nothing has changed yet.
@@ -244,7 +267,8 @@ fn do_drop_and_readd(cfg: TestConfig) {
 
                 // Add it to the set of received outputs.
                 if !net[node_id].is_faulty() {
-                    expected_outputs
+                    state
+                        .expected_outputs
                         .get_mut(&node_id)
                         .expect("output set disappeared")
                         .remove(tx);
@@ -253,9 +277,9 @@ fn do_drop_and_readd(cfg: TestConfig) {
         }
 
         // Check if we are done.
-        if expected_outputs.values().all(|s| s.is_empty())
-            && awaiting_addition.is_empty()
-            && awaiting_removal.is_empty()
+        if state.expected_outputs.values().all(|s| s.is_empty())
+            && state.awaiting_addition.is_empty()
+            && state.awaiting_removal.is_empty()
         {
             // All outputs are empty and all nodes have removed and added the single pivot node.
             break;
