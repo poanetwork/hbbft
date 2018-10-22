@@ -195,3 +195,10 @@ struct InternalContrib<C, N> {
 /// A signed internal message.
 #[derive(Eq, PartialEq, Debug, Serialize, Deserialize, Hash, Clone)]
 struct SignedKeyGenMsg<N>(u64, N, KeyGenMessage, Signature);
+
+impl<N> SignedKeyGenMsg<N> {
+    /// Returns the start epoch of the ongoing key generation.
+    fn epoch(&self) -> u64 {
+        self.0
+    }
+}
