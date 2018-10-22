@@ -280,17 +280,9 @@ where
                     .retain(|skgm| !key_gen_messages.contains(skgm));
                 for SignedKeyGenMsg(epoch, s_id, kg_msg, sig) in key_gen_messages {
                     if epoch != self.start_epoch {
-                        info!(
-                            "Obsolete or premature key generation message: {:?}.",
-                            kg_msg
-                        );
                         let fault_kind = FaultKind::InvalidKeyGenMessageEpoch;
                         step.fault_log.append(id.clone(), fault_kind);
                     } else if !self.verify_signature(&s_id, &sig, &kg_msg)? {
-                        info!(
-                            "Invalid signature in {:?}'s batch from {:?} for: {:?}.",
-                            id, s_id, kg_msg
-                        );
                         let fault_kind = FaultKind::InvalidKeyGenMessageSignature;
                         step.fault_log.append(id.clone(), fault_kind);
                     } else {

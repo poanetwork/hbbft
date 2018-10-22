@@ -475,7 +475,7 @@ impl<N: NodeIdT> SyncKeyGen<N> {
             .get_mut(&proposer_idx)
             .ok_or_else(|| Fault::SenderExist)?;
         if !part.acks.insert(sender_idx) {
-            return Err(Fault::DuplicateAck);
+            return Ok(());
         }
         let our_idx = match self.our_idx {
             Some(our_idx) => our_idx,

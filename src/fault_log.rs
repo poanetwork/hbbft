@@ -12,8 +12,6 @@ pub enum AckMessageFault {
     NodeCount,
     #[fail(display = "Sender does not exist")]
     SenderExist,
-    #[fail(display = "Duplicate ack")]
-    DuplicateAck,
     #[fail(display = "Value decryption failed")]
     ValueDecryption,
     #[fail(display = "Value deserialization failed")]

@@ -7,7 +7,7 @@ use crypto::SecretKeyShare;
 use rand::{self, Rng};
 
 use hbbft::dynamic_honey_badger::Batch;
-use hbbft::{Contribution, DistAlgorithm, NetworkInfo, Step, Target, TargetedMessage};
+use hbbft::{Contribution, DistAlgorithm, Fault, NetworkInfo, Step, Target, TargetedMessage};
 
 /// A node identifier. In the tests, nodes are simply numbered.
 #[derive(Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Clone, Copy, Serialize, Deserialize, Rand)]
@@ -25,6 +25,8 @@ pub struct TestNode<D: DistAlgorithm> {
     outputs: Vec<D::Output>,
     /// Outgoing messages to be sent to other nodes.
     messages: VecDeque<TargetedMessage<D::Message, D::NodeId>>,
+    /// Collected fault logs.
+    faults: Vec<Fault<D::NodeId>>,
 }
 
 impl<D: DistAlgorithm> TestNode<D> {
@@ -44,6 +46,7 @@ impl<D: DistAlgorithm> TestNode<D> {
         let step = self.algo.handle_input(input).expect("input");
         self.outputs.extend(step.output);
         self.messages.extend(step.messages);
+        self.faults.extend(step.fault_log.0);
     }
 
     /// Returns the internal algorithm's instance.
@@ -60,6 +63,7 @@ impl<D: DistAlgorithm> TestNode<D> {
             queue: VecDeque::new(),
             outputs: step.output.into_iter().collect(),
             messages: step.messages,
+            faults: step.fault_log.0,
         }
     }
 
@@ -73,9 +77,10 @@ impl<D: DistAlgorithm> TestNode<D> {
             .expect("handling message");
         self.outputs.extend(step.output);
         self.messages.extend(step.messages);
+        self.faults.extend(step.fault_log.0);
     }
 
-    /// Checks whether the node has messages to process
+    /// Checks whether the node has messages to process.
     fn is_idle(&self) -> bool {
         self.queue.is_empty()
     }
@@ -480,6 +485,8 @@ where
         }
         while !self.observer.queue.is_empty() {
             self.observer.handle_message();
+            let faults: Vec<_> = self.observer.faults.drain(..).collect();
+            self.check_faults(faults);
         }
     }
 
@@ -501,7 +508,7 @@ where
         let id = self.adversary.pick_node(&self.nodes);
 
         // The node handles the incoming message and creates new outgoing ones to be dispatched.
-        let msgs: Vec<_> = {
+        let (msgs, faults): (Vec<_>, Vec<_>) = {
             let mut node = self.nodes.get_mut(&id).unwrap();
 
             // Ensure the adversary is playing fair by selecting a node that will result in actual
@@ -513,8 +520,12 @@ where
             );
 
             node.handle_message();
-            node.messages.drain(..).collect()
+            (
+                node.messages.drain(..).collect(),
+                node.faults.drain(..).collect(),
+            )
         };
+        self.check_faults(faults);
         self.dispatch_messages(id, msgs);
 
         id
@@ -522,11 +533,15 @@ where
 
     /// Inputs a value in node `id`.
     pub fn input(&mut self, id: NodeId, value: D::Input) {
-        let msgs: Vec<_> = {
+        let (msgs, faults): (Vec<_>, Vec<_>) = {
             let mut node = self.nodes.get_mut(&id).expect("input instance");
             node.handle_input(value);
-            node.messages.drain(..).collect()
+            (
+                node.messages.drain(..).collect(),
+                node.faults.drain(..).collect(),
+            )
         };
+        self.check_faults(faults);
         self.dispatch_messages(id, msgs);
     }
 
@@ -539,6 +554,15 @@ where
         let ids: Vec<D::NodeId> = self.nodes.keys().cloned().collect();
         for id in ids {
             self.input(id, value.clone());
+        }
+    }
+
+    /// Verifies that no correct node is reported as faulty.
+    fn check_faults<I: IntoIterator<Item = Fault<D::NodeId>>>(&self, faults: I) {
+        for fault in faults {
+            if self.nodes.contains_key(&fault.node_id) {
+                panic!("Unexpected fault: {:?}", fault);
+            }
         }
     }
 }
