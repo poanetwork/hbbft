@@ -43,11 +43,11 @@ pub enum Error {
 pub type Result<T> = ::std::result::Result<T, Error>;
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Rand)]
-pub struct CoinMessage(SignatureShare);
+pub struct Message(SignatureShare);
 
-impl CoinMessage {
+impl Message {
     pub fn new(sig: SignatureShare) -> Self {
-        CoinMessage(sig)
+        Message(sig)
     }
 
     pub fn to_sig(&self) -> &SignatureShare {
@@ -76,18 +76,13 @@ pub type Step<N> = ::Step<Coin<N>>;
 impl<N: NodeIdT> DistAlgorithm for Coin<N> {
     type NodeId = N;
     type Input = ();
-    type Output = bool;
-    type Message = CoinMessage;
+    type Output = Signature;
+    type Message = Message;
     type Error = Error;
 
     /// Sends our threshold signature share if not yet sent.
     fn handle_input(&mut self, _input: Self::Input) -> Result<Step<N>> {
-        if !self.had_input {
-            self.had_input = true;
-            self.get_coin()
-        } else {
-            Ok(Step::default())
-        }
+        self.get_coin()
     }
 
     /// Receives input from a remote node.
@@ -97,7 +92,7 @@ impl<N: NodeIdT> DistAlgorithm for Coin<N> {
         message: Self::Message,
     ) -> Result<Step<N>> {
         if !self.terminated {
-            let CoinMessage(share) = message;
+            let Message(share) = message;
             self.handle_share(sender_id, share)
         } else {
             Ok(Step::default())
@@ -126,11 +121,15 @@ impl<N: NodeIdT> Coin<N> {
     }
 
     fn get_coin(&mut self) -> Result<Step<N>> {
+        if self.had_input {
+            return Ok(Step::default());
+        }
+        self.had_input = true;
         if !self.netinfo.is_validator() {
             return self.try_output();
         }
         let share = self.netinfo.secret_key_share().sign_g2(self.msg_hash);
-        let mut step: Step<_> = Target::All.message(CoinMessage(share.clone())).into();
+        let mut step: Step<_> = Target::All.message(Message(share.clone())).into();
         let id = self.netinfo.our_id().clone();
         step.extend(self.handle_share(&id, share)?);
         Ok(step)
@@ -159,12 +158,10 @@ impl<N: NodeIdT> Coin<N> {
         );
         if self.had_input && self.received_shares.len() > self.netinfo.num_faulty() {
             let sig = self.combine_and_verify_sig()?;
-            // Output the parity of the verified signature.
-            let parity = sig.parity();
-            debug!("{:?} output {}", self.netinfo.our_id(), parity);
+            debug!("{:?} output {:?}", self.netinfo.our_id(), sig);
             self.terminated = true;
             let step = self.handle_input(())?; // Before terminating, make sure we sent our share.
-            Ok(step.with_output(parity))
+            Ok(step.with_output(sig))
         } else {
             Ok(Step::default())
         }

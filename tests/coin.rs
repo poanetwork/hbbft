@@ -18,13 +18,14 @@ use std::iter::once;
 
 use rand::Rng;
 
+use crypto::Signature;
 use hbbft::coin::Coin;
 
 use network::{Adversary, MessageScheduler, NodeId, SilentAdversary, TestNetwork, TestNode};
 
 /// Tests a network of Coin instances with an optional expected value. Outputs the computed
 /// coin value if the test is successful.
-fn test_coin<A>(mut network: TestNetwork<A, Coin<NodeId>>) -> bool
+fn test_coin<A>(mut network: TestNetwork<A, Coin<NodeId>>) -> Signature
 where
     A: Adversary<Coin<NodeId>>,
 {
@@ -38,11 +39,11 @@ where
     let mut expected = None;
     // Verify that all instances output the same value.
     for node in network.nodes.values() {
-        if let Some(b) = expected {
-            assert!(once(&b).eq(node.outputs()));
+        if let Some(ref b) = expected {
+            assert!(once(b).eq(node.outputs()));
         } else {
             assert_eq!(1, node.outputs().len());
-            expected = Some(node.outputs()[0]);
+            expected = Some(node.outputs()[0].clone());
         }
     }
     // Now `expected` is the unique output of all good nodes.
@@ -107,7 +108,7 @@ where
             info!("Nonce: {}", nonce);
             let new_coin = |netinfo: _| Coin::new(netinfo, nonce.clone());
             let network = TestNetwork::new(num_good_nodes, num_faulty_nodes, adversary, new_coin);
-            let coin = test_coin(network);
+            let coin = test_coin(network).parity();
             if coin {
                 count_true += 1;
             } else {

@@ -71,7 +71,7 @@ mod sbv_broadcast;
 use rand;
 
 use self::bool_set::BoolSet;
-use coin::{self, CoinMessage};
+use coin;
 
 pub use self::binary_agreement::BinaryAgreement;
 
@@ -102,7 +102,7 @@ pub enum MessageContent {
     /// `Term` message.
     Term(bool),
     /// Coin message,
-    Coin(Box<CoinMessage>),
+    Coin(Box<coin::Message>),
 }
 
 impl MessageContent {

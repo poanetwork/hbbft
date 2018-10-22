@@ -5,7 +5,7 @@ use super::bool_multimap::BoolMultimap;
 use super::bool_set::BoolSet;
 use super::sbv_broadcast::{self, SbvBroadcast};
 use super::{Error, Message, MessageContent, Nonce, Result, Step};
-use coin::{self, Coin, CoinMessage};
+use coin::{self, Coin};
 use {DistAlgorithm, NetworkInfo, NodeIdT, Target};
 
 /// The state of the current epoch's coin. In some epochs this is fixed, in others it starts
@@ -223,7 +223,7 @@ impl<N: NodeIdT> BinaryAgreement<N> {
 
     /// Handles a Coin message. If there is output from Coin, starts the next
     /// epoch. The function may output a decision value.
-    fn handle_coin(&mut self, sender_id: &N, msg: CoinMessage) -> Result<Step<N>> {
+    fn handle_coin(&mut self, sender_id: &N, msg: coin::Message) -> Result<Step<N>> {
         let coin_step = match self.coin_state {
             CoinState::Decided(_) => return Ok(Step::default()), // Coin value is already decided.
             CoinState::InProgress(ref mut coin) => coin
@@ -270,7 +270,8 @@ impl<N: NodeIdT> BinaryAgreement<N> {
         let to_msg = |c_msg| MessageContent::Coin(Box::new(c_msg)).with_epoch(epoch);
         let coin_output = step.extend_with(coin_step, to_msg);
         if let Some(coin) = coin_output.into_iter().next() {
-            self.coin_state = coin.into();
+            // Take the parity of the signature as the coin value.
+            self.coin_state = coin.parity().into();
             step.extend(self.try_update_epoch()?);
         }
         Ok(step)
