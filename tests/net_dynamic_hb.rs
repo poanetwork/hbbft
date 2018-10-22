@@ -13,7 +13,6 @@ use std::{collections, time};
 use proptest::strategy::Strategy;
 
 use hbbft::dynamic_honey_badger::{Change, ChangeState, DynamicHoneyBadger, Input};
-use hbbft::DistAlgorithm;
 use net::adversary::{Adversary, NullAdversary};
 use net::proptest::{gen_adversary, gen_seed, NetworkDimension, TestRng, TestRngSeed};
 use net::NetBuilder;
@@ -194,9 +193,9 @@ fn do_drop_and_readd(cfg: TestConfig) {
                         .netinfo()
                         .secret_key()
                         .public_key();
-                    let _ = net[node_id]
-                        .algorithm_mut()
-                        .handle_input(Input::Change(Change::Add(*pivot_node_id, pk)))
+
+                    let _ = net
+                        .send_input(node_id, Input::Change(Change::Add(*pivot_node_id, pk)))
                         .expect("failed to send `Add` input");
                 }
 
