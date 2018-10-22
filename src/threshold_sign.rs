@@ -1,25 +1,17 @@
-//! # A Cryptographic Coin
+//! # Collaborative Threshold Signing
 //!
-//! The Coin produces a pseudorandom binary value that the correct nodes agree on, and that
-//! cannot be known beforehand.
+//! The algorithm is instantiated with data to sign, and waits for the input (no data, just `()`),
+//! then sends a signature share to the others. When at least _f + 1_ correct validators have done
+//! so, each node outputs the same, valid signature of the data.
 //!
-//! Every Coin instance has a _nonce_ that determines the value, without giving it away: It
-//! is not feasible to compute the output from the nonce alone, and the output is uniformly
-//! distributed.
-//!
-//! The nodes input a signal (no data, just `()`), and after _2 f + 1_ nodes have provided input,
-//! everyone receives the output value. In particular, the adversary cannot know the output value
-//! before at least one correct node has provided input.
+//! In addition to signing, this can also be used as a source of pseudorandomness: The signature
+//! cannot be known until more than _f_ validators have contributed their shares.
 //!
 //! ## How it works
 //!
 //! The algorithm uses a threshold signature scheme with the uniqueness property: For each public
 //! key and message, there is exactly one valid signature. This group signature is produced using
-//! signature shares from any combination of _2 f + 1_ secret key share holders.
-//!
-//! * On input, a node signs the nonce and sends its signature share to everyone else.
-//! * When a node has received _2 f + 1_ shares, it computes the main signature and outputs the XOR
-//! of its bits.
+//! signature shares from any combination of _f + 1_ secret key share holders.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -28,7 +20,7 @@ use crypto::{self, hash_g2, Signature, SignatureShare, G2};
 use fault_log::{Fault, FaultKind};
 use {DistAlgorithm, NetworkInfo, NodeIdT, Target};
 
-/// A coin error.
+/// A threshold signing error.
 #[derive(Clone, Eq, PartialEq, Debug, Fail)]
 pub enum Error {
     #[fail(display = "CombineAndVerifySigCrypto error: {}", _0)]
@@ -39,7 +31,7 @@ pub enum Error {
     VerificationFailed,
 }
 
-/// A coin result.
+/// A threshold signing result.
 pub type Result<T> = ::std::result::Result<T, Error>;
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Rand)]
@@ -55,25 +47,25 @@ impl Message {
     }
 }
 
-/// A coin algorithm instance. On input, broadcasts our threshold signature share. Upon
+/// A threshold signing algorithm instance. On input, broadcasts our threshold signature share. Upon
 /// receiving at least `num_faulty + 1` shares, attempts to combine them into a signature. If that
 /// signature is valid, the instance outputs it and terminates; otherwise the instance aborts.
 #[derive(Debug)]
-pub struct Coin<N> {
+pub struct ThresholdSign<N> {
     netinfo: Arc<NetworkInfo<N>>,
-    /// The name of this coin. It is required to be unique for each coin round.
+    /// The hash of the data to be signed.
     msg_hash: G2,
     /// All received threshold signature shares.
     received_shares: BTreeMap<N, SignatureShare>,
-    /// Whether we provided input to the coin.
+    /// Whether we already sent our shares.
     had_input: bool,
     /// Termination flag.
     terminated: bool,
 }
 
-pub type Step<N> = ::Step<Coin<N>>;
+pub type Step<N> = ::Step<ThresholdSign<N>>;
 
-impl<N: NodeIdT> DistAlgorithm for Coin<N> {
+impl<N: NodeIdT> DistAlgorithm for ThresholdSign<N> {
     type NodeId = N;
     type Input = ();
     type Output = Signature;
@@ -82,7 +74,7 @@ impl<N: NodeIdT> DistAlgorithm for Coin<N> {
 
     /// Sends our threshold signature share if not yet sent.
     fn handle_input(&mut self, _input: Self::Input) -> Result<Step<N>> {
-        self.get_coin()
+        self.get_sig()
     }
 
     /// Receives input from a remote node.
@@ -109,9 +101,9 @@ impl<N: NodeIdT> DistAlgorithm for Coin<N> {
     }
 }
 
-impl<N: NodeIdT> Coin<N> {
+impl<N: NodeIdT> ThresholdSign<N> {
     pub fn new<M: AsRef<[u8]>>(netinfo: Arc<NetworkInfo<N>>, msg: M) -> Self {
-        Coin {
+        ThresholdSign {
             netinfo,
             msg_hash: hash_g2(msg),
             received_shares: BTreeMap::new(),
@@ -120,7 +112,7 @@ impl<N: NodeIdT> Coin<N> {
         }
     }
 
-    fn get_coin(&mut self) -> Result<Step<N>> {
+    fn get_sig(&mut self) -> Result<Step<N>> {
         if self.had_input {
             return Ok(Step::default());
         }

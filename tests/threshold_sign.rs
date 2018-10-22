@@ -1,5 +1,5 @@
 #![deny(unused_must_use)]
-//! Coin tests
+//! Threshold signing tests
 
 extern crate env_logger;
 extern crate hbbft;
@@ -19,15 +19,15 @@ use std::iter::once;
 use rand::Rng;
 
 use crypto::Signature;
-use hbbft::coin::Coin;
+use hbbft::threshold_sign::ThresholdSign;
 
 use network::{Adversary, MessageScheduler, NodeId, SilentAdversary, TestNetwork, TestNode};
 
-/// Tests a network of Coin instances with an optional expected value. Outputs the computed
-/// coin value if the test is successful.
-fn test_coin<A>(mut network: TestNetwork<A, Coin<NodeId>>) -> Signature
+/// Tests a network of threshold signing instances with an optional expected value. Outputs the
+/// computed signature if the test is successful.
+fn test_threshold_sign<A>(mut network: TestNetwork<A, ThresholdSign<NodeId>>) -> Signature
 where
-    A: Adversary<Coin<NodeId>>,
+    A: Adversary<ThresholdSign<NodeId>>,
 {
     network.input_all(());
     network.observer.handle_input(()); // Observer will only return after `input` was called.
@@ -72,9 +72,9 @@ fn check_coin_distribution(num_samples: usize, count_true: usize, count_false: u
     assert!(count_false > min_throws);
 }
 
-fn test_coin_different_sizes<A, F>(new_adversary: F, num_samples: usize)
+fn test_threshold_sign_different_sizes<A, F>(new_adversary: F, num_samples: usize)
 where
-    A: Adversary<Coin<NodeId>>,
+    A: Adversary<ThresholdSign<NodeId>>,
     F: Fn(usize, usize) -> A,
 {
     assert!(num_samples > 0);
@@ -106,9 +106,9 @@ where
             let adversary = |_| new_adversary(num_good_nodes, num_faulty_nodes);
             let nonce = format!("My very unique nonce {:x}:{}", unique_id, i);
             info!("Nonce: {}", nonce);
-            let new_coin = |netinfo: _| Coin::new(netinfo, nonce.clone());
+            let new_coin = |netinfo: _| ThresholdSign::new(netinfo, nonce.clone());
             let network = TestNetwork::new(num_good_nodes, num_faulty_nodes, adversary, new_coin);
-            let coin = test_coin(network).parity();
+            let coin = test_threshold_sign(network).parity();
             if coin {
                 count_true += 1;
             } else {
@@ -120,13 +120,13 @@ where
 }
 
 #[test]
-fn test_coin_random_silent_200_samples() {
+fn test_threshold_sign_random_silent_200_samples() {
     let new_adversary = |_: usize, _: usize| SilentAdversary::new(MessageScheduler::Random);
-    test_coin_different_sizes(new_adversary, 200);
+    test_threshold_sign_different_sizes(new_adversary, 200);
 }
 
 #[test]
-fn test_coin_first_silent_50_samples() {
+fn test_threshold_sign_first_silent_50_samples() {
     let new_adversary = |_: usize, _: usize| SilentAdversary::new(MessageScheduler::First);
-    test_coin_different_sizes(new_adversary, 50);
+    test_threshold_sign_different_sizes(new_adversary, 50);
 }
