@@ -5,7 +5,7 @@ use super::bool_multimap::BoolMultimap;
 use super::bool_set::BoolSet;
 use super::sbv_broadcast::{self, SbvBroadcast};
 use super::{Error, Message, MessageContent, Nonce, Result, Step};
-use coin::{self, Coin, CoinMessage};
+use threshold_sign::{self, ThresholdSign};
 use {DistAlgorithm, NetworkInfo, NodeIdT, Target};
 
 /// The state of the current epoch's coin. In some epochs this is fixed, in others it starts
@@ -15,7 +15,7 @@ enum CoinState<N> {
     /// The value was fixed in the current epoch, or the coin has already terminated.
     Decided(bool),
     /// The coin value is not known yet.
-    InProgress(Coin<N, Nonce>),
+    InProgress(Box<ThresholdSign<N>>),
 }
 
 impl<N> CoinState<N> {
@@ -221,16 +221,16 @@ impl<N: NodeIdT> BinaryAgreement<N> {
         }
     }
 
-    /// Handles a Coin message. If there is output from Coin, starts the next
-    /// epoch. The function may output a decision value.
-    fn handle_coin(&mut self, sender_id: &N, msg: CoinMessage) -> Result<Step<N>> {
-        let coin_step = match self.coin_state {
+    /// Handles a `ThresholdSign` message. If there is output, starts the next epoch. The function
+    /// may output a decision value.
+    fn handle_coin(&mut self, sender_id: &N, msg: threshold_sign::Message) -> Result<Step<N>> {
+        let ts_step = match self.coin_state {
             CoinState::Decided(_) => return Ok(Step::default()), // Coin value is already decided.
-            CoinState::InProgress(ref mut coin) => coin
+            CoinState::InProgress(ref mut ts) => ts
                 .handle_message(sender_id, msg)
-                .map_err(Error::HandleCoin)?,
+                .map_err(Error::HandleThresholdSign)?,
         };
-        self.on_coin_step(coin_step)
+        self.on_coin_step(ts_step)
     }
 
     /// Multicasts a `Conf(values)` message, and handles it.
@@ -263,14 +263,15 @@ impl<N: NodeIdT> BinaryAgreement<N> {
         Ok(step)
     }
 
-    /// Handles a step returned from the `Coin`.
-    fn on_coin_step(&mut self, coin_step: coin::Step<N, Nonce>) -> Result<Step<N>> {
+    /// Handles a step returned from the `ThresholdSign`.
+    fn on_coin_step(&mut self, ts_step: threshold_sign::Step<N>) -> Result<Step<N>> {
         let mut step = Step::default();
         let epoch = self.epoch;
         let to_msg = |c_msg| MessageContent::Coin(Box::new(c_msg)).with_epoch(epoch);
-        let coin_output = step.extend_with(coin_step, to_msg);
-        if let Some(coin) = coin_output.into_iter().next() {
-            self.coin_state = coin.into();
+        let ts_output = step.extend_with(ts_step, to_msg);
+        if let Some(sig) = ts_output.into_iter().next() {
+            // Take the parity of the signature as the coin value.
+            self.coin_state = sig.parity().into();
             step.extend(self.try_update_epoch()?);
         }
         Ok(step)
@@ -304,7 +305,7 @@ impl<N: NodeIdT> BinaryAgreement<N> {
     }
 
     /// Creates the initial coin state for the current epoch, i.e. sets it to the predetermined
-    /// value, or initializes a `Coin` instance.
+    /// value, or initializes a `ThresholdSign` instance.
     fn coin_state(&self) -> CoinState<N> {
         match self.epoch % 3 {
             0 => CoinState::Decided(true),
@@ -316,7 +317,7 @@ impl<N: NodeIdT> BinaryAgreement<N> {
                     self.netinfo.node_index(&self.proposer_id).unwrap(),
                     self.epoch,
                 );
-                CoinState::InProgress(Coin::new(self.netinfo.clone(), nonce))
+                CoinState::InProgress(Box::new(ThresholdSign::new(self.netinfo.clone(), nonce)))
             }
         }
     }
@@ -352,13 +353,11 @@ impl<N: NodeIdT> BinaryAgreement<N> {
         }
 
         // Invoke the coin.
-        let coin_step = match self.coin_state {
+        let ts_step = match self.coin_state {
             CoinState::Decided(_) => return Ok(Step::default()), // Coin has already decided.
-            CoinState::InProgress(ref mut coin) => coin
-                .handle_input(())
-                .map_err(Error::TryFinishConfRoundCoin)?,
+            CoinState::InProgress(ref mut ts) => ts.handle_input(()).map_err(Error::InvokeCoin)?,
         };
-        let mut step = self.on_coin_step(coin_step)?;
+        let mut step = self.on_coin_step(ts_step)?;
         step.extend(self.try_update_epoch()?);
         Ok(step)
     }

@@ -71,17 +71,17 @@ mod sbv_broadcast;
 use rand;
 
 use self::bool_set::BoolSet;
-use coin::{self, CoinMessage};
+use threshold_sign;
 
 pub use self::binary_agreement::BinaryAgreement;
 
 /// An Binary Agreement error.
 #[derive(Clone, Eq, PartialEq, Debug, Fail)]
 pub enum Error {
-    #[fail(display = "HandleCoin error: {}", _0)]
-    HandleCoin(coin::Error),
-    #[fail(display = "TryFinishConfRoundCoin error: {}", _0)]
-    TryFinishConfRoundCoin(coin::Error),
+    #[fail(display = "Error handling threshold sign message: {}", _0)]
+    HandleThresholdSign(threshold_sign::Error),
+    #[fail(display = "Error invoking the common coin: {}", _0)]
+    InvokeCoin(threshold_sign::Error),
     #[fail(display = "Unknown proposer")]
     UnknownProposer,
     #[fail(display = "Input not accepted")]
@@ -101,8 +101,8 @@ pub enum MessageContent {
     Conf(BoolSet),
     /// `Term` message.
     Term(bool),
-    /// Coin message,
-    Coin(Box<CoinMessage>),
+    /// `ThresholdSign` message used for the common coin,
+    Coin(Box<threshold_sign::Message>),
 }
 
 impl MessageContent {
