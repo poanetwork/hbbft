@@ -82,29 +82,7 @@ where
     }
 
     fn handle_message(&mut self, sender_id: &N, message: Self::Message) -> Result<Step<C, N>> {
-        let epoch = message.start_epoch();
-        if epoch < self.start_epoch {
-            // Obsolete message.
-            Ok(Step::default())
-        } else if epoch > self.start_epoch {
-            // Message cannot be handled yet. Save it for later.
-            let entry = (sender_id.clone(), message);
-            self.incoming_queue.push(entry);
-            Ok(Step::default())
-        } else {
-            match message {
-                Message::HoneyBadger(_, hb_msg) => {
-                    self.handle_honey_badger_message(sender_id, hb_msg)
-                }
-                Message::KeyGen(_, kg_msg, sig) => self
-                    .handle_key_gen_message(sender_id, kg_msg, *sig)
-                    .map(FaultLog::into),
-                Message::SignedVote(signed_vote) => self
-                    .vote_counter
-                    .add_pending_vote(sender_id, signed_vote)
-                    .map(FaultLog::into),
-            }
-        }
+        self.handle_message(sender_id, message)
     }
 
     fn terminated(&self) -> bool {
@@ -149,7 +127,7 @@ where
         self.process_output(step)
     }
 
-    /// Cast a vote to change the set of validators.
+    /// Casts a vote to change the set of validators.
     pub fn vote_for(&mut self, change: Change<N>) -> Result<Step<C, N>> {
         if !self.netinfo.is_validator() {
             return Ok(Step::default()); // TODO: Return an error?
@@ -157,6 +135,33 @@ where
         let signed_vote = self.vote_counter.sign_vote_for(change)?.clone();
         let msg = Message::SignedVote(signed_vote);
         Ok(Target::All.message(msg).into())
+    }
+
+    /// Handles an incoming message.
+    pub fn handle_message(&mut self, sender_id: &N, message: Message<N>) -> Result<Step<C, N>> {
+        let epoch = message.start_epoch();
+        if epoch < self.start_epoch {
+            // Obsolete message.
+            Ok(Step::default())
+        } else if epoch > self.start_epoch {
+            // Message cannot be handled yet. Save it for later.
+            let entry = (sender_id.clone(), message);
+            self.incoming_queue.push(entry);
+            Ok(Step::default())
+        } else {
+            match message {
+                Message::HoneyBadger(_, hb_msg) => {
+                    self.handle_honey_badger_message(sender_id, hb_msg)
+                }
+                Message::KeyGen(_, kg_msg, sig) => self
+                    .handle_key_gen_message(sender_id, kg_msg, *sig)
+                    .map(FaultLog::into),
+                Message::SignedVote(signed_vote) => self
+                    .vote_counter
+                    .add_pending_vote(sender_id, signed_vote)
+                    .map(FaultLog::into),
+            }
+        }
     }
 
     /// Returns the information about the node IDs in the network, and the cryptographic keys.

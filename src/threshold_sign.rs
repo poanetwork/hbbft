@@ -73,22 +73,13 @@ impl<N: NodeIdT> DistAlgorithm for ThresholdSign<N> {
     type Error = Error;
 
     /// Sends our threshold signature share if not yet sent.
-    fn handle_input(&mut self, _input: Self::Input) -> Result<Step<N>> {
-        self.get_sig()
+    fn handle_input(&mut self, _input: ()) -> Result<Step<N>> {
+        self.sign()
     }
 
     /// Receives input from a remote node.
-    fn handle_message(
-        &mut self,
-        sender_id: &Self::NodeId,
-        message: Self::Message,
-    ) -> Result<Step<N>> {
-        if !self.terminated {
-            let Message(share) = message;
-            self.handle_share(sender_id, share)
-        } else {
-            Ok(Step::default())
-        }
+    fn handle_message(&mut self, sender_id: &N, message: Message) -> Result<Step<N>> {
+        self.handle_message(sender_id, message)
     }
 
     /// Whether the algorithm has terminated.
@@ -102,6 +93,7 @@ impl<N: NodeIdT> DistAlgorithm for ThresholdSign<N> {
 }
 
 impl<N: NodeIdT> ThresholdSign<N> {
+    /// Creates a new instance of `ThresholdSign`, with the goal to collaboratively sign `msg`.
     pub fn new<M: AsRef<[u8]>>(netinfo: Arc<NetworkInfo<N>>, msg: M) -> Self {
         ThresholdSign {
             netinfo,
@@ -112,7 +104,8 @@ impl<N: NodeIdT> ThresholdSign<N> {
         }
     }
 
-    fn get_sig(&mut self) -> Result<Step<N>> {
+    /// Sends our signature shares, and if we have collected enough, returns the full signature.
+    pub fn sign(&mut self) -> Result<Step<N>> {
         if self.had_input {
             return Ok(Step::default());
         }
@@ -120,14 +113,19 @@ impl<N: NodeIdT> ThresholdSign<N> {
         if !self.netinfo.is_validator() {
             return self.try_output();
         }
-        let share = self.netinfo.secret_key_share().sign_g2(self.msg_hash);
-        let mut step: Step<_> = Target::All.message(Message(share.clone())).into();
+        let msg = Message(self.netinfo.secret_key_share().sign_g2(self.msg_hash));
+        let mut step: Step<_> = Target::All.message(msg.clone()).into();
         let id = self.netinfo.our_id().clone();
-        step.extend(self.handle_share(&id, share)?);
+        step.extend(self.handle_message(&id, msg)?);
         Ok(step)
     }
 
-    fn handle_share(&mut self, sender_id: &N, share: SignatureShare) -> Result<Step<N>> {
+    /// Handles an incoming share. If we have collected enough, returns the full signature.
+    pub fn handle_message(&mut self, sender_id: &N, message: Message) -> Result<Step<N>> {
+        if self.terminated {
+            return Ok(Step::default());
+        }
+        let Message(share) = message;
         if let Some(pk_i) = self.netinfo.public_key_share(sender_id) {
             if !pk_i.verify_g2(&share, self.msg_hash) {
                 // Log the faulty node and ignore the invalid share.

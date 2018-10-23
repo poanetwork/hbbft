@@ -84,8 +84,6 @@ pub enum Error {
     InvokeCoin(threshold_sign::Error),
     #[fail(display = "Unknown proposer")]
     UnknownProposer,
-    #[fail(display = "Input not accepted")]
-    InputNotAccepted,
 }
 
 /// An Binary Agreement result.
