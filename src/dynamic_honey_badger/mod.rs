@@ -150,9 +150,9 @@ struct KeyGenState<N> {
     key_gen: SyncKeyGen<N>,
     /// The change for which key generation is performed.
     change: Change<N>,
-    /// The number of key generation messages received from the candidate. At most _N² + 1_ are
+    /// The number of key generation messages received from each peer. At most _N + 1_ are
     /// accepted.
-    candidate_msg_count: usize,
+    msg_count: BTreeMap<N, usize>,
 }
 
 impl<N: NodeIdT> KeyGenState<N> {
@@ -160,7 +160,7 @@ impl<N: NodeIdT> KeyGenState<N> {
         KeyGenState {
             key_gen,
             change,
-            candidate_msg_count: 0,
+            msg_count: BTreeMap::new(),
         }
     }
 
@@ -177,6 +177,13 @@ impl<N: NodeIdT> KeyGenState<N> {
             Change::Add(ref id, ref pk) if id == node_id => Some(pk),
             Change::Add(_, _) | Change::Remove(_) => None,
         }
+    }
+
+    /// Increments the message count for the given node, and returns the new count.
+    fn count_messages(&mut self, node_id: &N) -> usize {
+        let count = self.msg_count.entry(node_id.clone()).or_insert(0);
+        *count += 1;
+        *count
     }
 }
 

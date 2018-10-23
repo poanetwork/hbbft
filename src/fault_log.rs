@@ -53,8 +53,8 @@ pub enum FaultKind {
     UnexpectedKeyGenAck,
     /// `DynamicHoneyBadger` received a signed `Part` when no key generation in progress.
     UnexpectedKeyGenPart,
-    /// `DynamicHoneyBadger` received more key generation messages from the candidate than expected.
-    TooManyCandidateKeyGenMessages,
+    /// `DynamicHoneyBadger` received more key generation messages from the peer than expected.
+    TooManyKeyGenMessages,
     /// `DynamicHoneyBadger` received a message (Accept, Propose, or Change)
     /// with an invalid signature.
     IncorrectPayloadSignature,

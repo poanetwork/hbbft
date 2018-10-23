@@ -275,7 +275,7 @@ pub struct SyncKeyGen<N> {
     our_idx: Option<u64>,
     /// Our secret key.
     sec_key: SecretKey,
-    /// The public keys of all nodes, by node index.
+    /// The public keys of all nodes, by node ID.
     pub_keys: BTreeMap<N, PublicKey>,
     /// Proposed bivariate polynomials.
     parts: BTreeMap<u64, ProposalState>,
@@ -459,6 +459,11 @@ impl<N: NodeIdT> SyncKeyGen<N> {
         let sk_share = opt_sk_share.unwrap_or_default(); // TODO: Make this an option.
         let netinfo = NetworkInfo::new(self.our_id, sk_share, pk_set, self.sec_key, self.pub_keys);
         Ok(netinfo)
+    }
+
+    /// Returns the number of nodes participating in the key generation.
+    pub fn num_nodes(&self) -> usize {
+        self.pub_keys.len()
     }
 
     /// Handles an `Ack` message or returns an error string.

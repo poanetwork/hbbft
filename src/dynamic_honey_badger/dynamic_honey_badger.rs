@@ -234,19 +234,11 @@ where
             }
         };
 
-        // If the joining node is correct, it will send at most (N + 1)² + 1 key generation
-        // messages.
-        if Some(sender_id) == kgs.change.candidate() {
-            let n = self.netinfo.num_nodes() + 1;
-            if kgs.candidate_msg_count > n * n {
-                info!(
-                    "Too many key gen messages from candidate {:?}: {:?}.",
-                    sender_id, kg_msg
-                );
-                let fault_kind = FaultKind::TooManyCandidateKeyGenMessages;
-                return Ok(Fault::new(sender_id.clone(), fault_kind).into());
-            }
-            kgs.candidate_msg_count += 1;
+        // If the sender is correct, it will send at most _N + 1_ key generation messages:
+        // one `Part`, and for each validator an `Ack`. _N_ is the node number _after_ the change.
+        if kgs.count_messages(sender_id) > kgs.key_gen.num_nodes() + 1 {
+            let fault_kind = FaultKind::TooManyKeyGenMessages;
+            return Ok(Fault::new(sender_id.clone(), fault_kind).into());
         }
 
         let tx = SignedKeyGenMsg(self.start_epoch, sender_id.clone(), kg_msg, sig);
