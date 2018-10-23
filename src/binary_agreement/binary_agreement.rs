@@ -82,18 +82,7 @@ impl<N: NodeIdT> DistAlgorithm for BinaryAgreement<N> {
 
     /// Receive input from a remote node.
     fn handle_message(&mut self, sender_id: &Self::NodeId, msg: Message) -> Result<Step<N>> {
-        let Message { epoch, content } = msg;
-        if self.decision.is_some() || (epoch < self.epoch && content.can_expire()) {
-            // Message is obsolete: We are already in a later epoch or terminated.
-            Ok(Step::default())
-        } else if epoch > self.epoch {
-            // Message is for a later epoch. We can't handle that yet.
-            let queue = self.incoming_queue.entry(epoch).or_insert_with(Vec::new);
-            queue.push((sender_id.clone(), content));
-            Ok(Step::default())
-        } else {
-            self.handle_message_content(sender_id, content)
-        }
+        self.handle_message(sender_id, msg)
     }
 
     /// Whether the algorithm has terminated.
@@ -107,6 +96,10 @@ impl<N: NodeIdT> DistAlgorithm for BinaryAgreement<N> {
 }
 
 impl<N: NodeIdT> BinaryAgreement<N> {
+    /// Creates a new `BinaryAgreement` instance. The `session_id` and `proposer_id` are used to
+    /// uniquely identify this instance: its messages cannot be replayed in an instance with
+    /// different values.
+    // TODO: Use a generic type argument for that instead of something `Subset`-specific.
     pub fn new(netinfo: Arc<NetworkInfo<N>>, session_id: u64, proposer_id: N) -> Result<Self> {
         if !netinfo.is_node_validator(&proposer_id) {
             return Err(Error::UnknownProposer);
@@ -128,9 +121,9 @@ impl<N: NodeIdT> BinaryAgreement<N> {
     }
 
     /// Sets the input value for Binary Agreement.
-    fn handle_input(&mut self, input: bool) -> Result<Step<N>> {
-        if self.epoch != 0 || self.estimated.is_some() {
-            return Err(Error::InputNotAccepted);
+    pub fn handle_input(&mut self, input: bool) -> Result<Step<N>> {
+        if !self.can_input() {
+            return Ok(Step::default());
         }
         // Set the initial estimated value to the input value.
         self.estimated = Some(input);
@@ -139,8 +132,25 @@ impl<N: NodeIdT> BinaryAgreement<N> {
         self.handle_sbvb_step(sbvb_step)
     }
 
-    /// Acceptance check to be performed before setting the input value.
-    pub fn accepts_input(&self) -> bool {
+    /// Handles an incoming message.
+    pub fn handle_message(&mut self, sender_id: &N, msg: Message) -> Result<Step<N>> {
+        let Message { epoch, content } = msg;
+        if self.decision.is_some() || (epoch < self.epoch && content.can_expire()) {
+            // Message is obsolete: We are already in a later epoch or terminated.
+            Ok(Step::default())
+        } else if epoch > self.epoch {
+            // Message is for a later epoch. We can't handle that yet.
+            let queue = self.incoming_queue.entry(epoch).or_insert_with(Vec::new);
+            queue.push((sender_id.clone(), content));
+            Ok(Step::default())
+        } else {
+            self.handle_message_content(sender_id, content)
+        }
+    }
+
+    /// Whether we can still input a value. It is not an error to input if this returns `false`,
+    /// but it will have no effect on the outcome.
+    pub fn can_input(&self) -> bool {
         self.epoch == 0 && self.estimated.is_none()
     }
 

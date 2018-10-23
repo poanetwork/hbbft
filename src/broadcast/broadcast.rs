@@ -45,27 +45,11 @@ impl<N: NodeIdT> DistAlgorithm for Broadcast<N> {
     type Error = Error;
 
     fn handle_input(&mut self, input: Self::Input) -> Result<Step<N>> {
-        if *self.netinfo.our_id() != self.proposer_id {
-            return Err(Error::InstanceCannotPropose);
-        }
-        // Split the value into chunks/shards, encode them with erasure codes.
-        // Assemble a Merkle tree from data and parity shards. Take all proofs
-        // from this tree and send them, each to its own node.
-        let (proof, mut step) = self.send_shards(input)?;
-        let our_id = &self.netinfo.our_id().clone();
-        step.extend(self.handle_value(our_id, proof)?);
-        Ok(step)
+        self.broadcast(input)
     }
 
     fn handle_message(&mut self, sender_id: &N, message: Self::Message) -> Result<Step<N>> {
-        if !self.netinfo.is_node_validator(sender_id) {
-            return Err(Error::UnknownSender);
-        }
-        match message {
-            Message::Value(p) => self.handle_value(sender_id, p),
-            Message::Echo(p) => self.handle_echo(sender_id, p),
-            Message::Ready(ref hash) => self.handle_ready(sender_id, hash),
-        }
+        self.handle_message(sender_id, message)
     }
 
     fn terminated(&self) -> bool {
@@ -96,6 +80,32 @@ impl<N: NodeIdT> Broadcast<N> {
             echos: BTreeMap::new(),
             readys: BTreeMap::new(),
         })
+    }
+
+    /// Initiates the broadcast. This must only be called in the proposer node.
+    pub fn broadcast(&mut self, input: Vec<u8>) -> Result<Step<N>> {
+        if *self.netinfo.our_id() != self.proposer_id {
+            return Err(Error::InstanceCannotPropose);
+        }
+        // Split the value into chunks/shards, encode them with erasure codes.
+        // Assemble a Merkle tree from data and parity shards. Take all proofs
+        // from this tree and send them, each to its own node.
+        let (proof, mut step) = self.send_shards(input)?;
+        let our_id = &self.netinfo.our_id().clone();
+        step.extend(self.handle_value(our_id, proof)?);
+        Ok(step)
+    }
+
+    /// Handles an incoming message.
+    pub fn handle_message(&mut self, sender_id: &N, message: Message) -> Result<Step<N>> {
+        if !self.netinfo.is_node_validator(sender_id) {
+            return Err(Error::UnknownSender);
+        }
+        match message {
+            Message::Value(p) => self.handle_value(sender_id, p),
+            Message::Echo(p) => self.handle_echo(sender_id, p),
+            Message::Ready(ref hash) => self.handle_ready(sender_id, hash),
+        }
     }
 
     /// Breaks the input value into shards of equal length and encodes them --

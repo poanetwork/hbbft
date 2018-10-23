@@ -89,6 +89,7 @@ impl<N: NodeIdT> ThresholdDecryption<N> {
 
     /// Sets the ciphertext, sends the decryption share, and tries to decrypt it.
     /// This must be called exactly once, with the same ciphertext in all participating nodes.
+    /// If we have enough shares, outputs the plaintext.
     pub fn set_ciphertext(&mut self, ct: Ciphertext) -> Result<Step<N>> {
         if self.ciphertext.is_some() {
             return Err(Error::MultipleInputs(Box::new(ct)));
@@ -115,7 +116,8 @@ impl<N: NodeIdT> ThresholdDecryption<N> {
         self.shares.keys()
     }
 
-    fn handle_message(&mut self, sender_id: &N, message: Message) -> Result<Step<N>> {
+    /// Handles an incoming message. If we have collected enough shares, outputs the plaintext.
+    pub fn handle_message(&mut self, sender_id: &N, message: Message) -> Result<Step<N>> {
         if self.terminated {
             return Ok(Step::default()); // Don't waste time on redundant shares.
         }

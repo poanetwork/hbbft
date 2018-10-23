@@ -56,7 +56,7 @@
 //! extern crate rand;
 //!
 //! use hbbft::broadcast::{Broadcast, Error, Step};
-//! use hbbft::{DistAlgorithm, NetworkInfo, SourcedMessage, Target, TargetedMessage};
+//! use hbbft::{NetworkInfo, SourcedMessage, Target, TargetedMessage};
 //! use rand::{thread_rng, Rng};
 //! use std::collections::{BTreeMap, BTreeSet, VecDeque};
 //! use std::iter::once;
@@ -111,7 +111,7 @@
 //!     // Now we can start the algorithm, its input is the payload.
 //!     let initial_step = {
 //!         let proposer = nodes.get_mut(&PROPOSER_ID).unwrap();
-//!         proposer.handle_input(payload.clone()).unwrap()
+//!         proposer.broadcast(payload.clone()).unwrap()
 //!     };
 //!     on_step(
 //!         PROPOSER_ID,

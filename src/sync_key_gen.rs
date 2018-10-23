@@ -117,7 +117,7 @@
 //!     secret_key_shares.insert(id, sks);
 //! }
 //!
-//! // Three out of four nodes can now sign a message. Each share can be verified individually.
+//! // Two out of four nodes can now sign a message. Each share can be verified individually.
 //! let msg = "Nodes 0 and 1 does not agree with this.";
 //! let mut sig_shares: BTreeMap<usize, SignatureShare> = BTreeMap::new();
 //! for (&id, sks) in &secret_key_shares {

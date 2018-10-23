@@ -95,25 +95,11 @@ impl<N: NodeIdT + Rand> DistAlgorithm for Subset<N> {
     type Error = Error;
 
     fn handle_input(&mut self, input: Self::Input) -> Result<Step<N>> {
-        debug!(
-            "{:?} Proposing {:0.10}",
-            self.netinfo.our_id(),
-            HexFmt(&input)
-        );
         self.send_proposed_value(input)
     }
 
-    fn handle_message(
-        &mut self,
-        sender_id: &Self::NodeId,
-        message: Self::Message,
-    ) -> Result<Step<N>> {
-        match message {
-            Message::Broadcast(p_id, b_msg) => self.handle_broadcast(sender_id, &p_id, b_msg),
-            Message::BinaryAgreement(p_id, a_msg) => {
-                self.handle_binary_agreement(sender_id, &p_id, a_msg)
-            }
-        }
+    fn handle_message(&mut self, sender_id: &N, message: Message<N>) -> Result<Step<N>> {
+        self.handle_message(sender_id, message)
     }
 
     fn terminated(&self) -> bool {
@@ -170,8 +156,18 @@ impl<N: NodeIdT + Rand> Subset<N> {
             return Ok(Step::default());
         }
         let id = self.netinfo.our_id().clone();
-        // Upon receiving input v_i , input v_i to RBC_i. See Figure 2.
+        debug!("{:?} Proposing {:0.10}", id, HexFmt(&value));
         self.process_broadcast(&id, |bc| bc.handle_input(value))
+    }
+
+    /// Handles an incoming message.
+    pub fn handle_message(&mut self, sender_id: &N, message: Message<N>) -> Result<Step<N>> {
+        match message {
+            Message::Broadcast(p_id, b_msg) => self.handle_broadcast(sender_id, &p_id, b_msg),
+            Message::BinaryAgreement(p_id, a_msg) => {
+                self.handle_binary_agreement(sender_id, &p_id, a_msg)
+            }
+        }
     }
 
     /// Returns the number of validators from which we have already received a proposal.
@@ -243,13 +239,7 @@ impl<N: NodeIdT + Rand> Subset<N> {
         {
             error!("Duplicate insert in broadcast_results: {:?}", inval)
         }
-        let set_binary_agreement_input = |ba: &mut BinaryAgreement<N>| {
-            if ba.accepts_input() {
-                ba.handle_input(true)
-            } else {
-                Ok(binary_agreement::Step::default())
-            }
-        };
+        let set_binary_agreement_input = |ba: &mut BinaryAgreement<N>| ba.handle_input(true);
         step.extend(self.process_binary_agreement(proposer_id, set_binary_agreement_input)?);
         Ok(step)
     }
@@ -301,17 +291,15 @@ impl<N: NodeIdT + Rand> Subset<N> {
                 // Upon delivery of value 1 from at least N − f instances of BA, provide
                 // input 0 to each instance of BA that has not yet been provided input.
                 for (id, binary_agreement) in &mut self.ba_instances {
-                    if binary_agreement.accepts_input() {
-                        let to_msg = |a_msg| Message::BinaryAgreement(id.clone(), a_msg);
-                        for output in step.extend_with(
-                            binary_agreement
-                                .handle_input(false)
-                                .map_err(Error::ProcessBinaryAgreement1)?,
-                            to_msg,
-                        ) {
-                            if self.ba_results.insert(id.clone(), output).is_some() {
-                                return Err(Error::MultipleBinaryAgreementResults);
-                            }
+                    let to_msg = |a_msg| Message::BinaryAgreement(id.clone(), a_msg);
+                    for output in step.extend_with(
+                        binary_agreement
+                            .handle_input(false)
+                            .map_err(Error::ProcessBinaryAgreement1)?,
+                        to_msg,
+                    ) {
+                        if self.ba_results.insert(id.clone(), output).is_some() {
+                            return Err(Error::MultipleBinaryAgreementResults);
                         }
                     }
                 }
