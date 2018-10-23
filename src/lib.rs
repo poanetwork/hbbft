@@ -137,6 +137,7 @@ extern crate tiny_keccak;
 
 pub extern crate threshold_crypto as crypto;
 
+mod fault_log;
 mod messaging;
 mod network_info;
 mod traits;
@@ -145,7 +146,6 @@ pub mod binary_agreement;
 pub mod broadcast;
 pub mod coin;
 pub mod dynamic_honey_badger;
-pub mod fault_log;
 pub mod honey_badger;
 pub mod queueing_honey_badger;
 pub mod subset;
@@ -155,6 +155,7 @@ pub mod transaction_queue;
 pub mod util;
 
 pub use crypto::pairing;
+pub use fault_log::{AckMessageFault, Fault, FaultKind, FaultLog};
 pub use messaging::{SourcedMessage, Target, TargetedMessage};
 pub use network_info::NetworkInfo;
 pub use traits::{Contribution, DistAlgorithm, Message, NodeIdT, Step};

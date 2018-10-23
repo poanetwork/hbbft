@@ -133,11 +133,17 @@ where
 
     /// Proposes a contribution in the current epoch.
     pub fn propose(&mut self, contrib: C) -> Result<Step<C, N>> {
+        let key_gen_messages = self
+            .key_gen_msg_buffer
+            .iter()
+            .filter(|kg_msg| kg_msg.epoch() == self.start_epoch)
+            .cloned()
+            .collect();
         let step = self
             .honey_badger
             .handle_input(InternalContrib {
                 contrib,
-                key_gen_messages: self.key_gen_msg_buffer.clone(),
+                key_gen_messages,
                 votes: self.vote_counter.pending_votes().cloned().collect(),
             }).map_err(ErrorKind::ProposeHoneyBadger)?;
         self.process_output(step)
@@ -228,19 +234,11 @@ where
             }
         };
 
-        // If the joining node is correct, it will send at most (N + 1)² + 1 key generation
-        // messages.
-        if Some(sender_id) == kgs.change.candidate() {
-            let n = self.netinfo.num_nodes() + 1;
-            if kgs.candidate_msg_count > n * n {
-                info!(
-                    "Too many key gen messages from candidate {:?}: {:?}.",
-                    sender_id, kg_msg
-                );
-                let fault_kind = FaultKind::TooManyCandidateKeyGenMessages;
-                return Ok(Fault::new(sender_id.clone(), fault_kind).into());
-            }
-            kgs.candidate_msg_count += 1;
+        // If the sender is correct, it will send at most _N + 1_ key generation messages:
+        // one `Part`, and for each validator an `Ack`. _N_ is the node number _after_ the change.
+        if kgs.count_messages(sender_id) > kgs.key_gen.num_nodes() + 1 {
+            let fault_kind = FaultKind::TooManyKeyGenMessages;
+            return Ok(Fault::new(sender_id.clone(), fault_kind).into());
         }
 
         let tx = SignedKeyGenMsg(self.start_epoch, sender_id.clone(), kg_msg, sig);
@@ -273,23 +271,18 @@ where
                 self.key_gen_msg_buffer
                     .retain(|skgm| !key_gen_messages.contains(skgm));
                 for SignedKeyGenMsg(epoch, s_id, kg_msg, sig) in key_gen_messages {
-                    if epoch < self.start_epoch {
-                        info!("Obsolete key generation message: {:?}.", kg_msg);
-                        continue;
-                    }
-                    if !self.verify_signature(&s_id, &sig, &kg_msg)? {
-                        info!(
-                            "Invalid signature in {:?}'s batch from {:?} for: {:?}.",
-                            id, s_id, kg_msg
-                        );
+                    if epoch != self.start_epoch {
+                        let fault_kind = FaultKind::InvalidKeyGenMessageEpoch;
+                        step.fault_log.append(id.clone(), fault_kind);
+                    } else if !self.verify_signature(&s_id, &sig, &kg_msg)? {
                         let fault_kind = FaultKind::InvalidKeyGenMessageSignature;
                         step.fault_log.append(id.clone(), fault_kind);
-                        continue;
+                    } else {
+                        step.extend(match kg_msg {
+                            KeyGenMessage::Part(part) => self.handle_part(&s_id, part)?,
+                            KeyGenMessage::Ack(ack) => self.handle_ack(&s_id, ack)?.into(),
+                        });
                     }
-                    step.extend(match kg_msg {
-                        KeyGenMessage::Part(part) => self.handle_part(&s_id, part)?,
-                        KeyGenMessage::Ack(ack) => self.handle_ack(&s_id, ack)?.into(),
-                    });
                 }
             }
 
@@ -358,8 +351,7 @@ where
         self.start_epoch = epoch;
         self.key_gen_msg_buffer.retain(|kg_msg| kg_msg.0 >= epoch);
         let netinfo = Arc::new(self.netinfo.clone());
-        let counter = VoteCounter::new(netinfo.clone(), epoch);
-        mem::replace(&mut self.vote_counter, counter);
+        self.vote_counter = VoteCounter::new(netinfo.clone(), epoch);
         self.honey_badger = HoneyBadger::builder(netinfo)
             .max_future_epochs(self.max_future_epochs)
             .rng(self.rng.sub_rng())
@@ -371,8 +363,9 @@ where
         let outcome = if let Some(kgs) = self.key_gen_state.as_mut() {
             kgs.key_gen.handle_part(&mut self.rng, &sender_id, part)
         } else {
-            // No key generation ongoing. Return early.
-            return Ok(Step::default());
+            // No key generation ongoing.
+            let fault_kind = FaultKind::UnexpectedKeyGenPart;
+            return Ok(Fault::new(sender_id.clone(), fault_kind).into());
         };
 
         match outcome {
@@ -387,7 +380,9 @@ where
         if let Some(kgs) = self.key_gen_state.as_mut() {
             Ok(kgs.key_gen.handle_ack(sender_id, ack))
         } else {
-            Ok(FaultLog::new())
+            // No key generation ongoing.
+            let fault_kind = FaultKind::UnexpectedKeyGenAck;
+            return Ok(Fault::new(sender_id.clone(), fault_kind).into());
         }
     }
 

@@ -226,7 +226,7 @@ impl Debug for Ack {
 }
 
 /// The information needed to track a single proposer's secret sharing process.
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 struct ProposalState {
     /// The proposer's commitment.
     commit: BivarCommitment,
@@ -275,7 +275,7 @@ pub struct SyncKeyGen<N> {
     our_idx: Option<u64>,
     /// Our secret key.
     sec_key: SecretKey,
-    /// The public keys of all nodes, by node index.
+    /// The public keys of all nodes, by node ID.
     pub_keys: BTreeMap<N, PublicKey>,
     /// Proposed bivariate polynomials.
     parts: BTreeMap<u64, ProposalState>,
@@ -340,11 +340,16 @@ impl<N: NodeIdT> SyncKeyGen<N> {
         sender_id: &N,
         Part(commit, rows): Part,
     ) -> Option<PartOutcome<N>> {
-        let sender_idx = self.node_index(sender_id)?;
+        let sender_idx = self.node_index(sender_id)?; // TODO: Return an error.
         let opt_commit_row = self.our_idx.map(|idx| commit.row(idx + 1));
         match self.parts.entry(sender_idx) {
-            Entry::Occupied(_) => {
-                debug!("Received multiple parts from node {:?}.", sender_id);
+            Entry::Occupied(entry) => {
+                if *entry.get() != ProposalState::new(commit) {
+                    debug!("Received multiple parts from node {:?}.", sender_id);
+                    let fault_log =
+                        FaultLog::init(sender_id.clone(), FaultKind::MultiplePartMessages);
+                    return Some(PartOutcome::Invalid(fault_log));
+                }
                 return None;
             }
             Entry::Vacant(entry) => {
@@ -456,6 +461,11 @@ impl<N: NodeIdT> SyncKeyGen<N> {
         Ok(netinfo)
     }
 
+    /// Returns the number of nodes participating in the key generation.
+    pub fn num_nodes(&self) -> usize {
+        self.pub_keys.len()
+    }
+
     /// Handles an `Ack` message or returns an error string.
     fn handle_ack_or_err(
         &mut self,
@@ -470,7 +480,7 @@ impl<N: NodeIdT> SyncKeyGen<N> {
             .get_mut(&proposer_idx)
             .ok_or_else(|| Fault::SenderExist)?;
         if !part.acks.insert(sender_idx) {
-            return Err(Fault::DuplicateAck);
+            return Ok(());
         }
         let our_idx = match self.our_idx {
             Some(our_idx) => our_idx,
