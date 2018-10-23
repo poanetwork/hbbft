@@ -32,7 +32,7 @@ use serde::{Deserialize, Serialize};
 
 use dynamic_honey_badger::{self, Batch as DhbBatch, DynamicHoneyBadger, Message};
 use transaction_queue::TransactionQueue;
-use {Contribution, DistAlgorithm, NodeIdT};
+use {util, Contribution, DistAlgorithm, NodeIdT};
 
 pub use dynamic_honey_badger::{Change, ChangeState, Input};
 
@@ -173,6 +173,8 @@ where
 
 /// A Honey Badger instance that can handle adding and removing nodes and manages a transaction
 /// queue.
+#[derive(Derivative)]
+#[derivative(Debug)]
 pub struct QueueingHoneyBadger<T, N, Q>
 where
     T: Contribution + Serialize + for<'r> Deserialize<'r>,
@@ -186,23 +188,8 @@ where
     /// The queue of pending transactions that haven't been output in a batch yet.
     queue: Q,
     /// Random number generator used for choosing transactions from the queue.
+    #[derivative(Debug(format_with = "util::fmt_rng"))]
     rng: Box<dyn Rng + Send + Sync>,
-}
-
-impl<T, N, Q> fmt::Debug for QueueingHoneyBadger<T, N, Q>
-where
-    T: Contribution + Serialize + for<'r> Deserialize<'r>,
-    N: NodeIdT + Serialize + for<'r> Deserialize<'r> + Rand,
-    Q: TransactionQueue<T>,
-{
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        f.debug_struct("QueueingHoneyBadger")
-            .field("batch_size", &self.batch_size)
-            .field("dyn_hb", &self.dyn_hb)
-            .field("queue", &self.queue)
-            .field("rng", &"<RNG>")
-            .finish()
-    }
 }
 
 pub type Step<T, N, Q> = ::Step<QueueingHoneyBadger<T, N, Q>>;
