@@ -1,18 +1,20 @@
 [package]
 name = "hbbft"
 version = "0.1.0"
-authors = ["Vladimir Komendantskiy <komendantsky@gmail.com>",
-           "Andreas Fackler <AndreasFackler@gmx.de>",
-           "Peter van Nostrand <jnz@riseup.net>",
-           "Andrew Gross <andogro@gmail.com>",
-           "Nick Sanders <nsan1129@gmail.com>",
-           "Marc Brinkmann <git@marcbrinkmann.de>"]
-description = "Honey Badger Byzantine fault tolerant consensus algorithm"
-license = "MIT/Apache-2.0"
-repository = "https://github.com/poanetwork/hbbft"
-readme = "README.md"
-keywords = ["consensus", "asynchronous", "threshold"]
+authors = [
+    "Vladimir Komendantskiy <komendantsky@gmail.com>",
+    "Andreas Fackler <AndreasFackler@gmx.de>",
+    "Peter van Nostrand <jnz@riseup.net>",
+    "Andrew Gross <andogro@gmail.com>",
+    "Nick Sanders <nsan1129@gmail.com>",
+    "Marc Brinkmann <git@marcbrinkmann.de>",
+]
 categories = ["algorithms", "asynchronous", "cryptography", "network-programming"]
+keywords = ["consensus", "asynchronous", "threshold"]
+license = "MIT/Apache-2.0"
+readme = "README.md"
+repository = "https://github.com/poanetwork/hbbft"
+description = "The Honey Badger of Byzantine Fault Tolerant Consensus Protocols"
 
 [badges]
 travis-ci = { repository = "poanetwork/hbbft" }
@@ -30,7 +32,7 @@ rand_derive = "0.3.1"
 reed-solomon-erasure = "3.1.0"
 serde = "1.0.55"
 serde_derive = "1.0.55"
-threshold_crypto = { git = "https://github.com/poanetwork/threshold_crypto", tag = "0.2.0-beta2" }
+threshold_crypto = "0.2.1"
 tiny-keccak = "1.4"
 
 [dev-dependencies]

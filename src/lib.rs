@@ -85,12 +85,11 @@
 //! This is used in Subset to decide whether each node's proposal should be included in the subset
 //! or not.
 //!
-//! [**Coin**](coin/index.html)
+//! [**Threshold Sign**](threshold_sign/index.html)
 //!
-//! Each node inputs `()` to initiate a coin flip. Once _f + 1_ nodes have input, either all nodes
-//! receive `true` or all nodes receive `false`. The outcome cannot be known by the adversary
-//! before at least one correct node has provided input, and is uniformly distributed and
-//! pseudorandom.
+//! Each node inputs `()` to broadcast signature shares. Once _f + 1_ nodes have input, all nodes
+//! receive a valid signature. The outcome cannot be known by the adversary before at least one
+//! correct node has provided input, and can be used as a source of pseudorandomness.
 //!
 //! [**Threshold Decryption**](threshold_decryption/index.html)
 //!
@@ -137,24 +136,25 @@ extern crate tiny_keccak;
 
 pub extern crate threshold_crypto as crypto;
 
+mod fault_log;
 mod messaging;
 mod network_info;
 mod traits;
 
 pub mod binary_agreement;
 pub mod broadcast;
-pub mod coin;
 pub mod dynamic_honey_badger;
-pub mod fault_log;
 pub mod honey_badger;
 pub mod queueing_honey_badger;
 pub mod subset;
 pub mod sync_key_gen;
 pub mod threshold_decryption;
+pub mod threshold_sign;
 pub mod transaction_queue;
 pub mod util;
 
 pub use crypto::pairing;
+pub use fault_log::{AckMessageFault, Fault, FaultKind, FaultLog};
 pub use messaging::{SourcedMessage, Target, TargetedMessage};
 pub use network_info::NetworkInfo;
 pub use traits::{Contribution, DistAlgorithm, Message, NodeIdT, Step};

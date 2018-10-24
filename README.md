@@ -37,7 +37,8 @@ In addition to **validators**, the algorithms support **observers**: These don't
 
 - **[Binary Agreement](src/binary_agreement/binary_agreement.rs):** Each node inputs a binary value. The nodes agree on a value that was input by at least one correct node.
 
-- **[Coin](src/coin.rs):** A pseudorandom binary value used by the Binary Agreement protocol.
+- **[Threshold Sign](src/threshold_sign.rs):**
+  Each node inputs the same data to be signed, and outputs the unique valid signature matching the public master key. It is used as a pseudorandom value in the Binary Agreement protocol.
 
 - **[Threshold Decryption](src/threshold_decryption.rs):**
   Each node inputs the same ciphertext, encrypted to the public master key, and outputs the decrypted data.
@@ -147,7 +148,6 @@ We have simplified algorithm naming conventions from the original paper.
 | Subset           | Asynchronous Common Subset (ACS) |
 | Broadcast        | Reliable Broadcast (RBC)         |
 | Binary Agreement | Binary Byzantine Agreement (BBA) |
-| Coin             | Common Coin                      |
 
 ## Contributing
 

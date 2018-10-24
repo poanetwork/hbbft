@@ -222,32 +222,14 @@ where
     fn handle_input(&mut self, input: Self::Input) -> Result<Step<T, N, Q>> {
         // User transactions are forwarded to `HoneyBadger` right away. Internal messages are
         // in addition signed and broadcast.
-        let mut step = match input {
-            Input::User(tx) => {
-                self.queue.extend(iter::once(tx));
-                Step::default()
-            }
-            Input::Change(change) => self
-                .dyn_hb
-                .handle_input(Input::Change(change))
-                .map_err(ErrorKind::Input)?
-                .convert(),
-        };
-        step.extend(self.propose()?);
-        Ok(step)
+        match input {
+            Input::User(tx) => self.push_transaction(tx),
+            Input::Change(change) => self.vote_for(change),
+        }
     }
 
     fn handle_message(&mut self, sender_id: &N, message: Self::Message) -> Result<Step<T, N, Q>> {
-        let mut step = self
-            .dyn_hb
-            .handle_message(sender_id, message)
-            .map_err(ErrorKind::HandleMessage)?
-            .convert::<Self>();
-        for batch in &step.output {
-            self.queue.remove_multiple(batch.iter());
-        }
-        step.extend(self.propose()?);
-        Ok(step)
+        self.handle_message(sender_id, message)
     }
 
     fn terminated(&self) -> bool {
@@ -269,6 +251,37 @@ where
     /// keys specified by `netinfo`.
     pub fn builder(dyn_hb: DynamicHoneyBadger<Vec<T>, N>) -> QueueingHoneyBadgerBuilder<T, N, Q> {
         QueueingHoneyBadgerBuilder::new(dyn_hb)
+    }
+
+    /// Adds a transaction to the queue.
+    pub fn push_transaction(&mut self, tx: T) -> Result<Step<T, N, Q>> {
+        self.queue.extend(iter::once(tx));
+        self.propose()
+    }
+
+    /// Casts a vote to change the set of validators.
+    pub fn vote_for(&mut self, change: Change<N>) -> Result<Step<T, N, Q>> {
+        let mut step = self
+            .dyn_hb
+            .handle_input(Input::Change(change))
+            .map_err(ErrorKind::Input)?
+            .convert();
+        step.extend(self.propose()?);
+        Ok(step)
+    }
+
+    /// Handles an incoming message.
+    pub fn handle_message(&mut self, sender_id: &N, message: Message<N>) -> Result<Step<T, N, Q>> {
+        let mut step = self
+            .dyn_hb
+            .handle_message(sender_id, message)
+            .map_err(ErrorKind::HandleMessage)?
+            .convert::<Self>();
+        for batch in &step.output {
+            self.queue.remove_multiple(batch.iter());
+        }
+        step.extend(self.propose()?);
+        Ok(step)
     }
 
     /// Returns a reference to the internal `DynamicHoneyBadger` instance.

@@ -152,7 +152,7 @@ struct KeyGenState<N> {
     change: NodeChange<N>,
     /// The number of key generation messages received from the candidate. At most _N² + 1_ are
     /// accepted.
-    candidate_msg_count: usize,
+    msg_count: BTreeMap<N, usize>,
 }
 
 impl<N: NodeIdT> KeyGenState<N> {
@@ -160,7 +160,7 @@ impl<N: NodeIdT> KeyGenState<N> {
         KeyGenState {
             key_gen,
             change,
-            candidate_msg_count: 0,
+            msg_count: BTreeMap::new(),
         }
     }
 
@@ -177,6 +177,13 @@ impl<N: NodeIdT> KeyGenState<N> {
             NodeChange::Add(ref id, ref pk) if id == node_id => Some(pk),
             NodeChange::Add(_, _) | NodeChange::Remove(_) => None,
         }
+    }
+
+    /// Increments the message count for the given node, and returns the new count.
+    fn count_messages(&mut self, node_id: &N) -> usize {
+        let count = self.msg_count.entry(node_id.clone()).or_insert(0);
+        *count += 1;
+        *count
     }
 }
 
@@ -195,3 +202,10 @@ struct InternalContrib<C, N> {
 /// A signed internal message.
 #[derive(Eq, PartialEq, Debug, Serialize, Deserialize, Hash, Clone)]
 struct SignedKeyGenMsg<N>(u64, N, KeyGenMessage, Signature);
+
+impl<N> SignedKeyGenMsg<N> {
+    /// Returns the start epoch of the ongoing key generation.
+    fn epoch(&self) -> u64 {
+        self.0
+    }
+}

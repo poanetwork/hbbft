@@ -5,7 +5,7 @@ use super::bool_multimap::BoolMultimap;
 use super::bool_set::BoolSet;
 use super::sbv_broadcast::{self, SbvBroadcast};
 use super::{Error, Message, MessageContent, Nonce, Result, Step};
-use coin::{self, Coin, CoinMessage};
+use threshold_sign::{self, ThresholdSign};
 use {DistAlgorithm, NetworkInfo, NodeIdT, Target};
 
 /// The state of the current epoch's coin. In some epochs this is fixed, in others it starts
@@ -15,7 +15,7 @@ enum CoinState<N> {
     /// The value was fixed in the current epoch, or the coin has already terminated.
     Decided(bool),
     /// The coin value is not known yet.
-    InProgress(Coin<N, Nonce>),
+    InProgress(Box<ThresholdSign<N>>),
 }
 
 impl<N> CoinState<N> {
@@ -82,18 +82,7 @@ impl<N: NodeIdT> DistAlgorithm for BinaryAgreement<N> {
 
     /// Receive input from a remote node.
     fn handle_message(&mut self, sender_id: &Self::NodeId, msg: Message) -> Result<Step<N>> {
-        let Message { epoch, content } = msg;
-        if self.decision.is_some() || (epoch < self.epoch && content.can_expire()) {
-            // Message is obsolete: We are already in a later epoch or terminated.
-            Ok(Step::default())
-        } else if epoch > self.epoch {
-            // Message is for a later epoch. We can't handle that yet.
-            let queue = self.incoming_queue.entry(epoch).or_insert_with(Vec::new);
-            queue.push((sender_id.clone(), content));
-            Ok(Step::default())
-        } else {
-            self.handle_message_content(sender_id, content)
-        }
+        self.handle_message(sender_id, msg)
     }
 
     /// Whether the algorithm has terminated.
@@ -107,6 +96,10 @@ impl<N: NodeIdT> DistAlgorithm for BinaryAgreement<N> {
 }
 
 impl<N: NodeIdT> BinaryAgreement<N> {
+    /// Creates a new `BinaryAgreement` instance. The `session_id` and `proposer_id` are used to
+    /// uniquely identify this instance: its messages cannot be replayed in an instance with
+    /// different values.
+    // TODO: Use a generic type argument for that instead of something `Subset`-specific.
     pub fn new(netinfo: Arc<NetworkInfo<N>>, session_id: u64, proposer_id: N) -> Result<Self> {
         if !netinfo.is_node_validator(&proposer_id) {
             return Err(Error::UnknownProposer);
@@ -128,9 +121,9 @@ impl<N: NodeIdT> BinaryAgreement<N> {
     }
 
     /// Sets the input value for Binary Agreement.
-    fn handle_input(&mut self, input: bool) -> Result<Step<N>> {
-        if self.epoch != 0 || self.estimated.is_some() {
-            return Err(Error::InputNotAccepted);
+    pub fn handle_input(&mut self, input: bool) -> Result<Step<N>> {
+        if !self.can_input() {
+            return Ok(Step::default());
         }
         // Set the initial estimated value to the input value.
         self.estimated = Some(input);
@@ -139,8 +132,25 @@ impl<N: NodeIdT> BinaryAgreement<N> {
         self.handle_sbvb_step(sbvb_step)
     }
 
-    /// Acceptance check to be performed before setting the input value.
-    pub fn accepts_input(&self) -> bool {
+    /// Handles an incoming message.
+    pub fn handle_message(&mut self, sender_id: &N, msg: Message) -> Result<Step<N>> {
+        let Message { epoch, content } = msg;
+        if self.decision.is_some() || (epoch < self.epoch && content.can_expire()) {
+            // Message is obsolete: We are already in a later epoch or terminated.
+            Ok(Step::default())
+        } else if epoch > self.epoch {
+            // Message is for a later epoch. We can't handle that yet.
+            let queue = self.incoming_queue.entry(epoch).or_insert_with(Vec::new);
+            queue.push((sender_id.clone(), content));
+            Ok(Step::default())
+        } else {
+            self.handle_message_content(sender_id, content)
+        }
+    }
+
+    /// Whether we can still input a value. It is not an error to input if this returns `false`,
+    /// but it will have no effect on the outcome.
+    pub fn can_input(&self) -> bool {
         self.epoch == 0 && self.estimated.is_none()
     }
 
@@ -221,16 +231,16 @@ impl<N: NodeIdT> BinaryAgreement<N> {
         }
     }
 
-    /// Handles a Coin message. If there is output from Coin, starts the next
-    /// epoch. The function may output a decision value.
-    fn handle_coin(&mut self, sender_id: &N, msg: CoinMessage) -> Result<Step<N>> {
-        let coin_step = match self.coin_state {
+    /// Handles a `ThresholdSign` message. If there is output, starts the next epoch. The function
+    /// may output a decision value.
+    fn handle_coin(&mut self, sender_id: &N, msg: threshold_sign::Message) -> Result<Step<N>> {
+        let ts_step = match self.coin_state {
             CoinState::Decided(_) => return Ok(Step::default()), // Coin value is already decided.
-            CoinState::InProgress(ref mut coin) => coin
+            CoinState::InProgress(ref mut ts) => ts
                 .handle_message(sender_id, msg)
-                .map_err(Error::HandleCoin)?,
+                .map_err(Error::HandleThresholdSign)?,
         };
-        self.on_coin_step(coin_step)
+        self.on_coin_step(ts_step)
     }
 
     /// Multicasts a `Conf(values)` message, and handles it.
@@ -263,14 +273,15 @@ impl<N: NodeIdT> BinaryAgreement<N> {
         Ok(step)
     }
 
-    /// Handles a step returned from the `Coin`.
-    fn on_coin_step(&mut self, coin_step: coin::Step<N, Nonce>) -> Result<Step<N>> {
+    /// Handles a step returned from the `ThresholdSign`.
+    fn on_coin_step(&mut self, ts_step: threshold_sign::Step<N>) -> Result<Step<N>> {
         let mut step = Step::default();
         let epoch = self.epoch;
         let to_msg = |c_msg| MessageContent::Coin(Box::new(c_msg)).with_epoch(epoch);
-        let coin_output = step.extend_with(coin_step, to_msg);
-        if let Some(coin) = coin_output.into_iter().next() {
-            self.coin_state = coin.into();
+        let ts_output = step.extend_with(ts_step, to_msg);
+        if let Some(sig) = ts_output.into_iter().next() {
+            // Take the parity of the signature as the coin value.
+            self.coin_state = sig.parity().into();
             step.extend(self.try_update_epoch()?);
         }
         Ok(step)
@@ -304,7 +315,7 @@ impl<N: NodeIdT> BinaryAgreement<N> {
     }
 
     /// Creates the initial coin state for the current epoch, i.e. sets it to the predetermined
-    /// value, or initializes a `Coin` instance.
+    /// value, or initializes a `ThresholdSign` instance.
     fn coin_state(&self) -> CoinState<N> {
         match self.epoch % 3 {
             0 => CoinState::Decided(true),
@@ -316,7 +327,7 @@ impl<N: NodeIdT> BinaryAgreement<N> {
                     self.netinfo.node_index(&self.proposer_id).unwrap(),
                     self.epoch,
                 );
-                CoinState::InProgress(Coin::new(self.netinfo.clone(), nonce))
+                CoinState::InProgress(Box::new(ThresholdSign::new(self.netinfo.clone(), nonce)))
             }
         }
     }
@@ -352,13 +363,11 @@ impl<N: NodeIdT> BinaryAgreement<N> {
         }
 
         // Invoke the coin.
-        let coin_step = match self.coin_state {
+        let ts_step = match self.coin_state {
             CoinState::Decided(_) => return Ok(Step::default()), // Coin has already decided.
-            CoinState::InProgress(ref mut coin) => coin
-                .handle_input(())
-                .map_err(Error::TryFinishConfRoundCoin)?,
+            CoinState::InProgress(ref mut ts) => ts.handle_input(()).map_err(Error::InvokeCoin)?,
         };
-        let mut step = self.on_coin_step(coin_step)?;
+        let mut step = self.on_coin_step(ts_step)?;
         step.extend(self.try_update_epoch()?);
         Ok(step)
     }

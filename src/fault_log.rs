@@ -12,8 +12,6 @@ pub enum AckMessageFault {
     NodeCount,
     #[fail(display = "Sender does not exist")]
     SenderExist,
-    #[fail(display = "Duplicate ack")]
-    DuplicateAck,
     #[fail(display = "Value decryption failed")]
     ValueDecryption,
     #[fail(display = "Value deserialization failed")]
@@ -44,14 +42,19 @@ pub enum FaultKind {
     /// `HoneyBadger` could not deserialize bytes (i.e. a serialized Batch)
     /// from a given proposer into a vector of transactions.
     BatchDeserializationFailed,
-    /// `DynamicHoneyBadger` received a key generation message with an invalid
-    /// signature.
+    /// `DynamicHoneyBadger` received a key generation message with an invalid signature.
     InvalidKeyGenMessageSignature,
+    /// `DynamicHoneyBadger` received a key generation message with an invalid epoch.
+    InvalidKeyGenMessageEpoch,
     /// `DynamicHoneyBadger` received a key generation message when there was no key generation in
     /// progress.
     UnexpectedKeyGenMessage,
-    /// `DynamicHoneyBadger` received more key generation messages from the candidate than expected.
-    TooManyCandidateKeyGenMessages,
+    /// `DynamicHoneyBadger` received a signed `Ack` when no key generation in progress.
+    UnexpectedKeyGenAck,
+    /// `DynamicHoneyBadger` received a signed `Part` when no key generation in progress.
+    UnexpectedKeyGenPart,
+    /// `DynamicHoneyBadger` received more key generation messages from the peer than expected.
+    TooManyKeyGenMessages,
     /// `DynamicHoneyBadger` received a message (Accept, Propose, or Change)
     /// with an invalid signature.
     IncorrectPayloadSignature,
@@ -59,6 +62,8 @@ pub enum FaultKind {
     AckMessage(AckMessageFault),
     /// `DynamicHoneyBadger`/`SyncKeyGen` received an invalid Part message.
     InvalidPartMessage,
+    /// `DynamicHoneyBadger`/`SyncKeyGen` received multiple Part messages from a node.
+    MultiplePartMessages,
     /// `DynamicHoneyBadger` received a change vote with an invalid signature.
     InvalidVoteSignature,
     /// A validator committed an invalid vote in `DynamicHoneyBadger`.
