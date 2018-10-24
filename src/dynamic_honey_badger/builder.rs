@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use crypto::{SecretKey, SecretKeySet, SecretKeyShare};
 use rand::{self, Rand, Rng};
-use serde::{Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Serialize};
 
 use super::{Change, ChangeState, DynamicHoneyBadger, JoinPlan, Result, Step, VoteCounter};
 use honey_badger::{HoneyBadger, SubsetHandlingStrategy};
@@ -46,8 +46,8 @@ impl<C, N> Default for DynamicHoneyBadgerBuilder<C, N> {
 
 impl<C, N> DynamicHoneyBadgerBuilder<C, N>
 where
-    C: Contribution + Serialize + for<'r> Deserialize<'r>,
-    N: NodeIdT + Serialize + for<'r> Deserialize<'r> + Rand,
+    C: Contribution + Serialize + DeserializeOwned,
+    N: NodeIdT + Serialize + DeserializeOwned + Rand,
 {
     /// Returns a new `DynamicHoneyBadgerBuilder` configured to use the node IDs and cryptographic
     /// keys specified by `netinfo`.

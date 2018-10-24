@@ -37,6 +37,8 @@ pub enum FaultKind {
     MultipleDecryptionShares,
     /// `Broadcast` received a `Value` from a node other than the proposer.
     ReceivedValueFromNonProposer,
+    /// `Broadcast` received multiple different `Value`s from the proposer.
+    MultipleValues,
     /// `Broadcast` recevied an Echo message containing an invalid proof.
     InvalidProof,
     /// `HoneyBadger` could not deserialize bytes (i.e. a serialized Batch)

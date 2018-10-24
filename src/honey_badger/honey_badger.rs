@@ -1,20 +1,21 @@
 use std::collections::btree_map::Entry;
 use std::collections::BTreeMap;
-use std::fmt;
 use std::sync::Arc;
 
 use bincode;
 use rand::{Rand, Rng};
-use serde::{Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Serialize};
 
 use super::epoch_state::EpochState;
 use super::{Batch, Error, ErrorKind, HoneyBadgerBuilder, Message, MessageContent, Result};
-use {Contribution, DistAlgorithm, NetworkInfo, NodeIdT};
+use {util, Contribution, DistAlgorithm, NetworkInfo, NodeIdT};
 
 pub use super::epoch_state::SubsetHandlingStrategy;
 use threshold_decryption::EncryptionSchedule;
 
 /// An instance of the Honey Badger Byzantine fault tolerant consensus algorithm.
+#[derive(Derivative)]
+#[derivative(Debug)]
 pub struct HoneyBadger<C, N: Rand> {
     /// Shared network data.
     pub(super) netinfo: Arc<NetworkInfo<N>>,
@@ -30,6 +31,7 @@ pub struct HoneyBadger<C, N: Rand> {
     pub(super) incoming_queue: BTreeMap<u64, Vec<(N, MessageContent<N>)>>,
     /// A random number generator used for secret key generation.
     // Boxed to avoid overloading the algorithm's type with more generics.
+    #[derivative(Debug(format_with = "util::fmt_rng"))]
     pub(super) rng: Box<dyn Rng + Send + Sync>,
     /// Represents the optimization strategy to use for output of the `Subset` algorithm.
     pub(super) subset_handling_strategy: SubsetHandlingStrategy,
@@ -37,30 +39,11 @@ pub struct HoneyBadger<C, N: Rand> {
     pub(crate) encryption_schedule: EncryptionSchedule,
 }
 
-impl<C, N> fmt::Debug for HoneyBadger<C, N>
-where
-    N: Rand + fmt::Debug,
-    C: fmt::Debug,
-{
-    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
-        fmt.debug_struct("HoneyBadger")
-            .field("netinfo", &self.netinfo)
-            .field("epoch", &self.epoch)
-            .field("has_input", &self.has_input)
-            .field("epochs", &self.epochs)
-            .field("max_future_epochs", &self.max_future_epochs)
-            .field("incoming_queue", &self.incoming_queue)
-            .field("rng", &"<RNG>")
-            .field("encryption_schedule", &self.encryption_schedule)
-            .finish()
-    }
-}
-
 pub type Step<C, N> = ::Step<HoneyBadger<C, N>>;
 
 impl<C, N> DistAlgorithm for HoneyBadger<C, N>
 where
-    C: Contribution + Serialize + for<'r> Deserialize<'r>,
+    C: Contribution + Serialize + DeserializeOwned,
     N: NodeIdT + Rand,
 {
     type NodeId = N;
@@ -88,7 +71,7 @@ where
 
 impl<C, N> HoneyBadger<C, N>
 where
-    C: Contribution + Serialize + for<'r> Deserialize<'r>,
+    C: Contribution + Serialize + DeserializeOwned,
     N: NodeIdT + Rand,
 {
     /// Returns a new `HoneyBadgerBuilder` configured to use the node IDs and cryptographic keys
@@ -97,7 +80,12 @@ where
         HoneyBadgerBuilder::new(netinfo)
     }
 
-    /// Proposes a new item in the current epoch.
+    /// Proposes a contribution in the current epoch.
+    ///
+    /// Returns an error if we already made a proposal in this epoch.
+    ///
+    /// If we are the only validator, this will immediately output a batch, containing our
+    /// proposal.
     pub fn propose(&mut self, proposal: &C) -> Result<Step<C, N>> {
         if !self.netinfo.is_validator() {
             return Ok(Step::default());
@@ -121,7 +109,9 @@ where
     }
 
     /// Handles a message received from `sender_id`.
-    fn handle_message(&mut self, sender_id: &N, message: Message<N>) -> Result<Step<C, N>> {
+    ///
+    /// This must be called with every message we receive from another node.
+    pub fn handle_message(&mut self, sender_id: &N, message: Message<N>) -> Result<Step<C, N>> {
         if !self.netinfo.is_node_validator(sender_id) {
             return Err(ErrorKind::UnknownSender.into());
         }

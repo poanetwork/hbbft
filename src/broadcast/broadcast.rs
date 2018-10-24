@@ -21,6 +21,8 @@ pub struct Broadcast<N> {
     proposer_id: N,
     data_shard_num: usize,
     coding: Coding,
+    /// If we are the proposer: whether we have already sent the `Value` messages with the shards.
+    value_sent: bool,
     /// Whether we have already multicast `Echo`.
     echo_sent: bool,
     /// Whether we have already multicast `Ready`.
@@ -74,6 +76,7 @@ impl<N: NodeIdT> Broadcast<N> {
             proposer_id,
             data_shard_num,
             coding,
+            value_sent: false,
             echo_sent: false,
             ready_sent: false,
             decided: false,
@@ -87,6 +90,10 @@ impl<N: NodeIdT> Broadcast<N> {
         if *self.netinfo.our_id() != self.proposer_id {
             return Err(Error::InstanceCannotPropose);
         }
+        if self.value_sent {
+            return Err(Error::MultipleInputs);
+        }
+        self.value_sent = true;
         // Split the value into chunks/shards, encode them with erasure codes.
         // Assemble a Merkle tree from data and parity shards. Take all proofs
         // from this tree and send them, each to its own node.
@@ -96,7 +103,9 @@ impl<N: NodeIdT> Broadcast<N> {
         Ok(step)
     }
 
-    /// Handles an incoming message.
+    /// Handles a message received from `sender_id`.
+    ///
+    /// This must be called with every message we receive from another node.
     pub fn handle_message(&mut self, sender_id: &N, message: Message) -> Result<Step<N>> {
         if !self.netinfo.is_node_validator(sender_id) {
             return Err(Error::UnknownSender);
@@ -191,9 +200,11 @@ impl<N: NodeIdT> Broadcast<N> {
         }
         if self.echo_sent {
             info!("Node {:?} received multiple Values.", self.netinfo.our_id());
-            // TODO: should receiving two Values from a node be considered
-            // a fault? If so, return a `Fault` here. For now, ignore.
-            return Ok(Step::default());
+            if self.echos.get(self.our_id()) == Some(&p) {
+                return Ok(Step::default());
+            } else {
+                return Ok(Fault::new(sender_id.clone(), FaultKind::MultipleValues).into());
+            }
         }
 
         // If the proof is invalid, log the faulty node behavior and ignore.

@@ -120,7 +120,11 @@ impl<N: NodeIdT> ThresholdSign<N> {
         Ok(step)
     }
 
-    /// Handles an incoming share. If we have collected enough, returns the full signature.
+    /// Handles a message with a signature share received from `sender_id`.
+    ///
+    /// This must be called with every message we receive from another node.
+    ///
+    /// If we have collected enough, returns the full signature.
     pub fn handle_message(&mut self, sender_id: &N, message: Message) -> Result<Step<N>> {
         if self.terminated {
             return Ok(Step::default());

@@ -77,7 +77,7 @@ impl<N: NodeIdT> DistAlgorithm for BinaryAgreement<N> {
     type Error = Error;
 
     fn handle_input(&mut self, input: Self::Input) -> Result<Step<N>> {
-        self.handle_input(input)
+        self.propose(input)
     }
 
     /// Receive input from a remote node.
@@ -120,9 +120,14 @@ impl<N: NodeIdT> BinaryAgreement<N> {
         })
     }
 
-    /// Sets the input value for Binary Agreement.
-    pub fn handle_input(&mut self, input: bool) -> Result<Step<N>> {
-        if !self.can_input() {
+    /// Proposes a boolean value for Binary Agreement.
+    ///
+    /// If more than two thirds of validators propose the same value, that will eventually be
+    /// output. Otherwise either output is possible.
+    ///
+    /// Note that if `can_propose` returns `false`, it is already too late to affect the outcome.
+    pub fn propose(&mut self, input: bool) -> Result<Step<N>> {
+        if !self.can_propose() {
             return Ok(Step::default());
         }
         // Set the initial estimated value to the input value.
@@ -132,7 +137,9 @@ impl<N: NodeIdT> BinaryAgreement<N> {
         self.handle_sbvb_step(sbvb_step)
     }
 
-    /// Handles an incoming message.
+    /// Handles a message received from `sender_id`.
+    ///
+    /// This must be called with every message we receive from another node.
     pub fn handle_message(&mut self, sender_id: &N, msg: Message) -> Result<Step<N>> {
         let Message { epoch, content } = msg;
         if self.decision.is_some() || (epoch < self.epoch && content.can_expire()) {
@@ -150,7 +157,7 @@ impl<N: NodeIdT> BinaryAgreement<N> {
 
     /// Whether we can still input a value. It is not an error to input if this returns `false`,
     /// but it will have no effect on the outcome.
-    pub fn can_input(&self) -> bool {
+    pub fn can_propose(&self) -> bool {
         self.epoch == 0 && self.estimated.is_none()
     }
 
@@ -365,7 +372,7 @@ impl<N: NodeIdT> BinaryAgreement<N> {
         // Invoke the coin.
         let ts_step = match self.coin_state {
             CoinState::Decided(_) => return Ok(Step::default()), // Coin has already decided.
-            CoinState::InProgress(ref mut ts) => ts.handle_input(()).map_err(Error::InvokeCoin)?,
+            CoinState::InProgress(ref mut ts) => ts.sign().map_err(Error::InvokeCoin)?,
         };
         let mut step = self.on_coin_step(ts_step)?;
         step.extend(self.try_update_epoch()?);

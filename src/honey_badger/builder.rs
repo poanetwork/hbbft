@@ -3,7 +3,7 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 
 use rand::{self, Rand, Rng};
-use serde::{Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Serialize};
 
 use super::HoneyBadger;
 use honey_badger::SubsetHandlingStrategy;
@@ -30,7 +30,7 @@ pub struct HoneyBadgerBuilder<C, N> {
 
 impl<C, N> HoneyBadgerBuilder<C, N>
 where
-    C: Contribution + Serialize + for<'r> Deserialize<'r>,
+    C: Contribution + Serialize + DeserializeOwned,
     N: NodeIdT + Rand,
 {
     /// Returns a new `HoneyBadgerBuilder` configured to use the node IDs and cryptographic keys

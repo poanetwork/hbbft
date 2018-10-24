@@ -95,7 +95,7 @@ impl<N: NodeIdT + Rand> DistAlgorithm for Subset<N> {
     type Error = Error;
 
     fn handle_input(&mut self, input: Self::Input) -> Result<Step<N>> {
-        self.send_proposed_value(input)
+        self.propose(input)
     }
 
     fn handle_message(&mut self, sender_id: &N, message: Message<N>) -> Result<Step<N>> {
@@ -118,6 +118,10 @@ pub enum SubsetOutput<N> {
 }
 
 impl<N: NodeIdT + Rand> Subset<N> {
+    /// Creates a new `Subset` instance with the given session identifier.
+    ///
+    /// If multiple `Subset`s are instantiated within a single network, they must use different
+    /// session identifiers to foil replay attacks.
     pub fn new(netinfo: Arc<NetworkInfo<N>>, session_id: u64) -> Result<Self> {
         // Create all broadcast instances.
         let mut broadcast_instances: BTreeMap<N, Broadcast<N>> = BTreeMap::new();
@@ -149,9 +153,10 @@ impl<N: NodeIdT + Rand> Subset<N> {
         })
     }
 
-    /// Subset input message handler. It receives a value for broadcast
-    /// and redirects it to the corresponding broadcast instance.
-    pub fn send_proposed_value(&mut self, value: ProposedValue) -> Result<Step<N>> {
+    /// Proposes a value for the subset.
+    ///
+    /// Returns an error if we already made a proposal.
+    pub fn propose(&mut self, value: ProposedValue) -> Result<Step<N>> {
         if !self.netinfo.is_validator() {
             return Ok(Step::default());
         }
@@ -160,7 +165,9 @@ impl<N: NodeIdT + Rand> Subset<N> {
         self.process_broadcast(&id, |bc| bc.handle_input(value))
     }
 
-    /// Handles an incoming message.
+    /// Handles a message received from `sender_id`.
+    ///
+    /// This must be called with every message we receive from another node.
     pub fn handle_message(&mut self, sender_id: &N, message: Message<N>) -> Result<Step<N>> {
         match message {
             Message::Broadcast(p_id, b_msg) => self.handle_broadcast(sender_id, &p_id, b_msg),

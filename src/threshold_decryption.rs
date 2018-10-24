@@ -137,7 +137,11 @@ impl<N: NodeIdT> ThresholdDecryption<N> {
         self.shares.keys()
     }
 
-    /// Handles an incoming message. If we have collected enough shares, outputs the plaintext.
+    /// Handles a message with a decryption share received from `sender_id`.
+    ///
+    /// This must be called with every message we receive from another node.
+    ///
+    /// If we have collected enough, returns the decrypted message.
     pub fn handle_message(&mut self, sender_id: &N, message: Message) -> Result<Step<N>> {
         if self.terminated {
             return Ok(Step::default()); // Don't waste time on redundant shares.

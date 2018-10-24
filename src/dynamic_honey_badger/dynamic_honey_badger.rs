@@ -1,11 +1,11 @@
 use std::collections::BTreeMap;
+use std::mem;
 use std::sync::Arc;
-use std::{fmt, mem};
 
 use bincode;
 use crypto::Signature;
 use rand::{self, Rand};
-use serde::{Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Serialize};
 
 use super::votes::{SignedVote, VoteCounter};
 use super::{
@@ -17,10 +17,12 @@ use fault_log::{Fault, FaultKind, FaultLog};
 use honey_badger::{self, HoneyBadger, Message as HbMessage};
 use sync_key_gen::{Ack, Part, PartOutcome, SyncKeyGen};
 use threshold_decryption::EncryptionSchedule;
-use util::SubRng;
+use util::{self, SubRng};
 use {Contribution, DistAlgorithm, NetworkInfo, NodeIdT, Target};
 
 /// A Honey Badger instance that can handle adding and removing nodes.
+#[derive(Derivative)]
+#[derivative(Debug)]
 pub struct DynamicHoneyBadger<C, N: Rand> {
     /// Shared network data.
     pub(super) netinfo: NetworkInfo<N>,
@@ -40,33 +42,14 @@ pub struct DynamicHoneyBadger<C, N: Rand> {
     pub(super) incoming_queue: Vec<(N, Message<N>)>,
     /// A random number generator used for secret key generation.
     // Boxed to avoid overloading the algorithm's type with more generics.
+    #[derivative(Debug(format_with = "util::fmt_rng"))]
     pub(super) rng: Box<dyn rand::Rng + Send + Sync>,
-}
-
-impl<C, N> fmt::Debug for DynamicHoneyBadger<C, N>
-where
-    C: fmt::Debug,
-    N: Rand + fmt::Debug,
-{
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        f.debug_struct("DynamicHoneyBadger")
-            .field("netinfo", &self.netinfo)
-            .field("max_future_epochs", &self.max_future_epochs)
-            .field("start_epoch", &self.start_epoch)
-            .field("vote_counter", &self.vote_counter)
-            .field("key_gen_msg_buffer", &self.key_gen_msg_buffer)
-            .field("honey_badger", &self.honey_badger)
-            .field("key_gen_state", &self.key_gen_state)
-            .field("incoming_queue", &self.incoming_queue)
-            .field("rng", &"<RNG>")
-            .finish()
-    }
 }
 
 impl<C, N> DistAlgorithm for DynamicHoneyBadger<C, N>
 where
-    C: Contribution + Serialize + for<'r> Deserialize<'r>,
-    N: NodeIdT + Serialize + for<'r> Deserialize<'r> + Rand,
+    C: Contribution + Serialize + DeserializeOwned,
+    N: NodeIdT + Serialize + DeserializeOwned + Rand,
 {
     type NodeId = N;
     type Input = Input<C, N>;
@@ -98,8 +81,8 @@ where
 
 impl<C, N> DynamicHoneyBadger<C, N>
 where
-    C: Contribution + Serialize + for<'r> Deserialize<'r>,
-    N: NodeIdT + Serialize + for<'r> Deserialize<'r> + Rand,
+    C: Contribution + Serialize + DeserializeOwned,
+    N: NodeIdT + Serialize + DeserializeOwned + Rand,
 {
     /// Returns a new `DynamicHoneyBadgerBuilder`.
     pub fn builder() -> DynamicHoneyBadgerBuilder<C, N> {
@@ -112,6 +95,11 @@ where
     }
 
     /// Proposes a contribution in the current epoch.
+    ///
+    /// Returns an error if we already made a proposal in this epoch.
+    ///
+    /// If we are the only validator, this will immediately output a batch, containing our
+    /// proposal.
     pub fn propose(&mut self, contrib: C) -> Result<Step<C, N>> {
         let key_gen_messages = self
             .key_gen_msg_buffer
@@ -130,6 +118,9 @@ where
     }
 
     /// Casts a vote to change the set of validators.
+    ///
+    /// This stores a pending vote for the change. It will be included in some future batch, and
+    /// once enough validators have been voted for the same change, it will take effect.
     pub fn vote_for(&mut self, change: Change<N>) -> Result<Step<C, N>> {
         if !self.netinfo.is_validator() {
             return Ok(Step::default()); // TODO: Return an error?
@@ -139,7 +130,9 @@ where
         Ok(Target::All.message(msg).into())
     }
 
-    /// Handles an incoming message.
+    /// Handles a message received from `sender_id`.
+    ///
+    /// This must be called with every message we receive from another node.
     pub fn handle_message(&mut self, sender_id: &N, message: Message<N>) -> Result<Step<C, N>> {
         let epoch = message.start_epoch();
         if epoch < self.start_epoch {

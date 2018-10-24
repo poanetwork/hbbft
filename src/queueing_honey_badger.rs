@@ -28,11 +28,11 @@ use std::{cmp, iter};
 
 use failure::{Backtrace, Context, Fail};
 use rand::{Rand, Rng};
-use serde::{Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Serialize};
 
 use dynamic_honey_badger::{self, Batch as DhbBatch, DynamicHoneyBadger, Message};
 use transaction_queue::TransactionQueue;
-use {Contribution, DistAlgorithm, NodeIdT};
+use {util, Contribution, DistAlgorithm, NodeIdT};
 
 pub use dynamic_honey_badger::{Change, ChangeState, Input, NodeChange};
 
@@ -107,8 +107,8 @@ pub type QueueingHoneyBadgerWithStep<T, N, Q> = (QueueingHoneyBadger<T, N, Q>, S
 
 impl<T, N, Q> QueueingHoneyBadgerBuilder<T, N, Q>
 where
-    T: Contribution + Serialize + for<'r> Deserialize<'r> + Clone,
-    N: NodeIdT + Serialize + for<'r> Deserialize<'r> + Rand,
+    T: Contribution + Serialize + DeserializeOwned + Clone,
+    N: NodeIdT + Serialize + DeserializeOwned + Rand,
     Q: TransactionQueue<T>,
 {
     /// Returns a new `QueueingHoneyBadgerBuilder` configured to use the node IDs and cryptographic
@@ -140,7 +140,6 @@ where
     /// Creates a new Queueing Honey Badger instance with an empty buffer.
     pub fn build<R>(self, rng: R) -> QueueingHoneyBadgerWithStep<T, N, Q>
     where
-        T: Contribution + Serialize + for<'r> Deserialize<'r>,
         R: 'static + Rng + Send + Sync,
     {
         self.build_with_transactions(None, rng)
@@ -156,7 +155,6 @@ where
     ) -> Result<QueueingHoneyBadgerWithStep<T, N, Q>>
     where
         TI: IntoIterator<Item = T>,
-        T: Contribution + Serialize + for<'r> Deserialize<'r>,
         R: 'static + Rng + Send + Sync,
     {
         self.queue.extend(txs);
@@ -173,12 +171,9 @@ where
 
 /// A Honey Badger instance that can handle adding and removing nodes and manages a transaction
 /// queue.
-pub struct QueueingHoneyBadger<T, N, Q>
-where
-    T: Contribution + Serialize + for<'r> Deserialize<'r>,
-    N: NodeIdT + Serialize + for<'r> Deserialize<'r> + Rand,
-    Q: TransactionQueue<T>,
-{
+#[derive(Derivative)]
+#[derivative(Debug)]
+pub struct QueueingHoneyBadger<T, N: Rand, Q> {
     /// The target number of transactions to be included in each batch.
     batch_size: usize,
     /// The internal `DynamicHoneyBadger` instance.
@@ -186,31 +181,16 @@ where
     /// The queue of pending transactions that haven't been output in a batch yet.
     queue: Q,
     /// Random number generator used for choosing transactions from the queue.
+    #[derivative(Debug(format_with = "util::fmt_rng"))]
     rng: Box<dyn Rng + Send + Sync>,
-}
-
-impl<T, N, Q> fmt::Debug for QueueingHoneyBadger<T, N, Q>
-where
-    T: Contribution + Serialize + for<'r> Deserialize<'r>,
-    N: NodeIdT + Serialize + for<'r> Deserialize<'r> + Rand,
-    Q: TransactionQueue<T>,
-{
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        f.debug_struct("QueueingHoneyBadger")
-            .field("batch_size", &self.batch_size)
-            .field("dyn_hb", &self.dyn_hb)
-            .field("queue", &self.queue)
-            .field("rng", &"<RNG>")
-            .finish()
-    }
 }
 
 pub type Step<T, N, Q> = ::Step<QueueingHoneyBadger<T, N, Q>>;
 
 impl<T, N, Q> DistAlgorithm for QueueingHoneyBadger<T, N, Q>
 where
-    T: Contribution + Serialize + for<'r> Deserialize<'r> + Clone,
-    N: NodeIdT + Serialize + for<'r> Deserialize<'r> + Rand,
+    T: Contribution + Serialize + DeserializeOwned + Clone,
+    N: NodeIdT + Serialize + DeserializeOwned + Rand,
     Q: TransactionQueue<T>,
 {
     type NodeId = N;
@@ -243,8 +223,8 @@ where
 
 impl<T, N, Q> QueueingHoneyBadger<T, N, Q>
 where
-    T: Contribution + Serialize + for<'r> Deserialize<'r> + Clone,
-    N: NodeIdT + Serialize + for<'r> Deserialize<'r> + Rand,
+    T: Contribution + Serialize + DeserializeOwned + Clone,
+    N: NodeIdT + Serialize + DeserializeOwned + Rand,
     Q: TransactionQueue<T>,
 {
     /// Returns a new `QueueingHoneyBadgerBuilder` configured to use the node IDs and cryptographic
@@ -254,12 +234,22 @@ where
     }
 
     /// Adds a transaction to the queue.
+    ///
+    /// This can be called at any time to append to the transaction queue. The new transaction will
+    /// be proposed in some future epoch.
+    ///
+    /// If no proposal has yet been made for the current epoch, this may trigger one. In this case,
+    /// a nonempty step will returned, with the corresponding messages. (Or, if we are the only
+    /// validator, even with the completed batch as an output.)
     pub fn push_transaction(&mut self, tx: T) -> Result<Step<T, N, Q>> {
         self.queue.extend(iter::once(tx));
         self.propose()
     }
 
     /// Casts a vote to change the set of validators.
+    ///
+    /// This stores a pending vote for the change. It will be included in some future batch, and
+    /// once enough validators have been voted for the same change, it will take effect.
     pub fn vote_for(&mut self, change: Change<N>) -> Result<Step<T, N, Q>> {
         let mut step = self
             .dyn_hb
@@ -270,7 +260,9 @@ where
         Ok(step)
     }
 
-    /// Handles an incoming message.
+    /// Handles a message received from `sender_id`.
+    ///
+    /// This must be called with every message we receive from another node.
     pub fn handle_message(&mut self, sender_id: &N, message: Message<N>) -> Result<Step<T, N, Q>> {
         let mut step = self
             .dyn_hb

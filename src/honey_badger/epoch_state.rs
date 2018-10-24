@@ -9,7 +9,7 @@ use std::sync::Arc;
 use bincode;
 use crypto::Ciphertext;
 use rand::{Rand, Rng};
-use serde::{Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Serialize};
 
 use super::{Batch, ErrorKind, MessageContent, Result, Step};
 use fault_log::{Fault, FaultKind, FaultLog};
@@ -191,7 +191,7 @@ pub struct EpochState<C, N: Rand> {
 
 impl<C, N> EpochState<C, N>
 where
-    C: Contribution + Serialize + for<'r> Deserialize<'r>,
+    C: Contribution + Serialize + DeserializeOwned,
     N: NodeIdT + Rand,
 {
     /// Creates a new `Subset` instance.

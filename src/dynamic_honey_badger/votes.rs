@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use bincode;
 use crypto::Signature;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
 use super::{Change, ErrorKind, Result};
 use fault_log::{FaultKind, FaultLog};
@@ -28,7 +28,7 @@ pub struct VoteCounter<N> {
 
 impl<N> VoteCounter<N>
 where
-    N: NodeIdT + Serialize + for<'r> Deserialize<'r>,
+    N: NodeIdT + Serialize,
 {
     /// Creates a new `VoteCounter` object with empty buffer and counter.
     pub fn new(netinfo: Arc<NetworkInfo<N>>, era: u64) -> Self {
@@ -92,7 +92,8 @@ where
         })
     }
 
-    // TODO: Document and return fault logs?
+    /// Inserts committed votes into the counter, if they have higher numbers than the existing
+    /// ones.
     pub fn add_committed_votes<I>(
         &mut self,
         proposer_id: &N,

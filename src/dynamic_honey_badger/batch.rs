@@ -1,8 +1,6 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use serde::{Deserialize, Serialize};
-
 use super::{ChangeState, JoinPlan};
 use {NetworkInfo, NodeIdT};
 
@@ -83,10 +81,7 @@ impl<C, N: NodeIdT> Batch<C, N> {
 
     /// Returns the `JoinPlan` to be sent to new observer nodes, if it is possible to join in the
     /// next epoch.
-    pub fn join_plan(&self) -> Option<JoinPlan<N>>
-    where
-        N: Serialize + for<'r> Deserialize<'r>,
-    {
+    pub fn join_plan(&self) -> Option<JoinPlan<N>> {
         if self.change == ChangeState::None {
             return None;
         }
