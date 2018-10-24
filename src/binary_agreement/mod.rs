@@ -68,6 +68,10 @@ mod bool_multimap;
 pub mod bool_set;
 mod sbv_broadcast;
 
+use std::io;
+
+use bincode;
+use byteorder::{BigEndian, WriteBytesExt};
 use rand;
 
 use self::bool_set::BoolSet;
@@ -82,8 +86,23 @@ pub enum Error {
     HandleThresholdSign(threshold_sign::Error),
     #[fail(display = "Error invoking the common coin: {}", _0)]
     InvokeCoin(threshold_sign::Error),
-    #[fail(display = "Unknown proposer")]
-    UnknownProposer,
+    // Strings because `io` and `bincode` errors lack `Eq` and `Clone`.
+    #[fail(display = "Error writing epoch for nonce: {}", _0)]
+    Io(String),
+    #[fail(display = "Error serializing session ID for nonce: {}", _0)]
+    Serialize(String),
+}
+
+impl From<io::Error> for Error {
+    fn from(err: io::Error) -> Error {
+        Error::Io(format!("{:?}", err))
+    }
+}
+
+impl From<bincode::Error> for Error {
+    fn from(err: bincode::Error) -> Error {
+        Error::Io(format!("{:?}", err))
+    }
 }
 
 /// An Binary Agreement result.
@@ -151,14 +170,13 @@ struct Nonce(Vec<u8>);
 impl Nonce {
     pub fn new(
         invocation_id: &[u8],
-        session_id: u64,
-        proposer_id: usize,
+        session_id: &[u8],
         binary_agreement_epoch: u32,
-    ) -> Self {
-        Nonce(Vec::from(format!(
-            "Nonce for Honey Badger {:?}@{}:{}:{}",
-            invocation_id, session_id, binary_agreement_epoch, proposer_id
-        )))
+    ) -> Result<Self> {
+        let mut vec = invocation_id.to_vec();
+        vec.write_u32::<BigEndian>(binary_agreement_epoch)?;
+        vec.extend(session_id);
+        Ok(Nonce(vec))
     }
 }
 

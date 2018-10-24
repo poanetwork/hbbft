@@ -116,7 +116,8 @@ impl<N: NodeIdT> NetworkInfo<N> {
         &self.public_keys
     }
 
-    /// The index of a node in a canonical numbering of all nodes.
+    /// The index of a node in a canonical numbering of all nodes. This is the index where the
+    /// node appears in `all_ids`.
     pub fn node_index(&self, id: &N) -> Option<usize> {
         self.node_indices.get(id).cloned()
     }

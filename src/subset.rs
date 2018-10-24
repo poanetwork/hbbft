@@ -131,11 +131,13 @@ impl<N: NodeIdT + Rand> Subset<N> {
 
         // Create all Binary Agreement instances.
         let mut ba_instances: BTreeMap<N, BinaryAgreement<N>> = BTreeMap::new();
-        for proposer_id in netinfo.all_ids() {
+        for (proposer_idx, proposer_id) in netinfo.all_ids().enumerate() {
             ba_instances.insert(
                 proposer_id.clone(),
-                BinaryAgreement::new(netinfo.clone(), session_id, proposer_id.clone())
-                    .map_err(Error::NewBinaryAgreement)?,
+                BinaryAgreement::new(
+                    netinfo.clone(),
+                    BaSessionId(session_id, proposer_idx as u32),
+                ).map_err(Error::NewBinaryAgreement)?,
             );
         }
 
@@ -366,3 +368,9 @@ impl<N: NodeIdT + Rand> Subset<N> {
         }
     }
 }
+
+/// A session identifier for a `BinaryAgreement` instance run as a `Subset` sub-algorithm. It
+/// consists of the `Subset` instance's own session ID, and the index of the proposer whose
+/// contribution this `BinaryAgreement` is about.
+#[derive(Debug, Serialize)]
+struct BaSessionId(u64, u32);

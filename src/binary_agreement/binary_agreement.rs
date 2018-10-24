@@ -1,5 +1,9 @@
 use std::collections::BTreeMap;
+use std::fmt::Debug;
 use std::sync::Arc;
+
+use bincode;
+use serde::Serialize;
 
 use super::bool_multimap::BoolMultimap;
 use super::bool_set::BoolSet;
@@ -39,10 +43,13 @@ impl<N> From<bool> for CoinState<N> {
 pub struct BinaryAgreement<N> {
     /// Shared network information.
     netinfo: Arc<NetworkInfo<N>>,
-    /// Session ID, e.g, the Honey Badger algorithm epoch.
-    session_id: u64,
-    /// The ID of the proposer of the value for this Binary Agreement instance.
-    proposer_id: N,
+    // We store the session ID twice: once in its serialized form, to create the `ThresholdSign`
+    // nonces, and once boxed, for debug output.
+    /// Session identifier, to prevent replaying messages in other instances,
+    /// e.g, the Honey Badger algorithm epoch plus the proposer ID.
+    session_id: Box<Debug + Send + Sync>,
+    /// The serialized session identifier.
+    ser_session_id: Vec<u8>,
     /// Binary Agreement algorithm epoch.
     epoch: u32,
     /// This epoch's Synchronized Binary Value Broadcast instance.
@@ -96,18 +103,16 @@ impl<N: NodeIdT> DistAlgorithm for BinaryAgreement<N> {
 }
 
 impl<N: NodeIdT> BinaryAgreement<N> {
-    /// Creates a new `BinaryAgreement` instance. The `session_id` and `proposer_id` are used to
-    /// uniquely identify this instance: its messages cannot be replayed in an instance with
-    /// different values.
-    // TODO: Use a generic type argument for that instead of something `Subset`-specific.
-    pub fn new(netinfo: Arc<NetworkInfo<N>>, session_id: u64, proposer_id: N) -> Result<Self> {
-        if !netinfo.is_node_validator(&proposer_id) {
-            return Err(Error::UnknownProposer);
-        }
+    /// Creates a new `BinaryAgreement` instance with the given session identifier, to prevent
+    /// replaying messages in other instances.
+    pub fn new<T>(netinfo: Arc<NetworkInfo<N>>, session_id: T) -> Result<Self>
+    where
+        T: Serialize + Sync + Send + Debug + 'static,
+    {
         Ok(BinaryAgreement {
             netinfo: netinfo.clone(),
-            session_id,
-            proposer_id,
+            ser_session_id: bincode::serialize(&session_id)?,
+            session_id: Box::new(session_id),
             epoch: 0,
             sbv_broadcast: SbvBroadcast::new(netinfo),
             received_conf: BTreeMap::new(),
@@ -127,7 +132,7 @@ impl<N: NodeIdT> BinaryAgreement<N> {
         }
         // Set the initial estimated value to the input value.
         self.estimated = Some(input);
-        debug!("{:?}/{:?} Input {}", self.our_id(), self.proposer_id, input);
+        debug!("{:?}/{:?} Input {}", self.our_id(), self.session_id, input);
         let sbvb_step = self.sbv_broadcast.handle_input(input)?;
         self.handle_sbvb_step(sbvb_step)
     }
@@ -316,20 +321,19 @@ impl<N: NodeIdT> BinaryAgreement<N> {
 
     /// Creates the initial coin state for the current epoch, i.e. sets it to the predetermined
     /// value, or initializes a `ThresholdSign` instance.
-    fn coin_state(&self) -> CoinState<N> {
-        match self.epoch % 3 {
+    fn coin_state(&self) -> Result<CoinState<N>> {
+        Ok(match self.epoch % 3 {
             0 => CoinState::Decided(true),
             1 => CoinState::Decided(false),
             _ => {
                 let nonce = Nonce::new(
                     self.netinfo.invocation_id().as_ref(),
-                    self.session_id,
-                    self.netinfo.node_index(&self.proposer_id).unwrap(),
+                    &self.ser_session_id,
                     self.epoch,
-                );
+                )?;
                 CoinState::InProgress(Box::new(ThresholdSign::new(self.netinfo.clone(), nonce)))
             }
-        }
+        })
     }
 
     /// Decides on a value and broadcasts a `Term` message with that value.
@@ -345,7 +349,7 @@ impl<N: NodeIdT> BinaryAgreement<N> {
         debug!(
             "{:?}/{:?} (is_validator: {}) decision: {}",
             self.netinfo.our_id(),
-            self.proposer_id,
+            self.session_id,
             self.netinfo.is_validator(),
             b
         );
@@ -387,11 +391,11 @@ impl<N: NodeIdT> BinaryAgreement<N> {
         }
         self.conf_values = None;
         self.epoch += 1;
-        self.coin_state = self.coin_state();
+        self.coin_state = self.coin_state()?;
         debug!(
             "{:?} BinaryAgreement instance {:?} started epoch {}, {} terminated",
             self.netinfo.our_id(),
-            self.proposer_id,
+            self.session_id,
             self.epoch,
             self.received_conf.len(),
         );
