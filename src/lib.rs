@@ -119,6 +119,8 @@
 
 extern crate bincode;
 extern crate byteorder;
+#[macro_use(Derivative)]
+extern crate derivative;
 #[macro_use]
 extern crate failure;
 extern crate hex_fmt;

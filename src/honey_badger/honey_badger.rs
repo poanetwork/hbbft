@@ -1,6 +1,5 @@
 use std::collections::btree_map::Entry;
 use std::collections::BTreeMap;
-use std::fmt;
 use std::sync::Arc;
 
 use bincode;
@@ -9,11 +8,13 @@ use serde::{Deserialize, Serialize};
 
 use super::epoch_state::EpochState;
 use super::{Batch, Error, ErrorKind, HoneyBadgerBuilder, Message, MessageContent, Result};
-use {Contribution, DistAlgorithm, NetworkInfo, NodeIdT};
+use {util, Contribution, DistAlgorithm, NetworkInfo, NodeIdT};
 
 pub use super::epoch_state::SubsetHandlingStrategy;
 
 /// An instance of the Honey Badger Byzantine fault tolerant consensus algorithm.
+#[derive(Derivative)]
+#[derivative(Debug)]
 pub struct HoneyBadger<C, N: Rand> {
     /// Shared network data.
     pub(super) netinfo: Arc<NetworkInfo<N>>,
@@ -29,27 +30,10 @@ pub struct HoneyBadger<C, N: Rand> {
     pub(super) incoming_queue: BTreeMap<u64, Vec<(N, MessageContent<N>)>>,
     /// A random number generator used for secret key generation.
     // Boxed to avoid overloading the algorithm's type with more generics.
+    #[derivative(Debug(format_with = "util::fmt_rng"))]
     pub(super) rng: Box<dyn Rng + Send + Sync>,
     /// Represents the optimization strategy to use for output of the `Subset` algorithm.
     pub(super) subset_handling_strategy: SubsetHandlingStrategy,
-}
-
-impl<C, N> fmt::Debug for HoneyBadger<C, N>
-where
-    N: Rand + fmt::Debug,
-    C: fmt::Debug,
-{
-    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
-        fmt.debug_struct("HoneyBadger")
-            .field("netinfo", &self.netinfo)
-            .field("epoch", &self.epoch)
-            .field("has_input", &self.has_input)
-            .field("epochs", &self.epochs)
-            .field("max_future_epochs", &self.max_future_epochs)
-            .field("incoming_queue", &self.incoming_queue)
-            .field("rng", &"<RNG>")
-            .finish()
-    }
 }
 
 pub type Step<C, N> = ::Step<HoneyBadger<C, N>>;

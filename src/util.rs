@@ -3,6 +3,8 @@
 //! Functions not large enough to warrant their own crate or module, but flexible enough to be used
 //! in multiple disjunct places in the library. May also contain backports, workarounds.
 
+use std::fmt;
+
 use rand;
 
 /// Workaround trait for creating new random number generators
@@ -21,4 +23,9 @@ where
         let rng = self.gen::<rand::isaac::Isaac64Rng>();
         Box::new(rng)
     }
+}
+
+/// Prints "`<RNG>`" as a placeholder for a random number generator in debug output.
+pub fn fmt_rng<T>(_: T, f: &mut fmt::Formatter) -> fmt::Result {
+    f.write_str("<RNG>")
 }
