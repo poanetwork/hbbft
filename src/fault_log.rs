@@ -5,20 +5,7 @@
 //! calling algorithm via `DistAlgorihm`'s `.handle_input()` and
 //! `.handle_message()` trait methods.
 
-/// A fault log entry.
-#[derive(Clone, Copy, Eq, PartialEq, Debug, Fail)]
-pub enum AckMessageFault {
-    #[fail(display = "Wrong node count")]
-    NodeCount,
-    #[fail(display = "Sender does not exist")]
-    SenderExist,
-    #[fail(display = "Value decryption failed")]
-    ValueDecryption,
-    #[fail(display = "Value deserialization failed")]
-    ValueDeserialization,
-    #[fail(display = "Invalid value")]
-    ValueInvalid,
-}
+pub use sync_key_gen::{AckFault, PartFault};
 
 /// Represents each reason why a node could be considered faulty.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -60,12 +47,10 @@ pub enum FaultKind {
     /// `DynamicHoneyBadger` received a message (Accept, Propose, or Change)
     /// with an invalid signature.
     IncorrectPayloadSignature,
-    /// `DynamicHoneyBadger`/`SyncKeyGen` received an invalid Ack message.
-    AckMessage(AckMessageFault),
-    /// `DynamicHoneyBadger`/`SyncKeyGen` received an invalid Part message.
-    InvalidPartMessage,
-    /// `DynamicHoneyBadger`/`SyncKeyGen` received multiple Part messages from a node.
-    MultiplePartMessages,
+    /// `DynamicHoneyBadger`/`SyncKeyGen` received an invalid `Ack` message.
+    SyncKeyGenAck(AckFault),
+    /// `DynamicHoneyBadger`/`SyncKeyGen` received an invalid `Part` message.
+    SyncKeyGenPart(PartFault),
     /// `DynamicHoneyBadger` received a change vote with an invalid signature.
     InvalidVoteSignature,
     /// A validator committed an invalid vote in `DynamicHoneyBadger`.
