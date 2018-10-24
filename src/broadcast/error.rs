@@ -16,6 +16,8 @@ pub enum Error {
     CodingReconstructShardsTrivialReedSolomon(#[cause] rse::Error),
     #[fail(display = "Instance cannot propose")]
     InstanceCannotPropose,
+    #[fail(display = "Multiple inputs received")]
+    MultipleInputs,
     #[fail(display = "Not implemented")]
     NotImplemented,
     #[fail(display = "Proof construction failed")]

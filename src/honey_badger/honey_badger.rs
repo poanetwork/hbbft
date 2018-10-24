@@ -77,7 +77,12 @@ where
         HoneyBadgerBuilder::new(netinfo)
     }
 
-    /// Proposes a new item in the current epoch.
+    /// Proposes a contribution in the current epoch.
+    ///
+    /// Returns an error if we already made a proposal in this epoch.
+    ///
+    /// If we are the only validator, this will immediately output a batch, containing our
+    /// proposal.
     pub fn propose(&mut self, proposal: &C) -> Result<Step<C, N>> {
         if !self.netinfo.is_validator() {
             return Ok(Step::default());
@@ -97,7 +102,9 @@ where
     }
 
     /// Handles a message received from `sender_id`.
-    fn handle_message(&mut self, sender_id: &N, message: Message<N>) -> Result<Step<C, N>> {
+    ///
+    /// This must be called with every message we receive from another node.
+    pub fn handle_message(&mut self, sender_id: &N, message: Message<N>) -> Result<Step<C, N>> {
         if !self.netinfo.is_node_validator(sender_id) {
             return Err(ErrorKind::UnknownSender.into());
         }
