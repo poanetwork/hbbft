@@ -251,20 +251,19 @@ where
     /// This stores a pending vote for the change. It will be included in some future batch, and
     /// once enough validators have been voted for the same change, it will take effect.
     pub fn vote_for(&mut self, change: Change<N>) -> Result<Step<T, N, Q>> {
-        let mut step = self
+        Ok(self
             .dyn_hb
             .handle_input(Input::Change(change))
             .map_err(ErrorKind::Input)?
-            .convert();
-        step.extend(self.propose()?);
-        Ok(step)
+            .convert()
+            .and(self.propose()?))
     }
 
     /// Handles a message received from `sender_id`.
     ///
     /// This must be called with every message we receive from another node.
     pub fn handle_message(&mut self, sender_id: &N, message: Message<N>) -> Result<Step<T, N, Q>> {
-        let mut step = self
+        let step = self
             .dyn_hb
             .handle_message(sender_id, message)
             .map_err(ErrorKind::HandleMessage)?
@@ -272,8 +271,7 @@ where
         for batch in &step.output {
             self.queue.remove_multiple(batch.iter());
         }
-        step.extend(self.propose()?);
-        Ok(step)
+        Ok(step.and(self.propose()?))
     }
 
     /// Returns a reference to the internal `DynamicHoneyBadger` instance.

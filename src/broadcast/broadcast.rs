@@ -97,10 +97,9 @@ impl<N: NodeIdT> Broadcast<N> {
         // Split the value into chunks/shards, encode them with erasure codes.
         // Assemble a Merkle tree from data and parity shards. Take all proofs
         // from this tree and send them, each to its own node.
-        let (proof, mut step) = self.send_shards(input)?;
+        let (proof, step) = self.send_shards(input)?;
         let our_id = &self.netinfo.our_id().clone();
-        step.extend(self.handle_value(our_id, proof)?);
-        Ok(step)
+        Ok(step.and(self.handle_value(our_id, proof)?))
     }
 
     /// Handles a message received from `sender_id`.
@@ -178,7 +177,7 @@ impl<N: NodeIdT> Broadcast<N> {
             } else {
                 // Rest of the proofs are sent to remote nodes.
                 let msg = Target::Node(id.clone()).message(Message::Value(proof));
-                step.messages.push_back(msg);
+                step.messages.push(msg);
             }
         }
 
@@ -267,8 +266,7 @@ impl<N: NodeIdT> Broadcast<N> {
             // Enqueue a broadcast of a Ready message.
             step.extend(self.send_ready(hash)?);
         }
-        step.extend(self.compute_output(hash)?);
-        Ok(step)
+        Ok(step.and(self.compute_output(hash)?))
     }
 
     /// Sends an `Echo` message and handles it. Does nothing if we are only an observer.
@@ -278,10 +276,9 @@ impl<N: NodeIdT> Broadcast<N> {
             return Ok(Step::default());
         }
         let echo_msg = Message::Echo(p.clone());
-        let mut step: Step<_> = Target::All.message(echo_msg).into();
+        let step: Step<_> = Target::All.message(echo_msg).into();
         let our_id = &self.netinfo.our_id().clone();
-        step.extend(self.handle_echo(our_id, p)?);
-        Ok(step)
+        Ok(step.and(self.handle_echo(our_id, p)?))
     }
 
     /// Sends a `Ready` message and handles it. Does nothing if we are only an observer.
@@ -291,10 +288,9 @@ impl<N: NodeIdT> Broadcast<N> {
             return Ok(Step::default());
         }
         let ready_msg = Message::Ready(*hash);
-        let mut step: Step<_> = Target::All.message(ready_msg).into();
+        let step: Step<_> = Target::All.message(ready_msg).into();
         let our_id = &self.netinfo.our_id().clone();
-        step.extend(self.handle_ready(our_id, hash)?);
-        Ok(step)
+        Ok(step.and(self.handle_ready(our_id, hash)?))
     }
 
     /// Checks whether the conditions for output are met for this hash, and if so, sets the output

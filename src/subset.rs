@@ -234,7 +234,7 @@ impl<N: NodeIdT + Rand> Subset<N> {
         let val_to_insert = if let Some(true) = self.ba_results.get(proposer_id) {
             debug!("    {:?} → {:0.10}", proposer_id, HexFmt(&value));
             step.output
-                .extend(Some(SubsetOutput::Contribution(proposer_id.clone(), value)));
+                .push(SubsetOutput::Contribution(proposer_id.clone(), value));
             None
         } else {
             Some(value)
@@ -247,8 +247,7 @@ impl<N: NodeIdT + Rand> Subset<N> {
             error!("Duplicate insert in broadcast_results: {:?}", inval)
         }
         let set_binary_agreement_input = |ba: &mut BinaryAgreement<N>| ba.handle_input(true);
-        step.extend(self.process_binary_agreement(proposer_id, set_binary_agreement_input)?);
-        Ok(step)
+        Ok(step.and(self.process_binary_agreement(proposer_id, set_binary_agreement_input)?))
     }
 
     /// Callback to be invoked on receipt of the decision value of the Binary Agreement
@@ -318,12 +317,11 @@ impl<N: NodeIdT + Rand> Subset<N> {
             {
                 debug!("    {:?} → {:0.10}", proposer_id, HexFmt(&value));
                 step.output
-                    .extend(Some(SubsetOutput::Contribution(proposer_id.clone(), value)));
+                    .push(SubsetOutput::Contribution(proposer_id.clone(), value));
             }
         }
 
-        step.output.extend(self.try_binary_agreement_completion());
-        Ok(step)
+        Ok(step.with_output(self.try_binary_agreement_completion()))
     }
 
     /// Returns the number of Binary Agreement instances that have decided "yes".

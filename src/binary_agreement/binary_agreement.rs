@@ -232,9 +232,8 @@ impl<N: NodeIdT> BinaryAgreement<N> {
             // Otherwise handle the `Term` as a `BVal`, `Aux` and `Conf`.
             let mut sbvb_step = self.sbv_broadcast.handle_bval(sender_id, b)?;
             sbvb_step.extend(self.sbv_broadcast.handle_aux(sender_id, b)?);
-            let mut step = self.handle_sbvb_step(sbvb_step)?;
-            step.extend(self.handle_conf(sender_id, BoolSet::from(b))?);
-            Ok(step)
+            let step = self.handle_sbvb_step(sbvb_step)?;
+            Ok(step.and(self.handle_conf(sender_id, BoolSet::from(b))?))
         }
     }
 
@@ -272,12 +271,11 @@ impl<N: NodeIdT> BinaryAgreement<N> {
         if !self.netinfo.is_validator() {
             return Ok(Step::default());
         }
-        let mut step: Step<_> = Target::All
+        let step: Step<_> = Target::All
             .message(content.clone().with_epoch(self.epoch))
             .into();
         let our_id = &self.netinfo.our_id().clone();
-        step.extend(self.handle_message_content(our_id, content)?);
-        Ok(step)
+        Ok(step.and(self.handle_message_content(our_id, content)?))
     }
 
     /// Handles a step returned from the `ThresholdSign`.
@@ -346,7 +344,7 @@ impl<N: NodeIdT> BinaryAgreement<N> {
         }
         // Output the Binary Agreement value.
         let mut step = Step::default();
-        step.output.push_back(b);
+        step.output.push(b);
         // Latch the decided state.
         self.decision = Some(b);
         debug!(
@@ -358,7 +356,7 @@ impl<N: NodeIdT> BinaryAgreement<N> {
         );
         if self.netinfo.is_validator() {
             let msg = MessageContent::Term(b).with_epoch(self.epoch + 1);
-            step.messages.push_back(Target::All.message(msg));
+            step.messages.push(Target::All.message(msg));
         }
         step
     }
@@ -374,9 +372,7 @@ impl<N: NodeIdT> BinaryAgreement<N> {
             CoinState::Decided(_) => return Ok(Step::default()), // Coin has already decided.
             CoinState::InProgress(ref mut ts) => ts.sign().map_err(Error::InvokeCoin)?,
         };
-        let mut step = self.on_coin_step(ts_step)?;
-        step.extend(self.try_update_epoch()?);
-        Ok(step)
+        Ok(self.on_coin_step(ts_step)?.and(self.try_update_epoch()?))
     }
 
     /// Counts the number of received `Conf` messages with values in `bin_values`.

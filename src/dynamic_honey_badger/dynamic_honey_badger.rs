@@ -297,7 +297,7 @@ where
             } else {
                 ChangeState::None
             };
-            step.output.push_back(Batch {
+            step.output.push(Batch {
                 epoch: batch_epoch,
                 change,
                 netinfo: Arc::new(self.netinfo.clone()),

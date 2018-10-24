@@ -147,10 +147,9 @@ impl<N: NodeIdT> SbvBroadcast<N> {
         if !self.netinfo.is_validator() {
             return Ok(Step::default());
         }
-        let mut step: Step<_> = Target::All.message(msg.clone()).into();
+        let step: Step<_> = Target::All.message(msg.clone()).into();
         let our_id = &self.netinfo.our_id().clone();
-        step.extend(self.handle_message(our_id, msg)?);
-        Ok(step)
+        Ok(step.and(self.handle_message(our_id, msg)?))
     }
 
     /// Multicasts a `BVal(b)` message, and handles it.
