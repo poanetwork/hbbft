@@ -25,8 +25,8 @@ use network::{Adversary, MessageScheduler, NodeId, SilentAdversary, TestNetwork,
 
 type ProposedValue = Vec<u8>;
 
-fn test_subset<A: Adversary<Subset<NodeId>>>(
-    mut network: TestNetwork<A, Subset<NodeId>>,
+fn test_subset<A: Adversary<Subset<NodeId, u8>>>(
+    mut network: TestNetwork<A, Subset<NodeId, u8>>,
     inputs: &BTreeMap<NodeId, ProposedValue>,
 ) {
     let ids: Vec<NodeId> = network.nodes.keys().cloned().collect();
@@ -75,9 +75,9 @@ fn new_network<A, F>(
     good_num: usize,
     bad_num: usize,
     adversary: F,
-) -> TestNetwork<A, Subset<NodeId>>
+) -> TestNetwork<A, Subset<NodeId, u8>>
 where
-    A: Adversary<Subset<NodeId>>,
+    A: Adversary<Subset<NodeId, u8>>,
     F: Fn(BTreeMap<NodeId, Arc<NetworkInfo<NodeId>>>) -> A,
 {
     // This returns an error in all but the first test.

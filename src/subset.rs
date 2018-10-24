@@ -23,16 +23,21 @@
 //! * Once all `BinaryAgreement` instances have decided, `Subset` returns the set of all proposed
 //! values for which the decision was "yes".
 
+use std::borrow::Borrow;
 use std::collections::{BTreeMap, BTreeSet};
+use std::fmt::{self, Display};
 use std::result;
 use std::sync::Arc;
 
 use hex_fmt::HexFmt;
 
-use binary_agreement::{self, BinaryAgreement};
+use binary_agreement;
 use broadcast::{self, Broadcast};
 use rand::Rand;
-use {DistAlgorithm, NetworkInfo, NodeIdT};
+use {DistAlgorithm, NetworkInfo, NodeIdT, SessionIdT};
+
+type BaInstance<N, S> = binary_agreement::BinaryAgreement<N, BaSessionId<S>>;
+type BaStep<N, S> = binary_agreement::Step<N, BaSessionId<S>>;
 
 /// A subset error.
 #[derive(Clone, PartialEq, Debug, Fail)]
@@ -56,7 +61,7 @@ pub enum Error {
 }
 
 /// A subset result.
-pub type Result<T> = ::std::result::Result<T, Error>;
+pub type Result<T> = result::Result<T, Error>;
 
 // TODO: Make this a generic argument of `Subset`.
 type ProposedValue = Vec<u8>;
@@ -66,18 +71,18 @@ type ProposedValue = Vec<u8>;
 pub enum Message<N: Rand> {
     /// A message for the broadcast algorithm concerning the set element proposed by the given node.
     Broadcast(N, broadcast::Message),
-    /// A message for the Binary Agreement algorithm concerning the set element proposed by the given
-    /// node.
+    /// A message for the Binary Agreement algorithm concerning the set element proposed by the
+    /// given node.
     BinaryAgreement(N, binary_agreement::Message),
 }
 
 /// Subset algorithm instance
 #[derive(Debug)]
-pub struct Subset<N: Rand> {
+pub struct Subset<N: Rand, S> {
     /// Shared network information.
     netinfo: Arc<NetworkInfo<N>>,
     broadcast_instances: BTreeMap<N, Broadcast<N>>,
-    ba_instances: BTreeMap<N, BinaryAgreement<N>>,
+    ba_instances: BTreeMap<N, BaInstance<N, S>>,
     /// `None` means that that item has already been output.
     broadcast_results: BTreeMap<N, Option<ProposedValue>>,
     ba_results: BTreeMap<N, bool>,
@@ -85,25 +90,25 @@ pub struct Subset<N: Rand> {
     decided: bool,
 }
 
-pub type Step<N> = ::Step<Subset<N>>;
+pub type Step<N, S> = ::Step<Subset<N, S>>;
 
-impl<N: NodeIdT + Rand> DistAlgorithm for Subset<N> {
+impl<N: NodeIdT + Rand, S: SessionIdT> DistAlgorithm for Subset<N, S> {
     type NodeId = N;
     type Input = ProposedValue;
     type Output = SubsetOutput<N>;
     type Message = Message<N>;
     type Error = Error;
 
-    fn handle_input(&mut self, input: Self::Input) -> Result<Step<N>> {
+    fn handle_input(&mut self, input: Self::Input) -> Result<Step<N, S>> {
         self.propose(input)
     }
 
-    fn handle_message(&mut self, sender_id: &N, message: Message<N>) -> Result<Step<N>> {
+    fn handle_message(&mut self, sender_id: &N, message: Message<N>) -> Result<Step<N, S>> {
         self.handle_message(sender_id, message)
     }
 
     fn terminated(&self) -> bool {
-        self.ba_instances.values().all(BinaryAgreement::terminated)
+        self.ba_instances.values().all(BaInstance::terminated)
     }
 
     fn our_id(&self) -> &Self::NodeId {
@@ -117,12 +122,12 @@ pub enum SubsetOutput<N> {
     Done,
 }
 
-impl<N: NodeIdT + Rand> Subset<N> {
+impl<N: NodeIdT + Rand, S: SessionIdT> Subset<N, S> {
     /// Creates a new `Subset` instance with the given session identifier.
     ///
     /// If multiple `Subset`s are instantiated within a single network, they must use different
     /// session identifiers to foil replay attacks.
-    pub fn new(netinfo: Arc<NetworkInfo<N>>, session_id: u64) -> Result<Self> {
+    pub fn new<T: Borrow<S>>(netinfo: Arc<NetworkInfo<N>>, session_id: T) -> Result<Self> {
         // Create all broadcast instances.
         let mut broadcast_instances: BTreeMap<N, Broadcast<N>> = BTreeMap::new();
         for proposer_id in netinfo.all_ids() {
@@ -134,12 +139,15 @@ impl<N: NodeIdT + Rand> Subset<N> {
         }
 
         // Create all Binary Agreement instances.
-        let mut ba_instances: BTreeMap<N, BinaryAgreement<N>> = BTreeMap::new();
-        for proposer_id in netinfo.all_ids() {
+        let mut ba_instances: BTreeMap<N, BaInstance<N, S>> = BTreeMap::new();
+        for (proposer_idx, proposer_id) in netinfo.all_ids().enumerate() {
+            let s_id = BaSessionId {
+                subset_id: session_id.borrow().clone(),
+                proposer_idx: proposer_idx as u32,
+            };
             ba_instances.insert(
                 proposer_id.clone(),
-                BinaryAgreement::new(netinfo.clone(), session_id, proposer_id.clone())
-                    .map_err(Error::NewBinaryAgreement)?,
+                BaInstance::new(netinfo.clone(), s_id).map_err(Error::NewBinaryAgreement)?,
             );
         }
 
@@ -156,7 +164,7 @@ impl<N: NodeIdT + Rand> Subset<N> {
     /// Proposes a value for the subset.
     ///
     /// Returns an error if we already made a proposal.
-    pub fn propose(&mut self, value: ProposedValue) -> Result<Step<N>> {
+    pub fn propose(&mut self, value: ProposedValue) -> Result<Step<N, S>> {
         if !self.netinfo.is_validator() {
             return Ok(Step::default());
         }
@@ -168,7 +176,7 @@ impl<N: NodeIdT + Rand> Subset<N> {
     /// Handles a message received from `sender_id`.
     ///
     /// This must be called with every message we receive from another node.
-    pub fn handle_message(&mut self, sender_id: &N, message: Message<N>) -> Result<Step<N>> {
+    pub fn handle_message(&mut self, sender_id: &N, message: Message<N>) -> Result<Step<N, S>> {
         match message {
             Message::Broadcast(p_id, b_msg) => self.handle_broadcast(sender_id, &p_id, b_msg),
             Message::BinaryAgreement(p_id, a_msg) => {
@@ -189,7 +197,7 @@ impl<N: NodeIdT + Rand> Subset<N> {
         sender_id: &N,
         proposer_id: &N,
         bmessage: broadcast::Message,
-    ) -> Result<Step<N>> {
+    ) -> Result<Step<N, S>> {
         self.process_broadcast(proposer_id, |bc| bc.handle_message(sender_id, bmessage))
     }
 
@@ -200,7 +208,7 @@ impl<N: NodeIdT + Rand> Subset<N> {
         sender_id: &N,
         proposer_id: &N,
         amessage: binary_agreement::Message,
-    ) -> Result<Step<N>> {
+    ) -> Result<Step<N, S>> {
         // Send the message to the local instance of Binary Agreement.
         self.process_binary_agreement(proposer_id, |binary_agreement| {
             binary_agreement.handle_message(sender_id, amessage)
@@ -209,7 +217,7 @@ impl<N: NodeIdT + Rand> Subset<N> {
 
     /// Upon delivery of v_j from RBC_j, if input has not yet been provided to
     /// BA_j, then provide input 1 to BA_j. See Figure 11.
-    fn process_broadcast<F>(&mut self, proposer_id: &N, f: F) -> Result<Step<N>>
+    fn process_broadcast<F>(&mut self, proposer_id: &N, f: F) -> Result<Step<N, S>>
     where
         F: FnOnce(&mut Broadcast<N>) -> result::Result<broadcast::Step<N>, broadcast::Error>,
     {
@@ -246,17 +254,16 @@ impl<N: NodeIdT + Rand> Subset<N> {
         {
             error!("Duplicate insert in broadcast_results: {:?}", inval)
         }
-        let set_binary_agreement_input = |ba: &mut BinaryAgreement<N>| ba.handle_input(true);
-        Ok(step
-            .join(self.process_binary_agreement(proposer_id, set_binary_agreement_input)?)
-            .with_output(self.try_binary_agreement_completion()))
+        let set_binary_agreement_input = |ba: &mut BaInstance<N, S>| ba.handle_input(true);
+        step.extend(self.process_binary_agreement(proposer_id, set_binary_agreement_input)?);
+        Ok(step.with_output(self.try_binary_agreement_completion()))
     }
 
     /// Callback to be invoked on receipt of the decision value of the Binary Agreement
     /// instance `id`.
-    fn process_binary_agreement<F>(&mut self, proposer_id: &N, f: F) -> Result<Step<N>>
+    fn process_binary_agreement<F>(&mut self, proposer_id: &N, f: F) -> Result<Step<N, S>>
     where
-        F: FnOnce(&mut BinaryAgreement<N>) -> binary_agreement::Result<binary_agreement::Step<N>>,
+        F: FnOnce(&mut BaInstance<N, S>) -> binary_agreement::Result<BaStep<N, S>>,
     {
         let mut step = Step::default();
         let accepted = {
@@ -373,5 +380,24 @@ impl<N: NodeIdT + Rand> Subset<N> {
         } else {
             None
         }
+    }
+}
+
+/// A session identifier for a `BinaryAgreement` instance run as a `Subset` sub-algorithm. It
+/// consists of the `Subset` instance's own session ID, and the index of the proposer whose
+/// contribution this `BinaryAgreement` is about.
+#[derive(Clone, Debug, Serialize)]
+struct BaSessionId<S> {
+    subset_id: S,
+    proposer_idx: u32,
+}
+
+impl<S: Display> Display for BaSessionId<S> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> result::Result<(), fmt::Error> {
+        write!(
+            f,
+            "subset {}, proposer #{}",
+            self.subset_id, self.proposer_idx
+        )
     }
 }

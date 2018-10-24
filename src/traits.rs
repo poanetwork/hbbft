@@ -1,10 +1,11 @@
 //! Common supertraits for distributed algorithms.
 
-use std::fmt::Debug;
+use std::fmt::{Debug, Display};
 use std::hash::Hash;
 use std::iter::once;
 
 use failure::Fail;
+use serde::Serialize;
 
 use fault_log::{Fault, FaultLog};
 use TargetedMessage;
@@ -20,6 +21,10 @@ impl<N> NodeIdT for N where N: Eq + Ord + Clone + Debug + Hash + Send + Sync {}
 /// Messages.
 pub trait Message: Debug + Send + Sync {}
 impl<M> Message for M where M: Debug + Send + Sync {}
+
+/// Session identifiers.
+pub trait SessionIdT: Display + Serialize + Send + Sync + Clone {}
+impl<S> SessionIdT for S where S: Display + Serialize + Send + Sync + Clone {}
 
 /// Result of one step of the local state machine of a distributed algorithm. Such a result should
 /// be used and never discarded by the client of the algorithm.

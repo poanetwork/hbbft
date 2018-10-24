@@ -18,6 +18,9 @@ pub use super::epoch_state::SubsetHandlingStrategy;
 pub struct HoneyBadger<C, N: Rand> {
     /// Shared network data.
     pub(super) netinfo: Arc<NetworkInfo<N>>,
+    /// A session identifier. Different session IDs foil replay attacks in two instances with the
+    /// same epoch numbers and the same validators.
+    pub(super) session_id: u64,
     /// The earliest epoch from which we have not yet received output.
     pub(super) epoch: u64,
     /// Whether we have already submitted a proposal for the current epoch.
@@ -176,6 +179,7 @@ where
             Entry::Occupied(entry) => entry.into_mut(),
             Entry::Vacant(entry) => entry.insert(EpochState::new(
                 self.netinfo.clone(),
+                self.session_id,
                 epoch,
                 self.subset_handling_strategy.clone(),
             )?),

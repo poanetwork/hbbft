@@ -91,6 +91,7 @@ where
         let max_future_epochs = *max_future_epochs;
         let arc_netinfo = Arc::new(netinfo.clone());
         let honey_badger = HoneyBadger::builder(arc_netinfo.clone())
+            .session_id(epoch)
             .max_future_epochs(max_future_epochs)
             .rng(rng.sub_rng())
             .subset_handling_strategy(subset_handling_strategy.clone())

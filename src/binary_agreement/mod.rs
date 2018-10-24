@@ -68,6 +68,7 @@ mod bool_multimap;
 pub mod bool_set;
 mod sbv_broadcast;
 
+use bincode;
 use rand;
 
 use self::bool_set::BoolSet;
@@ -82,14 +83,23 @@ pub enum Error {
     HandleThresholdSign(threshold_sign::Error),
     #[fail(display = "Error invoking the common coin: {}", _0)]
     InvokeCoin(threshold_sign::Error),
-    #[fail(display = "Unknown proposer")]
-    UnknownProposer,
+    // Strings because `io` and `bincode` errors lack `Eq` and `Clone`.
+    #[fail(display = "Error writing epoch for nonce: {}", _0)]
+    Io(String),
+    #[fail(display = "Error serializing session ID for nonce: {}", _0)]
+    Serialize(String),
+}
+
+impl From<bincode::Error> for Error {
+    fn from(err: bincode::Error) -> Error {
+        Error::Io(format!("{:?}", err))
+    }
 }
 
 /// An Binary Agreement result.
 pub type Result<T> = ::std::result::Result<T, Error>;
 
-pub type Step<N> = ::Step<BinaryAgreement<N>>;
+pub type Step<N, T> = ::Step<BinaryAgreement<N, T>>;
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub enum MessageContent {
@@ -142,28 +152,5 @@ impl rand::Rand for MessageContent {
             "coin" => MessageContent::Coin(Box::new(rng.gen())),
             _ => unreachable!(),
         }
-    }
-}
-
-#[derive(Clone, Debug)]
-struct Nonce(Vec<u8>);
-
-impl Nonce {
-    pub fn new(
-        invocation_id: &[u8],
-        session_id: u64,
-        proposer_id: usize,
-        binary_agreement_epoch: u32,
-    ) -> Self {
-        Nonce(Vec::from(format!(
-            "Nonce for Honey Badger {:?}@{}:{}:{}",
-            invocation_id, session_id, binary_agreement_epoch, proposer_id
-        )))
-    }
-}
-
-impl AsRef<[u8]> for Nonce {
-    fn as_ref(&self) -> &[u8] {
-        self.0.as_ref()
     }
 }
