@@ -112,8 +112,6 @@
 //! `Deserialize` traits so they can be easily serialized or included as part of other serializable
 //! types.
 
-// TODO: Remove this once https://github.com/rust-lang-nursery/error-chain/issues/245 is resolved.
-#![allow(renamed_and_removed_lints)]
 // We put algorithm structs in `src/algorithm/algorithm.rs`.
 #![cfg_attr(feature = "cargo-clippy", allow(module_inception))]
 
