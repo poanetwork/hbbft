@@ -92,7 +92,8 @@ where
         })
     }
 
-    // TODO: Document and return fault logs?
+    /// Inserts committed votes into the counter, if they have higher numbers than the existing
+    /// ones.
     pub fn add_committed_votes<I>(
         &mut self,
         proposer_id: &N,

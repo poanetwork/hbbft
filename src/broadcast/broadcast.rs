@@ -191,9 +191,11 @@ impl<N: NodeIdT> Broadcast<N> {
         }
         if self.echo_sent {
             info!("Node {:?} received multiple Values.", self.netinfo.our_id());
-            // TODO: should receiving two Values from a node be considered
-            // a fault? If so, return a `Fault` here. For now, ignore.
-            return Ok(Step::default());
+            if self.echos.get(self.our_id()) == Some(&p) {
+                return Ok(Step::default());
+            } else {
+                return Ok(Fault::new(sender_id.clone(), FaultKind::MultipleValues).into());
+            }
         }
 
         // If the proof is invalid, log the faulty node behavior and ignore.
