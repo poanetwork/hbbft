@@ -32,8 +32,8 @@ impl EncryptionSchedule {
         match self {
             EncryptionSchedule::Always => true,
             EncryptionSchedule::Never => false,
-            EncryptionSchedule::EveryNthEpoch(n) => (epoch % n as u64) == 0,
-            EncryptionSchedule::TickTock(on, off) => (epoch % (on + off) as u64) <= on as u64,
+            EncryptionSchedule::EveryNthEpoch(n) => (epoch % u64::from(n)) == 0,
+            EncryptionSchedule::TickTock(on, off) => (epoch % u64::from(on + off)) <= u64::from(on),
         }
     }
 }

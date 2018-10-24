@@ -207,7 +207,7 @@ where
             decryption: BTreeMap::default(),
             accepted_proposers: Default::default(),
             subset_handler: subset_handling_strategy.into(),
-            require_decryption: require_decryption,
+            require_decryption,
             _phantom: PhantomData,
         })
     }
