@@ -4,7 +4,7 @@
 use bincode;
 use crossbeam;
 use crossbeam_channel::{Receiver, Sender};
-use serde::{Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Serialize};
 use std::io;
 use std::net::TcpStream;
 
@@ -34,7 +34,7 @@ pub struct CommsTask<'a, M: 'a> {
     pub node_index: usize,
 }
 
-impl<'a, M: Serialize + for<'de> Deserialize<'de> + Send + 'a> CommsTask<'a, M> {
+impl<'a, M: Serialize + DeserializeOwned + Send + 'a> CommsTask<'a, M> {
     pub fn new(
         tx: &'a Sender<SourcedMessage<M, usize>>,
         rx: &'a Receiver<M>,

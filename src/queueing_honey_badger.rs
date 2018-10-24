@@ -28,7 +28,7 @@ use std::{cmp, iter};
 
 use failure::{Backtrace, Context, Fail};
 use rand::{Rand, Rng};
-use serde::{Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Serialize};
 
 use dynamic_honey_badger::{self, Batch as DhbBatch, DynamicHoneyBadger, Message};
 use transaction_queue::TransactionQueue;
@@ -107,8 +107,8 @@ pub type QueueingHoneyBadgerWithStep<T, N, Q> = (QueueingHoneyBadger<T, N, Q>, S
 
 impl<T, N, Q> QueueingHoneyBadgerBuilder<T, N, Q>
 where
-    T: Contribution + Serialize + for<'r> Deserialize<'r> + Clone,
-    N: NodeIdT + Serialize + for<'r> Deserialize<'r> + Rand,
+    T: Contribution + Serialize + DeserializeOwned + Clone,
+    N: NodeIdT + Serialize + DeserializeOwned + Rand,
     Q: TransactionQueue<T>,
 {
     /// Returns a new `QueueingHoneyBadgerBuilder` configured to use the node IDs and cryptographic
@@ -140,7 +140,6 @@ where
     /// Creates a new Queueing Honey Badger instance with an empty buffer.
     pub fn build<R>(self, rng: R) -> QueueingHoneyBadgerWithStep<T, N, Q>
     where
-        T: Contribution + Serialize + for<'r> Deserialize<'r>,
         R: 'static + Rng + Send + Sync,
     {
         self.build_with_transactions(None, rng)
@@ -156,7 +155,6 @@ where
     ) -> Result<QueueingHoneyBadgerWithStep<T, N, Q>>
     where
         TI: IntoIterator<Item = T>,
-        T: Contribution + Serialize + for<'r> Deserialize<'r>,
         R: 'static + Rng + Send + Sync,
     {
         self.queue.extend(txs);
@@ -175,12 +173,7 @@ where
 /// queue.
 #[derive(Derivative)]
 #[derivative(Debug)]
-pub struct QueueingHoneyBadger<T, N, Q>
-where
-    T: Contribution + Serialize + for<'r> Deserialize<'r>,
-    N: NodeIdT + Serialize + for<'r> Deserialize<'r> + Rand,
-    Q: TransactionQueue<T>,
-{
+pub struct QueueingHoneyBadger<T, N: Rand, Q> {
     /// The target number of transactions to be included in each batch.
     batch_size: usize,
     /// The internal `DynamicHoneyBadger` instance.
@@ -196,8 +189,8 @@ pub type Step<T, N, Q> = ::Step<QueueingHoneyBadger<T, N, Q>>;
 
 impl<T, N, Q> DistAlgorithm for QueueingHoneyBadger<T, N, Q>
 where
-    T: Contribution + Serialize + for<'r> Deserialize<'r> + Clone,
-    N: NodeIdT + Serialize + for<'r> Deserialize<'r> + Rand,
+    T: Contribution + Serialize + DeserializeOwned + Clone,
+    N: NodeIdT + Serialize + DeserializeOwned + Rand,
     Q: TransactionQueue<T>,
 {
     type NodeId = N;
@@ -230,8 +223,8 @@ where
 
 impl<T, N, Q> QueueingHoneyBadger<T, N, Q>
 where
-    T: Contribution + Serialize + for<'r> Deserialize<'r> + Clone,
-    N: NodeIdT + Serialize + for<'r> Deserialize<'r> + Rand,
+    T: Contribution + Serialize + DeserializeOwned + Clone,
+    N: NodeIdT + Serialize + DeserializeOwned + Rand,
     Q: TransactionQueue<T>,
 {
     /// Returns a new `QueueingHoneyBadgerBuilder` configured to use the node IDs and cryptographic

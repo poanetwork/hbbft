@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use bincode;
 use rand::{Rand, Rng};
-use serde::{Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Serialize};
 
 use super::epoch_state::EpochState;
 use super::{Batch, Error, ErrorKind, HoneyBadgerBuilder, Message, MessageContent, Result};
@@ -40,7 +40,7 @@ pub type Step<C, N> = ::Step<HoneyBadger<C, N>>;
 
 impl<C, N> DistAlgorithm for HoneyBadger<C, N>
 where
-    C: Contribution + Serialize + for<'r> Deserialize<'r>,
+    C: Contribution + Serialize + DeserializeOwned,
     N: NodeIdT + Rand,
 {
     type NodeId = N;
@@ -68,7 +68,7 @@ where
 
 impl<C, N> HoneyBadger<C, N>
 where
-    C: Contribution + Serialize + for<'r> Deserialize<'r>,
+    C: Contribution + Serialize + DeserializeOwned,
     N: NodeIdT + Rand,
 {
     /// Returns a new `HoneyBadgerBuilder` configured to use the node IDs and cryptographic keys
