@@ -234,12 +234,22 @@ where
     }
 
     /// Adds a transaction to the queue.
+    ///
+    /// This can be called at any time to append to the transaction queue. The new transaction will
+    /// be proposed in some future epoch.
+    ///
+    /// If no proposal has yet been made for the current epoch, this may trigger one. In this case,
+    /// a nonempty step will returned, with the corresponding messages. (Or, if we are the only
+    /// validator, even with the completed batch as an output.)
     pub fn push_transaction(&mut self, tx: T) -> Result<Step<T, N, Q>> {
         self.queue.extend(iter::once(tx));
         self.propose()
     }
 
     /// Casts a vote to change the set of validators.
+    ///
+    /// This stores a pending vote for the change. It will be included in some future batch, and
+    /// once enough validators have been voted for the same change, it will take effect.
     pub fn vote_for(&mut self, change: Change<N>) -> Result<Step<T, N, Q>> {
         let mut step = self
             .dyn_hb
@@ -250,7 +260,9 @@ where
         Ok(step)
     }
 
-    /// Handles an incoming message.
+    /// Handles a message received from `sender_id`.
+    ///
+    /// This must be called with every message we receive from another node.
     pub fn handle_message(&mut self, sender_id: &N, message: Message<N>) -> Result<Step<T, N, Q>> {
         let mut step = self
             .dyn_hb

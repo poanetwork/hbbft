@@ -93,6 +93,11 @@ where
     }
 
     /// Proposes a contribution in the current epoch.
+    ///
+    /// Returns an error if we already made a proposal in this epoch.
+    ///
+    /// If we are the only validator, this will immediately output a batch, containing our
+    /// proposal.
     pub fn propose(&mut self, contrib: C) -> Result<Step<C, N>> {
         let key_gen_messages = self
             .key_gen_msg_buffer
@@ -111,6 +116,9 @@ where
     }
 
     /// Casts a vote to change the set of validators.
+    ///
+    /// This stores a pending vote for the change. It will be included in some future batch, and
+    /// once enough validators have been voted for the same change, it will take effect.
     pub fn vote_for(&mut self, change: Change<N>) -> Result<Step<C, N>> {
         if !self.netinfo.is_validator() {
             return Ok(Step::default()); // TODO: Return an error?
@@ -120,7 +128,9 @@ where
         Ok(Target::All.message(msg).into())
     }
 
-    /// Handles an incoming message.
+    /// Handles a message received from `sender_id`.
+    ///
+    /// This must be called with every message we receive from another node.
     pub fn handle_message(&mut self, sender_id: &N, message: Message<N>) -> Result<Step<C, N>> {
         let epoch = message.start_epoch();
         if epoch < self.start_epoch {
