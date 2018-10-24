@@ -111,8 +111,7 @@ impl Adversary<UsizeHoneyBadger> for FaultyShareAdversary {
                                 MessageContent::DecryptionShare {
                                     proposer_id: NodeId(proposer_id),
                                     share: threshold_decryption::Message(share.clone()),
-                                }
-                                .with_epoch(*epoch),
+                                }.with_epoch(*epoch),
                             ),
                         ))
                     }
@@ -175,8 +174,7 @@ where
                      epoch,
                      contributions,
                  }| (epoch, contributions),
-            )
-            .collect();
+            ).collect();
         if expected.is_none() {
             expected = Some(outputs);
         } else if let Some(expected) = &expected {

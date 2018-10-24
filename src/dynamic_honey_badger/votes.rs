@@ -217,8 +217,7 @@ mod tests {
                         .sign_vote_for(Change::NodeChange(change))
                         .expect("sign vote")
                         .clone()
-                })
-                .collect::<Vec<_>>()
+                }).collect::<Vec<_>>()
         };
         let signed_votes: Vec<_> = counters.iter_mut().map(sign_votes).collect();
         (counters, signed_votes)

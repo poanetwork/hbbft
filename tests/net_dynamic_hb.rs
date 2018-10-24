@@ -140,8 +140,7 @@ fn do_drop_and_readd(cfg: TestConfig) {
     // Afterwards, remove a specific node from the dynamic honey badger network.
     net.broadcast_input(&Input::Change(Change::NodeChange(NodeChange::Remove(
         pivot_node_id,
-    ))))
-    .expect("broadcasting failed");
+    )))).expect("broadcasting failed");
 
     // We are tracking (correct) nodes' state through the process by ticking them off individually.
     let mut awaiting_removal: collections::BTreeSet<_> =
@@ -175,8 +174,7 @@ fn do_drop_and_readd(cfg: TestConfig) {
                         .handle_input(Input::Change(Change::NodeChange(NodeChange::Add(
                             *pivot_node_id,
                             pk,
-                        ))))
-                        .expect("failed to send `Add` input");
+                        )))).expect("failed to send `Add` input");
                 }
 
                 ChangeState::Complete(Change::NodeChange(NodeChange::Add(pivot_node_id, _))) => {

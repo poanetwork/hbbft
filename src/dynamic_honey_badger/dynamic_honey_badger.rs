@@ -124,8 +124,7 @@ where
                 contrib,
                 key_gen_messages,
                 votes: self.vote_counter.pending_votes().cloned().collect(),
-            })
-            .map_err(ErrorKind::ProposeHoneyBadger)?;
+            }).map_err(ErrorKind::ProposeHoneyBadger)?;
         self.process_output(step)
     }
 

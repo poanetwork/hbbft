@@ -733,8 +733,7 @@ where
                 });
                 steps.insert(id.clone(), step);
                 (id, Node::new(algorithm, is_faulty))
-            })
-            .collect();
+            }).collect();
 
         let mut message_count: usize = 0;
         // For every recorded step, apply it.
@@ -867,8 +866,7 @@ where
             self.nodes
                 .get(&msg.to)
                 .ok_or_else(|| CrankError::NodeDisappeared(msg.to.clone()))
-        )
-        .is_faulty();
+        ).is_faulty();
 
         let step: Step<_> = if is_faulty {
             // The swap-dance is painful here, as we are creating an `opt_step` just to avoid
@@ -949,8 +947,7 @@ where
                     node.id().clone(),
                     node.algorithm.handle_input(input.clone())?,
                 ))
-            })
-            .collect::<Result<_, _>>()?;
+            }).collect::<Result<_, _>>()?;
 
         // Process all messages from all steps in the queue.
         steps.iter().for_each(|(id, step)| {
