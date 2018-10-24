@@ -99,7 +99,7 @@ impl<N: NodeIdT> Broadcast<N> {
         // from this tree and send them, each to its own node.
         let (proof, step) = self.send_shards(input)?;
         let our_id = &self.our_id().clone();
-        Ok(step.and(self.handle_value(our_id, proof)?))
+        Ok(step.join(self.handle_value(our_id, proof)?))
     }
 
     /// Handles a message received from `sender_id`.
@@ -266,7 +266,7 @@ impl<N: NodeIdT> Broadcast<N> {
             // Enqueue a broadcast of a Ready message.
             step.extend(self.send_ready(hash)?);
         }
-        Ok(step.and(self.compute_output(hash)?))
+        Ok(step.join(self.compute_output(hash)?))
     }
 
     /// Sends an `Echo` message and handles it. Does nothing if we are only an observer.
@@ -278,7 +278,7 @@ impl<N: NodeIdT> Broadcast<N> {
         let echo_msg = Message::Echo(p.clone());
         let step: Step<_> = Target::All.message(echo_msg).into();
         let our_id = &self.our_id().clone();
-        Ok(step.and(self.handle_echo(our_id, p)?))
+        Ok(step.join(self.handle_echo(our_id, p)?))
     }
 
     /// Sends a `Ready` message and handles it. Does nothing if we are only an observer.
@@ -290,7 +290,7 @@ impl<N: NodeIdT> Broadcast<N> {
         let ready_msg = Message::Ready(*hash);
         let step: Step<_> = Target::All.message(ready_msg).into();
         let our_id = &self.our_id().clone();
-        Ok(step.and(self.handle_ready(our_id, hash)?))
+        Ok(step.join(self.handle_ready(our_id, hash)?))
     }
 
     /// Checks whether the conditions for output are met for this hash, and if so, sets the output

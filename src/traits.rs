@@ -107,7 +107,7 @@ where
     }
 
     /// Extends this step with `other` and returns the result.
-    pub fn and(mut self, other: Self) -> Self {
+    pub fn join(mut self, other: Self) -> Self {
         self.extend(other);
         self
     }

@@ -149,7 +149,7 @@ impl<N: NodeIdT> SbvBroadcast<N> {
         }
         let step: Step<_> = Target::All.message(msg.clone()).into();
         let our_id = &self.our_id().clone();
-        Ok(step.and(self.handle_message(our_id, msg)?))
+        Ok(step.join(self.handle_message(our_id, msg)?))
     }
 
     /// Multicasts a `BVal(b)` message, and handles it.

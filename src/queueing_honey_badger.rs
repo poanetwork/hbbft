@@ -256,7 +256,7 @@ where
             .handle_input(Input::Change(change))
             .map_err(ErrorKind::Input)?
             .convert()
-            .and(self.propose()?))
+            .join(self.propose()?))
     }
 
     /// Handles a message received from `sender_id`.
@@ -271,7 +271,7 @@ where
         for batch in &step.output {
             self.queue.remove_multiple(batch.iter());
         }
-        Ok(step.and(self.propose()?))
+        Ok(step.join(self.propose()?))
     }
 
     /// Returns a reference to the internal `DynamicHoneyBadger` instance.

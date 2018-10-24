@@ -97,7 +97,7 @@ where
             .encrypt_with_rng(&mut self.rng, ser_prop);
         let epoch = self.epoch;
         let step = self.epoch_state_mut(epoch)?.propose(&ciphertext)?;
-        Ok(step.and(self.try_output_batches()?))
+        Ok(step.join(self.try_output_batches()?))
     }
 
     /// Handles a message received from `sender_id`.
@@ -118,7 +118,7 @@ where
             let step = self
                 .epoch_state_mut(epoch)?
                 .handle_message_content(sender_id, content)?;
-            return Ok(step.and(self.try_output_batches()?));
+            return Ok(step.join(self.try_output_batches()?));
         } // And ignore all messages from past epochs.
         Ok(Step::default())
     }

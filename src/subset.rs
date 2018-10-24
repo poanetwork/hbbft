@@ -247,7 +247,7 @@ impl<N: NodeIdT + Rand> Subset<N> {
             error!("Duplicate insert in broadcast_results: {:?}", inval)
         }
         let set_binary_agreement_input = |ba: &mut BinaryAgreement<N>| ba.handle_input(true);
-        Ok(step.and(self.process_binary_agreement(proposer_id, set_binary_agreement_input)?))
+        Ok(step.join(self.process_binary_agreement(proposer_id, set_binary_agreement_input)?))
     }
 
     /// Callback to be invoked on receipt of the decision value of the Binary Agreement
