@@ -87,7 +87,7 @@ impl<N: NodeIdT> Broadcast<N> {
 
     /// Initiates the broadcast. This must only be called in the proposer node.
     pub fn broadcast(&mut self, input: Vec<u8>) -> Result<Step<N>> {
-        if *self.netinfo.our_id() != self.proposer_id {
+        if *self.our_id() != self.proposer_id {
             return Err(Error::InstanceCannotPropose);
         }
         if self.value_sent {
@@ -98,7 +98,7 @@ impl<N: NodeIdT> Broadcast<N> {
         // Assemble a Merkle tree from data and parity shards. Take all proofs
         // from this tree and send them, each to its own node.
         let (proof, step) = self.send_shards(input)?;
-        let our_id = &self.netinfo.our_id().clone();
+        let our_id = &self.our_id().clone();
         Ok(step.and(self.handle_value(our_id, proof)?))
     }
 
@@ -171,7 +171,7 @@ impl<N: NodeIdT> Broadcast<N> {
         // Send each proof to a node.
         for (index, id) in self.netinfo.all_ids().enumerate() {
             let proof = mtree.proof(index).ok_or(Error::ProofConstructionFailed)?;
-            if *id == *self.netinfo.our_id() {
+            if *id == *self.our_id() {
                 // The proof is addressed to this node.
                 result = Ok(proof);
             } else {
@@ -190,7 +190,7 @@ impl<N: NodeIdT> Broadcast<N> {
         if *sender_id != self.proposer_id {
             info!(
                 "Node {:?} received Value from {:?} instead of {:?}.",
-                self.netinfo.our_id(),
+                self.our_id(),
                 sender_id,
                 self.proposer_id
             );
@@ -198,7 +198,7 @@ impl<N: NodeIdT> Broadcast<N> {
             return Ok(Fault::new(sender_id.clone(), fault_kind).into());
         }
         if self.echo_sent {
-            info!("Node {:?} received multiple Values.", self.netinfo.our_id());
+            info!("Node {:?} received multiple Values.", self.our_id());
             if self.echos.get(self.our_id()) == Some(&p) {
                 return Ok(Step::default());
             } else {
@@ -207,7 +207,7 @@ impl<N: NodeIdT> Broadcast<N> {
         }
 
         // If the proof is invalid, log the faulty node behavior and ignore.
-        if !self.validate_proof(&p, &self.netinfo.our_id()) {
+        if !self.validate_proof(&p, &self.our_id()) {
             return Ok(Fault::new(sender_id.clone(), FaultKind::InvalidProof).into());
         }
 
@@ -221,7 +221,7 @@ impl<N: NodeIdT> Broadcast<N> {
         if self.echos.contains_key(sender_id) {
             info!(
                 "Node {:?} received multiple Echos from {:?}.",
-                self.netinfo.our_id(),
+                self.our_id(),
                 sender_id,
             );
             return Ok(Step::default());
@@ -251,7 +251,7 @@ impl<N: NodeIdT> Broadcast<N> {
         if self.readys.contains_key(sender_id) {
             info!(
                 "Node {:?} received multiple Readys from {:?}.",
-                self.netinfo.our_id(),
+                self.our_id(),
                 sender_id
             );
             return Ok(Step::default());
@@ -277,7 +277,7 @@ impl<N: NodeIdT> Broadcast<N> {
         }
         let echo_msg = Message::Echo(p.clone());
         let step: Step<_> = Target::All.message(echo_msg).into();
-        let our_id = &self.netinfo.our_id().clone();
+        let our_id = &self.our_id().clone();
         Ok(step.and(self.handle_echo(our_id, p)?))
     }
 
@@ -289,7 +289,7 @@ impl<N: NodeIdT> Broadcast<N> {
         }
         let ready_msg = Message::Ready(*hash);
         let step: Step<_> = Target::All.message(ready_msg).into();
-        let our_id = &self.netinfo.our_id().clone();
+        let our_id = &self.our_id().clone();
         Ok(step.and(self.handle_ready(our_id, hash)?))
     }
 
@@ -332,14 +332,14 @@ impl<N: NodeIdT> Broadcast<N> {
         if !p.validate(self.netinfo.num_nodes()) {
             info!(
                 "Node {:?} received invalid proof: {:?}",
-                self.netinfo.our_id(),
+                self.our_id(),
                 HexProof(&p)
             );
             false
         } else if self.netinfo.node_index(id) != Some(p.index()) {
             info!(
                 "Node {:?} received proof for wrong position: {:?}.",
-                self.netinfo.our_id(),
+                self.our_id(),
                 HexProof(&p)
             );
             false

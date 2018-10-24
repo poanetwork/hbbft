@@ -148,7 +148,7 @@ impl<N: NodeIdT> SbvBroadcast<N> {
             return Ok(Step::default());
         }
         let step: Step<_> = Target::All.message(msg.clone()).into();
-        let our_id = &self.netinfo.our_id().clone();
+        let our_id = &self.our_id().clone();
         Ok(step.and(self.handle_message(our_id, msg)?))
     }
 

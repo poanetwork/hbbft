@@ -160,7 +160,7 @@ impl<N: NodeIdT + Rand> Subset<N> {
         if !self.netinfo.is_validator() {
             return Ok(Step::default());
         }
-        let id = self.netinfo.our_id().clone();
+        let id = self.our_id().clone();
         debug!("{:?} Proposing {:0.10}", id, HexFmt(&value));
         self.process_broadcast(&id, |bc| bc.handle_input(value))
     }
@@ -288,7 +288,7 @@ impl<N: NodeIdT + Rand> Subset<N> {
 
         debug!(
             "{:?} Updated Binary Agreement results: {:?}",
-            self.netinfo.our_id(),
+            self.our_id(),
             self.ba_results
         );
 
@@ -341,7 +341,7 @@ impl<N: NodeIdT + Rand> Subset<N> {
         }
         debug!(
             "{:?} All Binary Agreement instances have terminated",
-            self.netinfo.our_id()
+            self.our_id()
         );
         // All instances of BinaryAgreement that delivered `true` (or "1" in the paper).
         let delivered_1: BTreeSet<&N> = self
@@ -364,10 +364,7 @@ impl<N: NodeIdT + Rand> Subset<N> {
             .collect();
 
         if delivered_1.len() == broadcast_results.len() {
-            debug!(
-                "{:?} Binary Agreement instances completed:",
-                self.netinfo.our_id()
-            );
+            debug!("{:?} Binary Agreement instances completed:", self.our_id());
             self.decided = true;
             Some(SubsetOutput::Done)
         } else {

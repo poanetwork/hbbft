@@ -274,7 +274,7 @@ impl<N: NodeIdT> BinaryAgreement<N> {
         let step: Step<_> = Target::All
             .message(content.clone().with_epoch(self.epoch))
             .into();
-        let our_id = &self.netinfo.our_id().clone();
+        let our_id = &self.our_id().clone();
         Ok(step.and(self.handle_message_content(our_id, content)?))
     }
 
@@ -349,7 +349,7 @@ impl<N: NodeIdT> BinaryAgreement<N> {
         self.decision = Some(b);
         debug!(
             "{:?}/{:?} (is_validator: {}) decision: {}",
-            self.netinfo.our_id(),
+            self.our_id(),
             self.proposer_id,
             self.netinfo.is_validator(),
             b
@@ -393,7 +393,7 @@ impl<N: NodeIdT> BinaryAgreement<N> {
         self.coin_state = self.coin_state();
         debug!(
             "{:?} BinaryAgreement instance {:?} started epoch {}, {} terminated",
-            self.netinfo.our_id(),
+            self.our_id(),
             self.proposer_id,
             self.epoch,
             self.received_conf.len(),

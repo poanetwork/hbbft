@@ -390,7 +390,7 @@ where
             bincode::serialize(&kg_msg).map_err(|err| ErrorKind::SendTransactionBincode(*err))?;
         let sig = Box::new(self.netinfo.secret_key().sign(ser));
         if self.netinfo.is_validator() {
-            let our_id = self.netinfo.our_id().clone();
+            let our_id = self.our_id().clone();
             let signed_msg =
                 SignedKeyGenMsg(self.start_epoch, our_id, kg_msg.clone(), *sig.clone());
             self.key_gen_msg_buffer.push(signed_msg);
