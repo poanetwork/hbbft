@@ -187,10 +187,10 @@ impl<N> SignedVote<N> {
 mod tests {
     use std::sync::Arc;
 
-    use rand;
     use super::super::NodeChange;
     use super::{Change, SignedVote, VoteCounter};
     use fault_log::{FaultKind, FaultLog};
+    use rand;
     use NetworkInfo;
 
     /// Returns a vector of `node_num` `VoteCounter`s, and some signed example votes.
@@ -212,7 +212,12 @@ mod tests {
         let sign_votes = |counter: &mut VoteCounter<usize>| {
             (0..node_num)
                 .map(NodeChange::Remove)
-                .map(|change| counter.sign_vote_for(Change::NodeChange(change)).expect("sign vote").clone())
+                .map(|change| {
+                    counter
+                        .sign_vote_for(Change::NodeChange(change))
+                        .expect("sign vote")
+                        .clone()
+                })
                 .collect::<Vec<_>>()
         };
         let signed_votes: Vec<_> = counters.iter_mut().map(sign_votes).collect();
@@ -299,6 +304,9 @@ mod tests {
             .add_committed_vote(&1, sv[2][1].clone())
             .expect("add committed");
         assert!(faults.is_empty());
-        assert_eq!(ct.compute_winner(), Some(&Change::NodeChange(NodeChange::Remove(1))));
+        assert_eq!(
+            ct.compute_winner(),
+            Some(&Change::NodeChange(NodeChange::Remove(1)))
+        );
     }
 }

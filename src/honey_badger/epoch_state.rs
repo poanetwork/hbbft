@@ -68,7 +68,8 @@ where
         match self {
             SubsetState::Ongoing(ref mut cs) => cs.handle_input(proposal),
             SubsetState::Complete(_) => return Ok(cs::Step::default()),
-        }.map_err(|err| ErrorKind::InputSubset(err).into())
+        }
+        .map_err(|err| ErrorKind::InputSubset(err).into())
     }
 
     /// Handles a message in the Subset instance, unless it has already completed.
@@ -76,7 +77,8 @@ where
         match self {
             SubsetState::Ongoing(ref mut cs) => cs.handle_message(sender_id, msg),
             SubsetState::Complete(_) => return Ok(cs::Step::default()),
-        }.map_err(|err| ErrorKind::HandleSubsetMessage(err).into())
+        }
+        .map_err(|err| ErrorKind::HandleSubsetMessage(err).into())
     }
 
     /// Returns the number of contributions that we have already received or, after completion, how
@@ -247,7 +249,8 @@ where
                     Entry::Vacant(entry) => {
                         entry.insert(DecryptionState::new(self.netinfo.clone()))
                     }
-                }.handle_message(sender_id, share)
+                }
+                .handle_message(sender_id, share)
                 .map_err(ErrorKind::ThresholdDecryption)?;
                 self.process_decryption(proposer_id, td_step)
             }
@@ -345,7 +348,8 @@ where
             MessageContent::DecryptionShare {
                 proposer_id: proposer_id.clone(),
                 share,
-            }.with_epoch(self.epoch)
+            }
+            .with_epoch(self.epoch)
         });
         if let Some(output) = opt_output.into_iter().next() {
             self.decryption
@@ -370,7 +374,8 @@ where
         let td_result = match self.decryption.entry(proposer_id.clone()) {
             Entry::Occupied(entry) => entry.into_mut(),
             Entry::Vacant(entry) => entry.insert(DecryptionState::new(self.netinfo.clone())),
-        }.set_ciphertext(ciphertext);
+        }
+        .set_ciphertext(ciphertext);
         match td_result {
             Ok(td_step) => self.process_decryption(proposer_id, td_step),
             Err(td::Error::InvalidCiphertext(_)) => {

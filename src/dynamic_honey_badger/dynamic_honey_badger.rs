@@ -9,8 +9,9 @@ use serde::{Deserialize, Serialize};
 
 use super::votes::{SignedVote, VoteCounter};
 use super::{
-    Batch, Change, NodeChange, ChangeState, DynamicHoneyBadgerBuilder, Error, ErrorKind, Input,
-    InternalContrib, KeyGenMessage, KeyGenState, Message, Result, SignedKeyGenMsg, Step,
+    Batch, Change, ChangeState, DynamicHoneyBadgerBuilder, Error, ErrorKind, Input,
+    InternalContrib, KeyGenMessage, KeyGenState, Message, NodeChange, Result, SignedKeyGenMsg,
+    Step,
 };
 use fault_log::{Fault, FaultKind, FaultLog};
 use honey_badger::{self, HoneyBadger, Message as HbMessage};
@@ -123,7 +124,8 @@ where
                 contrib,
                 key_gen_messages,
                 votes: self.vote_counter.pending_votes().cloned().collect(),
-            }).map_err(ErrorKind::ProposeHoneyBadger)?;
+            })
+            .map_err(ErrorKind::ProposeHoneyBadger)?;
         self.process_output(step)
     }
 
@@ -301,7 +303,9 @@ where
                 // If there is a new change, restart DKG. Inform the user about the current change.
                 step.extend(match &change {
                     Change::NodeChange(change) => self.update_key_gen(batch_epoch + 1, &change)?,
-                    Change::EncryptionSchedule(_) => self.update_encryption_schedule(batch_epoch + 1, &change)?,
+                    Change::EncryptionSchedule(_) => {
+                        self.update_encryption_schedule(batch_epoch + 1, &change)?
+                    }
                 });
                 ChangeState::InProgress(change)
             } else {
@@ -324,17 +328,25 @@ where
         Ok(step)
     }
 
-    pub(super) fn update_encryption_schedule(&mut self, epoch: u64, change: &Change<N>) -> Result<Step<C, N>> {
+    pub(super) fn update_encryption_schedule(
+        &mut self,
+        epoch: u64,
+        change: &Change<N>,
+    ) -> Result<Step<C, N>> {
         self.restart_honey_badger(epoch);
         if let Change::EncryptionSchedule(schedule) = change {
             self.honey_badger.encryption_schedule = *schedule;
         }
-        Ok(Step::default())   
+        Ok(Step::default())
     }
 
     /// If the winner of the vote has changed, restarts Key Generation for the set of nodes implied
     /// by the current change.
-    pub(super) fn update_key_gen(&mut self, epoch: u64, change: &NodeChange<N>) -> Result<Step<C, N>> {
+    pub(super) fn update_key_gen(
+        &mut self,
+        epoch: u64,
+        change: &NodeChange<N>,
+    ) -> Result<Step<C, N>> {
         if self.key_gen_state.as_ref().map(|kgs| &kgs.change) == Some(change) {
             return Ok(Step::default()); // The change is the same as before. Continue DKG as is.
         }

@@ -7,9 +7,9 @@ use serde::{Deserialize, Serialize};
 
 use super::HoneyBadger;
 use honey_badger::SubsetHandlingStrategy;
+use threshold_decryption::EncryptionSchedule;
 use util::SubRng;
 use {Contribution, NetworkInfo, NodeIdT};
-use threshold_decryption::EncryptionSchedule;
 
 /// A Honey Badger builder, to configure the parameters and create new instances of `HoneyBadger`.
 pub struct HoneyBadgerBuilder<C, N> {

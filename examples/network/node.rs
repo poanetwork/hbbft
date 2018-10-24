@@ -189,7 +189,8 @@ impl<T: Clone + Debug + AsRef<[u8]> + PartialEq + Send + Sync + From<Vec<u8>> + 
                         // FIXME: handle error
                         c.stream.try_clone().unwrap(),
                         node_index,
-                    ).run()
+                    )
+                    .run()
                     {
                         Ok(_) => debug!("Comms task {} succeeded", node_index),
                         Err(e) => error!("Comms task {}: {:?}", node_index, e),
@@ -209,7 +210,8 @@ impl<T: Clone + Debug + AsRef<[u8]> + PartialEq + Send + Sync + From<Vec<u8>> + 
                 .send(())
                 .map_err(|e| {
                     error!("{}", e);
-                }).unwrap();
+                })
+                .unwrap();
 
             process::exit(0);
         }) // end of thread scope

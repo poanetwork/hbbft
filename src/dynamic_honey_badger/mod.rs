@@ -73,7 +73,7 @@ use NodeIdT;
 
 pub use self::batch::Batch;
 pub use self::builder::DynamicHoneyBadgerBuilder;
-pub use self::change::{Change, NodeChange, ChangeState};
+pub use self::change::{Change, ChangeState, NodeChange};
 pub use self::dynamic_honey_badger::DynamicHoneyBadger;
 pub use self::error::{Error, ErrorKind, Result};
 

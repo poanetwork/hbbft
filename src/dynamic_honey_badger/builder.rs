@@ -9,9 +9,9 @@ use serde::{Deserialize, Serialize};
 
 use super::{Change, ChangeState, DynamicHoneyBadger, JoinPlan, Result, Step, VoteCounter};
 use honey_badger::{HoneyBadger, SubsetHandlingStrategy};
+use threshold_decryption::EncryptionSchedule;
 use util::SubRng;
 use {Contribution, NetworkInfo, NodeIdT};
-use threshold_decryption::EncryptionSchedule;
 
 /// A Dynamic Honey Badger builder, to configure the parameters and create new instances of
 /// `DynamicHoneyBadger`.
@@ -163,11 +163,9 @@ where
             rng: Box::new(self.rng.sub_rng()),
         };
         let step = match join_plan.change {
-            ChangeState::InProgress(ref change) => {
-                match change {
-                    Change::NodeChange(change) => dhb.update_key_gen(join_plan.epoch, change)?,
-                    _ => Step::default(),
-                }
+            ChangeState::InProgress(ref change) => match change {
+                Change::NodeChange(change) => dhb.update_key_gen(join_plan.epoch, change)?,
+                _ => Step::default(),
             },
             ChangeState::None | ChangeState::Complete(..) => Step::default(),
         };

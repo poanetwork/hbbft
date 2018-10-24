@@ -10,7 +10,7 @@ pub mod net;
 
 use std::{collections, time};
 
-use hbbft::dynamic_honey_badger::{Change, NodeChange, ChangeState, DynamicHoneyBadger, Input};
+use hbbft::dynamic_honey_badger::{Change, ChangeState, DynamicHoneyBadger, Input, NodeChange};
 use hbbft::DistAlgorithm;
 use net::proptest::{gen_seed, NetworkDimension, TestRng, TestRngSeed};
 use net::NetBuilder;
@@ -106,7 +106,8 @@ fn do_drop_and_readd(cfg: TestConfig) {
             DynamicHoneyBadger::builder()
                 .rng(node.rng)
                 .build(node.netinfo)
-        }).build()
+        })
+        .build()
         .expect("could not construct test network");
 
     // We will use the first correct node as the node we will remove from and re-add to the network.
@@ -137,8 +138,10 @@ fn do_drop_and_readd(cfg: TestConfig) {
     }
 
     // Afterwards, remove a specific node from the dynamic honey badger network.
-    net.broadcast_input(&Input::Change(Change::NodeChange(NodeChange::Remove(pivot_node_id))))
-        .expect("broadcasting failed");
+    net.broadcast_input(&Input::Change(Change::NodeChange(NodeChange::Remove(
+        pivot_node_id,
+    ))))
+    .expect("broadcasting failed");
 
     // We are tracking (correct) nodes' state through the process by ticking them off individually.
     let mut awaiting_removal: collections::BTreeSet<_> =
@@ -169,7 +172,10 @@ fn do_drop_and_readd(cfg: TestConfig) {
                         .public_key();
                     let _ = net[node_id]
                         .algorithm_mut()
-                        .handle_input(Input::Change(Change::NodeChange(NodeChange::Add(*pivot_node_id, pk))))
+                        .handle_input(Input::Change(Change::NodeChange(NodeChange::Add(
+                            *pivot_node_id,
+                            pk,
+                        ))))
                         .expect("failed to send `Add` input");
                 }
 
