@@ -5,7 +5,7 @@ use std::sync::Arc;
 use bincode;
 use crypto::Signature;
 use rand::{self, Rand};
-use serde::{Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Serialize};
 
 use super::votes::{SignedVote, VoteCounter};
 use super::{
@@ -46,8 +46,8 @@ pub struct DynamicHoneyBadger<C, N: Rand> {
 
 impl<C, N> DistAlgorithm for DynamicHoneyBadger<C, N>
 where
-    C: Contribution + Serialize + for<'r> Deserialize<'r>,
-    N: NodeIdT + Serialize + for<'r> Deserialize<'r> + Rand,
+    C: Contribution + Serialize + DeserializeOwned,
+    N: NodeIdT + Serialize + DeserializeOwned + Rand,
 {
     type NodeId = N;
     type Input = Input<C, N>;
@@ -79,8 +79,8 @@ where
 
 impl<C, N> DynamicHoneyBadger<C, N>
 where
-    C: Contribution + Serialize + for<'r> Deserialize<'r>,
-    N: NodeIdT + Serialize + for<'r> Deserialize<'r> + Rand,
+    C: Contribution + Serialize + DeserializeOwned,
+    N: NodeIdT + Serialize + DeserializeOwned + Rand,
 {
     /// Returns a new `DynamicHoneyBadgerBuilder`.
     pub fn builder() -> DynamicHoneyBadgerBuilder<C, N> {
