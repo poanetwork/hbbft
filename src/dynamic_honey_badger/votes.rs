@@ -5,7 +5,7 @@ use bincode;
 use crypto::Signature;
 use serde::{Deserialize, Serialize};
 
-use super::{Change, NodeChange, ErrorKind, Result};
+use super::{Change, ErrorKind, Result};
 use fault_log::{FaultKind, FaultLog};
 use {NetworkInfo, NodeIdT};
 
@@ -188,8 +188,8 @@ mod tests {
     use std::sync::Arc;
 
     use rand;
-
-    use super::{Change, NodeChange, SignedVote, VoteCounter};
+    use super::super::NodeChange;
+    use super::{Change, SignedVote, VoteCounter};
     use fault_log::{FaultKind, FaultLog};
     use NetworkInfo;
 
