@@ -73,7 +73,7 @@ use NodeIdT;
 
 pub use self::batch::Batch;
 pub use self::builder::DynamicHoneyBadgerBuilder;
-pub use self::change::{Change, ChangeState};
+pub use self::change::{Change, NodeChange, ChangeState};
 pub use self::dynamic_honey_badger::DynamicHoneyBadger;
 pub use self::error::{Error, ErrorKind, Result};
 
@@ -149,14 +149,14 @@ struct KeyGenState<N> {
     /// The key generation instance.
     key_gen: SyncKeyGen<N>,
     /// The change for which key generation is performed.
-    change: Change<N>,
+    change: NodeChange<N>,
     /// The number of key generation messages received from the candidate. At most _N² + 1_ are
     /// accepted.
     candidate_msg_count: usize,
 }
 
 impl<N: NodeIdT> KeyGenState<N> {
-    fn new(key_gen: SyncKeyGen<N>, change: Change<N>) -> Self {
+    fn new(key_gen: SyncKeyGen<N>, change: NodeChange<N>) -> Self {
         KeyGenState {
             key_gen,
             change,
@@ -174,9 +174,8 @@ impl<N: NodeIdT> KeyGenState<N> {
     /// If the node `node_id` is the currently joining candidate, returns its public key.
     fn candidate_key(&self, node_id: &N) -> Option<&PublicKey> {
         match self.change {
-            Change::Add(ref id, ref pk) if id == node_id => Some(pk),
-            Change::Add(_, _) | Change::Remove(_) => None,
-            Change::EncryptionSchedule(_) => None,
+            NodeChange::Add(ref id, ref pk) if id == node_id => Some(pk),
+            NodeChange::Add(_, _) | NodeChange::Remove(_) => None,
         }
     }
 }

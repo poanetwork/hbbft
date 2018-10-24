@@ -103,18 +103,21 @@ where
             return Ok(Step::default());
         }
         self.has_input = true;
+        let ser_prop =
+            bincode::serialize(&proposal).map_err(|err| ErrorKind::ProposeBincode(*err))?;
         let epoch = self.epoch;
-        let ser_prop = bincode::serialize(&proposal).map_err(|err| ErrorKind::ProposeBincode(*err))?;
-        let mut step = if self.encryption_schedule.use_on_epoch(self.epoch) {
+        let require_decryption = self.encryption_schedule.use_on_epoch(epoch);
+        let prop = if require_decryption {
             let ciphertext = self
                 .netinfo
                 .public_key_set()
                 .public_key()
                 .encrypt_with_rng(&mut self.rng, ser_prop);
-            self.epoch_state_mut(epoch)?.propose(&ciphertext)?
+            bincode::serialize(&ciphertext).map_err(|err| ErrorKind::ProposeBincode(*err))?
         } else {
-            self.epoch_state_mut(epoch)?.propose_plain(ser_prop)? 
+            ser_prop
         };
+        let mut step = self.epoch_state_mut(epoch)?.propose(prop)?;
         step.extend(self.try_output_batches()?);
         Ok(step)
     }
@@ -196,6 +199,7 @@ where
                 self.netinfo.clone(),
                 epoch,
                 self.subset_handling_strategy.clone(),
+                self.encryption_schedule.use_on_epoch(epoch),
             )?),
         })
     }

@@ -191,6 +191,7 @@ pub struct EpochState<C, N: Rand> {
     accepted_proposers: BTreeSet<N>,
     /// Determines the behavior upon receiving proposals from `subset`.
     subset_handler: SubsetHandler<N>,
+    require_decryption: bool,
     _phantom: PhantomData<C>,
 }
 
@@ -204,6 +205,7 @@ where
         netinfo: Arc<NetworkInfo<N>>,
         epoch: u64,
         subset_handling_strategy: SubsetHandlingStrategy,
+        require_decryption: bool,
     ) -> Result<Self> {
         let cs = Subset::new(netinfo.clone(), epoch).map_err(ErrorKind::CreateSubset)?;
         Ok(EpochState {
@@ -213,24 +215,15 @@ where
             decryption: BTreeMap::default(),
             accepted_proposers: Default::default(),
             subset_handler: subset_handling_strategy.into(),
+            require_decryption: require_decryption,
             _phantom: PhantomData,
         })
     }
 
     /// If the instance hasn't terminated yet, inputs our encrypted contribution.
-    pub fn propose(&mut self, ciphertext: &Ciphertext) -> Result<Step<C, N>> {
-        let ser_ct =
-            bincode::serialize(ciphertext).map_err(|err| ErrorKind::ProposeBincode(*err))?;
-        let cs_step = self.subset.handle_input(ser_ct)?;
+    pub fn propose(&mut self, proposal: Vec<u8>) -> Result<Step<C, N>> {
+        let cs_step = self.subset.handle_input(proposal)?;
         self.process_subset(cs_step)
-    }
-
-    pub fn propose_plain(&mut self, proposal: Vec<u8>) -> Result<Step<C, N>> {
-        let our_id = self.netinfo.our_id().clone();
-        self.decryption.insert(our_id, DecryptionState::Complete(proposal));
-        Ok(Step::default()) // TODO: this is obviously wrong, I need to send the proposal still.
-        // let cs_step = self.subset.handle_input(proposal)?;
-        // self.process_subset(cs_step)
     }
 
     /// Returns the number of contributions that we have already received or, after completion, how
@@ -323,7 +316,11 @@ where
             } = self.subset_handler.handle(cs_output);
 
             for (k, v) in contributions {
-                step.extend(self.send_decryption_share(k.clone(), &v)?);
+                step.extend(if self.require_decryption {
+                    self.send_decryption_share(k.clone(), &v)?
+                } else {
+                    self.process_decryption(k.clone(), td::Step::default().with_output(v))?
+                });
                 self.accepted_proposers.insert(k);
             }
 

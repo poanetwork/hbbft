@@ -5,7 +5,7 @@ use bincode;
 use crypto::Signature;
 use serde::{Deserialize, Serialize};
 
-use super::{Change, ErrorKind, Result};
+use super::{Change, NodeChange, ErrorKind, Result};
 use fault_log::{FaultKind, FaultLog};
 use {NetworkInfo, NodeIdT};
 
@@ -189,7 +189,7 @@ mod tests {
 
     use rand;
 
-    use super::{Change, SignedVote, VoteCounter};
+    use super::{Change, NodeChange, SignedVote, VoteCounter};
     use fault_log::{FaultKind, FaultLog};
     use NetworkInfo;
 
@@ -211,8 +211,8 @@ mod tests {
         // Sign a few votes.
         let sign_votes = |counter: &mut VoteCounter<usize>| {
             (0..node_num)
-                .map(Change::Remove)
-                .map(|change| counter.sign_vote_for(change).expect("sign vote").clone())
+                .map(NodeChange::Remove)
+                .map(|change| counter.sign_vote_for(Change::NodeChange(change)).expect("sign vote").clone())
                 .collect::<Vec<_>>()
         };
         let signed_votes: Vec<_> = counters.iter_mut().map(sign_votes).collect();
@@ -299,6 +299,6 @@ mod tests {
             .add_committed_vote(&1, sv[2][1].clone())
             .expect("add committed");
         assert!(faults.is_empty());
-        assert_eq!(ct.compute_winner(), Some(&Change::Remove(1)));
+        assert_eq!(ct.compute_winner(), Some(&Change::NodeChange(NodeChange::Remove(1))));
     }
 }

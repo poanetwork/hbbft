@@ -149,6 +149,7 @@ where
         let arc_netinfo = Arc::new(netinfo.clone());
         let honey_badger = HoneyBadger::builder(arc_netinfo.clone())
             .max_future_epochs(self.max_future_epochs)
+            .encryption_schedule(self.encryption_schedule)
             .build();
         let mut dhb = DynamicHoneyBadger {
             netinfo,
@@ -164,7 +165,7 @@ where
         let step = match join_plan.change {
             ChangeState::InProgress(ref change) => {
                 match change {
-                    Change::Add(_,_) | Change::Remove(_) => dhb.update_key_gen(join_plan.epoch, change)?,
+                    Change::NodeChange(change) => dhb.update_key_gen(join_plan.epoch, change)?,
                     _ => Step::default(),
                 }
             },

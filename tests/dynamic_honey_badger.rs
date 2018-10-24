@@ -21,7 +21,7 @@ use std::sync::Arc;
 use itertools::Itertools;
 use rand::{Isaac64Rng, Rng};
 
-use hbbft::dynamic_honey_badger::{Batch, Change, ChangeState, DynamicHoneyBadger, Input};
+use hbbft::dynamic_honey_badger::{Batch, Change, NodeChange, ChangeState, DynamicHoneyBadger, Input};
 use hbbft::transaction_queue::TransactionQueue;
 use hbbft::NetworkInfo;
 
@@ -41,17 +41,17 @@ where
         network.input(*id, Input::User(queue.choose(&mut rng, 3, 10)));
     }
 
-    network.input_all(Input::Change(Change::Remove(NodeId(0))));
+    network.input_all(Input::Change(Change::NodeChange(NodeChange::Remove(NodeId(0)))));
 
     fn has_remove(node: &TestNode<UsizeDhb>) -> bool {
         node.outputs()
             .iter()
-            .any(|batch| *batch.change() == ChangeState::Complete(Change::Remove(NodeId(0))))
+            .any(|batch| *batch.change() == ChangeState::Complete(Change::NodeChange(NodeChange::Remove(NodeId(0)))))
     }
 
     fn has_add(node: &TestNode<UsizeDhb>) -> bool {
         node.outputs().iter().any(|batch| match *batch.change() {
-            ChangeState::Complete(Change::Add(ref id, _)) => *id == NodeId(0),
+            ChangeState::Complete(Change::NodeChange(NodeChange::Add(ref id, _))) => *id == NodeId(0),
             _ => false,
         })
     }
@@ -97,7 +97,7 @@ where
                 .netinfo()
                 .secret_key()
                 .public_key();
-            network.input_all(Input::Change(Change::Add(NodeId(0), pk)));
+            network.input_all(Input::Change(Change::NodeChange(NodeChange::Add(NodeId(0), pk))));
             input_add = true;
         }
     }
