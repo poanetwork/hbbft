@@ -3,5 +3,3 @@ src/proto/message.rs
 **/*.rs.bk
 Cargo.lock
 net-trace_*.txt
-TODOs
-.gitignore

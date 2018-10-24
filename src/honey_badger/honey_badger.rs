@@ -106,18 +106,16 @@ where
         let ser_prop =
             bincode::serialize(&proposal).map_err(|err| ErrorKind::ProposeBincode(*err))?;
         let epoch = self.epoch;
-        let require_decryption = self.encryption_schedule.use_on_epoch(epoch);
-        let prop = if require_decryption {
-            let ciphertext = self
-                .netinfo
-                .public_key_set()
-                .public_key()
-                .encrypt_with_rng(&mut self.rng, ser_prop);
-            bincode::serialize(&ciphertext).map_err(|err| ErrorKind::ProposeBincode(*err))?
-        } else {
-            ser_prop
+        let mut step = {
+            let epoch_state = {
+                self.epoch_state_mut(epoch)?;
+                self.epochs.get_mut(&epoch).expect(
+                    "We created the epoch_state in `self.epoch_state_mut(...)` just a moment ago.",
+                )
+            };
+            let rng = &mut self.rng;
+            epoch_state.propose(ser_prop, rng)?
         };
-        let mut step = self.epoch_state_mut(epoch)?.propose(prop)?;
         step.extend(self.try_output_batches()?);
         Ok(step)
     }

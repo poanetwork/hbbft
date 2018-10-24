@@ -24,7 +24,8 @@ impl<N> NodeChange<N> {
 pub enum Change<N> {
     // Add or Remove a node from the set of validators
     NodeChange(NodeChange<N>),
-    /// Change the threshold encryption schedule. i.e., to increase frequency to prevent censorship or decrease for performance.
+    /// Change the threshold encryption schedule.
+    /// Increase frequency to prevent censorship or decrease frequency for increased throughput.
     EncryptionSchedule(EncryptionSchedule),
 }
 

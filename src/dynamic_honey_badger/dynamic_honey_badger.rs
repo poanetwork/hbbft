@@ -16,6 +16,7 @@ use super::{
 use fault_log::{Fault, FaultKind, FaultLog};
 use honey_badger::{self, HoneyBadger, Message as HbMessage};
 use sync_key_gen::{Ack, Part, PartOutcome, SyncKeyGen};
+use threshold_decryption::EncryptionSchedule;
 use util::SubRng;
 use {Contribution, DistAlgorithm, NetworkInfo, NodeIdT, Target};
 
@@ -296,14 +297,14 @@ where
                 // If DKG completed, apply the change, restart Honey Badger, and inform the user.
                 debug!("{:?} DKG for {:?} complete!", self.our_id(), kgs.change);
                 self.netinfo = kgs.key_gen.into_network_info()?;
-                self.restart_honey_badger(batch_epoch + 1);
+                self.restart_honey_badger(batch_epoch + 1, None);
                 ChangeState::Complete(Change::NodeChange(kgs.change))
             } else if let Some(change) = self.vote_counter.compute_winner().cloned() {
                 // If there is a new change, restart DKG. Inform the user about the current change.
                 step.extend(match &change {
                     Change::NodeChange(change) => self.update_key_gen(batch_epoch + 1, &change)?,
-                    Change::EncryptionSchedule(_) => {
-                        self.update_encryption_schedule(batch_epoch + 1, &change)?
+                    Change::EncryptionSchedule(schedule) => {
+                        self.update_encryption_schedule(batch_epoch + 1, *schedule)?
                     }
                 });
                 ChangeState::InProgress(change)
@@ -330,12 +331,9 @@ where
     pub(super) fn update_encryption_schedule(
         &mut self,
         epoch: u64,
-        change: &Change<N>,
+        encryption_schedule: EncryptionSchedule,
     ) -> Result<Step<C, N>> {
-        self.restart_honey_badger(epoch);
-        if let Change::EncryptionSchedule(schedule) = change {
-            self.honey_badger.encryption_schedule = *schedule;
-        }
+        self.restart_honey_badger(epoch, Some(encryption_schedule));
         Ok(Step::default())
     }
 
@@ -358,7 +356,7 @@ where
         } {
             info!("{:?} No-op change: {:?}", self.our_id(), change);
         }
-        self.restart_honey_badger(epoch);
+        self.restart_honey_badger(epoch, None);
         // TODO: This needs to be the same as `num_faulty` will be in the _new_
         // `NetworkInfo` if the change goes through. It would be safer to deduplicate.
         let threshold = (pub_keys.len() - 1) / 3;
@@ -374,7 +372,11 @@ where
     }
 
     /// Starts a new `HoneyBadger` instance and resets the vote counter.
-    fn restart_honey_badger(&mut self, epoch: u64) {
+    fn restart_honey_badger(
+        &mut self,
+        epoch: u64,
+        encryption_schedule: Option<EncryptionSchedule>,
+    ) {
         self.start_epoch = epoch;
         self.key_gen_msg_buffer.retain(|kg_msg| kg_msg.0 >= epoch);
         let netinfo = Arc::new(self.netinfo.clone());
@@ -382,8 +384,11 @@ where
         self.honey_badger = HoneyBadger::builder(netinfo)
             .max_future_epochs(self.max_future_epochs)
             .rng(self.rng.sub_rng())
-            .encryption_schedule(self.honey_badger.encryption_schedule)
-            .build();
+            .encryption_schedule(if let Some(schedule) = encryption_schedule {
+                schedule
+            } else {
+                self.honey_badger.encryption_schedule
+            }).build();
     }
 
     /// Handles a `Part` message that was output by Honey Badger.
