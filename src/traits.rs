@@ -130,7 +130,7 @@ where
         }
     }
 
-    /// Returns `true` if there are now messages, faults or outputs.
+    /// Returns `true` if there are no messages, faults or outputs.
     pub fn is_empty(&self) -> bool {
         self.output.is_empty() && self.fault_log.is_empty() && self.messages.is_empty()
     }
