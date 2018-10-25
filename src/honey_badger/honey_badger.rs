@@ -2,7 +2,6 @@ use std::collections::btree_map::Entry;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use bincode;
 use rand::{Rand, Rng};
 use serde::{de::DeserializeOwned, Serialize};
 
@@ -36,7 +35,7 @@ pub struct HoneyBadger<C, N: Rand> {
     /// Represents the optimization strategy to use for output of the `Subset` algorithm.
     pub(super) subset_handling_strategy: SubsetHandlingStrategy,
     /// The schedule for which rounds we should use threshold encryption.
-    pub(crate) encryption_schedule: EncryptionSchedule,
+    pub(super) encryption_schedule: EncryptionSchedule,
 }
 
 pub type Step<C, N> = ::Step<HoneyBadger<C, N>>;
@@ -91,8 +90,6 @@ where
             return Ok(Step::default());
         }
         self.has_input = true;
-        let ser_prop =
-            bincode::serialize(&proposal).map_err(|err| ErrorKind::ProposeBincode(*err))?;
         let epoch = self.epoch;
         let mut step = {
             let epoch_state = {
@@ -102,7 +99,7 @@ where
                 )
             };
             let rng = &mut self.rng;
-            epoch_state.propose(ser_prop, rng)?
+            epoch_state.propose(proposal, rng)?
         };
         step.extend(self.try_output_batches()?);
         Ok(step)
@@ -135,6 +132,10 @@ where
     /// Returns `true` if input for the current epoch has already been provided.
     pub fn has_input(&self) -> bool {
         !self.netinfo.is_validator() || self.has_input
+    }
+
+    pub fn get_encryption_schedule(&self) -> EncryptionSchedule {
+        self.encryption_schedule
     }
 
     /// Returns the number of validators from which we have already received a proposal for the

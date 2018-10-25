@@ -150,7 +150,7 @@ struct KeyGenState<N> {
     key_gen: SyncKeyGen<N>,
     /// The change for which key generation is performed.
     change: NodeChange<N>,
-    /// The number of key generation messages received from the candidate. At most _N + 1_ are
+    /// The number of key generation messages received from each peer. At most _N + 1_ are
     /// accepted.
     msg_count: BTreeMap<N, usize>,
 }

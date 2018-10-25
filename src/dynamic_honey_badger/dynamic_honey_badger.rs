@@ -300,7 +300,7 @@ where
                         self.update_encryption_schedule(batch_epoch + 1, *schedule)?
                     }
                 });
-                ChangeState::InProgress(change)
+                ChangeState::Complete(change)
             } else {
                 ChangeState::None
             };
@@ -380,7 +380,7 @@ where
             .encryption_schedule(if let Some(schedule) = encryption_schedule {
                 schedule
             } else {
-                self.honey_badger.encryption_schedule
+                self.honey_badger.get_encryption_schedule()
             }).build();
     }
 

@@ -217,18 +217,20 @@ where
     /// If the instance hasn't terminated yet, inputs our encrypted contribution.
     pub fn propose(
         &mut self,
-        proposal: Vec<u8>,
+        proposal: &C,
         rng: &mut Box<dyn Rng + Send + Sync>,
     ) -> Result<Step<C, N>> {
+        let ser_prop =
+            bincode::serialize(&proposal).map_err(|err| ErrorKind::ProposeBincode(*err))?;
         let cs_step = self.subset.handle_input(if self.require_decryption {
             let ciphertext = self
                 .netinfo
                 .public_key_set()
                 .public_key()
-                .encrypt_with_rng(rng, proposal);
+                .encrypt_with_rng(rng, ser_prop);
             bincode::serialize(&ciphertext).map_err(|err| ErrorKind::ProposeBincode(*err))?
         } else {
-            proposal
+            ser_prop
         })?;
         self.process_subset(cs_step)
     }
@@ -326,7 +328,8 @@ where
                 step.extend(if self.require_decryption {
                     self.send_decryption_share(k.clone(), &v)?
                 } else {
-                    self.process_decryption(k.clone(), td::Step::default().with_output(v))?
+                    self.decryption.insert(k.clone(), DecryptionState::Complete(v));
+                    Step::default()
                 });
                 self.accepted_proposers.insert(k);
             }
