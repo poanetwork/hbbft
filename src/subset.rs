@@ -311,7 +311,11 @@ impl<N: NodeIdT + Rand> Subset<N> {
                     }
                 }
             }
-            if let Some(Some(value)) = self.broadcast_results.insert(proposer_id.clone(), None) {
+            if let Some(value) = self
+                .broadcast_results
+                .get_mut(proposer_id)
+                .and_then(Option::take)
+            {
                 debug!("    {:?} → {:0.10}", proposer_id, HexFmt(&value));
                 step.output
                     .extend(Some(SubsetOutput::Contribution(proposer_id.clone(), value)));
