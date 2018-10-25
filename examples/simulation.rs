@@ -26,6 +26,7 @@ use signifix::{metric, TryFrom};
 
 use hbbft::dynamic_honey_badger::DynamicHoneyBadger;
 use hbbft::queueing_honey_badger::{Batch, QueueingHoneyBadger};
+use hbbft::sender_queue::{Message, SenderQueue};
 use hbbft::{DistAlgorithm, NetworkInfo, Step, Target};
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -347,6 +348,8 @@ struct EpochInfo {
     nodes: BTreeMap<NodeId, (Duration, Batch<Transaction, NodeId>)>,
 }
 
+type QHB = SenderQueue<QueueingHoneyBadger<Transaction, NodeId, Vec<Transaction>>>;
+
 impl EpochInfo {
     /// Adds a batch to this epoch. Prints information if the epoch is complete.
     fn add(
@@ -354,7 +357,7 @@ impl EpochInfo {
         id: NodeId,
         time: Duration,
         batch: &Batch<Transaction, NodeId>,
-        network: &TestNetwork<QueueingHoneyBadger<Transaction, NodeId, Vec<Transaction>>>,
+        network: &TestNetwork<QHB>,
     ) {
         if self.nodes.contains_key(&id) {
             return;
@@ -373,7 +376,7 @@ impl EpochInfo {
         let txs = batch.iter().unique().count();
         println!(
             "{:>5} {:6} {:6} {:5} {:9} {:>9}B",
-            batch.epoch().to_string().cyan(),
+            batch.seqnum().to_string().cyan(),
             min_t.as_secs() * 1000 + u64::from(max_t.subsec_nanos()) / 1_000_000,
             max_t.as_secs() * 1000 + u64::from(max_t.subsec_nanos()) / 1_000_000,
             txs,
@@ -385,9 +388,7 @@ impl EpochInfo {
 }
 
 /// Proposes `num_txs` values and expects nodes to output and order them.
-fn simulate_honey_badger(
-    mut network: TestNetwork<QueueingHoneyBadger<Transaction, NodeId, Vec<Transaction>>>,
-) {
+fn simulate_honey_badger(mut network: TestNetwork<QHB>) {
     // Handle messages until all nodes have output all transactions.
     println!(
         "{}",
@@ -396,7 +397,7 @@ fn simulate_honey_badger(
     let mut epochs = Vec::new();
     while let Some(id) = network.step() {
         for &(time, ref batch) in &network.nodes[&id].outputs {
-            let epoch = batch.epoch() as usize;
+            let epoch = batch.seqnum() as usize;
             if epochs.len() <= epoch {
                 epochs.resize(epoch + 1, EpochInfo::default());
             }
@@ -436,11 +437,16 @@ fn main() {
         .map(|_| Transaction::new(args.flag_tx_size))
         .collect();
     let new_honey_badger = |netinfo: NetworkInfo<NodeId>| {
-        let dyn_hb = DynamicHoneyBadger::builder().build(netinfo);
-        QueueingHoneyBadger::builder(dyn_hb)
+        let dhb = DynamicHoneyBadger::builder().build(netinfo.clone());
+        let (qhb, qhb_step) = QueueingHoneyBadger::builder(dhb)
             .batch_size(args.flag_b)
             .build_with_transactions(txs.clone(), rand::thread_rng().gen::<Isaac64Rng>())
-            .expect("instantiate QueueingHoneyBadger")
+            .expect("instantiate QueueingHoneyBadger");
+        let our_id = *netinfo.our_id();
+        let peer_ids = netinfo.all_ids().filter(|&&them| them != our_id).cloned();
+        let (sq, mut step) = SenderQueue::builder(qhb, peer_ids).build(our_id);
+        step.extend_with(qhb_step, Message::from);
+        (sq, step)
     };
     let hw_quality = HwQuality {
         latency: Duration::from_millis(args.flag_lag),

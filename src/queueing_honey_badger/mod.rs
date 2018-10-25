@@ -22,6 +22,8 @@
 //! entries, any two nodes will likely make almost disjoint contributions instead of proposing
 //! the same transaction multiple times.
 
+pub mod sender_queueable;
+
 use std::fmt::{self, Display};
 use std::marker::PhantomData;
 use std::{cmp, iter};
@@ -35,7 +37,7 @@ use dynamic_honey_badger::{self, Batch as DhbBatch, DynamicHoneyBadger, Message}
 use transaction_queue::TransactionQueue;
 use {util, Contribution, DistAlgorithm, NodeIdT};
 
-pub use dynamic_honey_badger::{Change, ChangeState, Input, NodeChange};
+pub use dynamic_honey_badger::{Change, ChangeState, Epoch, Input, NodeChange};
 
 /// Queueing honey badger error variants.
 #[derive(Debug, Fail)]
@@ -177,7 +179,7 @@ where
 pub struct QueueingHoneyBadger<T, N: Rand, Q> {
     /// The target number of transactions to be included in each batch.
     batch_size: usize,
-    /// The internal `DynamicHoneyBadger` instance.
+    /// The internal managed `DynamicHoneyBadger` instance.
     dyn_hb: DynamicHoneyBadger<Vec<T>, N>,
     /// The queue of pending transactions that haven't been output in a batch yet.
     queue: Q,
@@ -275,7 +277,7 @@ where
         Ok(step.join(self.propose()?))
     }
 
-    /// Returns a reference to the internal `DynamicHoneyBadger` instance.
+    /// Returns a reference to the internal managed `DynamicHoneyBadger` instance.
     pub fn dyn_hb(&self) -> &DynamicHoneyBadger<Vec<T>, N> {
         &self.dyn_hb
     }

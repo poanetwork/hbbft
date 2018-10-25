@@ -2,14 +2,16 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use super::EncryptionSchedule;
-use super::{ChangeState, JoinPlan};
-use {NetworkInfo, NodeIdT};
+use super::{ChangeState, Epoch, JoinPlan};
+use {Epoched, NetworkInfo, NodeIdT};
 
 /// A batch of transactions the algorithm has output.
 #[derive(Clone, Debug)]
 pub struct Batch<C, N> {
     /// The sequence number: there is exactly one batch in each epoch.
-    pub(super) epoch: u64,
+    pub(super) seqnum: u64,
+    /// The current `DynamicHoneyBadger` era.
+    pub(super) era: u64,
     /// The user contributions committed in this epoch.
     pub(super) contributions: BTreeMap<N, C>,
     /// The current state of adding or removing a node: whether any is in progress, or completed
@@ -21,9 +23,30 @@ pub struct Batch<C, N> {
     pub(super) encryption_schedule: EncryptionSchedule,
 }
 
+impl<C, N: NodeIdT> Epoched for Batch<C, N> {
+    type Epoch = Epoch;
+
+    /// Returns the **next** `DynamicHoneyBadger` epoch after the sequential epoch of the batch.
+    fn epoch(&self) -> Epoch {
+        let seqnum = self.seqnum;
+        let era = self.era;
+        if self.change == ChangeState::None {
+            Epoch(era, Some(seqnum - era + 1))
+        } else {
+            Epoch(seqnum + 1, Some(0))
+        }
+    }
+}
+
 impl<C, N: NodeIdT> Batch<C, N> {
-    pub fn epoch(&self) -> u64 {
-        self.epoch
+    /// Returns the linear epoch of this `DynamicHoneyBadger` batch.
+    pub fn seqnum(&self) -> u64 {
+        self.seqnum
+    }
+
+    /// Returns the `DynamicHoneyBadger` era of the batch.
+    pub fn era(&self) -> u64 {
+        self.era
     }
 
     /// Returns whether any change to the set of participating nodes is in progress or was
@@ -89,7 +112,7 @@ impl<C, N: NodeIdT> Batch<C, N> {
             return None;
         }
         Some(JoinPlan {
-            epoch: self.epoch + 1,
+            era: self.seqnum + 1,
             change: self.change.clone(),
             pub_key_set: self.netinfo.public_key_set().clone(),
             pub_keys: self.netinfo.public_key_map().clone(),
@@ -103,7 +126,8 @@ impl<C, N: NodeIdT> Batch<C, N> {
     where
         C: PartialEq,
     {
-        self.epoch == other.epoch
+        self.seqnum == other.seqnum
+            && self.era == other.era
             && self.contributions == other.contributions
             && self.change == other.change
             && self.netinfo.public_key_set() == other.netinfo.public_key_set()

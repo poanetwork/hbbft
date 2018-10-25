@@ -20,6 +20,8 @@ pub enum FaultKind {
     DeserializeCiphertext,
     /// `HoneyBadger` received an invalid ciphertext from the proposer.
     InvalidCiphertext,
+    /// `HoneyBadger` received a message with an invalid epoch.
+    UnexpectedHbMessageEpoch,
     /// `ThresholdDecryption` received multiple shares from the same sender.
     MultipleDecryptionShares,
     /// `Broadcast` received a `Value` from a node other than the proposer.
@@ -39,8 +41,8 @@ pub enum FaultKind {
     BatchDeserializationFailed,
     /// `DynamicHoneyBadger` received a key generation message with an invalid signature.
     InvalidKeyGenMessageSignature,
-    /// `DynamicHoneyBadger` received a key generation message with an invalid epoch.
-    InvalidKeyGenMessageEpoch,
+    /// `DynamicHoneyBadger` received a key generation message with an invalid era.
+    InvalidKeyGenMessageEra,
     /// `DynamicHoneyBadger` received a key generation message when there was no key generation in
     /// progress.
     UnexpectedKeyGenMessage,
@@ -61,6 +63,8 @@ pub enum FaultKind {
     InvalidVoteSignature,
     /// A validator committed an invalid vote in `DynamicHoneyBadger`.
     InvalidCommittedVote,
+    /// `DynamicHoneyBadger` received a message with an invalid era.
+    UnexpectedDhbMessageEra,
     /// `BinaryAgreement` received a duplicate `BVal` message.
     DuplicateBVal,
     /// `BinaryAgreement` received a duplicate `Aux` message.

@@ -16,10 +16,10 @@ use {Contribution, NetworkInfo, NodeIdT};
 /// A Dynamic Honey Badger builder, to configure the parameters and create new instances of
 /// `DynamicHoneyBadger`.
 pub struct DynamicHoneyBadgerBuilder<C, N> {
-    /// Start in this epoch.
-    epoch: u64,
+    /// Start in this era.
+    era: u64,
     /// The maximum number of future epochs for which we handle messages simultaneously.
-    max_future_epochs: usize,
+    max_future_epochs: u64,
     /// Random number generator passed on to algorithm instance for key generation. Also used to
     /// instantiate `HoneyBadger`.
     rng: Box<dyn rand::Rng>,
@@ -30,11 +30,14 @@ pub struct DynamicHoneyBadgerBuilder<C, N> {
     _phantom: PhantomData<(C, N)>,
 }
 
-impl<C, N> Default for DynamicHoneyBadgerBuilder<C, N> {
+impl<C, N> Default for DynamicHoneyBadgerBuilder<C, N>
+where
+    N: Ord,
+{
     fn default() -> Self {
         // TODO: Use the defaults from `HoneyBadgerBuilder`.
         DynamicHoneyBadgerBuilder {
-            epoch: 0,
+            era: 0,
             max_future_epochs: 3,
             rng: Box::new(rand::thread_rng()),
             subset_handling_strategy: SubsetHandlingStrategy::Incremental,
@@ -55,14 +58,14 @@ where
         Self::default()
     }
 
-    /// Sets the starting epoch to the given value.
-    pub fn epoch(&mut self, epoch: u64) -> &mut Self {
-        self.epoch = epoch;
+    /// Sets the starting era to the given value.
+    pub fn era(&mut self, era: u64) -> &mut Self {
+        self.era = era;
         self
     }
 
     /// Sets the maximum number of future epochs for which we handle messages simultaneously.
-    pub fn max_future_epochs(&mut self, max_future_epochs: usize) -> &mut Self {
+    pub fn max_future_epochs(&mut self, max_future_epochs: u64) -> &mut Self {
         self.max_future_epochs = max_future_epochs;
         self
     }
@@ -91,18 +94,18 @@ where
     /// Creates a new Dynamic Honey Badger instance with an empty buffer.
     pub fn build(&mut self, netinfo: NetworkInfo<N>) -> DynamicHoneyBadger<C, N> {
         let DynamicHoneyBadgerBuilder {
-            epoch,
+            era,
             max_future_epochs,
             rng,
             subset_handling_strategy,
             encryption_schedule,
             _phantom,
         } = self;
-        let epoch = *epoch;
+        let era = *era;
         let max_future_epochs = *max_future_epochs;
         let arc_netinfo = Arc::new(netinfo.clone());
         let honey_badger = HoneyBadger::builder(arc_netinfo.clone())
-            .session_id(epoch)
+            .session_id(era)
             .max_future_epochs(max_future_epochs)
             .rng(rng.sub_rng())
             .subset_handling_strategy(subset_handling_strategy.clone())
@@ -111,12 +114,11 @@ where
         DynamicHoneyBadger {
             netinfo,
             max_future_epochs,
-            start_epoch: epoch,
+            era,
             vote_counter: VoteCounter::new(arc_netinfo, 0),
             key_gen_msg_buffer: Vec::new(),
             honey_badger,
             key_gen_state: None,
-            incoming_queue: Vec::new(),
             rng: Box::new(rng.sub_rng()),
         }
     }
@@ -155,17 +157,16 @@ where
         let mut dhb = DynamicHoneyBadger {
             netinfo,
             max_future_epochs: self.max_future_epochs,
-            start_epoch: join_plan.epoch,
-            vote_counter: VoteCounter::new(arc_netinfo, join_plan.epoch),
+            era: join_plan.era,
+            vote_counter: VoteCounter::new(arc_netinfo, join_plan.era),
             key_gen_msg_buffer: Vec::new(),
             honey_badger,
             key_gen_state: None,
-            incoming_queue: Vec::new(),
             rng: Box::new(self.rng.sub_rng()),
         };
         let step = match join_plan.change {
             ChangeState::InProgress(ref change) => match change {
-                Change::NodeChange(change) => dhb.update_key_gen(join_plan.epoch, change)?,
+                Change::NodeChange(change) => dhb.update_key_gen(join_plan.era, change)?,
                 _ => Step::default(),
             },
             ChangeState::None | ChangeState::Complete(..) => Step::default(),

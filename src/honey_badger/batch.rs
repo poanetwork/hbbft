@@ -1,12 +1,21 @@
 use std::collections::BTreeMap;
 
-use NodeIdT;
+use {Epoched, NodeIdT};
 
 /// A batch of contributions the algorithm has output.
 #[derive(Clone, Debug)]
 pub struct Batch<C, N> {
     pub epoch: u64,
     pub contributions: BTreeMap<N, C>,
+}
+
+impl<C, N: NodeIdT> Epoched for Batch<C, N> {
+    type Epoch = u64;
+
+    /// Returns the **next** `HoneyBadger` epoch after the sequential epoch of the batch.
+    fn epoch(&self) -> u64 {
+        self.epoch + 1
+    }
 }
 
 impl<C, N: NodeIdT> Batch<C, N> {
