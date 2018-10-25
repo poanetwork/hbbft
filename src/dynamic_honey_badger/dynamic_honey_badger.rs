@@ -15,7 +15,8 @@ use super::{
 };
 use fault_log::{Fault, FaultKind, FaultLog};
 use honey_badger::{self, HoneyBadger, Message as HbMessage};
-use sync_key_gen::{Ack, Part, PartOutcome, SyncKeyGen};
+
+use sync_key_gen::{Ack, AckOutcome, Part, PartOutcome, SyncKeyGen};
 use threshold_decryption::EncryptionSchedule;
 use util::{self, SubRng};
 use {Contribution, DistAlgorithm, NetworkInfo, NodeIdT, Target};
@@ -280,7 +281,7 @@ where
                     } else {
                         step.extend(match kg_msg {
                             KeyGenMessage::Part(part) => self.handle_part(&s_id, part)?,
-                            KeyGenMessage::Ack(ack) => self.handle_ack(&s_id, ack)?.into(),
+                            KeyGenMessage::Ack(ack) => self.handle_ack(&s_id, ack)?,
                         });
                     }
                 }
@@ -304,7 +305,7 @@ where
             } else {
                 ChangeState::None
             };
-            step.output.push_back(Batch {
+            step.output.push(Batch {
                 epoch: batch_epoch,
                 change,
                 netinfo: Arc::new(self.netinfo.clone()),
@@ -387,7 +388,9 @@ where
     /// Handles a `Part` message that was output by Honey Badger.
     fn handle_part(&mut self, sender_id: &N, part: Part) -> Result<Step<C, N>> {
         let outcome = if let Some(kgs) = self.key_gen_state.as_mut() {
-            kgs.key_gen.handle_part(&mut self.rng, &sender_id, part)
+            kgs.key_gen
+                .handle_part(&mut self.rng, &sender_id, part)
+                .map_err(ErrorKind::SyncKeyGen)?
         } else {
             // No key generation ongoing.
             let fault_kind = FaultKind::UnexpectedKeyGenPart;
@@ -395,20 +398,33 @@ where
         };
 
         match outcome {
-            Some(PartOutcome::Valid(ack)) => self.send_transaction(KeyGenMessage::Ack(ack)),
-            Some(PartOutcome::Invalid(fault_log)) => Ok(fault_log.into()),
-            None => Ok(Step::default()),
+            PartOutcome::Valid(Some(ack)) => self.send_transaction(KeyGenMessage::Ack(ack)),
+            PartOutcome::Valid(None) => Ok(Step::default()),
+            PartOutcome::Invalid(fault) => {
+                let fault_kind = FaultKind::SyncKeyGenPart(fault);
+                Ok(Fault::new(sender_id.clone(), fault_kind).into())
+            }
         }
     }
 
     /// Handles an `Ack` message that was output by Honey Badger.
-    fn handle_ack(&mut self, sender_id: &N, ack: Ack) -> Result<FaultLog<N>> {
-        if let Some(kgs) = self.key_gen_state.as_mut() {
-            Ok(kgs.key_gen.handle_ack(sender_id, ack))
+    fn handle_ack(&mut self, sender_id: &N, ack: Ack) -> Result<Step<C, N>> {
+        let outcome = if let Some(kgs) = self.key_gen_state.as_mut() {
+            kgs.key_gen
+                .handle_ack(sender_id, ack)
+                .map_err(ErrorKind::SyncKeyGen)?
         } else {
             // No key generation ongoing.
             let fault_kind = FaultKind::UnexpectedKeyGenAck;
             return Ok(Fault::new(sender_id.clone(), fault_kind).into());
+        };
+
+        match outcome {
+            AckOutcome::Valid => Ok(Step::default()),
+            AckOutcome::Invalid(fault) => {
+                let fault_kind = FaultKind::SyncKeyGenAck(fault);
+                Ok(Fault::new(sender_id.clone(), fault_kind).into())
+            }
         }
     }
 
@@ -418,7 +434,7 @@ where
             bincode::serialize(&kg_msg).map_err(|err| ErrorKind::SendTransactionBincode(*err))?;
         let sig = Box::new(self.netinfo.secret_key().sign(ser));
         if self.netinfo.is_validator() {
-            let our_id = self.netinfo.our_id().clone();
+            let our_id = self.our_id().clone();
             let signed_msg =
                 SignedKeyGenMsg(self.start_epoch, our_id, kg_msg.clone(), *sig.clone());
             self.key_gen_msg_buffer.push(signed_msg);

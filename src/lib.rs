@@ -154,7 +154,7 @@ pub mod transaction_queue;
 pub mod util;
 
 pub use crypto::pairing;
-pub use fault_log::{AckMessageFault, Fault, FaultKind, FaultLog};
+pub use fault_log::{Fault, FaultKind, FaultLog};
 pub use messaging::{SourcedMessage, Target, TargetedMessage};
 pub use network_info::NetworkInfo;
 pub use traits::{Contribution, DistAlgorithm, Message, NodeIdT, Step};

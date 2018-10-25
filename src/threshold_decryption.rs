@@ -125,7 +125,7 @@ impl<N: NodeIdT> ThresholdDecryption<N> {
         step.fault_log.extend(self.remove_invalid_shares());
         if self.netinfo.is_validator() {
             let msg = Target::All.message(Message(share.clone()));
-            step.messages.push_back(msg);
+            step.messages.push(msg);
             self.shares.insert(our_id, share);
         }
         step.extend(self.try_output()?);

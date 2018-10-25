@@ -24,7 +24,7 @@ pub struct TestNode<D: DistAlgorithm> {
     /// The values this node has output so far.
     outputs: Vec<D::Output>,
     /// Outgoing messages to be sent to other nodes.
-    messages: VecDeque<TargetedMessage<D::Message, D::NodeId>>,
+    messages: Vec<TargetedMessage<D::Message, D::NodeId>>,
     /// Collected fault logs.
     faults: Vec<Fault<D::NodeId>>,
 }

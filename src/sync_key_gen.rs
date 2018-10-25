@@ -57,7 +57,7 @@
 //! use std::collections::BTreeMap;
 //!
 //! use threshold_crypto::{PublicKey, SecretKey, SignatureShare};
-//! use hbbft::sync_key_gen::{PartOutcome, SyncKeyGen};
+//! use hbbft::sync_key_gen::{AckOutcome, PartOutcome, SyncKeyGen};
 //!
 //! // Use a default random number generator for any randomness:
 //! let mut rng = rand::thread_rng();
@@ -88,10 +88,15 @@
 //! let mut acks = Vec::new();
 //! for (sender_id, part) in parts {
 //!     for (&id, node) in &mut nodes {
-//!         match node.handle_part(&mut rng, &sender_id, part.clone()) {
-//!             Some(PartOutcome::Valid(ack)) => acks.push((id, ack)),
-//!             Some(PartOutcome::Invalid(faults)) => panic!("Invalid part: {:?}", faults),
-//!             None => panic!("We are not an observer, so we should send Ack."),
+//!         match node
+//!             .handle_part(&mut rng, &sender_id, part.clone())
+//!             .expect("Failed to handle Part")
+//!         {
+//!             PartOutcome::Valid(Some(ack)) => acks.push((id, ack)),
+//!             PartOutcome::Invalid(fault) => panic!("Invalid Part: {:?}", fault),
+//!             PartOutcome::Valid(None) => {
+//!                 panic!("We are not an observer, so we should send Ack.")
+//!             }
 //!         }
 //!     }
 //! }
@@ -99,7 +104,10 @@
 //! // Finally, we handle all the `Ack`s.
 //! for (sender_id, ack) in acks {
 //!     for node in nodes.values_mut() {
-//!         node.handle_ack(&sender_id, ack.clone());
+//!         match node.handle_ack(&sender_id, ack.clone()).expect("Failed to handle Ack") {
+//!             AckOutcome::Valid => (),
+//!             AckOutcome::Invalid(fault) => panic!("Invalid Ack: {:?}", fault),
+//!         }
 //!     }
 //! }
 //!
@@ -159,7 +167,6 @@
 //! method above. The sum of the secret keys we received from each node is then used as our secret
 //! key. No single node knows the secret master key.
 
-use std::collections::btree_map::Entry;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::{self, Debug, Formatter};
 
@@ -174,12 +181,12 @@ use crypto::{Fr, G1Affine};
 use pairing::{CurveAffine, Field};
 use rand;
 
-use fault_log::{AckMessageFault as Fault, FaultKind, FaultLog};
 use {NetworkInfo, NodeIdT};
 
 // TODO: No need to send our own row and value to ourselves.
 
-// A sync-key-gen error.
+/// A local error while handling an `Ack` or `Part` message, that was not caused by that message
+/// being invalid.
 #[derive(Clone, Eq, PartialEq, Debug, Fail)]
 pub enum Error {
     #[fail(display = "Error creating SyncKeyGen: {}", _0)]
@@ -188,6 +195,16 @@ pub enum Error {
     Generation(CryptoError),
     #[fail(display = "Error acknowledging part: {}", _0)]
     Ack(CryptoError),
+    #[fail(display = "Unknown sender")]
+    UnknownSender,
+    #[fail(display = "Serialization error: {}", _0)]
+    Serialize(String),
+}
+
+impl From<bincode::Error> for Error {
+    fn from(err: bincode::Error) -> Error {
+        Error::Serialize(format!("{:?}", err))
+    }
 }
 
 /// A submission by a validator for the key generation. It must to be sent to all participating
@@ -253,15 +270,21 @@ impl ProposalState {
 }
 
 /// The outcome of handling and verifying a `Part` message.
-pub enum PartOutcome<N: Clone> {
+pub enum PartOutcome {
     /// The message was valid: the part of it that was encrypted to us matched the public
-    /// commitment, so we can multicast an `Ack` message for it.
-    Valid(Ack),
-    // If the Part message passed to `handle_part()` is invalid, the
-    // fault is logged and passed onto the caller.
-    /// The message was invalid: the part encrypted to us was malformed or didn't match the
-    /// commitment. We now know that the proposer is faulty, and dont' send an `Ack`.
-    Invalid(FaultLog<N>),
+    /// commitment, so we can multicast an `Ack` message for it. If we are an observer or we have
+    /// already handled the same `Part` before, this contains `None` instead.
+    Valid(Option<Ack>),
+    /// The message was invalid: We now know that the proposer is faulty, and dont' send an `Ack`.
+    Invalid(PartFault),
+}
+
+/// The outcome of handling and verifying an `Ack` message.
+pub enum AckOutcome {
+    /// The message was valid.
+    Valid,
+    /// The message was invalid: The sender is faulty.
+    Invalid(AckFault),
 }
 
 /// A synchronous algorithm for dealerless distributed key generation.
@@ -316,8 +339,7 @@ impl<N: NodeIdT> SyncKeyGen<N> {
         let commit = our_part.commitment();
         let encrypt = |(i, pk): (usize, &PublicKey)| {
             let row = our_part.row(i + 1);
-            let bytes = bincode::serialize(&row).expect("failed to serialize row");
-            Ok(pk.encrypt_with_rng(rng, &bytes))
+            Ok(pk.encrypt_with_rng(rng, &bincode::serialize(&row)?))
         };
         let rows = key_gen
             .pub_keys
@@ -338,65 +360,44 @@ impl<N: NodeIdT> SyncKeyGen<N> {
         &mut self,
         rng: &mut R,
         sender_id: &N,
-        Part(commit, rows): Part,
-    ) -> Option<PartOutcome<N>> {
-        let sender_idx = self.node_index(sender_id)?; // TODO: Return an error.
-        let opt_commit_row = self.our_idx.map(|idx| commit.row(idx + 1));
-        match self.parts.entry(sender_idx) {
-            Entry::Occupied(entry) => {
-                if *entry.get() != ProposalState::new(commit) {
-                    debug!("Received multiple parts from node {:?}.", sender_id);
-                    let fault_log =
-                        FaultLog::init(sender_id.clone(), FaultKind::MultiplePartMessages);
-                    return Some(PartOutcome::Invalid(fault_log));
-                }
-                return None;
-            }
-            Entry::Vacant(entry) => {
-                entry.insert(ProposalState::new(commit));
-            }
-        }
-        // If we are only an observer, return `None`. We don't need to send `Ack`.
-        let our_idx = self.our_idx?;
-        let commit_row = opt_commit_row?;
-        let ser_row = self.sec_key.decrypt(rows.get(our_idx as usize)?)?;
-        let row: Poly = if let Ok(row) = bincode::deserialize(&ser_row) {
-            row
-        } else {
-            // Log the faulty node and ignore invalid messages.
-            let fault_log = FaultLog::init(sender_id.clone(), FaultKind::InvalidPartMessage);
-            return Some(PartOutcome::Invalid(fault_log));
+        part: Part,
+    ) -> Result<PartOutcome, Error> {
+        let sender_idx = self.node_index(sender_id).ok_or(Error::UnknownSender)?;
+        let row = match self.handle_part_or_fault(sender_idx, part) {
+            Ok(Some(row)) => row,
+            Ok(None) => return Ok(PartOutcome::Valid(None)),
+            Err(fault) => return Ok(PartOutcome::Invalid(fault)),
         };
-        if row.commitment() != commit_row {
-            error!("Invalid part from node {:?}.", sender_id);
-            let fault_log = FaultLog::init(sender_id.clone(), FaultKind::InvalidPartMessage);
-            return Some(PartOutcome::Invalid(fault_log));
-        }
-        // The row is valid: now encrypt one value for each node.
-        let encrypt = |(idx, pk): (usize, &PublicKey)| {
+        // The row is valid. Encrypt one value for each node and broadcast an `Ack`.
+        let mut values = Vec::new();
+        for (idx, pk) in self.pub_keys.values().enumerate() {
             let val = row.evaluate(idx + 1);
-            let wrap = FieldWrap::new(val);
-            // TODO: Handle errors.
-            let ser_val = bincode::serialize(&wrap).expect("failed to serialize value");
-            pk.encrypt_with_rng(rng, ser_val)
-        };
-        let values = self.pub_keys.values().enumerate().map(encrypt).collect();
-        Some(PartOutcome::Valid(Ack(sender_idx, values)))
+            let ser_val = bincode::serialize(&FieldWrap::new(val))?;
+            values.push(pk.encrypt_with_rng(rng, ser_val));
+        }
+        Ok(PartOutcome::Valid(Some(Ack(sender_idx, values))))
     }
 
     /// Handles an `Ack` message.
     ///
     /// All participating nodes must handle the exact same sequence of messages.
     /// Note that `handle_ack` also needs to explicitly be called with this instance's own `Ack`s.
-    pub fn handle_ack(&mut self, sender_id: &N, ack: Ack) -> FaultLog<N> {
-        let mut fault_log = FaultLog::new();
-        if let Some(sender_idx) = self.node_index(sender_id) {
-            if let Err(fault) = self.handle_ack_or_err(sender_idx, ack) {
-                debug!("Invalid ack from node {:?}: {}", sender_id, fault);
-                fault_log.append(sender_id.clone(), FaultKind::AckMessage(fault));
-            }
+    pub fn handle_ack(&mut self, sender_id: &N, ack: Ack) -> Result<AckOutcome, Error> {
+        let sender_idx = self.node_index(sender_id).ok_or(Error::UnknownSender)?;
+        Ok(match self.handle_ack_or_fault(sender_idx, ack) {
+            Ok(()) => AckOutcome::Valid,
+            Err(fault) => AckOutcome::Invalid(fault),
+        })
+    }
+
+    /// Returns the index of the node, or `None` if it is unknown.
+    fn node_index(&self, node_id: &N) -> Option<u64> {
+        if let Some(node_idx) = self.pub_keys.keys().position(|id| id == node_id) {
+            Some(node_idx as u64)
+        } else {
+            error!("Unknown node {:?}", node_id);
+            None
         }
-        fault_log
     }
 
     /// Returns the number of complete parts. If this is at least `threshold + 1`, the keys can
@@ -466,52 +467,102 @@ impl<N: NodeIdT> SyncKeyGen<N> {
         self.pub_keys.len()
     }
 
-    /// Handles an `Ack` message or returns an error string.
-    fn handle_ack_or_err(
+    /// Handles a `Part` message, or returns a `PartFault` if it is invalid.
+    fn handle_part_or_fault(
+        &mut self,
+        sender_idx: u64,
+        Part(commit, rows): Part,
+    ) -> Result<Option<Poly>, PartFault> {
+        if rows.len() != self.pub_keys.len() {
+            return Err(PartFault::RowCount);
+        }
+        if let Some(state) = self.parts.get(&sender_idx) {
+            if *state != ProposalState::new(commit) {
+                return Err(PartFault::MultipleParts);
+            }
+            return Ok(None); // We already handled this `Part` before.
+        }
+        // Retrieve our own row's commitment, and store the full commitment.
+        let opt_idx_commit_row = self.our_idx.map(|idx| (idx, commit.row(idx + 1)));
+        self.parts.insert(sender_idx, ProposalState::new(commit));
+        let (our_idx, commit_row) = match opt_idx_commit_row {
+            Some((idx, row)) => (idx, row),
+            None => return Ok(None), // We are only an observer. Nothing to send or decrypt.
+        };
+        // We are a validator: Decrypt and deserialize our row and compare it to the commitment.
+        let ser_row = self
+            .sec_key
+            .decrypt(&rows[our_idx as usize])
+            .ok_or(PartFault::DecryptRow)?;
+        let row: Poly = bincode::deserialize(&ser_row).map_err(|_| PartFault::DeserializeRow)?;
+        if row.commitment() != commit_row {
+            return Err(PartFault::RowCommitment);
+        }
+        Ok(Some(row))
+    }
+
+    /// Handles an `Ack` message, or returns an `AckFault` if it is invalid.
+    fn handle_ack_or_fault(
         &mut self,
         sender_idx: u64,
         Ack(proposer_idx, values): Ack,
-    ) -> Result<(), Fault> {
+    ) -> Result<(), AckFault> {
         if values.len() != self.pub_keys.len() {
-            return Err(Fault::NodeCount);
+            return Err(AckFault::ValueCount);
         }
         let part = self
             .parts
             .get_mut(&proposer_idx)
-            .ok_or_else(|| Fault::SenderExist)?;
+            .ok_or(AckFault::MissingPart)?;
         if !part.acks.insert(sender_idx) {
-            return Ok(());
+            return Ok(()); // We already handled this `Ack` before.
         }
         let our_idx = match self.our_idx {
             Some(our_idx) => our_idx,
             None => return Ok(()), // We are only an observer. Nothing to decrypt for us.
         };
-        let ser_val: Vec<u8> = self
+        // We are a validator: Decrypt and deserialize our value and compare it to the commitment.
+        let ser_val = self
             .sec_key
             .decrypt(&values[our_idx as usize])
-            .ok_or_else(|| Fault::ValueDecryption)?;
+            .ok_or(AckFault::DecryptValue)?;
         let val = bincode::deserialize::<FieldWrap<Fr, Fr>>(&ser_val)
-            .map_err(|err| {
-                error!(
-                    "Secure value deserialization failed while handling ack: {:?}",
-                    err
-                );
-                Fault::ValueDeserialization
-            })?.into_inner();
+            .map_err(|_| AckFault::DeserializeValue)?
+            .into_inner();
         if part.commit.evaluate(our_idx + 1, sender_idx + 1) != G1Affine::one().mul(val) {
-            return Err(Fault::ValueInvalid);
+            return Err(AckFault::ValueCommitment);
         }
         part.values.insert(sender_idx + 1, val);
         Ok(())
     }
+}
 
-    /// Returns the index of the node, or `None` if it is unknown.
-    fn node_index(&self, node_id: &N) -> Option<u64> {
-        if let Some(node_idx) = self.pub_keys.keys().position(|id| id == node_id) {
-            Some(node_idx as u64)
-        } else {
-            error!("Unknown node {:?}", node_id);
-            None
-        }
-    }
+/// An error in an `Ack` message sent by a faulty node.
+#[derive(Clone, Copy, Eq, PartialEq, Debug, Fail)]
+pub enum AckFault {
+    #[fail(display = "The number of values differs from the number of nodes")]
+    ValueCount,
+    #[fail(display = "No corresponding Part received")]
+    MissingPart,
+    #[fail(display = "Value decryption failed")]
+    DecryptValue,
+    #[fail(display = "Value deserialization failed")]
+    DeserializeValue,
+    #[fail(display = "Value doesn not match the commitment")]
+    ValueCommitment,
+}
+
+/// An error in a `Part` message sent by a faulty node.
+#[derive(Clone, Copy, Eq, PartialEq, Debug, Fail)]
+pub enum PartFault {
+    #[fail(display = "The number of rows differs from the number of nodes")]
+    RowCount,
+    #[fail(display = "Received multiple different Part messages from the same sender")]
+    MultipleParts,
+    #[fail(display = "Could not decrypt our row in the Part message")]
+    DecryptRow,
+    #[fail(display = "Could not deserialize our row in the Part message")]
+    DeserializeRow,
+    #[fail(display = "Row does not match the commitment")]
+    RowCommitment,
 }

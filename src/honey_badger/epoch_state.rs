@@ -1,7 +1,7 @@
 #![cfg_attr(feature = "cargo-clippy", allow(borrowed_box))]
 
 use std::collections::btree_map::Entry;
-use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::collections::{BTreeMap, BTreeSet};
 use std::marker::PhantomData;
 use std::mem::replace;
 use std::sync::Arc;
@@ -310,7 +310,7 @@ where
     /// Checks whether the subset has output, and if it does, sends out our decryption shares.
     fn process_subset(&mut self, cs_step: cs::Step<N>) -> Result<Step<C, N>> {
         let mut step = Step::default();
-        let cs_outputs: VecDeque<_> = step.extend_with(cs_step, |cs_msg| {
+        let cs_outputs = step.extend_with(cs_step, |cs_msg| {
             MessageContent::Subset(cs_msg).with_epoch(self.epoch)
         });
         let mut has_seen_done = false;

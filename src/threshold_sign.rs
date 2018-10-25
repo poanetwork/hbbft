@@ -115,7 +115,7 @@ impl<N: NodeIdT> ThresholdSign<N> {
         }
         let msg = Message(self.netinfo.secret_key_share().sign_g2(self.msg_hash));
         let mut step: Step<_> = Target::All.message(msg.clone()).into();
-        let id = self.netinfo.our_id().clone();
+        let id = self.our_id().clone();
         step.extend(self.handle_message(&id, msg)?);
         Ok(step)
     }
@@ -146,13 +146,13 @@ impl<N: NodeIdT> ThresholdSign<N> {
     fn try_output(&mut self) -> Result<Step<N>> {
         debug!(
             "{:?} received {} shares, had_input = {}",
-            self.netinfo.our_id(),
+            self.our_id(),
             self.received_shares.len(),
             self.had_input
         );
         if self.had_input && self.received_shares.len() > self.netinfo.num_faulty() {
             let sig = self.combine_and_verify_sig()?;
-            debug!("{:?} output {:?}", self.netinfo.our_id(), sig);
+            debug!("{:?} output {:?}", self.our_id(), sig);
             self.terminated = true;
             let step = self.handle_input(())?; // Before terminating, make sure we sent our share.
             Ok(step.with_output(sig))
@@ -177,10 +177,7 @@ impl<N: NodeIdT> ThresholdSign<N> {
             .verify_g2(&sig, self.msg_hash)
         {
             // Abort
-            error!(
-                "{:?} main public key verification failed",
-                self.netinfo.our_id()
-            );
+            error!("{:?} main public key verification failed", self.our_id());
             Err(Error::VerificationFailed)
         } else {
             Ok(sig)

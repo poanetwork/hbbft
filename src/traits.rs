@@ -1,6 +1,5 @@
 //! Common supertraits for distributed algorithms.
 
-use std::collections::VecDeque;
 use std::fmt::Debug;
 use std::hash::Hash;
 use std::iter::once;
@@ -31,9 +30,9 @@ where
     D: DistAlgorithm,
     <D as DistAlgorithm>::NodeId: NodeIdT,
 {
-    pub output: VecDeque<D::Output>,
+    pub output: Vec<D::Output>,
     pub fault_log: FaultLog<D::NodeId>,
-    pub messages: VecDeque<TargetedMessage<D::Message, D::NodeId>>,
+    pub messages: Vec<TargetedMessage<D::Message, D::NodeId>>,
 }
 
 impl<D> Default for Step<D>
@@ -43,9 +42,9 @@ where
 {
     fn default() -> Step<D> {
         Step {
-            output: VecDeque::default(),
+            output: Vec::default(),
             fault_log: FaultLog::default(),
-            messages: VecDeque::default(),
+            messages: Vec::default(),
         }
     }
 }
@@ -56,9 +55,9 @@ where
 {
     /// Creates a new `Step` from the given collections.
     pub fn new(
-        output: VecDeque<D::Output>,
+        output: Vec<D::Output>,
         fault_log: FaultLog<D::NodeId>,
-        messages: VecDeque<TargetedMessage<D::Message, D::NodeId>>,
+        messages: Vec<TargetedMessage<D::Message, D::NodeId>>,
     ) -> Self {
         Step {
             output,
@@ -68,8 +67,8 @@ where
     }
 
     /// Returns the same step, with the given additional output.
-    pub fn with_output(mut self, output: D::Output) -> Self {
-        self.output.push_back(output);
+    pub fn with_output<T: Into<Option<D::Output>>>(mut self, output: T) -> Self {
+        self.output.extend(output.into());
         self
     }
 
@@ -89,7 +88,7 @@ where
     }
 
     /// Extends `self` with `other`s messages and fault logs, and returns `other.output`.
-    pub fn extend_with<D2, FM>(&mut self, other: Step<D2>, f_msg: FM) -> VecDeque<D2::Output>
+    pub fn extend_with<D2, FM>(&mut self, other: Step<D2>, f_msg: FM) -> Vec<D2::Output>
     where
         D2: DistAlgorithm<NodeId = D::NodeId>,
         FM: Fn(D2::Message) -> D::Message,
@@ -105,6 +104,12 @@ where
         self.output.extend(other.output);
         self.fault_log.extend(other.fault_log);
         self.messages.extend(other.messages);
+    }
+
+    /// Extends this step with `other` and returns the result.
+    pub fn join(mut self, other: Self) -> Self {
+        self.extend(other);
+        self
     }
 
     /// Converts this step into an equivalent step for a different `DistAlgorithm`.

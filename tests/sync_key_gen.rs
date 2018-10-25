@@ -41,9 +41,13 @@ fn test_sync_key_gen_with(threshold: usize, node_num: usize) {
     for (sender_id, proposal) in proposals[..=threshold].iter().enumerate() {
         for (node_id, node) in nodes.iter_mut().enumerate() {
             let proposal = proposal.clone().expect("proposal");
-            let ack = match node.handle_part(&mut rand::thread_rng(), &sender_id, proposal) {
-                Some(PartOutcome::Valid(ack)) => ack,
-                _ => panic!("invalid proposal"),
+            let ack = match node
+                .handle_part(&mut rand::thread_rng(), &sender_id, proposal)
+                .expect("failed to handle part")
+            {
+                PartOutcome::Valid(Some(ack)) => ack,
+                PartOutcome::Valid(None) => panic!("missing ack message"),
+                PartOutcome::Invalid(fault) => panic!("invalid proposal: {:?}", fault),
             };
             // Only the first `threshold + 1` manage to commit their `Ack`s.
             if node_id <= 2 * threshold {
@@ -56,7 +60,8 @@ fn test_sync_key_gen_with(threshold: usize, node_num: usize) {
     for (sender_id, ack) in acks {
         for node in &mut nodes {
             assert!(!node.is_ready()); // Not enough `Ack`s yet.
-            node.handle_ack(&sender_id, ack.clone());
+            node.handle_ack(&sender_id, ack.clone())
+                .expect("error handling ack");
         }
     }
 
