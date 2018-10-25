@@ -121,9 +121,7 @@ impl<N> DropAndReAddTest<usize, N>
 where
     N: NodeIdT + Serialize + DeserializeOwned + Rand,
 {
-    fn from_net(
-        net: &VirtualNet<DynamicHoneyBadger<Vec<usize>, N>>,
-    ) -> Self {
+    fn from_net(net: &VirtualNet<DynamicHoneyBadger<Vec<usize>, N>>) -> Self {
         DropAndReAddTest {
             awaiting_removal: net.correct_nodes().map(|n| n.id().clone()).collect(),
             awaiting_addition: net.correct_nodes().map(|n| n.id().clone()).collect(),
@@ -155,9 +153,14 @@ where
                         .secret_key()
                         .public_key();
 
-                    let _ = net
-                        .send_input(node_id.clone(), Input::Change(Change::Add(pivot_node_id.clone(), pk)))
-                        .expect("failed to send `Add` input");
+                    assert!(
+                        net.send_input(
+                            node_id.clone(),
+                            Input::Change(Change::Add(pivot_node_id.clone(), pk))
+                        ).expect("failed to send `Add` input")
+                        .is_empty(),
+                        "Did not expect output after sending state change complete."
+                    );
                 }
 
                 ChangeState::Complete(Change::Add(pivot_node_id, _)) => {
@@ -232,10 +235,12 @@ fn do_drop_and_readd(cfg: TestConfig) {
         let proposal = choose_contribution(&mut rng, queue, cfg.batch_size, cfg.contribution_size);
         println!("Node {:?} will propose: {:?}", id, proposal);
 
-        // The step will have its messages added to the queue automatically, we ignore the output.
-        let _ = net
-            .send_input(*id, Input::User(proposal))
-            .expect("could not send initial transaction");
+        assert!(
+            net.send_input(*id, Input::User(proposal))
+                .expect("could not send initial transaction")
+                .is_empty(),
+            "Initial addition step did not return an empty step."
+        );
     }
 
     // Afterwards, remove a specific node from the dynamic honey badger network.
@@ -299,9 +304,12 @@ fn do_drop_and_readd(cfg: TestConfig) {
             let proposal =
                 choose_contribution(&mut rng, queue, cfg.batch_size, cfg.contribution_size);
 
-            let _ = net
-                .send_input(node_id, Input::User(proposal))
-                .expect("could not send follow-up transaction");
+            assert!(
+                net.send_input(node_id, Input::User(proposal))
+                    .expect("could not send follow-up transaction")
+                    .is_empty(),
+                "Did not expect output when sending contribution"
+            )
         }
     }
 
