@@ -4,6 +4,7 @@ extern crate hbbft;
 extern crate proptest;
 extern crate integer_sqrt;
 extern crate rand;
+extern crate serde;
 extern crate threshold_crypto;
 
 pub mod net;
@@ -11,13 +12,14 @@ pub mod net;
 use std::{collections, time};
 
 use proptest::strategy::Strategy;
+use serde::{de::DeserializeOwned, Serialize};
 
 use hbbft::dynamic_honey_badger::{Change, ChangeState, DynamicHoneyBadger, Input};
-use hbbft::DistAlgorithm;
+use hbbft::{NodeIdT, Step};
 use net::adversary::{Adversary, NullAdversary};
 use net::proptest::{gen_adversary, gen_seed, NetworkDimension, TestRng, TestRngSeed};
 use net::{NetBuilder, VirtualNet};
-use rand::{Rng, SeedableRng};
+use rand::{Rand, Rng, SeedableRng};
 
 /// Choose a node's contribution for an epoch.
 ///
@@ -108,30 +110,74 @@ proptest!{
 }
 
 #[derive(Debug)]
-struct DropAndReAddTest<D, C>
-where
-    D: DistAlgorithm,
-{
-    awaiting_removal: collections::BTreeSet<D::NodeId>,
-    awaiting_addition: collections::BTreeSet<D::NodeId>,
-    expected_outputs: collections::BTreeMap<D::NodeId, collections::BTreeSet<C>>,
+struct DropAndReAddTest<V, N> {
+    awaiting_removal: collections::BTreeSet<N>,
+    awaiting_addition: collections::BTreeSet<N>,
+    expected_outputs: collections::BTreeMap<N, collections::BTreeSet<V>>,
 }
 
 // FIXME: Do not pin to `usize`.
-impl<D> DropAndReAddTest<D, usize>
+impl<N> DropAndReAddTest<usize, N>
 where
-    D: DistAlgorithm,
-    D::NodeId: Clone,
+    N: NodeIdT + Serialize + DeserializeOwned + Rand,
 {
-    fn from_net(net: &VirtualNet<D>) -> DropAndReAddTest<D, usize> {
+    fn from_net(
+        net: &VirtualNet<DynamicHoneyBadger<Vec<usize>, N>>,
+    ) -> Self {
         DropAndReAddTest {
             awaiting_removal: net.correct_nodes().map(|n| n.id().clone()).collect(),
             awaiting_addition: net.correct_nodes().map(|n| n.id().clone()).collect(),
             expected_outputs: net
                 .correct_nodes()
                 // FIXME: This should not be 0..10?!
-                .map(|n| (n.id().clone(), (0..10).collect()))
+                .map(|n| (n.id().clone(), (0..10usize).into_iter().collect()))
                 .collect(),
+        }
+    }
+
+    fn record_step(
+        &mut self,
+        node_id: N,
+        step: &Step<DynamicHoneyBadger<Vec<usize>, N>>,
+        net: &mut VirtualNet<DynamicHoneyBadger<Vec<usize>, N>>,
+    ) {
+        for change in step.output.iter().map(|output| output.change()) {
+            match change {
+                ChangeState::Complete(Change::Remove(pivot_node_id)) => {
+                    println!("Node {:?} done removing.", node_id);
+                    // Removal complete, tally:
+                    self.awaiting_removal.remove(&node_id);
+
+                    // Now we can add the node again. Public keys will be reused.
+                    let pk = net[pivot_node_id.clone()]
+                        .algorithm()
+                        .netinfo()
+                        .secret_key()
+                        .public_key();
+
+                    let _ = net
+                        .send_input(node_id.clone(), Input::Change(Change::Add(pivot_node_id.clone(), pk)))
+                        .expect("failed to send `Add` input");
+                }
+
+                ChangeState::Complete(Change::Add(pivot_node_id, _)) => {
+                    println!("Node {:?} done adding.", node_id);
+                    // Node added, ensure it has been removed first.
+                    if self.awaiting_removal.contains(&node_id) {
+                        panic!(
+                            "Node {:?} reported a success `Add({:?}, _)` before `Remove({:?})`",
+                            node_id, pivot_node_id, pivot_node_id
+                        );
+                    }
+                    self.awaiting_addition.remove(&node_id);
+                }
+                ChangeState::None => {
+                    // Nothing has changed yet.
+                }
+                _ => {
+                    println!("Unhandled change: {:?}", change);
+                }
+            }
         }
     }
 }
@@ -202,45 +248,7 @@ fn do_drop_and_readd(cfg: TestConfig) {
     // Run the network:
     loop {
         let (node_id, step) = net.crank_expect();
-
-        for change in step.output.iter().map(|output| output.change()) {
-            match change {
-                ChangeState::Complete(Change::Remove(pivot_node_id)) => {
-                    println!("Node {:?} done removing.", node_id);
-                    // Removal complete, tally:
-                    state.awaiting_removal.remove(&node_id);
-
-                    // Now we can add the node again. Public keys will be reused.
-                    let pk = net[*pivot_node_id]
-                        .algorithm()
-                        .netinfo()
-                        .secret_key()
-                        .public_key();
-
-                    let _ = net
-                        .send_input(node_id, Input::Change(Change::Add(*pivot_node_id, pk)))
-                        .expect("failed to send `Add` input");
-                }
-
-                ChangeState::Complete(Change::Add(pivot_node_id, _)) => {
-                    println!("Node {:?} done adding.", node_id);
-                    // Node added, ensure it has been removed first.
-                    if state.awaiting_removal.contains(&node_id) {
-                        panic!(
-                            "Node {:?} reported a success `Add({}, _)` before `Remove({})`",
-                            node_id, pivot_node_id, pivot_node_id
-                        );
-                    }
-                    state.awaiting_addition.remove(&node_id);
-                }
-                ChangeState::None => {
-                    // Nothing has changed yet.
-                }
-                _ => {
-                    println!("Unhandled change: {:?}", change);
-                }
-            }
-        }
+        state.record_step(node_id, &step, &mut net);
 
         // Record whether or not we received some output.
         let has_output = !step.output.is_empty();
