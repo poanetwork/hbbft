@@ -328,7 +328,8 @@ where
                 step.extend(if self.require_decryption {
                     self.send_decryption_share(k.clone(), &v)?
                 } else {
-                    self.decryption.insert(k.clone(), DecryptionState::Complete(v));
+                    self.decryption
+                        .insert(k.clone(), DecryptionState::Complete(v));
                     Step::default()
                 });
                 self.accepted_proposers.insert(k);
