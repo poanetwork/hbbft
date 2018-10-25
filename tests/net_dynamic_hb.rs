@@ -153,14 +153,12 @@ where
                         .secret_key()
                         .public_key();
 
-                    assert!(
-                        net.send_input(
+                    let step = net
+                        .send_input(
                             node_id.clone(),
-                            Input::Change(Change::Add(pivot_node_id.clone(), pk))
-                        ).expect("failed to send `Add` input")
-                        .is_empty(),
-                        "Did not expect output after sending state change complete."
-                    );
+                            Input::Change(Change::Add(pivot_node_id.clone(), pk)),
+                        ).expect("failed to send `Add` input");
+                    self.record_step(node_id.clone(), &step, net);
                 }
 
                 ChangeState::Complete(Change::Add(pivot_node_id, _)) => {
@@ -230,25 +228,24 @@ fn do_drop_and_readd(cfg: TestConfig) {
         .map(|node| (*node.id(), (0..total_txs).collect()))
         .collect();
 
+    // We are tracking (correct) nodes' state through the process by ticking them off individually.
+    let mut state = DropAndReAddTest::from_net(&net);
+
     // For each node, select transactions randomly from the queue and propose them.
-    for (id, queue) in &mut queues {
+    for (&id, queue) in &mut queues {
         let proposal = choose_contribution(&mut rng, queue, cfg.batch_size, cfg.contribution_size);
         println!("Node {:?} will propose: {:?}", id, proposal);
 
-        assert!(
-            net.send_input(*id, Input::User(proposal))
-                .expect("could not send initial transaction")
-                .is_empty(),
-            "Initial addition step did not return an empty step."
-        );
+        let step = net
+            .send_input(id, Input::User(proposal))
+            .expect("could not send initial transaction");
+
+        state.record_step(id, &step, &mut net);
     }
 
     // Afterwards, remove a specific node from the dynamic honey badger network.
     net.broadcast_input(&Input::Change(Change::Remove(pivot_node_id)))
         .expect("broadcasting failed");
-
-    // We are tracking (correct) nodes' state through the process by ticking them off individually.
-    let mut state = DropAndReAddTest::from_net(&net);
 
     // Run the network:
     loop {
@@ -304,12 +301,10 @@ fn do_drop_and_readd(cfg: TestConfig) {
             let proposal =
                 choose_contribution(&mut rng, queue, cfg.batch_size, cfg.contribution_size);
 
-            assert!(
-                net.send_input(node_id, Input::User(proposal))
-                    .expect("could not send follow-up transaction")
-                    .is_empty(),
-                "Did not expect output when sending contribution"
-            )
+            let step = net
+                .send_input(node_id, Input::User(proposal))
+                .expect("could not send follow-up transaction");
+            state.record_step(node_id, &step, &mut net);
         }
     }
 
