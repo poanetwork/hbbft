@@ -96,9 +96,8 @@ where
             .public_key()
             .encrypt_with_rng(&mut self.rng, ser_prop);
         let epoch = self.epoch;
-        let mut step = self.epoch_state_mut(epoch)?.propose(&ciphertext)?;
-        step.extend(self.try_output_batches()?);
-        Ok(step)
+        let step = self.epoch_state_mut(epoch)?.propose(&ciphertext)?;
+        Ok(step.join(self.try_output_batches()?))
     }
 
     /// Handles a message received from `sender_id`.
@@ -116,11 +115,10 @@ where
                 .or_insert_with(Vec::new)
                 .push((sender_id.clone(), content));
         } else if self.epoch <= epoch {
-            let mut step = self
+            let step = self
                 .epoch_state_mut(epoch)?
                 .handle_message_content(sender_id, content)?;
-            step.extend(self.try_output_batches()?);
-            return Ok(step);
+            return Ok(step.join(self.try_output_batches()?));
         } // And ignore all messages from past epochs.
         Ok(Step::default())
     }
@@ -164,7 +162,7 @@ where
             .and_then(EpochState::try_output_batch)
         {
             // Queue the output and advance the epoch.
-            step.output.push_back(batch);
+            step.output.push(batch);
             step.fault_log.extend(fault_log);
             step.extend(self.update_epoch()?);
         }

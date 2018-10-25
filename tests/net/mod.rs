@@ -671,7 +671,7 @@ where
 
         // Perform sorting and drain `Vec` back into `VecDeque`.
         msgs.sort_by(f);
-        self.messages.extend(msgs.into_iter());
+        self.messages.extend(msgs);
     }
 }
 

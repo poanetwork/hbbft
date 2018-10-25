@@ -55,68 +55,81 @@ impl<N: NodeIdT> NetworkInfo<N> {
     }
 
     /// The ID of the node the algorithm runs on.
+    #[inline]
     pub fn our_id(&self) -> &N {
         &self.our_id
     }
 
     /// ID of all nodes in the network.
+    #[inline]
     pub fn all_ids(&self) -> impl Iterator<Item = &N> {
         self.public_keys.keys()
     }
 
     /// The total number _N_ of nodes.
+    #[inline]
     pub fn num_nodes(&self) -> usize {
         self.num_nodes
     }
 
     /// The maximum number _f_ of faulty, Byzantine nodes up to which Honey Badger is guaranteed to
     /// be correct.
+    #[inline]
     pub fn num_faulty(&self) -> usize {
         self.num_faulty
     }
 
     /// The minimum number _N - f_ of correct nodes with which Honey Badger is guaranteed to be
     /// correct.
+    #[inline]
     pub fn num_correct(&self) -> usize {
         self.num_nodes - self.num_faulty
     }
 
     /// Returns our secret key share for threshold cryptography.
+    #[inline]
     pub fn secret_key_share(&self) -> &SecretKeyShare {
         &self.secret_key_share
     }
 
     /// Returns our secret key for encryption and signing.
+    #[inline]
     pub fn secret_key(&self) -> &SecretKey {
         &self.secret_key
     }
 
     /// Returns the public key set for threshold cryptography.
+    #[inline]
     pub fn public_key_set(&self) -> &PublicKeySet {
         &self.public_key_set
     }
 
     /// Returns the public key share if a node with that ID exists, otherwise `None`.
+    #[inline]
     pub fn public_key_share(&self, id: &N) -> Option<&PublicKeyShare> {
         self.public_key_shares.get(id)
     }
 
     /// Returns a map of all node IDs to their public key shares.
+    #[inline]
     pub fn public_key_share_map(&self) -> &BTreeMap<N, PublicKeyShare> {
         &self.public_key_shares
     }
 
     /// Returns a map of all node IDs to their public keys.
+    #[inline]
     pub fn public_key(&self, id: &N) -> Option<&PublicKey> {
         self.public_keys.get(id)
     }
 
     /// Returns a map of all node IDs to their public keys.
+    #[inline]
     pub fn public_key_map(&self) -> &BTreeMap<N, PublicKey> {
         &self.public_keys
     }
 
     /// The index of a node in a canonical numbering of all nodes.
+    #[inline]
     pub fn node_index(&self, id: &N) -> Option<usize> {
         self.node_indices.get(id).cloned()
     }
@@ -127,18 +140,21 @@ impl<N: NodeIdT> NetworkInfo<N> {
     /// each invocation, or makes it unsafe to reuse keys for different invocations. A better
     /// invocation ID would be one that is distributed to all nodes on each invocation and would be
     /// independent from the public key, so that reusing keys would be safer.
+    #[inline]
     pub fn invocation_id(&self) -> Vec<u8> {
         self.public_key_set.public_key().to_bytes()
     }
 
     /// Returns `true` if this node takes part in the consensus itself. If not, it is only an
     /// observer.
+    #[inline]
     pub fn is_validator(&self) -> bool {
         self.is_validator
     }
 
     /// Returns `true` if the given node takes part in the consensus itself. If not, it is only an
     /// observer.
+    #[inline]
     pub fn is_node_validator(&self, id: &N) -> bool {
         self.public_keys.contains_key(id)
     }

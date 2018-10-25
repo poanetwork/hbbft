@@ -160,7 +160,7 @@ impl<N: NodeIdT + Rand> Subset<N> {
         if !self.netinfo.is_validator() {
             return Ok(Step::default());
         }
-        let id = self.netinfo.our_id().clone();
+        let id = self.our_id().clone();
         debug!("{:?} Proposing {:0.10}", id, HexFmt(&value));
         self.process_broadcast(&id, |bc| bc.handle_input(value))
     }
@@ -234,7 +234,7 @@ impl<N: NodeIdT + Rand> Subset<N> {
         let val_to_insert = if let Some(true) = self.ba_results.get(proposer_id) {
             debug!("    {:?} → {:0.10}", proposer_id, HexFmt(&value));
             step.output
-                .extend(Some(SubsetOutput::Contribution(proposer_id.clone(), value)));
+                .push(SubsetOutput::Contribution(proposer_id.clone(), value));
             None
         } else {
             Some(value)
@@ -247,8 +247,7 @@ impl<N: NodeIdT + Rand> Subset<N> {
             error!("Duplicate insert in broadcast_results: {:?}", inval)
         }
         let set_binary_agreement_input = |ba: &mut BinaryAgreement<N>| ba.handle_input(true);
-        step.extend(self.process_binary_agreement(proposer_id, set_binary_agreement_input)?);
-        Ok(step)
+        Ok(step.join(self.process_binary_agreement(proposer_id, set_binary_agreement_input)?))
     }
 
     /// Callback to be invoked on receipt of the decision value of the Binary Agreement
@@ -289,7 +288,7 @@ impl<N: NodeIdT + Rand> Subset<N> {
 
         debug!(
             "{:?} Updated Binary Agreement results: {:?}",
-            self.netinfo.our_id(),
+            self.our_id(),
             self.ba_results
         );
 
@@ -318,12 +317,11 @@ impl<N: NodeIdT + Rand> Subset<N> {
             {
                 debug!("    {:?} → {:0.10}", proposer_id, HexFmt(&value));
                 step.output
-                    .extend(Some(SubsetOutput::Contribution(proposer_id.clone(), value)));
+                    .push(SubsetOutput::Contribution(proposer_id.clone(), value));
             }
         }
 
-        step.output.extend(self.try_binary_agreement_completion());
-        Ok(step)
+        Ok(step.with_output(self.try_binary_agreement_completion()))
     }
 
     /// Returns the number of Binary Agreement instances that have decided "yes".
@@ -343,7 +341,7 @@ impl<N: NodeIdT + Rand> Subset<N> {
         }
         debug!(
             "{:?} All Binary Agreement instances have terminated",
-            self.netinfo.our_id()
+            self.our_id()
         );
         // All instances of BinaryAgreement that delivered `true` (or "1" in the paper).
         let delivered_1: BTreeSet<&N> = self
@@ -366,10 +364,7 @@ impl<N: NodeIdT + Rand> Subset<N> {
             .collect();
 
         if delivered_1.len() == broadcast_results.len() {
-            debug!(
-                "{:?} Binary Agreement instances completed:",
-                self.netinfo.our_id()
-            );
+            debug!("{:?} Binary Agreement instances completed:", self.our_id());
             self.decided = true;
             Some(SubsetOutput::Done)
         } else {
