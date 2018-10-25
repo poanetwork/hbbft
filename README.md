@@ -142,12 +142,12 @@ Our implementation modifies the protocols described in "[The Honey Badger of BFT
 
 We have simplified algorithm naming conventions from the original paper.
 
-|  Algorithm Name  | Original Name                    |
-| ---------------- | -------------------------------- |
-| Honey Badger     | HoneyBadgerBFT                   |
-| Subset           | Asynchronous Common Subset (ACS) |
-| Broadcast        | Reliable Broadcast (RBC)         |
-| Binary Agreement | Binary Byzantine Agreement (BBA) |
+|  Algorithm Name  | Original Name                                 |
+| ---------------- | --------------------------------------------- |
+| Honey Badger     | HoneyBadgerBFT                                |
+| Subset           | Asynchronous Common Subset (ACS)              |
+| Broadcast        | Reliable Broadcast (RBC)                      |
+| Binary Agreement | Asynchronous Binary Byzantine Agreement (ABA) |
 
 ## Contributing
 
