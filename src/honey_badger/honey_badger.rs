@@ -91,7 +91,7 @@ where
         }
         self.has_input = true;
         let epoch = self.epoch;
-        let mut step = {
+        let step = {
             let epoch_state = {
                 self.epoch_state_mut(epoch)?;
                 self.epochs.get_mut(&epoch).expect(
