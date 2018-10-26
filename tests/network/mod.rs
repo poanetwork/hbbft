@@ -445,6 +445,10 @@ where
         for (id, node) in &mut network.nodes {
             initial_msgs.push((*id, node.messages.drain(..).collect()));
         }
+        initial_msgs.push((
+            network.observer.id,
+            network.observer.messages.drain(..).collect(),
+        ));
         for (id, msgs) in initial_msgs {
             network.dispatch_messages(id, msgs);
         }
@@ -464,9 +468,11 @@ where
                             node.queue.push_back((sender_id, msg.message.clone()))
                         }
                     }
-                    self.observer
-                        .queue
-                        .push_back((sender_id, msg.message.clone()));
+                    if self.observer.id != sender_id {
+                        self.observer
+                            .queue
+                            .push_back((sender_id, msg.message.clone()));
+                    }
                     self.adversary.push_message(sender_id, msg);
                 }
                 Target::Node(to_id) => {
@@ -474,6 +480,8 @@ where
                         self.adversary.push_message(sender_id, msg);
                     } else if let Some(node) = self.nodes.get_mut(&to_id) {
                         node.queue.push_back((sender_id, msg.message));
+                    } else if self.observer.id == to_id {
+                        self.observer.queue.push_back((sender_id, msg.message));
                     } else {
                         warn!(
                             "Unknown recipient {:?} for message: {:?}",
@@ -483,10 +491,26 @@ where
                 }
             }
         }
+        self.observer_handle_messages();
+        self.observer_dispatch_messages();
+    }
+
+    /// Handles all messages queued for the observer.
+    fn observer_handle_messages(&mut self) {
         while !self.observer.queue.is_empty() {
             self.observer.handle_message();
             let faults: Vec<_> = self.observer.faults.drain(..).collect();
             self.check_faults(faults);
+        }
+    }
+
+    /// Dispatches messages from the observer to the queues of the recipients of those messages.
+    fn observer_dispatch_messages(&mut self) {
+        self.observer_handle_messages();
+        let observer_msgs: Vec<_> = self.observer.messages.drain(..).collect();
+        if !observer_msgs.is_empty() {
+            let observer_id = self.observer.id;
+            self.dispatch_messages(observer_id, observer_msgs);
         }
     }
 
