@@ -18,7 +18,7 @@ use hbbft::dynamic_honey_badger::{Change, ChangeState, DynamicHoneyBadger, Input
 use hbbft::{NodeIdT, Step};
 use net::adversary::{Adversary, NullAdversary};
 use net::proptest::{gen_adversary, gen_seed, NetworkDimension, TestRng, TestRngSeed};
-use net::{NetBuilder, VirtualNet};
+use net::{NetBuilder, Steps, VirtualNet};
 use rand::{Rand, Rng, SeedableRng};
 
 /// Choose a node's contribution for an epoch.
@@ -271,7 +271,7 @@ fn do_drop_and_readd(cfg: TestConfig) {
     let steps = net
         .broadcast_input(&Input::Change(Change::Remove(pivot_node_id)))
         .expect("broadcasting failed");
-    for (node_id, step) in steps {
+    for (node_id, step) in steps.0 {
         progress.process_step(node_id, &step, &mut net);
     }
 
