@@ -144,6 +144,7 @@ where
                 ChangeState::Complete(Change::Remove(pivot_node_id)) => {
                     println!("Node {:?} done removing.", node_id);
                     // Removal complete, tally:
+                    // FIXME: Check if correct ID is removed?
                     self.awaiting_removal.remove(&node_id);
 
                     // Now we can add the node again. Public keys will be reused.
@@ -236,7 +237,7 @@ fn do_drop_and_readd(cfg: TestConfig) {
         .expect("could not construct test network");
 
     // We will use the first correct node as the node we will remove from and re-add to the network.
-    // Note: This should be randomized using proptest.
+    // FIXME: This should be randomized using proptest.
     let pivot_node_id: usize = *(net
         .correct_nodes()
         .nth(0)
