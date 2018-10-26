@@ -182,6 +182,16 @@ where
         }
     }
 
+    fn process_steps(
+        &mut self,
+        steps: Steps<DynamicHoneyBadger<Vec<usize>, N>>,
+        net: &mut VirtualNet<DynamicHoneyBadger<Vec<usize>, N>>,
+    ) {
+        for (node_id, step) in steps.0 {
+            self.process_step(node_id, &step, net)
+        }
+    }
+
     // Checks if the test has finished successfully.
     //
     // The following conditions must be satisfied:
