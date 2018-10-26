@@ -924,10 +924,7 @@ where
     ///
     /// If an error occurs, the first error is returned and broadcasting aborted.
     #[inline]
-    pub fn broadcast_input<'a>(
-        &'a mut self,
-        input: &'a D::Input,
-    ) -> Result<Vec<(D::NodeId, Step<D>)>, D::Error> {
+    pub fn broadcast_input<'a>(&'a mut self, input: &'a D::Input) -> Result<Steps<D>, D::Error> {
         // Note: The tricky lifetime annotation basically says that the input value given must
         //       live as long as the iterator returned lives (because it is cloned on every step,
         //       with steps only evaluated each time `next()` is called. For the same reason the
@@ -955,7 +952,7 @@ where
             ));
         });
 
-        Ok(steps)
+        Ok(Steps(steps))
     }
 }
 
@@ -1028,3 +1025,11 @@ where
         self.crank()
     }
 }
+
+/// Ordered multi-map of nodes to steps.
+///
+/// Encapsulates multiple outcomes from different nodes.
+#[must_use]
+pub struct Steps<D>(pub Vec<(D::NodeId, Step<D>)>)
+where
+    D: DistAlgorithm;
