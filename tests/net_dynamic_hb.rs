@@ -110,19 +110,19 @@ proptest!{
 }
 
 #[derive(Debug)]
-struct DropAndReAddTest<V, N> {
+struct DropAndReAddProgress<V, N> {
     awaiting_removal: collections::BTreeSet<N>,
     awaiting_addition: collections::BTreeSet<N>,
     expected_outputs: collections::BTreeMap<N, collections::BTreeSet<V>>,
 }
 
 // FIXME: Do not pin to `usize`.
-impl<N> DropAndReAddTest<usize, N>
+impl<N> DropAndReAddProgress<usize, N>
 where
     N: NodeIdT + Serialize + DeserializeOwned + Rand,
 {
     fn from_net(net: &VirtualNet<DynamicHoneyBadger<Vec<usize>, N>>) -> Self {
-        DropAndReAddTest {
+        DropAndReAddProgress {
             awaiting_removal: net.correct_nodes().map(|n| n.id().clone()).collect(),
             awaiting_addition: net.correct_nodes().map(|n| n.id().clone()).collect(),
             expected_outputs: net
@@ -133,7 +133,7 @@ where
         }
     }
 
-    fn record_step(
+    fn process_step(
         &mut self,
         node_id: N,
         step: &Step<DynamicHoneyBadger<Vec<usize>, N>>,
@@ -158,7 +158,7 @@ where
                             node_id.clone(),
                             Input::Change(Change::Add(pivot_node_id.clone(), pk)),
                         ).expect("failed to send `Add` input");
-                    self.record_step(node_id.clone(), &step, net);
+                    self.process_step(node_id.clone(), &step, net);
                 }
 
                 ChangeState::Complete(Change::Add(pivot_node_id, _)) => {
@@ -181,6 +181,21 @@ where
             }
         }
     }
+
+    // Checks if the test has finished successfully.
+    //
+    // The following conditions must be satisfied:
+    //
+    // 1. All nodes must have removed the pivot node once.
+    // 2. All nodes must have re-add the pivot node once.
+    // 3. All nodes must have output all queued transactions.
+    fn finished(&self) -> bool {
+        // FIXME: Check order of outputs.
+        // FIXME: Ensure addition/removal only happens once and in-order.
+        self.expected_outputs.values().all(|s| s.is_empty())
+            && self.awaiting_addition.is_empty()
+            && self.awaiting_removal.is_empty()
+    }
 }
 
 /// Dynamic honey badger: Drop a validator node, demoting it to observer, then re-add it, all while
@@ -188,8 +203,6 @@ where
 #[cfg_attr(feature = "cargo-clippy", allow(needless_pass_by_value))]
 fn do_drop_and_readd(cfg: TestConfig) {
     let mut rng: TestRng = TestRng::from_seed(cfg.seed);
-
-    println!("Test configuration: {:?}", cfg);
 
     // Copy total transactions, as it is used multiple times throughout.
     let total_txs = cfg.total_txs;
@@ -229,7 +242,7 @@ fn do_drop_and_readd(cfg: TestConfig) {
         .collect();
 
     // We are tracking (correct) nodes' state through the process by ticking them off individually.
-    let mut state = DropAndReAddTest::from_net(&net);
+    let mut progress = DropAndReAddProgress::from_net(&net);
 
     // For each node, select transactions randomly from the queue and propose them.
     for (&id, queue) in &mut queues {
@@ -240,17 +253,21 @@ fn do_drop_and_readd(cfg: TestConfig) {
             .send_input(id, Input::User(proposal))
             .expect("could not send initial transaction");
 
-        state.record_step(id, &step, &mut net);
+        progress.process_step(id, &step, &mut net);
     }
 
     // Afterwards, remove a specific node from the dynamic honey badger network.
-    net.broadcast_input(&Input::Change(Change::Remove(pivot_node_id)))
+    let steps = net
+        .broadcast_input(&Input::Change(Change::Remove(pivot_node_id)))
         .expect("broadcasting failed");
+    for (node_id, step) in steps {
+        progress.process_step(node_id, &step, &mut net);
+    }
 
-    // Run the network:
-    loop {
+    while !progress.finished() {
+        // First, crank the network, recording the output.
         let (node_id, step) = net.crank_expect();
-        state.record_step(node_id, &step, &mut net);
+        progress.process_step(node_id, &step, &mut net);
 
         // Record whether or not we received some output.
         let has_output = !step.output.is_empty();
@@ -277,22 +294,13 @@ fn do_drop_and_readd(cfg: TestConfig) {
 
                 // Add it to the set of received outputs.
                 if !net[node_id].is_faulty() {
-                    state
+                    progress
                         .expected_outputs
                         .get_mut(&node_id)
                         .expect("output set disappeared")
                         .remove(tx);
                 }
             }
-        }
-
-        // Check if we are done.
-        if state.expected_outputs.values().all(|s| s.is_empty())
-            && state.awaiting_addition.is_empty()
-            && state.awaiting_removal.is_empty()
-        {
-            // All outputs are empty and all nodes have removed and added the single pivot node.
-            break;
         }
 
         // If not done, check if we still want to propose something.
@@ -304,7 +312,7 @@ fn do_drop_and_readd(cfg: TestConfig) {
             let step = net
                 .send_input(node_id, Input::User(proposal))
                 .expect("could not send follow-up transaction");
-            state.record_step(node_id, &step, &mut net);
+            progress.process_step(node_id, &step, &mut net);
         }
     }
 
