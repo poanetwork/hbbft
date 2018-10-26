@@ -33,7 +33,9 @@
 //! some cases be upgraded to actual references, if the underlying node is faulty (see
 //! `NodeHandle::node()` and `NodeHandle::node_mut()`).
 
-use std::cmp;
+use std::{cmp, fmt};
+
+use rand::Rng;
 
 use hbbft::{DistAlgorithm, Step};
 
@@ -381,5 +383,48 @@ where
     fn pre_crank(&mut self, mut net: NetMutHandle<D>) {
         // Message are sorted by NodeID on each step.
         net.sort_messages_by(|a, b| a.to.cmp(&b.to))
+    }
+}
+
+/// Message reordering adversary.
+///
+/// An adversary that swaps the message at the front of the message queue for a random message
+/// within the queue before every `crank`. Thus the order in which messages are received by nodes is
+/// random, which allows to test randomized message delivery.
+pub struct ReorderingAdversary {
+    /// Random number generator to reorder messages.
+    rng: Box<dyn Rng>,
+}
+
+impl fmt::Debug for ReorderingAdversary {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.debug_struct("ReorderingAdversary")
+            .field("rng", &"<RNG>")
+            .finish()
+    }
+}
+
+impl ReorderingAdversary {
+    #[inline]
+    pub fn new<R>(rng: R) -> Self
+    where
+        R: 'static + Rng,
+    {
+        ReorderingAdversary { rng: Box::new(rng) }
+    }
+}
+
+impl<D> Adversary<D> for ReorderingAdversary
+where
+    D: DistAlgorithm,
+    D::Message: Clone,
+    D::Output: Clone,
+{
+    #[inline]
+    fn pre_crank(&mut self, mut net: NetMutHandle<D>) {
+        let l = net.0.messages_len();
+        if l > 0 {
+            net.swap_messages(0, self.rng.gen_range(0, l));
+        }
     }
 }
