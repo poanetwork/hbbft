@@ -12,6 +12,7 @@ use std::{collections, time};
 
 use hbbft::dynamic_honey_badger::{Change, ChangeState, DynamicHoneyBadger, Input};
 use hbbft::DistAlgorithm;
+use net::adversary::ReorderingAdversary;
 use net::proptest::{gen_seed, NetworkDimension, TestRng, TestRngSeed};
 use net::NetBuilder;
 use proptest::prelude::ProptestConfig;
@@ -101,6 +102,7 @@ fn do_drop_and_readd(cfg: TestConfig) {
         .time_limit(time::Duration::from_secs(30 * cfg.dimension.size() as u64))
         // Ensure runs are reproducible.
         .rng(rng.gen::<TestRng>())
+        .adversary(ReorderingAdversary::new(rng.gen::<TestRng>()))
         .using(move |node| {
             println!("Constructing new dynamic honey badger node #{}", node.id);
             DynamicHoneyBadger::builder()

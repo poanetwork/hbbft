@@ -646,6 +646,12 @@ where
         self.messages.iter_mut()
     }
 
+    /// Length of the message queue.
+    #[inline]
+    pub fn messages_len(&self) -> usize {
+        self.messages.len()
+    }
+
     /// Swap two queued messages at indices `i` and `j`.
     #[inline]
     pub fn swap_messages(&mut self, i: usize, j: usize) {
