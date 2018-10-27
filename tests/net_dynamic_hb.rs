@@ -149,7 +149,7 @@ fn do_drop_and_readd(cfg: TestConfig) {
         net.correct_nodes().map(|n| *n.id()).collect();
     let mut expected_outputs: collections::BTreeMap<_, collections::BTreeSet<_>> = net
         .correct_nodes()
-        .map(|n| (*n.id(), (0..10).into_iter().collect()))
+        .map(|n| (*n.id(), (0..10).collect()))
         .collect();
 
     // Run the network:

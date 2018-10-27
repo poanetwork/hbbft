@@ -181,6 +181,7 @@ fn network_to_u32_is_correct() {
 }
 
 #[test]
+#[cfg_attr(feature = "cargo-clippy", allow(cyclomatic_complexity))]
 fn network_from_u32_is_correct() {
     assert_eq!(NetworkDimension::new(1, 0), NetworkDimension::from(0u32));
     assert_eq!(NetworkDimension::new(2, 0), NetworkDimension::from(1u32));

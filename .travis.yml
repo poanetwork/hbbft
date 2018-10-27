@@ -1,6 +1,6 @@
 language: rust
 rust:
-    - 1.29.0
+    - 1.30.0
 cache:
   cargo: true
   timeout: 1200

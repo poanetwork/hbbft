@@ -110,11 +110,8 @@ fn test_subset_5_nodes_different_proposed_values() {
         Vec::from("Delta"),
         Vec::from("Echo"),
     ];
-    let proposals: BTreeMap<NodeId, ProposedValue> = (0..5)
-        .into_iter()
-        .map(NodeId)
-        .zip(proposed_values)
-        .collect();
+    let proposals: BTreeMap<NodeId, ProposedValue> =
+        (0..5).map(NodeId).zip(proposed_values).collect();
     let adversary = |_| SilentAdversary::new(MessageScheduler::Random);
     let network = new_network(5, 0, adversary);
     test_subset(network, &proposals);
