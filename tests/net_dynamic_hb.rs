@@ -106,8 +106,7 @@ fn do_drop_and_readd(cfg: TestConfig) {
             DynamicHoneyBadger::builder()
                 .rng(node.rng)
                 .build(node.netinfo)
-        })
-        .build()
+        }).build()
         .expect("could not construct test network");
 
     // We will use the first correct node as the node we will remove from and re-add to the network.

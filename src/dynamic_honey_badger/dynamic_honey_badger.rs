@@ -301,7 +301,10 @@ where
                         self.update_encryption_schedule(batch_epoch + 1, *schedule)?
                     }
                 });
-                ChangeState::Complete(change)
+                match change {
+                    Change::NodeChange(_) => ChangeState::InProgress(change),
+                    Change::EncryptionSchedule(_) => ChangeState::Complete(change),
+                }
             } else {
                 ChangeState::None
             };
