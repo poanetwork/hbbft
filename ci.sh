@@ -9,8 +9,8 @@ export RUSTFLAGS="-D warnings -C target-cpu=native"
 # Currently, mlocking secrets is disabled due to secure memory limit issues.
 export MLOCK_SECRETS=false
 
-cargo clippy --all-targets -- --deny clippy
-cargo clippy --all-features --all-targets -- --deny clippy
+cargo clippy --all-targets -- --deny clippy::all
+cargo clippy --all-features --all-targets -- --deny clippy::all
 cargo fmt -- --check
 
 # We only test with mocktography, to ensure tests aren't unreasonably long.
