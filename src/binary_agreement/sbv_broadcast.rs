@@ -145,7 +145,7 @@ impl<N: NodeIdT> SbvBroadcast<N> {
     /// Multicasts and handles a message. Does nothing if we are only an observer.
     fn send(&mut self, msg: Message) -> Result<Step<N>> {
         if !self.netinfo.is_validator() {
-            return Ok(Step::default());
+            return self.try_output();
         }
         let step: Step<_> = Target::All.message(msg.clone()).into();
         let our_id = &self.our_id().clone();
