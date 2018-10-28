@@ -2,7 +2,10 @@ extern crate failure;
 extern crate hbbft;
 #[macro_use]
 extern crate proptest;
+extern crate env_logger;
 extern crate integer_sqrt;
+#[macro_use]
+extern crate log;
 extern crate rand;
 extern crate serde;
 extern crate threshold_crypto;
@@ -18,7 +21,7 @@ use hbbft::dynamic_honey_badger::{Change, ChangeState, DynamicHoneyBadger, Input
 use hbbft::{NodeIdT, Step};
 use net::adversary::{Adversary, NullAdversary};
 use net::proptest::{gen_adversary, gen_seed, NetworkDimension, TestRng, TestRngSeed};
-use net::{NetBuilder, Steps, VirtualNet};
+use net::{util, NetBuilder, Steps, VirtualNet};
 use rand::{Rand, Rng, SeedableRng};
 
 /// Choose a node's contribution for an epoch.
@@ -142,7 +145,7 @@ where
         for change in step.output.iter().map(|output| output.change()) {
             match change {
                 ChangeState::Complete(Change::Remove(pivot_node_id)) => {
-                    println!("Node {:?} done removing.", node_id);
+                    info!("Node {:?} done removing.", node_id);
                     // Removal complete, tally:
                     // FIXME: Check if correct ID is removed?
                     self.awaiting_removal.remove(&node_id);
@@ -163,7 +166,7 @@ where
                 }
 
                 ChangeState::Complete(Change::Add(pivot_node_id, _)) => {
-                    println!("Node {:?} done adding.", node_id);
+                    info!("Node {:?} done adding.", node_id);
                     // Node added, ensure it has been removed first.
                     if self.awaiting_removal.contains(&node_id) {
                         panic!(
@@ -177,7 +180,7 @@ where
                     // Nothing has changed yet.
                 }
                 _ => {
-                    println!("Unhandled change: {:?}", change);
+                    warn!("Unhandled change: {:?}", change);
                 }
             }
         }
@@ -201,11 +204,19 @@ where
     // 2. All nodes must have re-add the pivot node once.
     // 3. All nodes must have output all queued transactions.
     fn finished(&self) -> bool {
+        let incomplete = self
+            .expected_outputs
+            .values()
+            .filter(|s| !s.is_empty())
+            .count();
         // FIXME: Check order of outputs.
         // FIXME: Ensure addition/removal only happens once and in-order.
-        self.expected_outputs.values().all(|s| s.is_empty())
-            && self.awaiting_addition.is_empty()
-            && self.awaiting_removal.is_empty()
+        debug!(
+            "Checking for completion. Nodes with incomplete output: {}. \
+             Awaiting addition: {:?}; awaiting removal: {:?}",
+            incomplete, self.awaiting_addition, self.awaiting_removal
+        );
+        incomplete == 0 && self.awaiting_addition.is_empty() && self.awaiting_removal.is_empty()
     }
 }
 
@@ -213,6 +224,8 @@ where
 /// running a regular honey badger network.
 #[cfg_attr(feature = "cargo-clippy", allow(needless_pass_by_value))]
 fn do_drop_and_readd(cfg: TestConfig) {
+    util::init_logging();
+
     let mut rng: TestRng = TestRng::from_seed(cfg.seed);
 
     // Copy total transactions, as it is used multiple times throughout.
@@ -229,7 +242,7 @@ fn do_drop_and_readd(cfg: TestConfig) {
         .rng(rng.gen::<TestRng>())
         .adversary(cfg.adversary)
         .using(move |node| {
-            println!("Constructing new dynamic honey badger node #{}", node.id);
+            info!("Constructing new dynamic honey badger node #{}", node.id);
             DynamicHoneyBadger::builder()
                 .rng(node.rng)
                 .build(node.netinfo)
@@ -243,7 +256,7 @@ fn do_drop_and_readd(cfg: TestConfig) {
         .nth(0)
         .expect("expected at least one correct node")
         .id());
-    println!("Will remove and readd node #{}", pivot_node_id);
+    info!("Will remove and readd node #{}", pivot_node_id);
 
     // We generate a list of transaction we want to propose, for each node. All nodes will propose
     // a number between 0..total_txs, chosen randomly.
@@ -258,7 +271,7 @@ fn do_drop_and_readd(cfg: TestConfig) {
     // For each node, select transactions randomly from the queue and propose them.
     for (&id, queue) in &mut queues {
         let proposal = choose_contribution(&mut rng, queue, cfg.batch_size, cfg.contribution_size);
-        println!("Node {:?} will propose: {:?}", id, proposal);
+        info!("Node {:?} will propose: {:?}", id, proposal);
 
         let step = net
             .send_input(id, Input::User(proposal))
@@ -290,7 +303,7 @@ fn do_drop_and_readd(cfg: TestConfig) {
 
         // Examine potential algorithm output.
         for batch in step.output {
-            println!(
+            info!(
                 "Received epoch {} batch on node {:?}.",
                 batch.epoch(),
                 node_id,
@@ -330,5 +343,5 @@ fn do_drop_and_readd(cfg: TestConfig) {
     // As a final step, we verify that all nodes have arrived at the same conclusion.
     let out = net.verify_batches();
 
-    println!("End result: {:?}", out);
+    info!("End result: {:?}", out);
 }
