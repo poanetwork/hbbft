@@ -135,7 +135,7 @@ impl NetworkDimensionTree {
         NetworkDimensionTree {
             high: high.into(),
             current: high.into(),
-            low: min_size as u32,
+            low: u32::from(min_size),
         }
     }
 }
