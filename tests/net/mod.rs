@@ -853,6 +853,10 @@ where
             msg.to,
             msg.payload
         );
+
+        // FIXME: Use slog and trace level.
+        debug!("[{:?}] -> [{:?}]: {:?}\n", msg.from, msg.to, msg.payload);
+
         let receiver = msg.to.clone();
 
         // Unfortunately, we have to re-borrow the target node further down to make the borrow
