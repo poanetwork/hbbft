@@ -1,8 +1,11 @@
+extern crate env_logger;
 extern crate failure;
 extern crate hbbft;
+extern crate integer_sqrt;
+#[macro_use]
+extern crate log;
 #[macro_use]
 extern crate proptest;
-extern crate integer_sqrt;
 extern crate rand;
 extern crate rand_core;
 extern crate threshold_crypto;
