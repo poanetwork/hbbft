@@ -127,7 +127,11 @@ impl<N> DropAndReAddProgress<usize, N>
 where
     N: NodeIdT + Serialize + DeserializeOwned + Rand,
 {
-    fn from_net(net: &VirtualNet<DynamicHoneyBadger<Vec<usize>, N>>) -> Self {
+    fn new(
+        net: &VirtualNet<DynamicHoneyBadger<Vec<usize>, N>>,
+        batch_size: usize,
+        contribution_size: usize,
+    ) -> Self {
         let total_txs = 200;
 
         let expected_outputs: collections::BTreeMap<_, collections::BTreeSet<_>> = net
@@ -145,8 +149,8 @@ where
             awaiting_addition: net.correct_nodes().map(|n| n.id().clone()).collect(),
             expected_outputs,
             queues,
-            batch_size: 10,
-            contribution_size: 10,
+            batch_size,
+            contribution_size,
         }
     }
 
@@ -331,7 +335,7 @@ fn do_drop_and_readd(cfg: TestConfig) {
         .collect();
 
     // We are tracking (correct) nodes' state through the process by ticking them off individually.
-    let mut progress = DropAndReAddProgress::from_net(&net);
+    let mut progress = DropAndReAddProgress::new(&net, cfg.batch_size, cfg.contribution_size);
 
     // For each node, select transactions randomly from the queue and propose them.
     for (&id, queue) in &mut queues {
