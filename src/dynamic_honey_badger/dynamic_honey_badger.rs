@@ -351,6 +351,7 @@ where
         let netinfo = Arc::new(self.netinfo.clone());
         self.vote_counter = VoteCounter::new(netinfo.clone(), epoch);
         self.honey_badger = HoneyBadger::builder(netinfo)
+            .session_id(epoch)
             .max_future_epochs(self.max_future_epochs)
             .rng(self.rng.sub_rng())
             .build();
