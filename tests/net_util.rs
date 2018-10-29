@@ -1,8 +1,7 @@
 extern crate failure;
 extern crate hbbft;
-#[macro_use]
-extern crate proptest;
 extern crate integer_sqrt;
+extern crate proptest;
 extern crate rand;
 extern crate rand_core;
 extern crate threshold_crypto;
@@ -10,8 +9,8 @@ extern crate threshold_crypto;
 pub mod net;
 
 use proptest::arbitrary::any;
-use proptest::prelude::RngCore;
 use proptest::strategy::{Strategy, ValueTree};
+use proptest::{prelude::RngCore, proptest, proptest_helper};
 use rand::{Rng as Rng4, SeedableRng as SeedableRng4};
 
 use net::proptest::{max_sum, NetworkDimension, NetworkDimensionTree};

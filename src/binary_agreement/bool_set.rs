@@ -1,3 +1,6 @@
+use rand_derive::Rand;
+use serde_derive::{Deserialize, Serialize};
+
 /// The empty set of boolean values.
 pub const NONE: BoolSet = BoolSet(0b00);
 

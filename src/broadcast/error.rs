@@ -1,3 +1,4 @@
+use failure::Fail;
 use reed_solomon_erasure as rse;
 
 /// A broadcast error.

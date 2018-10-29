@@ -1,4 +1,5 @@
 use crypto::PublicKey;
+use serde_derive::{Deserialize, Serialize};
 
 /// A node change action: adding or removing a node.
 #[derive(Clone, Eq, PartialEq, Serialize, Deserialize, Hash, Debug)]

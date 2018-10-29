@@ -2,15 +2,12 @@
 //! Network tests for Honey Badger.
 
 extern crate bincode;
+extern crate env_logger;
 extern crate hbbft;
 extern crate itertools;
-#[macro_use]
 extern crate log;
-extern crate env_logger;
 extern crate rand;
-#[macro_use]
 extern crate rand_derive;
-#[macro_use]
 extern crate serde_derive;
 extern crate threshold_crypto as crypto;
 
@@ -20,6 +17,7 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use itertools::Itertools;
+use log::info;
 use rand::Rng;
 
 use hbbft::honey_badger::{self, Batch, HoneyBadger, MessageContent};

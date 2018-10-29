@@ -17,6 +17,11 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use crypto::{self, hash_g2, Signature, SignatureShare, G2};
+use failure::Fail;
+use log::{debug, error};
+use rand_derive::Rand;
+use serde_derive::{Deserialize, Serialize};
+
 use fault_log::{Fault, FaultKind};
 use {DistAlgorithm, NetworkInfo, NodeIdT, Target};
 

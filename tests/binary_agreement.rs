@@ -16,13 +16,10 @@
 
 extern crate env_logger;
 extern crate hbbft;
-#[macro_use]
 extern crate log;
 extern crate rand;
-#[macro_use]
-extern crate serde_derive;
-#[macro_use]
 extern crate rand_derive;
+extern crate serde_derive;
 extern crate threshold_crypto as crypto;
 
 mod network;
@@ -30,6 +27,7 @@ mod network;
 use std::iter::once;
 use std::sync::Arc;
 
+use log::info;
 use rand::Rng;
 
 use hbbft::binary_agreement::BinaryAgreement;

@@ -4,6 +4,7 @@ use std::result;
 use std::sync::Arc;
 
 use bincode;
+use log::debug;
 
 use super::bool_multimap::BoolMultimap;
 use super::bool_set::BoolSet;

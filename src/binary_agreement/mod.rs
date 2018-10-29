@@ -69,7 +69,10 @@ pub mod bool_set;
 mod sbv_broadcast;
 
 use bincode;
+use failure::Fail;
 use rand;
+use rand_derive::Rand;
+use serde_derive::{Deserialize, Serialize};
 
 use self::bool_set::BoolSet;
 use threshold_sign;
