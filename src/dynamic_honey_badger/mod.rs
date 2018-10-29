@@ -64,6 +64,7 @@ mod votes;
 
 use crypto::{PublicKey, PublicKeySet, Signature};
 use rand::Rand;
+use serde_derive::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 use self::votes::{SignedVote, VoteCounter};

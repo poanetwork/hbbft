@@ -5,10 +5,8 @@ extern crate env_logger;
 extern crate hbbft;
 extern crate itertools;
 extern crate rand;
-#[macro_use]
 extern crate rand_derive;
 extern crate serde;
-#[macro_use(Deserialize, Serialize)]
 extern crate serde_derive;
 extern crate signifix;
 
@@ -20,8 +18,10 @@ use colored::*;
 use docopt::Docopt;
 use itertools::Itertools;
 use rand::{Isaac64Rng, Rng};
+use rand_derive::Rand;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
+use serde_derive::{Deserialize, Serialize};
 use signifix::{metric, TryFrom};
 
 use hbbft::dynamic_honey_badger::DynamicHoneyBadger;

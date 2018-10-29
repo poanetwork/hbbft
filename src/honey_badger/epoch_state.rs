@@ -8,8 +8,10 @@ use std::sync::Arc;
 
 use bincode;
 use crypto::Ciphertext;
+use log::{debug, error, warn};
 use rand::Rand;
 use serde::{de::DeserializeOwned, Serialize};
+use serde_derive::Serialize;
 
 use super::{Batch, ErrorKind, MessageContent, Result, Step};
 use fault_log::{Fault, FaultKind, FaultLog};

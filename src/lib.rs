@@ -117,20 +117,15 @@
 
 extern crate bincode;
 extern crate byteorder;
-#[macro_use(Derivative)]
 extern crate derivative;
-#[macro_use]
 extern crate failure;
 extern crate hex_fmt;
 extern crate init_with;
-#[macro_use]
 extern crate log;
 extern crate rand;
-#[macro_use]
 extern crate rand_derive;
 extern crate reed_solomon_erasure;
 extern crate serde;
-#[macro_use]
 extern crate serde_derive;
 extern crate tiny_keccak;
 

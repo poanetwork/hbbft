@@ -15,7 +15,6 @@
 pub mod adversary;
 pub mod err;
 pub mod proptest;
-#[macro_use]
 pub mod util;
 
 use std::io::Write;
@@ -28,6 +27,8 @@ use threshold_crypto as crypto;
 use hbbft::dynamic_honey_badger::Batch;
 use hbbft::util::SubRng;
 use hbbft::{self, Contribution, DistAlgorithm, NetworkInfo, NodeIdT, Step};
+
+use try_some;
 
 pub use self::adversary::Adversary;
 pub use self::err::CrankError;

@@ -26,6 +26,7 @@ use std::fmt::{self, Display};
 use std::marker::PhantomData;
 use std::{cmp, iter};
 
+use derivative::Derivative;
 use failure::{Backtrace, Context, Fail};
 use rand::{Rand, Rng};
 use serde::{de::DeserializeOwned, Serialize};

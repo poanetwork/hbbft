@@ -4,6 +4,8 @@ use std::sync::Arc;
 
 use bincode;
 use crypto::Signature;
+use derivative::Derivative;
+use log::{debug, info};
 use rand::{self, Rand};
 use serde::{de::DeserializeOwned, Serialize};
 

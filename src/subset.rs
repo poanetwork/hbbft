@@ -29,7 +29,11 @@ use std::fmt::{self, Display};
 use std::result;
 use std::sync::Arc;
 
+use failure::Fail;
 use hex_fmt::HexFmt;
+use log::{debug, error};
+use rand_derive::Rand;
+use serde_derive::{Deserialize, Serialize};
 
 use binary_agreement;
 use broadcast::{self, Broadcast};

@@ -4,7 +4,10 @@ use std::mem;
 use std::sync::Arc;
 
 use crypto::SecretKeyShare;
+use log::{debug, warn};
 use rand::{self, Rng};
+use rand_derive::Rand;
+use serde_derive::{Deserialize, Serialize};
 
 use hbbft::dynamic_honey_badger::Batch;
 use hbbft::{Contribution, DistAlgorithm, Fault, NetworkInfo, Step, Target, TargetedMessage};

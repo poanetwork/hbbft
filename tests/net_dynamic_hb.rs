@@ -1,8 +1,7 @@
 extern crate failure;
 extern crate hbbft;
-#[macro_use]
-extern crate proptest;
 extern crate integer_sqrt;
+extern crate proptest;
 extern crate rand;
 extern crate threshold_crypto;
 
@@ -15,7 +14,7 @@ use hbbft::DistAlgorithm;
 use net::adversary::ReorderingAdversary;
 use net::proptest::{gen_seed, NetworkDimension, TestRng, TestRngSeed};
 use net::NetBuilder;
-use proptest::prelude::ProptestConfig;
+use proptest::{prelude::ProptestConfig, prop_compose, proptest, proptest_helper};
 use rand::{Rng, SeedableRng};
 
 /// Choose a node's contribution for an epoch.

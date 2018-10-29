@@ -1,7 +1,6 @@
 //! The local message delivery system.
 use crossbeam::{Scope, ScopedJoinHandle};
-use crossbeam_channel;
-use crossbeam_channel::{bounded, unbounded, Receiver, Sender};
+use crossbeam_channel::{self, bounded, select_loop, unbounded, Receiver, Sender};
 use hbbft::{SourcedMessage, Target, TargetedMessage};
 
 /// The queue functionality for messages sent between algorithm instances.

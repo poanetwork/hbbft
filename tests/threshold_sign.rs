@@ -3,20 +3,20 @@
 
 extern crate env_logger;
 extern crate hbbft;
-#[macro_use]
 extern crate log;
 extern crate rand;
-#[macro_use]
-extern crate serde_derive;
-#[macro_use]
 extern crate rand_derive;
+extern crate serde_derive;
 extern crate threshold_crypto as crypto;
 
 mod network;
 
 use std::iter::once;
 
+use log::info;
 use rand::Rng;
+use rand_derive::Rand;
+use serde_derive::{Deserialize, Serialize};
 
 use crypto::Signature;
 use hbbft::threshold_sign::ThresholdSign;

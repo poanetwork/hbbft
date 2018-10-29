@@ -9,8 +9,10 @@
 //! It will only output once, but can continue handling messages and will keep track of the set
 //! `bin_values` of values for which _2 f + 1_ `BVal`s were received.
 
-use rand;
 use std::sync::Arc;
+
+use rand;
+use serde_derive::{Deserialize, Serialize};
 
 use super::bool_multimap::BoolMultimap;
 use super::bool_set::{self, BoolSet};

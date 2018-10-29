@@ -3,6 +3,7 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use bincode;
+use derivative::Derivative;
 use rand::{Rand, Rng};
 use serde::{de::DeserializeOwned, Serialize};
 
