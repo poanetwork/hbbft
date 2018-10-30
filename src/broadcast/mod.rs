@@ -16,42 +16,49 @@
 //! branch `b[i]`, the `i`-th chunk `s[i]` can be verified by anyone as belonging to the Merkle
 //! tree with root hash `h`. These values are "proof" number `i`: `p[i] = (h, b[i], s[i])`.
 //!
-//! * The proposer sends `Value(p[i])` to each node `i`.<br>
-//! It translates to:
-//! "I am the proposer, and `p[i]` contains the `i`-th share of my value."
-//! * A node that receives `Value(p[i])` from the proposer sends it on to everyone
-//! else as `Echo(p[i])`. (Additional `Value`s are ignored.)<br>
-//! It translates to:
-//! "I have received `p[i]` from the proposer."
-//! * A node that has received _N - f_ `Echo`s **or** _f + 1_ `Ready`s with root hash `h`, sends
-//! `Ready(h)` to everyone.<br>
-//! It translates to:
-//! "I know that everyone will eventually be able to decode the value with root hash `h`."
+//! * The proposer sends `Value(p[i])` to each validator `i`.
+//! * A validator `i` that receives `Value(p[i])` from the proposer sends it on to everyone else as
+//! `Echo(p[i])`.
+//! * A validator that has received _N - f_ `Echo`s **or** _f + 1_ `Ready`s with root hash `h`,
+//! sends `Ready(h)` to everyone.
 //! * A node that has received _2 f + 1_ `Ready`s **and** _N - 2 f_ `Echo`s with root hash `h`
 //! decodes and outputs the value, and then terminates.
 //!
-//! The third point is justified as follows:
+//! Only the first valid `Value` from the proposer, and the first valid `Echo` message from every
+//! validator is handled as above. Invalid messages (where the proof isn't correct), `Values`
+//! received from other nodes, and all further `Value`s and `Echo`s are ignored, and the sender is
+//! reported as faulty.
 //!
-//! A node that receives at least _N - 2 f_ `Echo`s
-//! with root hash `h` can decode the value. So every node that has received _N - f_ `Echo`s with
-//! `h` knows that at least _N - 2 f_ **correct** nodes have sent an `Echo` with `h` to everyone,
-//! and therefore everyone will eventually receive at least _N - 2 f_ of them. So upon receiving
-//! _N - f_ `Echo`s, they know that everyone will be able to decode, and send `Ready(h)`.
-//! Moreover, since every correct node only sends one kind of `Echo` message, there is no danger of
-//! receiving _N - f_ `Echo`s with two different root hashes.
+//! In the `Valid(p[i])` messages, the proposer distributes shares of the value equally among all
+//! validators, along with a way to verify that all shares belong to the same value.
 //!
-//! Even without enough `Echo`s, if a node receives _f + 1_ `Ready(h)` messages, it knows
-//! that at least one _correct_ node has sent `Ready(h)`. It therefore also knows that everyone will
-//! be able to decode eventually, and multicasts `Ready(h)` itself.
+//! An `Echo(p[i])` from validator `i` indicates that it has received its share of the value from
+//! the proposer. Since `Echo`s contain the share, they are also used later on to reconstruct the
+//! value when the algorithm completes: Every node that receives at least _N - 2 f_ valid `Echo`s
+//! with root hash `h` can decode the value.
 //!
-//! Regarding the last point:
+//! A validator sends `Ready(h)` as soon as it knows that everyone will eventually be able to
+//! decode the value with root hash `h`. There are two sufficient conditions for that:
+//! * If it has received _N - f_ `Echo`s with `h`, it knows that at least _N - 2 f_ **correct**
+//! validators have multicast an `Echo` with `h` to everyone, and therefore everyone will
+//! eventually receive at least _N - 2 f_ valid ones. So it knows that everyone will be able to
+//! decode, and can send `Ready(h)`.
+//! Moreover, since every correct validator only sends one kind of `Echo` message, there is no
+//! danger of receiving _N - f_ `Echo`s with two different root hashes, so every correct validator
+//! will only send one `Ready` message.
+//! * Even without enough `Echo`s, if a validator receives _f + 1_ `Ready(h)` messages, it knows
+//! that at least one **correct** validator has sent `Ready(h)`. It therefore also knows that
+//! everyone will be able to decode eventually, and multicasts `Ready(h)` itself.
 //!
-//! If a node has received _2 f + 1_ `Ready(h)` messages, it knows that at least _f + 1_
-//! **correct** nodes have sent it. Therefore, every node will eventually receive _f + 1_, and
-//! multicast `Ready(h)` itself. Therefore, every node will eventually receive _2 f + 1_ `Ready(h)`
-//! messages, too. In addition, we know at this point that every correct will eventually be
-//! able to decode, i.e. receive _N - 2 f_ `Echo` (since we know that at least one correct node has
-//! sent `Ready(h)`). So we know that all the other correct nodes will also output the value.
+//! Finally, if a node has received _2 f + 1_ `Ready(h)` messages, it knows that at least _f + 1_
+//! **correct** validators have sent it. Thus, every remaining correct validator will eventually
+//! receive _f + 1_, and multicast `Ready(h)` itself. Hence every node will receive _2 f + 1_
+//! `Ready(h)` messages.<br>
+//! In addition, we know at this point that every node will eventually be able to decode, i.e.
+//! receive _N - 2 f_ valid `Echo`s (since we know that at least one correct validator has sent
+//! `Ready(h)`).<br>
+//! In short: Once we satisfy the termination condition in the fourth point above, we know that
+//! everyone else will eventually satisfy it, too. So at that point, we can output and terminate.
 //!
 //! ## Example
 //!
