@@ -11,35 +11,47 @@
 //!
 //! ## How it works
 //!
-//! * The proposer uses a Reed-Solomon code to split the value into _N_ chunks, _N - 2 f_ of which
+//! The proposer uses a Reed-Solomon code to split the value into _N_ chunks, _N - 2 f_ of which
 //! suffice to reconstruct the value. These chunks are put into a Merkle tree, so that with the
-//! tree's root hash `h`, branch `bi` and chunk `si`, the `i`-th chunk `si` can be verified by
-//! anyone as belonging to the Merkle tree with root hash `h`. These values are "proof" number `i`:
-//! `pi = (h, bi, si)`.
-//! * The proposer sends `Value(pi)` to node `i`. It translates to: "I am the proposer, and `pi`
-//! contains the `i`-th share of my value."
-//! * Every (correct) node that receives `Value(pi)` from the proposer sends it on to everyone else
-//! as `Echo(pi)`. An `Echo` translates to: "I have received `pi` directly from the proposer." If
-//! the proposer sends another `Value` message it is ignored.
-//! * So every node that receives at least _f + 1_ `Echo` messages with the same root hash can
-//! decode a value.
-//! * Every node that has received _N - f_ `Echo`s with the same root hash from different nodes
-//! knows that at least _N - 2 f_ _correct_ nodes have sent an `Echo` with that hash to everyone,
-//! and therefore everyone will eventually receive at least _N - f_ of them. So upon receiving
-//! _N - f_ `Echo`s, they send a `Ready(h)` to everyone. It translates to: "I know that everyone
-//! will eventually be able to decode the value with root hash `h`." Moreover, since every correct
-//! node only sends one kind of `Echo` message, there is no danger of receiving _N - f_ `Echo`s
-//! with two different root hashes.
-//! * Even without enough `Echo` messages, if a node receives _2 f + 1_ `Ready` messages, it knows
-//! that at least one _correct_ node has sent `Ready`. It therefore also knows that everyone will
-//! be able to decode eventually, and multicasts `Ready` itself.
-//! * If a node has received _2 f + 1_ `Ready`s (with matching root hash) from different nodes,
-//! it knows that at least _2 f + 1_ _correct_ nodes have sent it. Therefore, every correct node
-//! will eventually receive _2 f + 1_, and multicast it itself. Therefore, every correct node will
-//! eventually receive _2 f + 1_ `Ready`s, too. _And_ we know at this point that every correct
-//! node will eventually be able to decode (i.e. receive at least _2 f + 1_ `Echo` messages).
-//! * So a node with _2 f + 1_ `Ready`s and _N - 2 f_ `Echos` will decode and _output_ the value,
-//! knowing that every other correct node will eventually do the same.
+//! branch `b[i]`, the `i`-th chunk `s[i]` can be verified by anyone as belonging to the Merkle
+//! tree with root hash `h`. These values are "proof" number `i`: `p[i] = (h, b[i], s[i])`.
+//!
+//! * The proposer sends `Value(p[i])` to each node `i`.<br>
+//! It translates to:
+//! "I am the proposer, and `p[i]` contains the `i`-th share of my value."
+//! * A node that receives `Value(p[i])` from the proposer sends it on to everyone
+//! else as `Echo(p[i])`. (Additional `Value`s are ignored.)<br>
+//! It translates to:
+//! "I have received `p[i]` from the proposer."
+//! * A node that has received _N - f_ `Echo`s **or** _f + 1_ `Ready`s with root hash `h`, sends
+//! `Ready(h)` to everyone.<br>
+//! It translates to:
+//! "I know that everyone will eventually be able to decode the value with root hash `h`."
+//! * A node that has received _2 f + 1_ `Ready`s **and** _N - 2 f_ `Echo`s with root hash `h`
+//! decodes and outputs the value, and then terminates.
+//!
+//! The third point is justified as follows:
+//!
+//! A node that receives at least _N - 2 f_ `Echo`s
+//! with root hash `h` can decode the value. So every node that has received _N - f_ `Echo`s with
+//! `h` knows that at least _N - 2 f_ **correct** nodes have sent an `Echo` with `h` to everyone,
+//! and therefore everyone will eventually receive at least _N - 2 f_ of them. So upon receiving
+//! _N - f_ `Echo`s, they know that everyone will be able to decode, and send `Ready(h)`.
+//! Moreover, since every correct node only sends one kind of `Echo` message, there is no danger of
+//! receiving _N - f_ `Echo`s with two different root hashes.
+//!
+//! Even without enough `Echo`s, if a node receives _f + 1_ `Ready(h)` messages, it knows
+//! that at least one _correct_ node has sent `Ready(h)`. It therefore also knows that everyone will
+//! be able to decode eventually, and multicasts `Ready(h)` itself.
+//!
+//! Regarding the last point:
+//!
+//! If a node has received _2 f + 1_ `Ready(h)` messages, it knows that at least _f + 1_
+//! **correct** nodes have sent it. Therefore, every node will eventually receive _f + 1_, and
+//! multicast `Ready(h)` itself. Therefore, every node will eventually receive _2 f + 1_ `Ready(h)`
+//! messages, too. In addition, we know at this point that every correct will eventually be
+//! able to decode, i.e. receive _N - 2 f_ `Echo` (since we know that at least one correct node has
+//! sent `Ready(h)`). So we know that all the other correct nodes will also output the value.
 //!
 //! ## Example
 //!
