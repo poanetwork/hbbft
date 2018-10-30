@@ -41,7 +41,7 @@ impl<S> SessionIdT for S where S: Display + Serialize + Send + Sync + Clone {}
 /// through `let _ = ...` or similar constructs, the implicit assumption should explicitly be
 /// checked instead:
 ///
-/// ```rust,no_run
+/// ```ignore
 /// assert!(alg.propose(123).expect("Could not propose value").is_empty(),
 ///         "Algorithm will never output anything on first proposal");
 /// ```
