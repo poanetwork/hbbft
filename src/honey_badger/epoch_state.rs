@@ -46,14 +46,6 @@ where
             DecryptionState::Complete(_) => Ok(td::Step::default()),
         }
     }
-
-    /// Handles a ciphertext input.
-    fn set_ciphertext(&mut self, ciphertext: Ciphertext) -> td::Result<td::Step<N>> {
-        match self {
-            DecryptionState::Ongoing(ref mut td) => td.handle_input(ciphertext),
-            DecryptionState::Complete(_) => Ok(td::Step::default()),
-        }
-    }
 }
 
 /// The status of the subset algorithm.
@@ -254,7 +246,7 @@ where
                     Entry::Vacant(entry) => {
                         entry.insert(DecryptionState::new(self.netinfo.clone()))
                     }
-                }.handle_message(sender_id, share)
+                }.handle_message(sender_id, td::Message::Share(share))
                 .map_err(ErrorKind::ThresholdDecryption)?;
                 self.process_decryption(proposer_id, td_step)
             }
@@ -344,11 +336,13 @@ where
     /// Processes a Threshold Decryption step.
     fn process_decryption(&mut self, proposer_id: N, td_step: td::Step<N>) -> Result<Step<C, N>> {
         let mut step = Step::default();
-        let opt_output = step.extend_with(td_step, |share| {
-            MessageContent::DecryptionShare {
-                proposer_id: proposer_id.clone(),
-                share,
-            }.with_epoch(self.epoch)
+        let opt_output = step.extend_with(td_step, |msg_share| {
+            match msg_share {
+                td::Message::Share(share) => {
+                    MessageContent::DecryptionShare{proposer_id: proposer_id.clone(),
+                                                    share: share}.with_epoch(self.epoch)},
+                _ => panic!(),
+            }
         });
         if let Some(output) = opt_output.into_iter().next() {
             self.decryption
@@ -357,8 +351,9 @@ where
         Ok(step)
     }
 
-    /// Given the output of the Subset algorithm, inputs the ciphertexts into the Threshold
-    /// Decryption instances and sends our own decryption shares.
+    /// Given the output for one node from the Subset algorithm, inputs the node's ciphertext into
+    /// our corresponding Threshold Decryption instance and sends our own decryption share for that
+    /// text.
     fn send_decryption_share(&mut self, proposer_id: N, v: &[u8]) -> Result<Step<C, N>> {
         let ciphertext: Ciphertext = match bincode::deserialize(v) {
             Ok(ciphertext) => ciphertext,
@@ -373,7 +368,7 @@ where
         let td_result = match self.decryption.entry(proposer_id.clone()) {
             Entry::Occupied(entry) => entry.into_mut(),
             Entry::Vacant(entry) => entry.insert(DecryptionState::new(self.netinfo.clone())),
-        }.set_ciphertext(ciphertext);
+        }.handle_message(&proposer_id, td::Message::Cipher(ciphertext));
         match td_result {
             Ok(td_step) => self.process_decryption(proposer_id, td_step),
             Err(td::Error::InvalidCiphertext(_)) => {

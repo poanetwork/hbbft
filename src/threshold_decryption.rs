@@ -38,8 +38,13 @@ pub enum Error {
 pub type Result<T> = ::std::result::Result<T, Error>;
 
 /// A Threshold Decryption message.
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Rand)]
-pub struct Message(pub DecryptionShare);
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub enum Message {
+    /// A decryption share from a peer.
+    Share(DecryptionShare),
+    /// A message setting nodeId's ciphertext Should only be transmitted locally.
+    Cipher(Ciphertext),
+}
 
 /// A Threshold Decryption algorithm instance. If every node inputs the same data, encrypted to the
 /// network's public key, every node will output the decrypted data.
@@ -58,13 +63,13 @@ pub type Step<N> = ::Step<ThresholdDecryption<N>>;
 
 impl<N: NodeIdT> DistAlgorithm for ThresholdDecryption<N> {
     type NodeId = N;
-    type Input = Ciphertext;
+    type Input = ();
     type Output = Vec<u8>;
     type Message = Message;
     type Error = Error;
 
-    fn handle_input(&mut self, input: Ciphertext) -> Result<Step<N>> {
-        self.set_ciphertext(input)
+    fn handle_input(&mut self, _input: ()) -> Result<Step<N>> {
+        self.try_output()
     }
 
     fn handle_message(&mut self, sender_id: &N, message: Message) -> Result<Step<N>> {
@@ -110,7 +115,7 @@ impl<N: NodeIdT> ThresholdDecryption<N> {
         let our_id = self.our_id().clone();
         let mut step = Step::default();
         step.fault_log.extend(self.remove_invalid_shares());
-        let msg = Target::All.message(Message(share.clone()));
+        let msg = Target::All.message(Message::Share(share.clone()));
         step.messages.push(msg);
         self.shares.insert(our_id, share);
         step.extend(self.try_output()?);
@@ -128,18 +133,25 @@ impl<N: NodeIdT> ThresholdDecryption<N> {
     ///
     /// If we have collected enough, returns the decrypted message.
     pub fn handle_message(&mut self, sender_id: &N, message: Message) -> Result<Step<N>> {
+        let mut step = Step::default();
         if self.terminated {
-            return Ok(Step::default()); // Don't waste time on redundant shares.
+            return Ok(step); // Don't waste time on redundant shares.
         }
-        let Message(share) = message;
-        if !self.is_share_valid(sender_id, &share) {
-            let fault_kind = FaultKind::UnverifiedDecryptionShareSender;
-            return Ok(Fault::new(sender_id.clone(), fault_kind).into());
-        }
-        if self.shares.insert(sender_id.clone(), share).is_some() {
-            return Ok(Fault::new(sender_id.clone(), FaultKind::MultipleDecryptionShares).into());
-        }
-        self.try_output()
+        step.extend(match message {
+            Message::Share(share) => {
+                if !self.is_share_valid(sender_id, &share) {
+                    let fault_kind = FaultKind::UnverifiedDecryptionShareSender;
+                    return Ok(Fault::new(sender_id.clone(), fault_kind).into());
+                }
+                if self.shares.insert(sender_id.clone(), share).is_some() {
+                    return Ok(Fault::new(sender_id.clone(), FaultKind::MultipleDecryptionShares).into());
+                }
+                Step::default()
+            },
+            Message::Cipher(ciphertext) => self.set_ciphertext(ciphertext)?,
+        });
+        step.extend(self.try_output()?);
+        Ok(step)
     }
 
     /// Removes all shares that are invalid, and returns faults for their senders.
