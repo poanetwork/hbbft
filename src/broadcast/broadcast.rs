@@ -458,8 +458,8 @@ fn decode_from_shards(
     }
 }
 
-/// Concatenates the first `n` leaf values of a Merkle tree. The first four bytes are interpreted
-/// as the payload size, and the padding beyond that size is dropped.
+/// Concatenates the first `n` leaf values of a Merkle tree `m`. The first four bytes are
+/// interpreted as the payload size, and the padding beyond that size is dropped.
 fn glue_shards(m: MerkleTree<Vec<u8>>, n: usize) -> Option<Vec<u8>> {
     let mut bytes = m.into_values().into_iter().take(n).flatten();
     let payload_len = match (bytes.next(), bytes.next(), bytes.next(), bytes.next()) {

@@ -67,9 +67,6 @@ pub enum Error {
 /// A subset result.
 pub type Result<T> = result::Result<T, Error>;
 
-// TODO: Make this a generic argument of `Subset`.
-type ProposedValue = Vec<u8>;
-
 /// Message from Subset to remote nodes.
 #[derive(Serialize, Deserialize, Clone, Debug, Rand)]
 pub enum Message<N: Rand> {
@@ -88,7 +85,7 @@ pub struct Subset<N: Rand, S> {
     broadcast_instances: BTreeMap<N, Broadcast<N>>,
     ba_instances: BTreeMap<N, BaInstance<N, S>>,
     /// `None` means that that item has already been output.
-    broadcast_results: BTreeMap<N, Option<ProposedValue>>,
+    broadcast_results: BTreeMap<N, Option<Vec<u8>>>,
     ba_results: BTreeMap<N, bool>,
     /// Whether the instance has decided on a value.
     decided: bool,
@@ -98,7 +95,7 @@ pub type Step<N, S> = ::Step<Subset<N, S>>;
 
 impl<N: NodeIdT + Rand, S: SessionIdT> DistAlgorithm for Subset<N, S> {
     type NodeId = N;
-    type Input = ProposedValue;
+    type Input = Vec<u8>;
     type Output = SubsetOutput<N>;
     type Message = Message<N>;
     type Error = Error;
@@ -168,7 +165,7 @@ impl<N: NodeIdT + Rand, S: SessionIdT> Subset<N, S> {
     /// Proposes a value for the subset.
     ///
     /// Returns an error if we already made a proposal.
-    pub fn propose(&mut self, value: ProposedValue) -> Result<Step<N, S>> {
+    pub fn propose(&mut self, value: Vec<u8>) -> Result<Step<N, S>> {
         if !self.netinfo.is_validator() {
             return Ok(Step::default());
         }
