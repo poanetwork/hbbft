@@ -215,11 +215,7 @@ where
     }
 
     /// If the instance hasn't terminated yet, inputs our encrypted contribution.
-    pub fn propose(
-        &mut self,
-        proposal: &C,
-        rng: &mut Box<dyn Rng + Send + Sync>,
-    ) -> Result<Step<C, N>> {
+    pub fn propose<R: Rng>(&mut self, proposal: &C, rng: &mut R) -> Result<Step<C, N>> {
         let ser_prop =
             bincode::serialize(&proposal).map_err(|err| ErrorKind::ProposeBincode(*err))?;
         let cs_step = self.subset.handle_input(if self.require_decryption {
