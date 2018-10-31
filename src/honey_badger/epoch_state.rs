@@ -2,20 +2,26 @@
 
 use std::collections::btree_map::Entry;
 use std::collections::{BTreeMap, BTreeSet};
+use std::fmt::{self, Display};
 use std::marker::PhantomData;
 use std::mem::replace;
+use std::result;
 use std::sync::Arc;
 
 use bincode;
 use crypto::Ciphertext;
+use log::{debug, error, warn};
 use rand::{Rand, Rng};
 use serde::{de::DeserializeOwned, Serialize};
+use serde_derive::Serialize;
 
 use super::{Batch, ErrorKind, MessageContent, Result, Step};
 use fault_log::{Fault, FaultKind, FaultLog};
 use subset::{self as cs, Subset, SubsetOutput};
 use threshold_decryption::{self as td, ThresholdDecryption};
 use {Contribution, DistAlgorithm, NetworkInfo, NodeIdT};
+
+type CsStep<N> = cs::Step<N, EpochId>;
 
 /// The status of an encrypted contribution.
 #[derive(Debug)]
@@ -56,7 +62,7 @@ where
 #[derive(Debug)]
 enum SubsetState<N: Rand> {
     /// The algorithm is ongoing: the set of accepted contributions is still undecided.
-    Ongoing(Subset<N>),
+    Ongoing(Subset<N, EpochId>),
     /// The algorithm is complete. This contains the set of accepted proposers.
     Complete(BTreeSet<N>),
 }
@@ -66,7 +72,7 @@ where
     N: NodeIdT + Rand,
 {
     /// Provides input to the Subset instance, unless it has already completed.
-    fn handle_input(&mut self, proposal: Vec<u8>) -> Result<cs::Step<N>> {
+    fn handle_input(&mut self, proposal: Vec<u8>) -> Result<CsStep<N>> {
         match self {
             SubsetState::Ongoing(ref mut cs) => cs.handle_input(proposal),
             SubsetState::Complete(_) => return Ok(cs::Step::default()),
@@ -74,7 +80,7 @@ where
     }
 
     /// Handles a message in the Subset instance, unless it has already completed.
-    fn handle_message(&mut self, sender_id: &N, msg: cs::Message<N>) -> Result<cs::Step<N>> {
+    fn handle_message(&mut self, sender_id: &N, msg: cs::Message<N>) -> Result<CsStep<N>> {
         match self {
             SubsetState::Ongoing(ref mut cs) => cs.handle_message(sender_id, msg),
             SubsetState::Complete(_) => return Ok(cs::Step::default()),
@@ -197,11 +203,13 @@ where
     /// Creates a new `Subset` instance.
     pub fn new(
         netinfo: Arc<NetworkInfo<N>>,
+        hb_id: u64,
         epoch: u64,
         subset_handling_strategy: SubsetHandlingStrategy,
         require_decryption: bool,
     ) -> Result<Self> {
-        let cs = Subset::new(netinfo.clone(), epoch).map_err(ErrorKind::CreateSubset)?;
+        let epoch_id = EpochId { hb_id, epoch };
+        let cs = Subset::new(netinfo.clone(), &epoch_id).map_err(ErrorKind::CreateSubset)?;
         Ok(EpochState {
             epoch,
             netinfo,
@@ -304,7 +312,7 @@ where
     }
 
     /// Checks whether the subset has output, and if it does, sends out our decryption shares.
-    fn process_subset(&mut self, cs_step: cs::Step<N>) -> Result<Step<C, N>> {
+    fn process_subset(&mut self, cs_step: CsStep<N>) -> Result<Step<C, N>> {
         let mut step = Step::default();
         let cs_outputs = step.extend_with(cs_step, |cs_msg| {
             MessageContent::Subset(cs_msg).with_epoch(self.epoch)
@@ -394,5 +402,19 @@ where
             }
             Err(err) => Err(ErrorKind::ThresholdDecryption(err).into()),
         }
+    }
+}
+
+/// A session identifier for a `Subset` sub-algorithm run within an epoch. It consists of the epoch
+/// number, and an optional `HoneyBadger` session identifier.
+#[derive(Clone, Debug, Serialize)]
+struct EpochId {
+    hb_id: u64,
+    epoch: u64,
+}
+
+impl Display for EpochId {
+    fn fmt(&self, f: &mut fmt::Formatter) -> result::Result<(), fmt::Error> {
+        write!(f, "{}/{}", self.hb_id, self.epoch)
     }
 }

@@ -3,13 +3,10 @@
 
 extern crate env_logger;
 extern crate hbbft;
-#[macro_use]
 extern crate log;
 extern crate rand;
-#[macro_use]
-extern crate serde_derive;
-#[macro_use]
 extern crate rand_derive;
+extern crate serde_derive;
 extern crate threshold_crypto as crypto;
 
 mod network;
@@ -25,8 +22,8 @@ use network::{Adversary, MessageScheduler, NodeId, SilentAdversary, TestNetwork,
 
 type ProposedValue = Vec<u8>;
 
-fn test_subset<A: Adversary<Subset<NodeId>>>(
-    mut network: TestNetwork<A, Subset<NodeId>>,
+fn test_subset<A: Adversary<Subset<NodeId, u8>>>(
+    mut network: TestNetwork<A, Subset<NodeId, u8>>,
     inputs: &BTreeMap<NodeId, ProposedValue>,
 ) {
     let ids: Vec<NodeId> = network.nodes.keys().cloned().collect();
@@ -75,9 +72,9 @@ fn new_network<A, F>(
     good_num: usize,
     bad_num: usize,
     adversary: F,
-) -> TestNetwork<A, Subset<NodeId>>
+) -> TestNetwork<A, Subset<NodeId, u8>>
 where
-    A: Adversary<Subset<NodeId>>,
+    A: Adversary<Subset<NodeId, u8>>,
     F: Fn(BTreeMap<NodeId, Arc<NetworkInfo<NodeId>>>) -> A,
 {
     // This returns an error in all but the first test.
@@ -110,11 +107,8 @@ fn test_subset_5_nodes_different_proposed_values() {
         Vec::from("Delta"),
         Vec::from("Echo"),
     ];
-    let proposals: BTreeMap<NodeId, ProposedValue> = (0..5)
-        .into_iter()
-        .map(NodeId)
-        .zip(proposed_values)
-        .collect();
+    let proposals: BTreeMap<NodeId, ProposedValue> =
+        (0..5).map(NodeId).zip(proposed_values).collect();
     let adversary = |_| SilentAdversary::new(MessageScheduler::Random);
     let network = new_network(5, 0, adversary);
     test_subset(network, &proposals);

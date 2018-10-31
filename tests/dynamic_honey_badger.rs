@@ -1,16 +1,13 @@
 #![deny(unused_must_use)]
 //! Network tests for Dynamic Honey Badger.
 
+extern crate env_logger;
 extern crate hbbft;
 extern crate itertools;
-#[macro_use]
 extern crate log;
-extern crate env_logger;
 extern crate rand;
-#[macro_use]
-extern crate serde_derive;
-#[macro_use]
 extern crate rand_derive;
+extern crate serde_derive;
 extern crate threshold_crypto as crypto;
 
 mod network;
@@ -19,6 +16,7 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use itertools::Itertools;
+use log::info;
 use rand::{Isaac64Rng, Rng};
 
 use hbbft::dynamic_honey_badger::{

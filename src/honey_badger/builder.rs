@@ -15,6 +15,9 @@ use {Contribution, NetworkInfo, NodeIdT};
 pub struct HoneyBadgerBuilder<C, N> {
     /// Shared network data.
     netinfo: Arc<NetworkInfo<N>>,
+    /// A session identifier. Different session IDs foil replay attacks in two instances with the
+    /// same epoch numbers and the same validators.
+    session_id: u64,
     /// Start in this epoch.
     epoch: u64,
     /// The maximum number of future epochs for which we handle messages simultaneously.
@@ -38,6 +41,7 @@ where
     pub fn new(netinfo: Arc<NetworkInfo<N>>) -> Self {
         HoneyBadgerBuilder {
             netinfo,
+            session_id: 0,
             epoch: 0,
             max_future_epochs: 3,
             rng: Box::new(rand::thread_rng()),
@@ -50,6 +54,15 @@ where
     /// Sets the random number generator for the public key cryptography.
     pub fn rng<R: Rng + 'static>(&mut self, rng: R) -> &mut Self {
         self.rng = Box::new(rng);
+        self
+    }
+
+    /// Sets the session identifier.
+    ///
+    /// Different session IDs foil replay attacks in two instances with the same epoch numbers and
+    /// the same validators.
+    pub fn session_id(&mut self, session_id: u64) -> &mut Self {
+        self.session_id = session_id;
         self
     }
 
@@ -84,6 +97,7 @@ where
     pub fn build(&mut self) -> HoneyBadger<C, N> {
         HoneyBadger {
             netinfo: self.netinfo.clone(),
+            session_id: self.session_id,
             epoch: self.epoch,
             has_input: false,
             epochs: BTreeMap::new(),

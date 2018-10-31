@@ -2,6 +2,7 @@ use std::fmt::{self, Debug};
 
 use hex_fmt::HexFmt;
 use rand;
+use serde_derive::{Deserialize, Serialize};
 
 use super::merkle::{Digest, MerkleTree, Proof};
 

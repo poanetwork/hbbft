@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 use byteorder::{BigEndian, ByteOrder};
 use hex_fmt::{HexFmt, HexList};
+use log::{debug, error, info};
 use reed_solomon_erasure as rse;
 use reed_solomon_erasure::ReedSolomon;
 

@@ -16,13 +16,10 @@
 
 extern crate env_logger;
 extern crate hbbft;
-#[macro_use]
 extern crate log;
 extern crate rand;
-#[macro_use]
-extern crate serde_derive;
-#[macro_use]
 extern crate rand_derive;
+extern crate serde_derive;
 extern crate threshold_crypto as crypto;
 
 mod network;
@@ -30,6 +27,7 @@ mod network;
 use std::iter::once;
 use std::sync::Arc;
 
+use log::info;
 use rand::Rng;
 
 use hbbft::binary_agreement::BinaryAgreement;
@@ -37,8 +35,8 @@ use hbbft::NetworkInfo;
 
 use network::{Adversary, MessageScheduler, NodeId, SilentAdversary, TestNetwork, TestNode};
 
-fn test_binary_agreement<A: Adversary<BinaryAgreement<NodeId>>>(
-    mut network: TestNetwork<A, BinaryAgreement<NodeId>>,
+fn test_binary_agreement<A: Adversary<BinaryAgreement<NodeId, u8>>>(
+    mut network: TestNetwork<A, BinaryAgreement<NodeId, u8>>,
     input: Option<bool>,
 ) {
     let ids: Vec<NodeId> = network.nodes.keys().cloned().collect();
@@ -65,7 +63,7 @@ fn test_binary_agreement<A: Adversary<BinaryAgreement<NodeId>>>(
 
 fn test_binary_agreement_different_sizes<A, F>(new_adversary: F)
 where
-    A: Adversary<BinaryAgreement<NodeId>>,
+    A: Adversary<BinaryAgreement<NodeId, u8>>,
     F: Fn(usize, usize) -> A,
 {
     // This returns an error in all but the first test.
@@ -85,7 +83,7 @@ where
             );
             let adversary = |_| new_adversary(num_good_nodes, num_faulty_nodes);
             let new_ba = |netinfo: Arc<NetworkInfo<NodeId>>| {
-                BinaryAgreement::new(netinfo, 0, NodeId(0)).expect("Binary Agreement instance")
+                BinaryAgreement::new(netinfo, 0).expect("Binary Agreement instance")
             };
             let network = TestNetwork::new(num_good_nodes, num_faulty_nodes, adversary, new_ba);
             test_binary_agreement(network, input);

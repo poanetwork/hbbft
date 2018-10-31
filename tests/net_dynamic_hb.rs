@@ -1,8 +1,7 @@
 extern crate failure;
 extern crate hbbft;
-#[macro_use]
-extern crate proptest;
 extern crate integer_sqrt;
+extern crate proptest;
 extern crate rand;
 extern crate threshold_crypto;
 
@@ -12,9 +11,10 @@ use std::{collections, time};
 
 use hbbft::dynamic_honey_badger::{Change, ChangeState, DynamicHoneyBadger, Input, NodeChange};
 use hbbft::DistAlgorithm;
+use net::adversary::ReorderingAdversary;
 use net::proptest::{gen_seed, NetworkDimension, TestRng, TestRngSeed};
 use net::NetBuilder;
-use proptest::prelude::ProptestConfig;
+use proptest::{prelude::ProptestConfig, prop_compose, proptest, proptest_helper};
 use rand::{Rng, SeedableRng};
 
 /// Choose a node's contribution for an epoch.
@@ -101,6 +101,7 @@ fn do_drop_and_readd(cfg: TestConfig) {
         .time_limit(time::Duration::from_secs(30 * cfg.dimension.size() as u64))
         // Ensure runs are reproducible.
         .rng(rng.gen::<TestRng>())
+        .adversary(ReorderingAdversary::new(rng.gen::<TestRng>()))
         .using(move |node| {
             println!("Constructing new dynamic honey badger node #{}", node.id);
             DynamicHoneyBadger::builder()
@@ -148,7 +149,7 @@ fn do_drop_and_readd(cfg: TestConfig) {
         net.correct_nodes().map(|n| *n.id()).collect();
     let mut expected_outputs: collections::BTreeMap<_, collections::BTreeSet<_>> = net
         .correct_nodes()
-        .map(|n| (*n.id(), (0..10).into_iter().collect()))
+        .map(|n| (*n.id(), (0..10).collect()))
         .collect();
 
     // Run the network:

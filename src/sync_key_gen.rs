@@ -175,11 +175,13 @@ use crypto::{
     error::Error as CryptoError,
     poly::{BivarCommitment, BivarPoly, Poly},
     serde_impl::field_vec::FieldWrap,
-    Ciphertext, PublicKey, PublicKeySet, SecretKey, SecretKeyShare,
+    Ciphertext, Fr, G1Affine, PublicKey, PublicKeySet, SecretKey, SecretKeyShare,
 };
-use crypto::{Fr, G1Affine};
+use failure::Fail;
+use log::error;
 use pairing::{CurveAffine, Field};
 use rand;
+use serde_derive::{Deserialize, Serialize};
 
 use {NetworkInfo, NodeIdT};
 

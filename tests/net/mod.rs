@@ -15,7 +15,6 @@
 pub mod adversary;
 pub mod err;
 pub mod proptest;
-#[macro_use]
 pub mod util;
 
 use std::io::Write;
@@ -28,6 +27,8 @@ use threshold_crypto as crypto;
 use hbbft::dynamic_honey_badger::Batch;
 use hbbft::util::SubRng;
 use hbbft::{self, Contribution, DistAlgorithm, NetworkInfo, NodeIdT, Step};
+
+use try_some;
 
 pub use self::adversary::Adversary;
 pub use self::err::CrankError;
@@ -149,8 +150,26 @@ pub struct NetworkMessage<M, N> {
 impl<M, N> NetworkMessage<M, N> {
     /// Create a new network message.
     #[inline]
-    fn new(from: N, payload: M, to: N) -> NetworkMessage<M, N> {
+    pub fn new(from: N, payload: M, to: N) -> NetworkMessage<M, N> {
         NetworkMessage { from, to, payload }
+    }
+
+    /// Returns the source of the message
+    #[inline]
+    pub fn from(&self) -> &N {
+        &self.from
+    }
+
+    /// Returns the destination of the message
+    #[inline]
+    pub fn to(&self) -> &N {
+        &self.to
+    }
+
+    /// Returns the contents of the message
+    #[inline]
+    pub fn payload(&self) -> &M {
+        &self.payload
     }
 }
 
@@ -646,6 +665,12 @@ where
     #[inline]
     pub fn messages_mut(&mut self) -> impl Iterator<Item = &mut NetMessage<D>> {
         self.messages.iter_mut()
+    }
+
+    /// Length of the message queue.
+    #[inline]
+    pub fn messages_len(&self) -> usize {
+        self.messages.len()
     }
 
     /// Swap two queued messages at indices `i` and `j`.

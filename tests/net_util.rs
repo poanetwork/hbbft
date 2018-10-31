@@ -1,8 +1,7 @@
 extern crate failure;
 extern crate hbbft;
-#[macro_use]
-extern crate proptest;
 extern crate integer_sqrt;
+extern crate proptest;
 extern crate rand;
 extern crate rand_core;
 extern crate threshold_crypto;
@@ -10,8 +9,8 @@ extern crate threshold_crypto;
 pub mod net;
 
 use proptest::arbitrary::any;
-use proptest::prelude::RngCore;
 use proptest::strategy::{Strategy, ValueTree};
+use proptest::{prelude::RngCore, proptest, proptest_helper};
 use rand::{Rng as Rng4, SeedableRng as SeedableRng4};
 
 use net::proptest::{max_sum, NetworkDimension, NetworkDimensionTree};
@@ -181,6 +180,7 @@ fn network_to_u32_is_correct() {
 }
 
 #[test]
+#[cfg_attr(feature = "cargo-clippy", allow(cyclomatic_complexity))]
 fn network_from_u32_is_correct() {
     assert_eq!(NetworkDimension::new(1, 0), NetworkDimension::from(0u32));
     assert_eq!(NetworkDimension::new(2, 0), NetworkDimension::from(1u32));

@@ -1,12 +1,14 @@
 //! Comms task structure. A comms task communicates with a remote node through a
 //! socket. Local communication with coordinating threads is made via
 //! `crossbeam_channel::unbounded()`.
+use std::io;
+use std::net::TcpStream;
+
 use bincode;
 use crossbeam;
 use crossbeam_channel::{Receiver, Sender};
+use log::{debug, info};
 use serde::{de::DeserializeOwned, Serialize};
-use std::io;
-use std::net::TcpStream;
 
 use hbbft::SourcedMessage;
 

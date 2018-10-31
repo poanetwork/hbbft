@@ -4,6 +4,7 @@ use std::sync::Arc;
 use bincode;
 use crypto::Signature;
 use serde::Serialize;
+use serde_derive::{Deserialize, Serialize};
 
 use super::{Change, ErrorKind, Result};
 use fault_log::{FaultKind, FaultLog};

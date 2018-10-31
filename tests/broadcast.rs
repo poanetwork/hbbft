@@ -1,23 +1,21 @@
 #![deny(unused_must_use)]
 //! Integration test of the reliable broadcast protocol.
 
-extern crate hbbft;
-#[macro_use]
-extern crate log;
 extern crate env_logger;
+extern crate hbbft;
+extern crate log;
 extern crate rand;
-#[macro_use]
-extern crate serde_derive;
-#[macro_use]
 extern crate rand_derive;
+extern crate serde_derive;
 extern crate threshold_crypto as crypto;
 
 mod network;
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::iter::once;
 use std::sync::Arc;
 
+use log::info;
 use rand::Rng;
 
 use hbbft::broadcast::{Broadcast, Message};
@@ -30,8 +28,7 @@ use network::{
 /// An adversary that inputs an alternate value.
 struct ProposeAdversary {
     scheduler: MessageScheduler,
-    good_nodes: BTreeSet<NodeId>,
-    adv_nodes: BTreeSet<NodeId>,
+    adv_nodes: BTreeMap<NodeId, Arc<NetworkInfo<NodeId>>>,
     has_sent: bool,
 }
 
@@ -39,12 +36,10 @@ impl ProposeAdversary {
     /// Creates a new replay adversary with the given message scheduler.
     fn new(
         scheduler: MessageScheduler,
-        good_nodes: BTreeSet<NodeId>,
-        adv_nodes: BTreeSet<NodeId>,
+        adv_nodes: BTreeMap<NodeId, Arc<NetworkInfo<NodeId>>>,
     ) -> ProposeAdversary {
         ProposeAdversary {
             scheduler,
-            good_nodes,
             adv_nodes,
             has_sent: false,
         }
@@ -65,31 +60,17 @@ impl Adversary<Broadcast<NodeId>> for ProposeAdversary {
             return vec![];
         }
         self.has_sent = true;
-        let node_ids: BTreeSet<NodeId> = self
-            .adv_nodes
+        self.adv_nodes
             .iter()
-            .chain(self.good_nodes.iter())
-            .cloned()
-            .collect();
-        let id = match self.adv_nodes.iter().next() {
-            Some(id) => *id,
-            None => return vec![],
-        };
-
-        // FIXME: Take the correct, known keys from the network.
-        let netinfo = Arc::new(
-            NetworkInfo::generate_map(node_ids, &mut rand::thread_rng())
-                .expect("Failed to create `NetworkInfo` map")
-                .remove(&id)
-                .unwrap(),
-        );
-        let mut bc = Broadcast::new(netinfo, id).expect("broadcast instance");
-        // FIXME: Use the output.
-        let step = bc.handle_input(b"Fake news".to_vec()).expect("propose");
-        step.messages
-            .into_iter()
-            .map(|msg| MessageWithSender::new(id, msg))
-            .collect()
+            .flat_map(|(&id, netinfo)| {
+                Broadcast::new(netinfo.clone(), id)
+                    .expect("broadcast instance")
+                    .handle_input(b"Fake news".to_vec())
+                    .expect("propose")
+                    .messages
+                    .into_iter()
+                    .map(move |msg| MessageWithSender::new(id, msg))
+            }).collect()
     }
 }
 
@@ -122,7 +103,7 @@ fn new_broadcast(netinfo: Arc<NetworkInfo<NodeId>>) -> Broadcast<NodeId> {
 fn test_broadcast_different_sizes<A, F>(new_adversary: F, proposed_value: &[u8])
 where
     A: Adversary<Broadcast<NodeId>>,
-    F: Fn(usize, usize) -> A,
+    F: Fn(BTreeMap<NodeId, Arc<NetworkInfo<NodeId>>>) -> A,
 {
     let mut rng = rand::thread_rng();
     let sizes = (1..6)
@@ -135,7 +116,7 @@ where
             "Network size: {} good nodes, {} faulty nodes",
             num_good_nodes, num_faulty_nodes
         );
-        let adversary = |_| new_adversary(num_good_nodes, num_faulty_nodes);
+        let adversary = |adv_nodes| new_adversary(adv_nodes);
         let network = TestNetwork::new(num_good_nodes, num_faulty_nodes, adversary, new_broadcast);
         test_broadcast(network, proposed_value);
     }
@@ -154,43 +135,31 @@ fn test_8_broadcast_equal_leaves_silent() {
 
 #[test]
 fn test_broadcast_random_delivery_silent() {
-    let new_adversary = |_: usize, _: usize| SilentAdversary::new(MessageScheduler::Random);
+    let new_adversary = |_| SilentAdversary::new(MessageScheduler::Random);
     test_broadcast_different_sizes(new_adversary, b"Foo");
 }
 
 #[test]
 fn test_broadcast_first_delivery_silent() {
-    let new_adversary = |_: usize, _: usize| SilentAdversary::new(MessageScheduler::First);
+    let new_adversary = |_| SilentAdversary::new(MessageScheduler::First);
     test_broadcast_different_sizes(new_adversary, b"Foo");
 }
 
 #[test]
 fn test_broadcast_random_delivery_adv_propose() {
-    let new_adversary = |num_good_nodes: usize, num_faulty_nodes: usize| {
-        let good_nodes: BTreeSet<NodeId> = (0..num_good_nodes).map(NodeId).collect();
-        let adv_nodes: BTreeSet<NodeId> = (num_good_nodes..(num_good_nodes + num_faulty_nodes))
-            .map(NodeId)
-            .collect();
-        ProposeAdversary::new(MessageScheduler::Random, good_nodes, adv_nodes)
-    };
+    let new_adversary = |adv_nodes| ProposeAdversary::new(MessageScheduler::Random, adv_nodes);
     test_broadcast_different_sizes(new_adversary, b"Foo");
 }
 
 #[test]
 fn test_broadcast_first_delivery_adv_propose() {
-    let new_adversary = |num_good_nodes: usize, num_faulty_nodes: usize| {
-        let good_nodes: BTreeSet<NodeId> = (0..num_good_nodes).map(NodeId).collect();
-        let adv_nodes: BTreeSet<NodeId> = (num_good_nodes..(num_good_nodes + num_faulty_nodes))
-            .map(NodeId)
-            .collect();
-        ProposeAdversary::new(MessageScheduler::First, good_nodes, adv_nodes)
-    };
+    let new_adversary = |adv_nodes| ProposeAdversary::new(MessageScheduler::First, adv_nodes);
     test_broadcast_different_sizes(new_adversary, b"Foo");
 }
 
 #[test]
 fn test_broadcast_random_adversary() {
-    let new_adversary = |_, _| {
+    let new_adversary = |_| {
         // Note: Set this to 0.8 to watch 30 gigs of RAM disappear.
         RandomAdversary::new(0.2, 0.2, || TargetedMessage {
             target: Target::All,

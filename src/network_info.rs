@@ -128,21 +128,11 @@ impl<N: NodeIdT> NetworkInfo<N> {
         &self.public_keys
     }
 
-    /// The index of a node in a canonical numbering of all nodes.
+    /// The index of a node in a canonical numbering of all nodes. This is the index where the
+    /// node appears in `all_ids`.
     #[inline]
     pub fn node_index(&self, id: &N) -> Option<usize> {
         self.node_indices.get(id).cloned()
-    }
-
-    /// Returns the unique ID of the Honey Badger invocation.
-    ///
-    /// FIXME: Using the public key as the invocation ID either requires agreeing on the keys on
-    /// each invocation, or makes it unsafe to reuse keys for different invocations. A better
-    /// invocation ID would be one that is distributed to all nodes on each invocation and would be
-    /// independent from the public key, so that reusing keys would be safer.
-    #[inline]
-    pub fn invocation_id(&self) -> Vec<u8> {
-        self.public_key_set.public_key().to_bytes()
     }
 
     /// Returns `true` if this node takes part in the consensus itself. If not, it is only an

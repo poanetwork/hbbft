@@ -1,15 +1,16 @@
 //! Common supertraits for distributed algorithms.
 
-use std::fmt::Debug;
+use std::fmt::{Debug, Display};
 use std::hash::Hash;
 use std::iter::once;
 
 use failure::Fail;
+use serde::Serialize;
 
 use fault_log::{Fault, FaultLog};
 use TargetedMessage;
 
-/// A transaction, user message, etc.
+/// A transaction, user message, or other user data.
 pub trait Contribution: Eq + Debug + Hash + Send + Sync {}
 impl<C> Contribution for C where C: Eq + Debug + Hash + Send + Sync {}
 
@@ -21,8 +22,32 @@ impl<N> NodeIdT for N where N: Eq + Ord + Clone + Debug + Hash + Send + Sync {}
 pub trait Message: Debug + Send + Sync {}
 impl<M> Message for M where M: Debug + Send + Sync {}
 
-/// Result of one step of the local state machine of a distributed algorithm. Such a result should
-/// be used and never discarded by the client of the algorithm.
+/// Session identifiers.
+pub trait SessionIdT: Display + Serialize + Send + Sync + Clone {}
+impl<S> SessionIdT for S where S: Display + Serialize + Send + Sync + Clone {}
+
+/// Single algorithm step outcome.
+///
+/// Each time input (typically in the form of user input or incoming network messages) is provided
+/// to an instance of an algorithm, a `Step` is produced, potentially containing output values,
+/// a fault log, and network messages.
+///
+/// Any `Step` **must always be used** by the client application; at the very least the resulting
+/// messages must be queued.
+///
+/// ## Handling unused Steps
+///
+/// In the (rare) case of a `Step` not being of any interest at all, instead of discarding it
+/// through `let _ = ...` or similar constructs, the implicit assumption should explicitly be
+/// checked instead:
+///
+/// ```ignore
+/// assert!(alg.propose(123).expect("Could not propose value").is_empty(),
+///         "Algorithm will never output anything on first proposal");
+/// ```
+///
+/// If an edge case occurs and outgoing messages are generated as a result, the `assert!` will
+/// catch it, instead of potentially stalling the algorithm.
 #[must_use = "The algorithm step result must be used."]
 #[derive(Debug)]
 pub struct Step<D>
@@ -125,7 +150,7 @@ where
         }
     }
 
-    /// Returns `true` if there are now messages, faults or outputs.
+    /// Returns `true` if there are no messages, faults or outputs.
     pub fn is_empty(&self) -> bool {
         self.output.is_empty() && self.fault_log.is_empty() && self.messages.is_empty()
     }

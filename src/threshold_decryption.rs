@@ -14,6 +14,10 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use crypto::{self, Ciphertext, DecryptionShare};
+use failure::Fail;
+use rand_derive::Rand;
+use serde_derive::{Deserialize, Serialize};
+
 use fault_log::{Fault, FaultKind, FaultLog};
 use {DistAlgorithm, NetworkInfo, NodeIdT, Target};
 
@@ -115,6 +119,10 @@ impl<N: NodeIdT> ThresholdDecryption<N> {
         if self.ciphertext.is_some() {
             return Err(Error::MultipleInputs(Box::new(ct)));
         }
+        if !self.netinfo.is_validator() {
+            self.ciphertext = Some(ct);
+            return Ok(self.try_output()?);
+        }
         let share = match self.netinfo.secret_key_share().decrypt_share(&ct) {
             None => return Err(Error::InvalidCiphertext(Box::new(ct))),
             Some(share) => share,
@@ -123,11 +131,9 @@ impl<N: NodeIdT> ThresholdDecryption<N> {
         let our_id = self.our_id().clone();
         let mut step = Step::default();
         step.fault_log.extend(self.remove_invalid_shares());
-        if self.netinfo.is_validator() {
-            let msg = Target::All.message(Message(share.clone()));
-            step.messages.push(msg);
-            self.shares.insert(our_id, share);
-        }
+        let msg = Target::All.message(Message(share.clone()));
+        step.messages.push(msg);
+        self.shares.insert(our_id, share);
         step.extend(self.try_output()?);
         Ok(step)
     }

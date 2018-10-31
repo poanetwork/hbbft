@@ -4,6 +4,8 @@ use std::sync::Arc;
 
 use bincode;
 use crypto::Signature;
+use derivative::Derivative;
+use log::{debug, info};
 use rand::{self, Rand};
 use serde::{de::DeserializeOwned, Serialize};
 
@@ -379,6 +381,7 @@ where
         let netinfo = Arc::new(self.netinfo.clone());
         self.vote_counter = VoteCounter::new(netinfo.clone(), epoch);
         self.honey_badger = HoneyBadger::builder(netinfo)
+            .session_id(epoch)
             .max_future_epochs(self.max_future_epochs)
             .rng(self.rng.sub_rng())
             .encryption_schedule(if let Some(schedule) = encryption_schedule {

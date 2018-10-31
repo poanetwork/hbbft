@@ -44,6 +44,7 @@ use std::{io, iter, process, thread, time};
 use crossbeam;
 use crypto::poly::Poly;
 use crypto::{SecretKey, SecretKeySet};
+use log::{debug, error};
 
 use hbbft::broadcast::{Broadcast, Message};
 use hbbft::{DistAlgorithm, NetworkInfo, SourcedMessage};
