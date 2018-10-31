@@ -20,7 +20,7 @@ pub struct Broadcast<N> {
     netinfo: Arc<NetworkInfo<N>>,
     /// The ID of the sending node.
     proposer_id: N,
-    data_shard_num: usize,
+    /// The Reed-Solomon erasure coding configuration.
     coding: Coding,
     /// If we are the proposer: whether we have already sent the `Value` messages with the shards.
     value_sent: bool,
@@ -40,8 +40,6 @@ pub type Step<N> = ::Step<Broadcast<N>>;
 
 impl<N: NodeIdT> DistAlgorithm for Broadcast<N> {
     type NodeId = N;
-    // TODO: Allow anything serializable and deserializable, i.e. make this a type parameter
-    // T: Serialize + DeserializeOwned
     type Input = Vec<u8>;
     type Output = Self::Input;
     type Message = Message;
@@ -75,7 +73,6 @@ impl<N: NodeIdT> Broadcast<N> {
         Ok(Broadcast {
             netinfo,
             proposer_id,
-            data_shard_num,
             coding,
             value_sent: false,
             echo_sent: false,
@@ -128,7 +125,7 @@ impl<N: NodeIdT> Broadcast<N> {
 
         debug!(
             "Data shards: {}, parity shards: {}",
-            self.data_shard_num, parity_shard_num
+            data_shard_num, parity_shard_num
         );
         // Insert the length of `v` so it can be decoded without the padding.
         let payload_len = value.len() as u32;
@@ -317,9 +314,7 @@ impl<N: NodeIdT> Broadcast<N> {
                     }
                 })
             }).collect();
-        if let Some(value) =
-            decode_from_shards(&mut leaf_values, &self.coding, self.data_shard_num, hash)
-        {
+        if let Some(value) = decode_from_shards(&mut leaf_values, &self.coding, hash) {
             self.decided = true;
             Ok(Step::default().with_output(value))
         } else {
@@ -435,7 +430,6 @@ impl Coding {
 fn decode_from_shards(
     leaf_values: &mut [Option<Box<[u8]>>],
     coding: &Coding,
-    data_shard_num: usize,
     root_hash: &Digest,
 ) -> Option<Vec<u8>> {
     // Try to interpolate the Merkle tree using the Reed-Solomon erasure coding scheme.
@@ -443,8 +437,6 @@ fn decode_from_shards(
         error!("Shard reconstruction failed: {:?}", err); // Faulty proposer
         return None;
     }
-
-    // Recompute the Merkle tree root.
 
     // Collect shards for tree construction.
     let shards: Vec<Vec<u8>> = leaf_values
@@ -462,15 +454,13 @@ fn decode_from_shards(
         None // The proposer is faulty.
     } else {
         // Reconstruct the value from the data shards.
-        glue_shards(mtree, data_shard_num)
+        glue_shards(mtree, coding.data_shard_count())
     }
 }
 
-/// Concatenates the first `n` leaf values of a Merkle tree `m` in one value of
-/// type `T`. This is useful for reconstructing the data value held in the tree
-/// and forgetting the leaves that contain parity information.
+/// Concatenates the first `n` leaf values of a Merkle tree. The first four bytes are interpreted
+/// as the payload size, and the padding beyond that size is dropped.
 fn glue_shards(m: MerkleTree<Vec<u8>>, n: usize) -> Option<Vec<u8>> {
-    // Create an iterator over the shard payload, drop the index bytes.
     let mut bytes = m.into_values().into_iter().take(n).flatten();
     let payload_len = match (bytes.next(), bytes.next(), bytes.next(), bytes.next()) {
         (Some(b0), Some(b1), Some(b2), Some(b3)) => BigEndian::read_u32(&[b0, b1, b2, b3]) as usize,
