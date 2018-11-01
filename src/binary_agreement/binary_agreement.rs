@@ -1,7 +1,6 @@
 use std::collections::BTreeMap;
-use std::fmt::{self, Display};
-use std::result;
 use std::sync::Arc;
+use std::{fmt, result};
 
 use bincode;
 use log::debug;
@@ -129,7 +128,6 @@ impl<N: NodeIdT, S: SessionIdT> BinaryAgreement<N, S> {
         }
         // Set the initial estimated value to the input value.
         self.estimated = Some(input);
-        debug!("{}: Input {}", self, input);
         let sbvb_step = self.sbv_broadcast.handle_input(input)?;
         self.handle_sbvb_step(sbvb_step)
     }
@@ -401,7 +399,7 @@ impl<N: NodeIdT, S: SessionIdT> BinaryAgreement<N, S> {
     }
 }
 
-impl<N: NodeIdT, S: SessionIdT> Display for BinaryAgreement<N, S> {
+impl<N: NodeIdT, S: SessionIdT> fmt::Display for BinaryAgreement<N, S> {
     fn fmt(&self, f: &mut fmt::Formatter) -> result::Result<(), fmt::Error> {
         write!(
             f,

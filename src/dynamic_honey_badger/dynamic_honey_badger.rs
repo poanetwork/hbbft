@@ -1,11 +1,11 @@
 use std::collections::BTreeMap;
-use std::mem;
 use std::sync::Arc;
+use std::{fmt, mem, result};
 
 use bincode;
 use crypto::Signature;
 use derivative::Derivative;
-use log::{debug, info};
+use log::{debug, warn};
 use rand::{self, Rand};
 use serde::{de::DeserializeOwned, Serialize};
 
@@ -202,7 +202,6 @@ where
         message: HbMessage<N>,
     ) -> Result<Step<C, N>> {
         if !self.netinfo.is_node_validator(sender_id) {
-            info!("Unknown sender {:?} of message {:?}", sender_id, message);
             return Err(ErrorKind::UnknownSender.into());
         }
         // Handle the message.
@@ -222,17 +221,12 @@ where
         sig: Signature,
     ) -> Result<FaultLog<N>> {
         if !self.verify_signature(sender_id, &sig, &kg_msg)? {
-            info!("Invalid signature from {:?} for: {:?}.", sender_id, kg_msg);
             let fault_kind = FaultKind::InvalidKeyGenMessageSignature;
             return Ok(Fault::new(sender_id.clone(), fault_kind).into());
         }
         let kgs = match self.key_gen_state {
             Some(ref mut kgs) => kgs,
             None => {
-                info!(
-                    "Unexpected key gen message from {:?}: {:?}.",
-                    sender_id, kg_msg
-                );
                 return Ok(Fault::new(sender_id.clone(), FaultKind::UnexpectedKeyGenMessage).into());
             }
         };
@@ -291,7 +285,7 @@ where
 
             let change = if let Some(kgs) = self.take_ready_key_gen() {
                 // If DKG completed, apply the change, restart Honey Badger, and inform the user.
-                debug!("{:?} DKG for {:?} complete!", self.our_id(), kgs.change);
+                debug!("{}: DKG for {:?} complete!", self, kgs.change);
                 self.netinfo = kgs.key_gen.into_network_info()?;
                 self.restart_honey_badger(batch_epoch + 1, None);
                 ChangeState::Complete(Change::NodeChange(kgs.change))
@@ -347,14 +341,14 @@ where
         if self.key_gen_state.as_ref().map(|kgs| &kgs.change) == Some(change) {
             return Ok(Step::default()); // The change is the same as before. Continue DKG as is.
         }
-        debug!("{:?} Restarting DKG for {:?}.", self.our_id(), change);
+        debug!("{}: Restarting DKG for {:?}.", self, change);
         // Use the existing key shares - with the change applied - as keys for DKG.
         let mut pub_keys = self.netinfo.public_key_map().clone();
         if match *change {
             NodeChange::Remove(ref id) => pub_keys.remove(id).is_none(),
             NodeChange::Add(ref id, ref pk) => pub_keys.insert(id.clone(), pk.clone()).is_some(),
         } {
-            info!("{:?} No-op change: {:?}", self.our_id(), change);
+            warn!("{}: No-op change: {:?}", self, change);
         }
         self.restart_honey_badger(epoch, None);
         // TODO: This needs to be the same as `num_faulty` will be in the _new_
@@ -484,5 +478,15 @@ where
         };
         let pk_opt = self.netinfo.public_key(node_id).or_else(get_candidate_key);
         Ok(pk_opt.map_or(false, |pk| pk.verify(&sig, ser)))
+    }
+}
+
+impl<C, N> fmt::Display for DynamicHoneyBadger<C, N>
+where
+    C: Contribution + Serialize + DeserializeOwned,
+    N: NodeIdT + Serialize + DeserializeOwned + Rand,
+{
+    fn fmt(&self, f: &mut fmt::Formatter) -> result::Result<(), fmt::Error> {
+        write!(f, "{:?} DHB(era: {})", self.our_id(), self.start_epoch)
     }
 }

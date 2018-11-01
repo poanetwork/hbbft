@@ -23,11 +23,9 @@
 //! * Once all `BinaryAgreement` instances have decided, `Subset` returns the set of all proposed
 //! values for which the decision was "yes".
 
-use std::borrow::Borrow;
 use std::collections::{BTreeMap, BTreeSet};
-use std::fmt::{self, Display};
-use std::result;
 use std::sync::Arc;
+use std::{fmt, result};
 
 use failure::Fail;
 use hex_fmt::HexFmt;
@@ -82,6 +80,7 @@ pub enum Message<N: Rand> {
 pub struct Subset<N: Rand, S> {
     /// Shared network information.
     netinfo: Arc<NetworkInfo<N>>,
+    session_id: S,
     broadcast_instances: BTreeMap<N, Broadcast<N>>,
     ba_instances: BTreeMap<N, BaInstance<N, S>>,
     /// `None` means that that item has already been output.
@@ -128,7 +127,7 @@ impl<N: NodeIdT + Rand, S: SessionIdT> Subset<N, S> {
     ///
     /// If multiple `Subset`s are instantiated within a single network, they must use different
     /// session identifiers to foil replay attacks.
-    pub fn new<T: Borrow<S>>(netinfo: Arc<NetworkInfo<N>>, session_id: T) -> Result<Self> {
+    pub fn new(netinfo: Arc<NetworkInfo<N>>, session_id: S) -> Result<Self> {
         // Create all broadcast instances.
         let mut broadcast_instances: BTreeMap<N, Broadcast<N>> = BTreeMap::new();
         for proposer_id in netinfo.all_ids() {
@@ -143,7 +142,7 @@ impl<N: NodeIdT + Rand, S: SessionIdT> Subset<N, S> {
         let mut ba_instances: BTreeMap<N, BaInstance<N, S>> = BTreeMap::new();
         for (proposer_idx, proposer_id) in netinfo.all_ids().enumerate() {
             let s_id = BaSessionId {
-                subset_id: session_id.borrow().clone(),
+                subset_id: session_id.clone(),
                 proposer_idx: proposer_idx as u32,
             };
             ba_instances.insert(
@@ -154,6 +153,7 @@ impl<N: NodeIdT + Rand, S: SessionIdT> Subset<N, S> {
 
         Ok(Subset {
             netinfo,
+            session_id,
             broadcast_instances,
             ba_instances,
             broadcast_results: BTreeMap::new(),
@@ -169,8 +169,8 @@ impl<N: NodeIdT + Rand, S: SessionIdT> Subset<N, S> {
         if !self.netinfo.is_validator() {
             return Ok(Step::default());
         }
+        debug!("{} proposing {:0.10}", self, HexFmt(&value));
         let id = self.our_id().clone();
-        debug!("{:?} Proposing {:0.10}", id, HexFmt(&value));
         self.process_broadcast(&id, |bc| bc.handle_input(value))
     }
 
@@ -241,7 +241,7 @@ impl<N: NodeIdT + Rand, S: SessionIdT> Subset<N, S> {
         };
 
         let val_to_insert = if let Some(true) = self.ba_results.get(proposer_id) {
-            debug!("    {:?} → {:0.10}", proposer_id, HexFmt(&value));
+            debug!("{}    {:?} → {:0.10}", self, proposer_id, HexFmt(&value));
             step.output
                 .push(SubsetOutput::Contribution(proposer_id.clone(), value));
             None
@@ -253,7 +253,13 @@ impl<N: NodeIdT + Rand, S: SessionIdT> Subset<N, S> {
             .broadcast_results
             .insert(proposer_id.clone(), val_to_insert)
         {
-            error!("Duplicate insert in broadcast_results: {:?}", inval)
+            // TODO: Merge `broadcast_instances` and `broadcast_results` into one map. The value
+            // type should be an enum: either an instance, or a result. Then this would be
+            // statically impossible.
+            error!(
+                "Duplicate insert in broadcast_results: {:?}",
+                inval.map(HexFmt)
+            )
         }
         let set_binary_agreement_input = |ba: &mut BaInstance<N, S>| ba.handle_input(true);
         step.extend(self.process_binary_agreement(proposer_id, set_binary_agreement_input)?);
@@ -297,9 +303,8 @@ impl<N: NodeIdT + Rand, S: SessionIdT> Subset<N, S> {
         }
 
         debug!(
-            "{:?} Updated Binary Agreement results: {:?}",
-            self.our_id(),
-            self.ba_results
+            "{} updated Binary Agreement results: {:?}",
+            self, self.ba_results
         );
 
         if accepted {
@@ -325,7 +330,7 @@ impl<N: NodeIdT + Rand, S: SessionIdT> Subset<N, S> {
                 .get_mut(proposer_id)
                 .and_then(Option::take)
             {
-                debug!("    {:?} → {:0.10}", proposer_id, HexFmt(&value));
+                debug!("{}    {:?} → {:0.10}", self, proposer_id, HexFmt(&value));
                 step.output
                     .push(SubsetOutput::Contribution(proposer_id.clone(), value));
             }
@@ -349,10 +354,7 @@ impl<N: NodeIdT + Rand, S: SessionIdT> Subset<N, S> {
         if self.ba_results.len() < self.netinfo.num_nodes() {
             return None;
         }
-        debug!(
-            "{:?} All Binary Agreement instances have terminated",
-            self.our_id()
-        );
+        debug!("{}: All Binary Agreement instances have terminated.", self);
         // All instances of BinaryAgreement that delivered `true` (or "1" in the paper).
         let delivered_1: BTreeSet<&N> = self
             .ba_results
@@ -361,9 +363,8 @@ impl<N: NodeIdT + Rand, S: SessionIdT> Subset<N, S> {
             .map(|(k, _)| k)
             .collect();
         debug!(
-            "{:?} Binary Agreement instances that delivered 1: {:?}",
-            self.our_id(),
-            delivered_1
+            "{}: Binary Agreement instances that delivered `true`: {:?}",
+            self, delivered_1
         );
 
         // Results of Broadcast instances in `delivered_1`
@@ -375,12 +376,18 @@ impl<N: NodeIdT + Rand, S: SessionIdT> Subset<N, S> {
             .collect();
 
         if delivered_1.len() == broadcast_results.len() {
-            debug!("{:?} Binary Agreement instances completed:", self.our_id());
+            debug!("{}: All Binary Agreement instances completed.", self);
             self.decided = true;
             Some(SubsetOutput::Done)
         } else {
             None
         }
+    }
+}
+
+impl<N: NodeIdT + Rand, S: SessionIdT> fmt::Display for Subset<N, S> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> result::Result<(), fmt::Error> {
+        write!(f, "{:?} Subset({})", self.our_id(), self.session_id)
     }
 }
 
@@ -393,7 +400,7 @@ struct BaSessionId<S> {
     proposer_idx: u32,
 }
 
-impl<S: Display> Display for BaSessionId<S> {
+impl<S: fmt::Display> fmt::Display for BaSessionId<S> {
     fn fmt(&self, f: &mut fmt::Formatter) -> result::Result<(), fmt::Error> {
         write!(
             f,

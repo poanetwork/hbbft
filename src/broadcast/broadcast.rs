@@ -1,9 +1,10 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
+use std::{fmt, result};
 
 use byteorder::{BigEndian, ByteOrder};
 use hex_fmt::{HexFmt, HexList};
-use log::{debug, error, info};
+use log::{debug, warn};
 use reed_solomon_erasure as rse;
 use reed_solomon_erasure::ReedSolomon;
 
@@ -123,10 +124,6 @@ impl<N: NodeIdT> Broadcast<N> {
         let data_shard_num = self.coding.data_shard_count();
         let parity_shard_num = self.coding.parity_shard_count();
 
-        debug!(
-            "Data shards: {}, parity shards: {}",
-            data_shard_num, parity_shard_num
-        );
         // Insert the length of `v` so it can be decoded without the padding.
         let payload_len = value.len() as u32;
         value.splice(0..0, 0..4); // Insert four bytes at the beginning.
@@ -142,21 +139,23 @@ impl<N: NodeIdT> Broadcast<N> {
         // zeros.
         value.resize(shard_len * (data_shard_num + parity_shard_num), 0);
 
-        debug!("value_len {}, shard_len {}", value_len, shard_len);
-
         // Divide the vector into chunks/shards.
         let shards_iter = value.chunks_mut(shard_len);
         // Convert the iterator over slices into a vector of slices.
         let mut shards: Vec<&mut [u8]> = shards_iter.collect();
 
-        debug!("Shards before encoding: {:0.10}", HexList(&shards));
-
         // Construct the parity chunks/shards
         self.coding
             .encode(&mut shards)
-            .expect("the size and number of shards is correct");
+            .expect("incorrect shard size or number");
 
-        debug!("Shards: {:0.10}", HexList(&shards));
+        debug!(
+            "{}: Value: {} bytes, {} per shard. Shards: {:0.10}",
+            self,
+            value_len,
+            shard_len,
+            HexList(&shards)
+        );
 
         // Create a Merkle tree from the shards.
         let mtree = MerkleTree::from_vec(shards.into_iter().map(|shard| shard.to_vec()).collect());
@@ -186,18 +185,17 @@ impl<N: NodeIdT> Broadcast<N> {
     fn handle_value(&mut self, sender_id: &N, p: Proof<Vec<u8>>) -> Result<Step<N>> {
         // If the sender is not the proposer or if this is not the first `Value`, ignore.
         if *sender_id != self.proposer_id {
-            info!(
-                "Node {:?} received Value from {:?} instead of {:?}.",
-                self.our_id(),
-                sender_id,
-                self.proposer_id
-            );
             let fault_kind = FaultKind::ReceivedValueFromNonProposer;
             return Ok(Fault::new(sender_id.clone(), fault_kind).into());
         }
         if self.echo_sent {
-            info!("Node {:?} received multiple Values.", self.our_id());
             if self.echos.get(self.our_id()) == Some(&p) {
+                warn!(
+                    "Node {:?} received Value({:?}) multiple times from {:?}.",
+                    self.our_id(),
+                    HexProof(&p),
+                    sender_id
+                );
                 return Ok(Step::default());
             } else {
                 return Ok(Fault::new(sender_id.clone(), FaultKind::MultipleValues).into());
@@ -216,13 +214,18 @@ impl<N: NodeIdT> Broadcast<N> {
     /// Handles a received `Echo` message.
     fn handle_echo(&mut self, sender_id: &N, p: Proof<Vec<u8>>) -> Result<Step<N>> {
         // If the sender has already sent `Echo`, ignore.
-        if self.echos.contains_key(sender_id) {
-            info!(
-                "Node {:?} received multiple Echos from {:?}.",
-                self.our_id(),
-                sender_id,
-            );
-            return Ok(Step::default());
+        if let Some(old_p) = self.echos.get(sender_id) {
+            if *old_p == p {
+                warn!(
+                    "Node {:?} received Echo({:?}) multiple times from {:?}.",
+                    self.our_id(),
+                    HexProof(&p),
+                    sender_id,
+                );
+                return Ok(Step::default());
+            } else {
+                return Ok(Fault::new(sender_id.clone(), FaultKind::MultipleEchos).into());
+            }
         }
 
         // If the proof is invalid, log the faulty-node behavior, and ignore.
@@ -246,13 +249,18 @@ impl<N: NodeIdT> Broadcast<N> {
     /// Handles a received `Ready` message.
     fn handle_ready(&mut self, sender_id: &N, hash: &Digest) -> Result<Step<N>> {
         // If the sender has already sent a `Ready` before, ignore.
-        if self.readys.contains_key(sender_id) {
-            info!(
-                "Node {:?} received multiple Readys from {:?}.",
-                self.our_id(),
-                sender_id
-            );
-            return Ok(Step::default());
+        if let Some(old_hash) = self.readys.get(sender_id) {
+            if old_hash == hash {
+                warn!(
+                    "Node {:?} received Ready({:?}) multiple times from {:?}.",
+                    self.our_id(),
+                    hash,
+                    sender_id
+                );
+                return Ok(Step::default());
+            } else {
+                return Ok(Fault::new(sender_id.clone(), FaultKind::MultipleReadys).into());
+            }
         }
 
         self.readys.insert(sender_id.clone(), hash.to_vec());
@@ -314,34 +322,59 @@ impl<N: NodeIdT> Broadcast<N> {
                     }
                 })
             }).collect();
-        if let Some(value) = decode_from_shards(&mut leaf_values, &self.coding, hash) {
+        if let Some(value) = self.decode_from_shards(&mut leaf_values, hash) {
             self.decided = true;
             Ok(Step::default().with_output(value))
         } else {
-            Ok(Step::default())
+            let fault_kind = FaultKind::BroadcastDecoding;
+            Ok(Fault::new(self.proposer_id.clone(), fault_kind).into())
         }
     }
 
-    /// Returns `true` if the proof is valid and has the same index as the node ID. Otherwise
-    /// logs an info message.
-    fn validate_proof(&self, p: &Proof<Vec<u8>>, id: &N) -> bool {
-        if !p.validate(self.netinfo.num_nodes()) {
-            info!(
-                "Node {:?} received invalid proof: {:?}",
-                self.our_id(),
-                HexProof(&p)
-            );
-            false
-        } else if self.netinfo.node_index(id) != Some(p.index()) {
-            info!(
-                "Node {:?} received proof for wrong position: {:?}.",
-                self.our_id(),
-                HexProof(&p)
-            );
-            false
-        } else {
-            true
+    /// Interpolates the missing shards and glues together the data shards to retrieve the value.
+    fn decode_from_shards(
+        &self,
+        leaf_values: &mut [Option<Box<[u8]>>],
+        root_hash: &Digest,
+    ) -> Option<Vec<u8>> {
+        // Try to interpolate the Merkle tree using the Reed-Solomon erasure coding scheme.
+        self.coding.reconstruct_shards(leaf_values).ok()?;
+
+        // Collect shards for tree construction.
+        let shards: Vec<Vec<u8>> = leaf_values
+            .iter()
+            .filter_map(|l| l.as_ref().map(|v| v.to_vec()))
+            .collect();
+
+        debug!("{}: Reconstructed shards: {:0.10}", self, HexList(&shards));
+
+        // Construct the Merkle tree.
+        let mtree = MerkleTree::from_vec(shards);
+        // If the root hash of the reconstructed tree does not match the one
+        // received with proofs then abort.
+        if mtree.root_hash() != root_hash {
+            return None; // The proposer is faulty.
         }
+
+        // Reconstruct the value from the data shards:
+        // Concatenate the leaf values that are data shards The first four bytes are
+        // interpreted as the payload size, and the padding beyond that size is dropped.
+        let count = self.coding.data_shard_count();
+        let mut bytes = mtree.into_values().into_iter().take(count).flatten();
+        let payload_len = match (bytes.next(), bytes.next(), bytes.next(), bytes.next()) {
+            (Some(b0), Some(b1), Some(b2), Some(b3)) => {
+                BigEndian::read_u32(&[b0, b1, b2, b3]) as usize
+            }
+            _ => return None, // The proposer is faulty: no payload size.
+        };
+        let payload: Vec<u8> = bytes.take(payload_len).collect();
+        debug!("{}: Glued data shards {:0.10}", self, HexFmt(&payload));
+        Some(payload)
+    }
+
+    /// Returns `true` if the proof is valid and has the same index as the node ID.
+    fn validate_proof(&self, p: &Proof<Vec<u8>>, id: &N) -> bool {
+        self.netinfo.node_index(id) == Some(p.index()) && p.validate(self.netinfo.num_nodes())
     }
 
     /// Returns the number of nodes that have sent us an `Echo` message with this hash.
@@ -358,6 +391,12 @@ impl<N: NodeIdT> Broadcast<N> {
             .values()
             .filter(|h| h.as_slice() == hash)
             .count()
+    }
+}
+
+impl<N: NodeIdT> fmt::Display for Broadcast<N> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> result::Result<(), fmt::Error> {
+        write!(f, "{:?} Broadcast({:?})", self.our_id(), self.proposer_id)
     }
 }
 
@@ -425,48 +464,4 @@ impl Coding {
         }
         Ok(())
     }
-}
-
-fn decode_from_shards(
-    leaf_values: &mut [Option<Box<[u8]>>],
-    coding: &Coding,
-    root_hash: &Digest,
-) -> Option<Vec<u8>> {
-    // Try to interpolate the Merkle tree using the Reed-Solomon erasure coding scheme.
-    if let Err(err) = coding.reconstruct_shards(leaf_values) {
-        error!("Shard reconstruction failed: {:?}", err); // Faulty proposer
-        return None;
-    }
-
-    // Collect shards for tree construction.
-    let shards: Vec<Vec<u8>> = leaf_values
-        .iter()
-        .filter_map(|l| l.as_ref().map(|v| v.to_vec()))
-        .collect();
-
-    debug!("Reconstructed shards: {:0.10}", HexList(&shards));
-
-    // Construct the Merkle tree.
-    let mtree = MerkleTree::from_vec(shards);
-    // If the root hash of the reconstructed tree does not match the one
-    // received with proofs then abort.
-    if mtree.root_hash() != root_hash {
-        None // The proposer is faulty.
-    } else {
-        // Reconstruct the value from the data shards.
-        glue_shards(mtree, coding.data_shard_count())
-    }
-}
-
-/// Concatenates the first `n` leaf values of a Merkle tree `m`. The first four bytes are
-/// interpreted as the payload size, and the padding beyond that size is dropped.
-fn glue_shards(m: MerkleTree<Vec<u8>>, n: usize) -> Option<Vec<u8>> {
-    let mut bytes = m.into_values().into_iter().take(n).flatten();
-    let payload_len = match (bytes.next(), bytes.next(), bytes.next(), bytes.next()) {
-        (Some(b0), Some(b1), Some(b2), Some(b3)) => BigEndian::read_u32(&[b0, b1, b2, b3]) as usize,
-        _ => return None, // The proposing node is faulty: no payload size.
-    };
-    let payload: Vec<u8> = bytes.take(payload_len).collect();
-    debug!("Glued data shards {:0.10}", HexFmt(&payload));
-    Some(payload)
 }

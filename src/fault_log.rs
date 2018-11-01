@@ -17,17 +17,23 @@ pub enum FaultKind {
     /// `HoneyBadger` received a decryption share for an unaccepted proposer.
     UnexpectedDecryptionShare,
     /// `HoneyBadger` was unable to deserialize a proposer's ciphertext.
+    DeserializeCiphertext,
+    /// `HoneyBadger` received an invalid ciphertext from the proposer.
     InvalidCiphertext,
-    /// `HoneyBadger` was unable to decrypt a share received from a proposer.
-    ShareDecryptionFailed,
     /// `ThresholdDecryption` received multiple shares from the same sender.
     MultipleDecryptionShares,
     /// `Broadcast` received a `Value` from a node other than the proposer.
     ReceivedValueFromNonProposer,
     /// `Broadcast` received multiple different `Value`s from the proposer.
     MultipleValues,
+    /// `Broadcast` received multiple different `Echo`s from the same sender.
+    MultipleEchos,
+    /// `Broadcast` received multiple different `Ready`s from the same sender.
+    MultipleReadys,
     /// `Broadcast` recevied an Echo message containing an invalid proof.
     InvalidProof,
+    /// `Broadcast` received shards with valid proofs, that couldn't be decoded.
+    BroadcastDecoding,
     /// `HoneyBadger` could not deserialize bytes (i.e. a serialized Batch)
     /// from a given proposer into a vector of transactions.
     BatchDeserializationFailed,
