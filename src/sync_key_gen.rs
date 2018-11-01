@@ -178,7 +178,6 @@ use crypto::{
     Ciphertext, Fr, G1Affine, PublicKey, PublicKeySet, SecretKey, SecretKeyShare,
 };
 use failure::Fail;
-use log::error;
 use pairing::{CurveAffine, Field};
 use rand;
 use serde_derive::{Deserialize, Serialize};
@@ -394,12 +393,10 @@ impl<N: NodeIdT> SyncKeyGen<N> {
 
     /// Returns the index of the node, or `None` if it is unknown.
     fn node_index(&self, node_id: &N) -> Option<u64> {
-        if let Some(node_idx) = self.pub_keys.keys().position(|id| id == node_id) {
-            Some(node_idx as u64)
-        } else {
-            error!("Unknown node {:?}", node_id);
-            None
-        }
+        self.pub_keys
+            .keys()
+            .position(|id| id == node_id)
+            .map(|idx| idx as u64)
     }
 
     /// Returns the number of complete parts. If this is at least `threshold + 1`, the keys can

@@ -15,10 +15,11 @@
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
+use std::{fmt, result};
 
 use crypto::{self, hash_g2, Signature, SignatureShare, G2};
 use failure::Fail;
-use log::{debug, error};
+use log::debug;
 use rand_derive::Rand;
 use serde_derive::{Deserialize, Serialize};
 
@@ -135,33 +136,34 @@ impl<N: NodeIdT> ThresholdSign<N> {
             return Ok(Step::default());
         }
         let Message(share) = message;
-        if let Some(pk_i) = self.netinfo.public_key_share(sender_id) {
-            if !pk_i.verify_g2(&share, self.msg_hash) {
-                // Log the faulty node and ignore the invalid share.
-                let fault_kind = FaultKind::UnverifiedSignatureShareSender;
-                return Ok(Fault::new(sender_id.clone(), fault_kind).into());
-            }
-            self.received_shares.insert(sender_id.clone(), share);
-        } else {
-            return Err(Error::UnknownSender);
+        if !self
+            .netinfo
+            .public_key_share(sender_id)
+            .ok_or(Error::UnknownSender)?
+            .verify_g2(&share, self.msg_hash)
+        {
+            // Report the faulty node and ignore the invalid share.
+            let fault_kind = FaultKind::UnverifiedSignatureShareSender;
+            return Ok(Fault::new(sender_id.clone(), fault_kind).into());
         }
+        self.received_shares.insert(sender_id.clone(), share);
         self.try_output()
     }
 
     fn try_output(&mut self) -> Result<Step<N>> {
-        debug!(
-            "{:?} received {} shares, had_input = {}",
-            self.our_id(),
-            self.received_shares.len(),
-            self.had_input
-        );
         if self.had_input && self.received_shares.len() > self.netinfo.num_faulty() {
             let sig = self.combine_and_verify_sig()?;
-            debug!("{:?} output {:?}", self.our_id(), sig);
+            let step = self.sign()?; // Before terminating, make sure we sent our share.
+            debug!("{} output {:?}", self, sig);
             self.terminated = true;
-            let step = self.handle_input(())?; // Before terminating, make sure we sent our share.
             Ok(step.with_output(sig))
         } else {
+            debug!(
+                "{} received {} shares, {}",
+                self,
+                self.received_shares.len(),
+                if self.had_input { ", had input" } else { "" }
+            );
             Ok(Step::default())
         }
     }
@@ -181,11 +183,15 @@ impl<N: NodeIdT> ThresholdSign<N> {
             .public_key()
             .verify_g2(&sig, self.msg_hash)
         {
-            // Abort
-            error!("{:?} main public key verification failed", self.our_id());
             Err(Error::VerificationFailed)
         } else {
             Ok(sig)
         }
+    }
+}
+
+impl<N: NodeIdT> fmt::Display for ThresholdSign<N> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> result::Result<(), fmt::Error> {
+        write!(f, "{:?} TS({:?})", self.our_id(), self.msg_hash)
     }
 }

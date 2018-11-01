@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use bincode;
 use crypto::Ciphertext;
-use log::{debug, error, warn};
+use log::error;
 use rand::{Rand, Rng};
 use serde::{de::DeserializeOwned, Serialize};
 use serde_derive::Serialize;
@@ -207,7 +207,7 @@ where
         require_decryption: bool,
     ) -> Result<Self> {
         let epoch_id = EpochId { hb_id, epoch };
-        let cs = Subset::new(netinfo.clone(), &epoch_id).map_err(ErrorKind::CreateSubset)?;
+        let cs = Subset::new(netinfo.clone(), epoch_id).map_err(ErrorKind::CreateSubset)?;
         Ok(EpochState {
             epoch,
             netinfo,
@@ -300,12 +300,6 @@ where
                 Err(_) => fault_log.append(id, FaultKind::BatchDeserializationFailed),
             }
         }
-        debug!(
-            "{:?} Epoch {} output {:?}",
-            self.netinfo.our_id(),
-            self.epoch,
-            batch.contributions.keys().collect::<Vec<_>>()
-        );
         Some((batch, fault_log))
     }
 
@@ -318,6 +312,7 @@ where
         let mut has_seen_done = false;
         for cs_output in cs_outputs {
             if has_seen_done {
+                // TODO: Is there any way we can statically guarantee that?
                 error!("`SubsetOutput::Done` was not the last `SubsetOutput`");
             }
 
@@ -380,12 +375,8 @@ where
     fn send_decryption_share(&mut self, proposer_id: N, v: &[u8]) -> Result<Step<C, N>> {
         let ciphertext: Ciphertext = match bincode::deserialize(v) {
             Ok(ciphertext) => ciphertext,
-            Err(err) => {
-                warn!(
-                    "Cannot deserialize ciphertext from {:?}: {:?}",
-                    proposer_id, err
-                );
-                return Ok(Fault::new(proposer_id, FaultKind::InvalidCiphertext).into());
+            Err(_) => {
+                return Ok(Fault::new(proposer_id, FaultKind::DeserializeCiphertext).into());
             }
         };
         let td_result = match self.decryption.entry(proposer_id.clone()) {
@@ -395,8 +386,7 @@ where
         match td_result {
             Ok(td_step) => self.process_decryption(proposer_id, td_step),
             Err(td::Error::InvalidCiphertext(_)) => {
-                warn!("Invalid ciphertext from {:?}", proposer_id);
-                Ok(Fault::new(proposer_id.clone(), FaultKind::ShareDecryptionFailed).into())
+                Ok(Fault::new(proposer_id, FaultKind::InvalidCiphertext).into())
             }
             Err(err) => Err(ErrorKind::ThresholdDecryption(err).into()),
         }
