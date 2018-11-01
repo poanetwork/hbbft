@@ -106,7 +106,11 @@ where
             let adversary = |_| new_adversary(num_good_nodes, num_faulty_nodes);
             let nonce = format!("My very unique nonce {:x}:{}", unique_id, i);
             info!("Nonce: {}", nonce);
-            let new_coin = |netinfo: _| ThresholdSign::new(netinfo, nonce.clone());
+            let new_coin = |netinfo: _| {
+                let mut newcoin = ThresholdSign::new(netinfo);
+                newcoin.set_message(nonce.clone()).unwrap();
+                newcoin
+            };
             let network = TestNetwork::new(num_good_nodes, num_faulty_nodes, adversary, new_coin);
             let coin = test_threshold_sign(network).parity();
             if coin {

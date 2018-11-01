@@ -270,7 +270,9 @@ impl AbaCommonCoinAdversary {
                         .expect("Adversary netinfo mutex not populated");
                     let coin_id = bincode::serialize(&(0 as SessionId, epoch))
                         .expect("Failed to serialize coin_id");
-                    let mut coin = ThresholdSign::new(netinfo, coin_id);
+                    let mut coin = ThresholdSign::new(netinfo);
+                    coin.set_message(coin_id)
+                        .expect("Failed to set coin's message");
                     let _ = coin
                         .handle_input(())
                         .expect("Calling handle_input on Coin failed");

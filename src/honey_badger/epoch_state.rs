@@ -50,7 +50,10 @@ where
     /// Handles a ciphertext input.
     fn set_ciphertext(&mut self, ciphertext: Ciphertext) -> td::Result<td::Step<N>> {
         match self {
-            DecryptionState::Ongoing(ref mut td) => td.handle_input(ciphertext),
+            DecryptionState::Ongoing(ref mut td) => {
+                td.set_message(ciphertext)?;
+                td.sign()
+            }
             DecryptionState::Complete(_) => Ok(td::Step::default()),
         }
     }

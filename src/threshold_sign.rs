@@ -23,12 +23,14 @@ use log::debug;
 use rand_derive::Rand;
 use serde_derive::{Deserialize, Serialize};
 
-use fault_log::{Fault, FaultKind};
+use fault_log::{Fault, FaultKind, FaultLog};
 use {DistAlgorithm, NetworkInfo, NodeIdT, Target};
 
 /// A threshold signing error.
 #[derive(Clone, Eq, PartialEq, Debug, Fail)]
 pub enum Error {
+    #[fail(display = "Redundant input provided")]
+    MultipleMessagesToSign,
     #[fail(display = "CombineAndVerifySigCrypto error: {}", _0)]
     CombineAndVerifySigCrypto(crypto::error::Error),
     #[fail(display = "Unknown sender")]
@@ -60,7 +62,7 @@ impl Message {
 pub struct ThresholdSign<N> {
     netinfo: Arc<NetworkInfo<N>>,
     /// The hash of the data to be signed.
-    msg_hash: G2,
+    msg_hash: Option<G2>,
     /// All received threshold signature shares.
     received_shares: BTreeMap<N, SignatureShare>,
     /// Whether we already sent our shares.
@@ -100,26 +102,42 @@ impl<N: NodeIdT> DistAlgorithm for ThresholdSign<N> {
 
 impl<N: NodeIdT> ThresholdSign<N> {
     /// Creates a new instance of `ThresholdSign`, with the goal to collaboratively sign `msg`.
-    pub fn new<M: AsRef<[u8]>>(netinfo: Arc<NetworkInfo<N>>, msg: M) -> Self {
+    pub fn new(netinfo: Arc<NetworkInfo<N>>) -> Self {
         ThresholdSign {
             netinfo,
-            msg_hash: hash_g2(msg),
+            msg_hash: None,
             received_shares: BTreeMap::new(),
             had_input: false,
             terminated: false,
         }
     }
 
+    /// Sets msg_hash and resets internal state accordingly.
+    pub fn set_message<M: AsRef<[u8]>>(&mut self, msg: M) -> Result<()> {
+        if self.msg_hash.is_some() {
+            return Err(Error::MultipleMessagesToSign);
+        }
+        self.msg_hash = Some(hash_g2(msg));
+        Ok(())
+    }
+
     /// Sends our signature shares, and if we have collected enough, returns the full signature.
+    /// Returns an empty step if the message to sign hasn't been received yet.
     pub fn sign(&mut self) -> Result<Step<N>> {
-        if self.had_input {
+        if self.had_input || self.msg_hash.is_none() {
             return Ok(Step::default());
         }
         self.had_input = true;
+        let mut step = Step::default();
+        step.fault_log.extend(self.remove_invalid_shares());
         if !self.netinfo.is_validator() {
             return self.try_output();
         }
-        let msg = Message(self.netinfo.secret_key_share().sign_g2(self.msg_hash));
+        let msg = Message(
+            self.netinfo
+                .secret_key_share()
+                .sign_g2(self.msg_hash.unwrap()),
+        );
         let mut step: Step<_> = Target::All.message(msg.clone()).into();
         let id = self.our_id().clone();
         step.extend(self.handle_message(&id, msg)?);
@@ -136,18 +154,44 @@ impl<N: NodeIdT> ThresholdSign<N> {
             return Ok(Step::default());
         }
         let Message(share) = message;
-        if !self
-            .netinfo
-            .public_key_share(sender_id)
-            .ok_or(Error::UnknownSender)?
-            .verify_g2(&share, self.msg_hash)
-        {
-            // Report the faulty node and ignore the invalid share.
+        // Before checking the share, ensure the sender is a known validator
+        self.netinfo.public_key_share(sender_id).ok_or(Error::UnknownSender)?;
+        if !self.is_share_valid(sender_id, &share) {
             let fault_kind = FaultKind::UnverifiedSignatureShareSender;
             return Ok(Fault::new(sender_id.clone(), fault_kind).into());
+        } else {
+            self.received_shares.insert(sender_id.clone(), share);
         }
         self.received_shares.insert(sender_id.clone(), share);
         self.try_output()
+    }
+
+    /// Removes all shares that are invalid, and returns faults for their senders.
+    fn remove_invalid_shares(&mut self) -> FaultLog<N> {
+        let faulty_senders: Vec<N> = self
+            .received_shares
+            .iter()
+            .filter(|(id, share)| !self.is_share_valid(id, share))
+            .map(|(id, _)| id.clone())
+            .collect();
+        let mut fault_log = FaultLog::default();
+        for id in faulty_senders {
+            self.received_shares.remove(&id);
+            fault_log.append(id, FaultKind::UnverifiedSignatureShareSender);
+        }
+        fault_log
+    }
+
+    /// Returns `true` if the share is valid, or if we don't have the message data yet.
+    fn is_share_valid(&self, id: &N, share: &SignatureShare) -> bool {
+        let msg = match self.msg_hash {
+            None => return true, // No data yet. Verification postponed.
+            Some(ref msg_hash) => msg_hash,
+        };
+        match self.netinfo.public_key_share(id) {
+            None => false, // Unknown sender.
+            Some(pk_i) => pk_i.verify_g2(&share, *msg),
+        }
     }
 
     fn try_output(&mut self) -> Result<Step<N>> {
@@ -181,7 +225,7 @@ impl<N: NodeIdT> ThresholdSign<N> {
             .netinfo
             .public_key_set()
             .public_key()
-            .verify_g2(&sig, self.msg_hash)
+            .verify_g2(&sig, self.msg_hash.unwrap())
         {
             Err(Error::VerificationFailed)
         } else {

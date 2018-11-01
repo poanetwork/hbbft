@@ -322,7 +322,9 @@ impl<N: NodeIdT, S: SessionIdT> BinaryAgreement<N, S> {
             1 => CoinState::Decided(false),
             _ => {
                 let coin_id = bincode::serialize(&(&self.session_id, self.epoch))?;
-                CoinState::InProgress(Box::new(ThresholdSign::new(self.netinfo.clone(), coin_id)))
+                let mut ts = ThresholdSign::new(self.netinfo.clone());
+                ts.set_message(coin_id).unwrap();
+                CoinState::InProgress(Box::new(ts))
             }
         })
     }
