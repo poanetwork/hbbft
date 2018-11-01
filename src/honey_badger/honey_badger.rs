@@ -2,7 +2,6 @@ use std::collections::btree_map::Entry;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use bincode;
 use derivative::Derivative;
 use rand::{Rand, Rng};
 use serde::{de::DeserializeOwned, Serialize};
@@ -12,6 +11,7 @@ use super::{Batch, Error, ErrorKind, HoneyBadgerBuilder, Message, MessageContent
 use {util, Contribution, DistAlgorithm, NetworkInfo, NodeIdT};
 
 pub use super::epoch_state::SubsetHandlingStrategy;
+use threshold_decryption::EncryptionSchedule;
 
 /// An instance of the Honey Badger Byzantine fault tolerant consensus algorithm.
 #[derive(Derivative)]
@@ -38,6 +38,8 @@ pub struct HoneyBadger<C, N: Rand> {
     pub(super) rng: Box<dyn Rng + Send + Sync>,
     /// Represents the optimization strategy to use for output of the `Subset` algorithm.
     pub(super) subset_handling_strategy: SubsetHandlingStrategy,
+    /// The schedule for which rounds we should use threshold encryption.
+    pub(super) encryption_schedule: EncryptionSchedule,
 }
 
 pub type Step<C, N> = ::Step<HoneyBadger<C, N>>;
@@ -92,15 +94,17 @@ where
             return Ok(Step::default());
         }
         self.has_input = true;
-        let ser_prop =
-            bincode::serialize(&proposal).map_err(|err| ErrorKind::ProposeBincode(*err))?;
-        let ciphertext = self
-            .netinfo
-            .public_key_set()
-            .public_key()
-            .encrypt_with_rng(&mut self.rng, ser_prop);
         let epoch = self.epoch;
-        let step = self.epoch_state_mut(epoch)?.propose(&ciphertext)?;
+        let step = {
+            let epoch_state = {
+                self.epoch_state_mut(epoch)?;
+                self.epochs.get_mut(&epoch).expect(
+                    "We created the epoch_state in `self.epoch_state_mut(...)` just a moment ago.",
+                )
+            };
+            let rng = &mut self.rng;
+            epoch_state.propose(proposal, rng)?
+        };
         Ok(step.join(self.try_output_batches()?))
     }
 
@@ -130,6 +134,10 @@ where
     /// Returns `true` if input for the current epoch has already been provided.
     pub fn has_input(&self) -> bool {
         !self.netinfo.is_validator() || self.has_input
+    }
+
+    pub fn get_encryption_schedule(&self) -> EncryptionSchedule {
+        self.encryption_schedule
     }
 
     /// Returns the number of validators from which we have already received a proposal for the
@@ -183,6 +191,7 @@ where
                 self.session_id,
                 epoch,
                 self.subset_handling_strategy.clone(),
+                self.encryption_schedule.use_on_epoch(epoch),
             )?),
         })
     }

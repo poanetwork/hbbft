@@ -228,17 +228,19 @@ where
                 ));
             }
             // Broadcast messages get expanded into multiple direct messages.
-            hbbft::Target::All => for to in nodes.keys().filter(|&to| to != &sender) {
-                if !faulty {
-                    message_count = message_count.saturating_add(1);
-                }
+            hbbft::Target::All => {
+                for to in nodes.keys().filter(|&to| to != &sender) {
+                    if !faulty {
+                        message_count = message_count.saturating_add(1);
+                    }
 
-                dest.push_back(NetworkMessage::new(
-                    sender.clone(),
-                    tmsg.message.clone(),
-                    to.clone(),
-                ));
-            },
+                    dest.push_back(NetworkMessage::new(
+                        sender.clone(),
+                        tmsg.message.clone(),
+                        to.clone(),
+                    ));
+                }
+            }
         }
     }
 

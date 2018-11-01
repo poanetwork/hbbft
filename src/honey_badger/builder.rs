@@ -7,6 +7,7 @@ use serde::{de::DeserializeOwned, Serialize};
 
 use super::HoneyBadger;
 use honey_badger::SubsetHandlingStrategy;
+use threshold_decryption::EncryptionSchedule;
 use util::SubRng;
 use {Contribution, NetworkInfo, NodeIdT};
 
@@ -25,6 +26,8 @@ pub struct HoneyBadgerBuilder<C, N> {
     rng: Box<dyn Rng>,
     /// Strategy used to handle the output of the `Subset` algorithm.
     subset_handling_strategy: SubsetHandlingStrategy,
+    /// Schedule for adding threshold encryption to some percentage of rounds
+    encryption_schedule: EncryptionSchedule,
     _phantom: PhantomData<C>,
 }
 
@@ -43,6 +46,7 @@ where
             max_future_epochs: 3,
             rng: Box::new(rand::thread_rng()),
             subset_handling_strategy: SubsetHandlingStrategy::Incremental,
+            encryption_schedule: EncryptionSchedule::Always,
             _phantom: PhantomData,
         }
     }
@@ -83,6 +87,12 @@ where
         self
     }
 
+    /// Sets the schedule to use for threshold encryption.
+    pub fn encryption_schedule(&mut self, encryption_schedule: EncryptionSchedule) -> &mut Self {
+        self.encryption_schedule = encryption_schedule;
+        self
+    }
+
     /// Creates a new Honey Badger instance.
     pub fn build(&mut self) -> HoneyBadger<C, N> {
         HoneyBadger {
@@ -95,6 +105,7 @@ where
             incoming_queue: BTreeMap::new(),
             rng: Box::new(self.rng.sub_rng()),
             subset_handling_strategy: self.subset_handling_strategy.clone(),
+            encryption_schedule: self.encryption_schedule,
         }
     }
 }

@@ -20,7 +20,9 @@ use log::info;
 use rand::{Isaac64Rng, Rng};
 
 use hbbft::dynamic_honey_badger::DynamicHoneyBadger;
-use hbbft::queueing_honey_badger::{Batch, Change, ChangeState, Input, QueueingHoneyBadger, Step};
+use hbbft::queueing_honey_badger::{
+    Batch, Change, ChangeState, Input, NodeChange, QueueingHoneyBadger, Step,
+};
 use hbbft::NetworkInfo;
 
 use network::{Adversary, MessageScheduler, NodeId, SilentAdversary, TestNetwork, TestNode};
@@ -33,20 +35,25 @@ where
     A: Adversary<QHB>,
 {
     // The second half of the transactions will be input only after a node has been removed.
-    network.input_all(Input::Change(Change::Remove(NodeId(0))));
+    network.input_all(Input::Change(Change::NodeChange(NodeChange::Remove(
+        NodeId(0),
+    ))));
     for tx in 0..(num_txs / 2) {
         network.input_all(Input::User(tx));
     }
 
     fn has_remove(node: &TestNode<QHB>) -> bool {
-        node.outputs()
-            .iter()
-            .any(|batch| *batch.change() == ChangeState::Complete(Change::Remove(NodeId(0))))
+        node.outputs().iter().any(|batch| {
+            *batch.change()
+                == ChangeState::Complete(Change::NodeChange(NodeChange::Remove(NodeId(0))))
+        })
     }
 
     fn has_add(node: &TestNode<QHB>) -> bool {
         node.outputs().iter().any(|batch| match *batch.change() {
-            ChangeState::Complete(Change::Add(ref id, _)) => *id == NodeId(0),
+            ChangeState::Complete(Change::NodeChange(NodeChange::Add(ref id, _))) => {
+                *id == NodeId(0)
+            }
             _ => false,
         })
     }
@@ -77,7 +84,10 @@ where
                 .netinfo()
                 .secret_key()
                 .public_key();
-            network.input_all(Input::Change(Change::Add(NodeId(0), pk)));
+            network.input_all(Input::Change(Change::NodeChange(NodeChange::Add(
+                NodeId(0),
+                pk,
+            ))));
             input_add = true;
         }
     }

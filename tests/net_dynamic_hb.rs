@@ -9,7 +9,7 @@ pub mod net;
 
 use std::{collections, time};
 
-use hbbft::dynamic_honey_badger::{Change, ChangeState, DynamicHoneyBadger, Input};
+use hbbft::dynamic_honey_badger::{Change, ChangeState, DynamicHoneyBadger, Input, NodeChange};
 use hbbft::DistAlgorithm;
 use net::adversary::ReorderingAdversary;
 use net::proptest::{gen_seed, NetworkDimension, TestRng, TestRngSeed};
@@ -138,8 +138,9 @@ fn do_drop_and_readd(cfg: TestConfig) {
     }
 
     // Afterwards, remove a specific node from the dynamic honey badger network.
-    net.broadcast_input(&Input::Change(Change::Remove(pivot_node_id)))
-        .expect("broadcasting failed");
+    net.broadcast_input(&Input::Change(Change::NodeChange(NodeChange::Remove(
+        pivot_node_id,
+    )))).expect("broadcasting failed");
 
     // We are tracking (correct) nodes' state through the process by ticking them off individually.
     let mut awaiting_removal: collections::BTreeSet<_> =
@@ -157,7 +158,7 @@ fn do_drop_and_readd(cfg: TestConfig) {
 
         for change in step.output.iter().map(|output| output.change()) {
             match change {
-                ChangeState::Complete(Change::Remove(pivot_node_id)) => {
+                ChangeState::Complete(Change::NodeChange(NodeChange::Remove(pivot_node_id))) => {
                     println!("Node {:?} done removing.", node_id);
                     // Removal complete, tally:
                     awaiting_removal.remove(&node_id);
@@ -170,11 +171,13 @@ fn do_drop_and_readd(cfg: TestConfig) {
                         .public_key();
                     let _ = net[node_id]
                         .algorithm_mut()
-                        .handle_input(Input::Change(Change::Add(*pivot_node_id, pk)))
-                        .expect("failed to send `Add` input");
+                        .handle_input(Input::Change(Change::NodeChange(NodeChange::Add(
+                            *pivot_node_id,
+                            pk,
+                        )))).expect("failed to send `Add` input");
                 }
 
-                ChangeState::Complete(Change::Add(pivot_node_id, _)) => {
+                ChangeState::Complete(Change::NodeChange(NodeChange::Add(pivot_node_id, _))) => {
                     println!("Node {:?} done adding.", node_id);
                     // Node added, ensure it has been removed first.
                     if awaiting_removal.contains(&node_id) {

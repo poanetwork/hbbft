@@ -21,6 +21,27 @@ use serde_derive::{Deserialize, Serialize};
 use fault_log::{Fault, FaultKind, FaultLog};
 use {DistAlgorithm, NetworkInfo, NodeIdT, Target};
 
+/// How frequently Threshold Encryption should be used.
+#[derive(Clone, Copy, Eq, PartialEq, Serialize, Deserialize, Hash, Debug)]
+pub enum EncryptionSchedule {
+    Always,
+    Never,
+    EveryNthEpoch(u32),
+    /// How many with encryption, followed by how many without encryption.
+    TickTock(u32, u32),
+}
+
+impl EncryptionSchedule {
+    pub fn use_on_epoch(self, epoch: u64) -> bool {
+        match self {
+            EncryptionSchedule::Always => true,
+            EncryptionSchedule::Never => false,
+            EncryptionSchedule::EveryNthEpoch(n) => (epoch % u64::from(n)) == 0,
+            EncryptionSchedule::TickTock(on, off) => (epoch % u64::from(on + off)) <= u64::from(on),
+        }
+    }
+}
+
 /// A threshold decryption error.
 #[derive(Clone, Eq, PartialEq, Debug, Fail)]
 pub enum Error {

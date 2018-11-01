@@ -9,7 +9,7 @@ use std::sync::Arc;
 use bincode;
 use crypto::Ciphertext;
 use log::{debug, error, warn};
-use rand::Rand;
+use rand::{Rand, Rng};
 use serde::{de::DeserializeOwned, Serialize};
 use serde_derive::Serialize;
 
@@ -189,6 +189,7 @@ pub struct EpochState<C, N: Rand> {
     accepted_proposers: BTreeSet<N>,
     /// Determines the behavior upon receiving proposals from `subset`.
     subset_handler: SubsetHandler<N>,
+    require_decryption: bool,
     _phantom: PhantomData<C>,
 }
 
@@ -203,6 +204,7 @@ where
         hb_id: u64,
         epoch: u64,
         subset_handling_strategy: SubsetHandlingStrategy,
+        require_decryption: bool,
     ) -> Result<Self> {
         let epoch_id = EpochId { hb_id, epoch };
         let cs = Subset::new(netinfo.clone(), &epoch_id).map_err(ErrorKind::CreateSubset)?;
@@ -213,15 +215,25 @@ where
             decryption: BTreeMap::default(),
             accepted_proposers: Default::default(),
             subset_handler: subset_handling_strategy.into(),
+            require_decryption,
             _phantom: PhantomData,
         })
     }
 
     /// If the instance hasn't terminated yet, inputs our encrypted contribution.
-    pub fn propose(&mut self, ciphertext: &Ciphertext) -> Result<Step<C, N>> {
-        let ser_ct =
-            bincode::serialize(ciphertext).map_err(|err| ErrorKind::ProposeBincode(*err))?;
-        let cs_step = self.subset.handle_input(ser_ct)?;
+    pub fn propose<R: Rng>(&mut self, proposal: &C, rng: &mut R) -> Result<Step<C, N>> {
+        let ser_prop =
+            bincode::serialize(&proposal).map_err(|err| ErrorKind::ProposeBincode(*err))?;
+        let cs_step = self.subset.handle_input(if self.require_decryption {
+            let ciphertext = self
+                .netinfo
+                .public_key_set()
+                .public_key()
+                .encrypt_with_rng(rng, ser_prop);
+            bincode::serialize(&ciphertext).map_err(|err| ErrorKind::ProposeBincode(*err))?
+        } else {
+            ser_prop
+        })?;
         self.process_subset(cs_step)
     }
 
@@ -315,7 +327,13 @@ where
             } = self.subset_handler.handle(cs_output);
 
             for (k, v) in contributions {
-                step.extend(self.send_decryption_share(k.clone(), &v)?);
+                step.extend(if self.require_decryption {
+                    self.send_decryption_share(k.clone(), &v)?
+                } else {
+                    self.decryption
+                        .insert(k.clone(), DecryptionState::Complete(v));
+                    Step::default()
+                });
                 self.accepted_proposers.insert(k);
             }
 

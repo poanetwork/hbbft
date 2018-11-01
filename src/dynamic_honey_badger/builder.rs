@@ -7,8 +7,9 @@ use crypto::{SecretKey, SecretKeySet, SecretKeyShare};
 use rand::{self, Rand, Rng};
 use serde::{de::DeserializeOwned, Serialize};
 
-use super::{ChangeState, DynamicHoneyBadger, JoinPlan, Result, Step, VoteCounter};
+use super::{Change, ChangeState, DynamicHoneyBadger, JoinPlan, Result, Step, VoteCounter};
 use honey_badger::{HoneyBadger, SubsetHandlingStrategy};
+use threshold_decryption::EncryptionSchedule;
 use util::SubRng;
 use {Contribution, NetworkInfo, NodeIdT};
 
@@ -24,6 +25,8 @@ pub struct DynamicHoneyBadgerBuilder<C, N> {
     rng: Box<dyn rand::Rng>,
     /// Strategy used to handle the output of the `Subset` algorithm.
     subset_handling_strategy: SubsetHandlingStrategy,
+    /// Schedule for adding threshold encryption to some percentage of rounds
+    encryption_schedule: EncryptionSchedule,
     _phantom: PhantomData<(C, N)>,
 }
 
@@ -35,6 +38,7 @@ impl<C, N> Default for DynamicHoneyBadgerBuilder<C, N> {
             max_future_epochs: 3,
             rng: Box::new(rand::thread_rng()),
             subset_handling_strategy: SubsetHandlingStrategy::Incremental,
+            encryption_schedule: EncryptionSchedule::Always,
             _phantom: PhantomData,
         }
     }
@@ -78,6 +82,12 @@ where
         self
     }
 
+    /// Sets the schedule to use for threshold encryption.
+    pub fn encryption_schedule(&mut self, encryption_schedule: EncryptionSchedule) -> &mut Self {
+        self.encryption_schedule = encryption_schedule;
+        self
+    }
+
     /// Creates a new Dynamic Honey Badger instance with an empty buffer.
     pub fn build(&mut self, netinfo: NetworkInfo<N>) -> DynamicHoneyBadger<C, N> {
         let DynamicHoneyBadgerBuilder {
@@ -85,6 +95,7 @@ where
             max_future_epochs,
             rng,
             subset_handling_strategy,
+            encryption_schedule,
             _phantom,
         } = self;
         let epoch = *epoch;
@@ -95,6 +106,7 @@ where
             .max_future_epochs(max_future_epochs)
             .rng(rng.sub_rng())
             .subset_handling_strategy(subset_handling_strategy.clone())
+            .encryption_schedule(*encryption_schedule)
             .build();
         DynamicHoneyBadger {
             netinfo,
@@ -138,6 +150,7 @@ where
         let arc_netinfo = Arc::new(netinfo.clone());
         let honey_badger = HoneyBadger::builder(arc_netinfo.clone())
             .max_future_epochs(self.max_future_epochs)
+            .encryption_schedule(join_plan.encryption_schedule)
             .build();
         let mut dhb = DynamicHoneyBadger {
             netinfo,
@@ -151,7 +164,10 @@ where
             rng: Box::new(self.rng.sub_rng()),
         };
         let step = match join_plan.change {
-            ChangeState::InProgress(ref change) => dhb.update_key_gen(join_plan.epoch, change)?,
+            ChangeState::InProgress(ref change) => match change {
+                Change::NodeChange(change) => dhb.update_key_gen(join_plan.epoch, change)?,
+                _ => Step::default(),
+            },
             ChangeState::None | ChangeState::Complete(..) => Step::default(),
         };
         Ok((dhb, step))
