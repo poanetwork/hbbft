@@ -376,7 +376,7 @@ impl EpochInfo {
         let txs = batch.iter().unique().count();
         println!(
             "{:>5} {:6} {:6} {:5} {:9} {:>9}B",
-            batch.seqnum().to_string().cyan(),
+            batch.epoch().to_string().cyan(),
             min_t.as_secs() * 1000 + u64::from(max_t.subsec_nanos()) / 1_000_000,
             max_t.as_secs() * 1000 + u64::from(max_t.subsec_nanos()) / 1_000_000,
             txs,
@@ -397,7 +397,7 @@ fn simulate_honey_badger(mut network: TestNetwork<QHB>) {
     let mut epochs = Vec::new();
     while let Some(id) = network.step() {
         for &(time, ref batch) in &network.nodes[&id].outputs {
-            let epoch = batch.seqnum() as usize;
+            let epoch = batch.epoch() as usize;
             if epochs.len() <= epoch {
                 epochs.resize(epoch + 1, EpochInfo::default());
             }
@@ -437,14 +437,18 @@ fn main() {
         .map(|_| Transaction::new(args.flag_tx_size))
         .collect();
     let new_honey_badger = |netinfo: NetworkInfo<NodeId>| {
-        let dhb = DynamicHoneyBadger::builder().build(netinfo.clone());
+        let our_id = *netinfo.our_id();
+        let peer_ids: Vec<_> = netinfo
+            .all_ids()
+            .filter(|&&them| them != our_id)
+            .cloned()
+            .collect();
+        let dhb = DynamicHoneyBadger::builder().build(netinfo);
         let (qhb, qhb_step) = QueueingHoneyBadger::builder(dhb)
             .batch_size(args.flag_b)
             .build_with_transactions(txs.clone(), rand::thread_rng().gen::<Isaac64Rng>())
             .expect("instantiate QueueingHoneyBadger");
-        let our_id = *netinfo.our_id();
-        let peer_ids = netinfo.all_ids().filter(|&&them| them != our_id).cloned();
-        let (sq, mut step) = SenderQueue::builder(qhb, peer_ids).build(our_id);
+        let (sq, mut step) = SenderQueue::builder(qhb, peer_ids.into_iter()).build(our_id);
         step.extend_with(qhb_step, Message::from);
         (sq, step)
     };

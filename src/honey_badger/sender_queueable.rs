@@ -17,8 +17,8 @@ where
         None
     }
 
-    fn convert_epoch(&self) -> u64 {
-        self.epoch()
+    fn next_epoch(&self) -> u64 {
+        self.epoch + 1
     }
 }
 

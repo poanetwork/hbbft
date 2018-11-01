@@ -11,7 +11,6 @@ use std::{collections, time};
 
 use hbbft::dynamic_honey_badger::{Change, ChangeState, DynamicHoneyBadger, Input, NodeChange};
 use hbbft::sender_queue::SenderQueue;
-use hbbft::Epoched;
 use net::adversary::ReorderingAdversary;
 use net::proptest::{gen_seed, NetworkDimension, TestRng, TestRngSeed};
 use net::{NetBuilder, NewNodeInfo};

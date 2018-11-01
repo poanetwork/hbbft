@@ -24,8 +24,14 @@ where
         }
     }
 
-    fn convert_epoch(&self) -> Epoch {
-        self.epoch()
+    fn next_epoch(&self) -> Epoch {
+        let epoch = self.epoch;
+        let era = self.era;
+        if self.change == ChangeState::None {
+            Epoch(era, Some(epoch - era + 1))
+        } else {
+            Epoch(epoch + 1, Some(0))
+        }
     }
 }
 
@@ -42,6 +48,7 @@ where
             (Some(us), Some(them)) => them <= us && us <= them + max_future_epochs,
             (None, Some(_)) => true,
             (_, None) => {
+                // TODO: return a Fault.
                 error!("Peer's Honey Badger epoch undefined");
                 false
             }

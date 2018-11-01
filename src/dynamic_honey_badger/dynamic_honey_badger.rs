@@ -246,7 +246,7 @@ where
         let output = step.extend_with(hb_step, |hb_msg| Message::HoneyBadger(self.era, hb_msg));
         for hb_batch in output {
             let batch_era = self.era;
-            let batch_seqnum = hb_batch.epoch + batch_era;
+            let batch_epoch = hb_batch.epoch + batch_era;
             let mut batch_contributions = BTreeMap::new();
 
             // Add the user transactions to `batch` and handle votes and DKG messages.
@@ -280,14 +280,14 @@ where
                 // If DKG completed, apply the change, restart Honey Badger, and inform the user.
                 debug!("{}: DKG for {:?} complete!", self, kgs.change);
                 self.netinfo = kgs.key_gen.into_network_info()?;
-                self.restart_honey_badger(batch_seqnum + 1, None);
+                self.restart_honey_badger(batch_epoch + 1, None);
                 ChangeState::Complete(Change::NodeChange(kgs.change))
             } else if let Some(change) = self.vote_counter.compute_winner().cloned() {
                 // If there is a new change, restart DKG. Inform the user about the current change.
                 step.extend(match &change {
-                    Change::NodeChange(change) => self.update_key_gen(batch_seqnum + 1, &change)?,
+                    Change::NodeChange(change) => self.update_key_gen(batch_epoch + 1, &change)?,
                     Change::EncryptionSchedule(schedule) => {
-                        self.update_encryption_schedule(batch_seqnum + 1, *schedule)?
+                        self.update_encryption_schedule(batch_epoch + 1, *schedule)?
                     }
                 });
                 match change {
@@ -298,7 +298,7 @@ where
                 ChangeState::None
             };
             step.output.push(Batch {
-                seqnum: batch_seqnum,
+                epoch: batch_epoch,
                 era: batch_era,
                 change,
                 netinfo: Arc::new(self.netinfo.clone()),

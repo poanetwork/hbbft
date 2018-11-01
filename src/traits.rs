@@ -1,6 +1,6 @@
 //! Common supertraits for distributed algorithms.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::fmt::{Debug, Display};
 use std::hash::Hash;
 use std::iter::once;
@@ -223,7 +223,6 @@ where
     <D as DistAlgorithm>::NodeId: NodeIdT + Rand,
     <D as DistAlgorithm>::Message:
         'i + Clone + SenderQueueableMessage + Serialize + DeserializeOwned,
-    <D as DistAlgorithm>::Output: Epoched,
 {
     /// Removes and returns any messages that are not yet accepted by remote nodes according to the
     /// mapping `remote_epochs`. This way the returned messages are postponed until later, and the
@@ -237,59 +236,46 @@ where
         <D as DistAlgorithm>::NodeId: 'i,
     {
         let messages = &mut self.messages;
-        let (mut passed_msgs, failed_msgs): (Vec<_>, Vec<_>) =
-            messages
-                .drain(..)
-                .partition(|TargetedMessage { target, message }| match target {
+        let pass =
+            |TargetedMessage { target, message }: &TargetedMessage<D::Message, D::NodeId>| {
+                match target {
                     Target::All => peer_epochs
                         .values()
                         .all(|&them| message.is_accepted(them, max_future_epochs)),
                     Target::Node(id) => peer_epochs
                         .get(&id)
                         .map_or(false, |&them| message.is_accepted(them, max_future_epochs)),
-                });
+                }
+            };
         // `Target::All` messages contained in the result of the partitioning are analyzed further
         // and each split into two sets of point messages: those which can be sent without delay and
         // those which should be postponed.
-        let remote_nodes: BTreeSet<&D::NodeId> = peer_epochs.keys().collect();
         let mut deferred_msgs: Vec<(D::NodeId, D::Message)> = Vec::new();
-        for msg in failed_msgs {
-            let m = msg.message;
-            match msg.target {
-                Target::Node(id) => {
-                    let defer = {
-                        let lagging = |&them| {
-                            !(m.is_accepted(them, max_future_epochs) || m.is_obsolete(them))
+        let mut passed_msgs: Vec<_> = Vec::new();
+        for msg in messages.drain(..) {
+            if pass(&msg) {
+                passed_msgs.push(msg);
+            } else {
+                let m = msg.message;
+                match msg.target {
+                    Target::Node(ref id) => {
+                        let defer = {
+                            let lagging = |&them| {
+                                !(m.is_accepted(them, max_future_epochs) || m.is_obsolete(them))
+                            };
+                            peer_epochs.get(&id).map_or(true, lagging)
                         };
-                        peer_epochs.get(&id).map_or(true, lagging)
-                    };
-                    if defer {
-                        deferred_msgs.push((id, m));
+                        if defer {
+                            deferred_msgs.push((id.clone(), m));
+                        }
                     }
-                }
-                Target::All => {
-                    let isnt_earlier_epoch =
-                        |&them| m.is_accepted(them, max_future_epochs) || m.is_obsolete(them);
-                    let lagging = |them| !isnt_earlier_epoch(them);
-                    let accepts = |&them| m.is_accepted(them, max_future_epochs);
-                    let accepting_nodes: BTreeSet<&D::NodeId> = peer_epochs
-                        .iter()
-                        .filter(|(_, them)| accepts(them))
-                        .map(|(id, _)| id)
-                        .collect();
-                    let non_lagging_nodes: BTreeSet<&D::NodeId> = peer_epochs
-                        .iter()
-                        .filter(|(_, them)| isnt_earlier_epoch(them))
-                        .map(|(id, _)| id)
-                        .collect();
-                    for &id in &accepting_nodes {
-                        passed_msgs.push(Target::Node(id.clone()).message(m.clone()));
-                    }
-                    let lagging_nodes: BTreeSet<_> =
-                        remote_nodes.difference(&non_lagging_nodes).collect();
-                    for &id in lagging_nodes {
-                        if peer_epochs.get(id).map_or(true, lagging) {
-                            deferred_msgs.push((id.clone(), m.clone()));
+                    Target::All => {
+                        for (id, &them) in peer_epochs {
+                            if m.is_accepted(them, max_future_epochs) {
+                                passed_msgs.push(Target::Node(id.clone()).message(m.clone()));
+                            } else if !m.is_obsolete(them) {
+                                deferred_msgs.push((id.clone(), m.clone()));
+                            }
                         }
                     }
                 }

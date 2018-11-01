@@ -25,7 +25,7 @@ pub trait SenderQueueableMessage: Epoched {
     fn is_obsolete(&self, them: <Self as Epoched>::Epoch) -> bool;
 }
 
-pub trait SenderQueueableOutput<N, M>: Epoched
+pub trait SenderQueueableOutput<N, M>
 where
     N: NodeIdT,
     M: Epoched,
@@ -34,8 +34,8 @@ where
     /// all nodes.
     fn added_node(&self) -> Option<N>;
 
-    /// Performs type conversion of the batch epoch info a fixed epoch type.
-    fn convert_epoch(&self) -> <M as Epoched>::Epoch;
+    /// Computes the next epoch after the `DynamicHoneyBadger` epoch of the batch.
+    fn next_epoch(&self) -> <M as Epoched>::Epoch;
 }
 
 pub trait SenderQueueableEpoch
@@ -250,7 +250,7 @@ where
     fn update_epoch(&mut self, step: &::Step<D>) -> Step<D> {
         // Look up `DynamicHoneyBadger` epoch updates and collect any added peers.
         let new_epoch = step.output.iter().fold(self.epoch, |epoch, batch| {
-            let max_epoch = epoch.max(batch.convert_epoch());
+            let max_epoch = epoch.max(batch.next_epoch());
             if let Some(node) = batch.added_node() {
                 if &node != self.our_id() {
                     self.peer_epochs
