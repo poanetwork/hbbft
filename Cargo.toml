@@ -30,7 +30,7 @@ init_with = "1.1.0"
 log = "0.4.1"
 rand = "0.4.2"
 rand_derive = "0.3.1"
-reed-solomon-erasure = "3.1.0"
+reed-solomon-erasure = { version = "3.1", features = ["pure-rust"] }
 serde = "1.0.55"
 serde_derive = "1.0.55"
 threshold_crypto = "0.2.1"
