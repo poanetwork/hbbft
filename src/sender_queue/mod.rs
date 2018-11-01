@@ -19,10 +19,10 @@ pub use self::message::Message;
 
 pub trait SenderQueueableMessage: Epoched {
     /// Whether the message is accepted in epoch `them`.
-    fn is_accepted(&self, them: <Self as Epoched>::Epoch, max_future_epochs: u64) -> bool;
+    fn is_accepted(&self, them: <Self as Epoched>::LinEpoch, max_future_epochs: u64) -> bool;
 
     /// Whether the epoch of the message is behind `them`.
-    fn is_obsolete(&self, them: <Self as Epoched>::Epoch) -> bool;
+    fn is_obsolete(&self, them: <Self as Epoched>::LinEpoch) -> bool;
 }
 
 pub trait SenderQueueableOutput<N, M>
@@ -35,7 +35,7 @@ where
     fn added_node(&self) -> Option<N>;
 
     /// Computes the next epoch after the `DynamicHoneyBadger` epoch of the batch.
-    fn next_epoch(&self) -> <M as Epoched>::Epoch;
+    fn next_epoch(&self) -> <M as Epoched>::LinEpoch;
 }
 
 pub trait SenderQueueableEpoch
@@ -90,13 +90,13 @@ where
     algo: D,
     /// Our node ID.
     our_id: D::NodeId,
-    /// Current epoch.
-    epoch: <D::Message as Epoched>::Epoch,
+    /// Current linearizable epoch of the managed `DistAlgorithm`.
+    lin_epoch: <D::Message as Epoched>::LinEpoch,
     /// Messages that couldn't be handled yet by remote nodes.
     outgoing_queue: OutgoingQueue<D>,
     /// The set of all remote nodes on the network including validator as well as non-validator
     /// (observer) nodes together with their epochs as of the last communication.
-    peer_epochs: BTreeMap<D::NodeId, <D::Message as Epoched>::Epoch>,
+    peer_epochs: BTreeMap<D::NodeId, <D::Message as Epoched>::LinEpoch>,
 }
 
 pub type Step<D> = ::Step<SenderQueue<D>>;
@@ -109,7 +109,7 @@ where
     D::Message: Clone + SenderQueueableMessage + Serialize + DeserializeOwned,
     D::NodeId: NodeIdT + Rand,
     D::Output: SenderQueueableOutput<D::NodeId, D::Message>,
-    <D::Message as Epoched>::Epoch: SenderQueueableEpoch,
+    <D::Message as Epoched>::Epoch: SenderQueueableEpoch + From<<D::Message as Epoched>::LinEpoch>,
 {
     type NodeId = D::NodeId;
     type Input = D::Input;
@@ -144,7 +144,7 @@ where
     D::Message: Clone + SenderQueueableMessage + Serialize + DeserializeOwned,
     D::NodeId: NodeIdT + Rand,
     D::Output: SenderQueueableOutput<D::NodeId, D::Message>,
-    <D::Message as Epoched>::Epoch: SenderQueueableEpoch,
+    <D::Message as Epoched>::Epoch: SenderQueueableEpoch + From<<D::Message as Epoched>::LinEpoch>,
 {
     /// Returns a new `SenderQueueBuilder` configured to manage a given `DynamicHoneyBadger` instance.
     pub fn builder<I>(algo: D, peer_ids: I) -> SenderQueueBuilder<D>
@@ -156,7 +156,7 @@ where
 
     pub fn handle_input(&mut self, input: D::Input) -> Result<Step<D>, D> {
         let mut step = self.algo.handle_input(input)?;
-        let mut sender_queue_step = self.update_epoch(&step);
+        let mut sender_queue_step = self.update_lin_epoch(&step);
         self.defer_messages(&mut step);
         sender_queue_step.extend(step.map(|output| output, Message::from));
         Ok(sender_queue_step)
@@ -168,7 +168,7 @@ where
         message: Message<D::Message>,
     ) -> Result<Step<D>, D> {
         match message {
-            Message::EpochStarted(epoch) => Ok(self.handle_epoch_started(sender_id, epoch)),
+            Message::EpochStarted(lin_epoch) => Ok(self.handle_epoch_started(sender_id, lin_epoch)),
             Message::Algo(msg) => self.handle_message_content(sender_id, msg),
         }
     }
@@ -177,17 +177,17 @@ where
     fn handle_epoch_started(
         &mut self,
         sender_id: &D::NodeId,
-        epoch: <D::Message as Epoched>::Epoch,
+        lin_epoch: <D::Message as Epoched>::LinEpoch,
     ) -> Step<D> {
         self.peer_epochs
             .entry(sender_id.clone())
             .and_modify(|e| {
-                if *e < epoch {
-                    *e = epoch;
+                if *e < lin_epoch {
+                    *e = lin_epoch;
                 }
-            }).or_insert(epoch);
-        self.remove_earlier_messages(sender_id, epoch);
-        self.process_new_epoch(sender_id, epoch)
+            }).or_insert(lin_epoch);
+        self.remove_earlier_messages(sender_id, <D::Message as Epoched>::Epoch::from(lin_epoch));
+        self.process_new_epoch(sender_id, <D::Message as Epoched>::Epoch::from(lin_epoch))
     }
 
     /// Removes all messages queued for the remote node from epochs upto `epoch`.
@@ -240,31 +240,31 @@ where
         content: D::Message,
     ) -> Result<Step<D>, D> {
         let mut step = self.algo.handle_message(sender_id, content)?;
-        let mut sender_queue_step = self.update_epoch(&step);
+        let mut sender_queue_step = self.update_lin_epoch(&step);
         self.defer_messages(&mut step);
         sender_queue_step.extend(step.map(|output| output, Message::from));
         Ok(sender_queue_step)
     }
 
     /// Updates the current Honey Badger epoch.
-    fn update_epoch(&mut self, step: &::Step<D>) -> Step<D> {
+    fn update_lin_epoch(&mut self, step: &::Step<D>) -> Step<D> {
         // Look up `DynamicHoneyBadger` epoch updates and collect any added peers.
-        let new_epoch = step.output.iter().fold(self.epoch, |epoch, batch| {
-            let max_epoch = epoch.max(batch.next_epoch());
+        let new_epoch = step.output.iter().fold(self.lin_epoch, |lin_epoch, batch| {
+            let max_epoch = lin_epoch.max(batch.next_epoch());
             if let Some(node) = batch.added_node() {
                 if &node != self.our_id() {
                     self.peer_epochs
                         .entry(node)
-                        .or_insert_with(<D::Message as Epoched>::Epoch::default);
+                        .or_insert_with(<D::Message as Epoched>::LinEpoch::default);
                 }
             }
             max_epoch
         });
-        if new_epoch != self.epoch {
-            self.epoch = new_epoch;
+        if new_epoch != self.lin_epoch {
+            self.lin_epoch = new_epoch;
             // Announce the new epoch.
             Target::All
-                .message(Message::EpochStarted(self.epoch))
+                .message(Message::EpochStarted(self.lin_epoch))
                 .into()
         } else {
             Step::default()
@@ -301,9 +301,9 @@ where
     D::Message: Epoched,
 {
     algo: D,
-    epoch: <D::Message as Epoched>::Epoch,
+    lin_epoch: <D::Message as Epoched>::LinEpoch,
     outgoing_queue: OutgoingQueue<D>,
-    peer_epochs: BTreeMap<D::NodeId, <D::Message as Epoched>::Epoch>,
+    peer_epochs: BTreeMap<D::NodeId, <D::Message as Epoched>::LinEpoch>,
 }
 
 impl<D> SenderQueueBuilder<D>
@@ -312,7 +312,7 @@ where
     D::Message: Clone + SenderQueueableMessage + Serialize + DeserializeOwned,
     D::NodeId: NodeIdT + Rand,
     D::Output: SenderQueueableOutput<D::NodeId, D::Message>,
-    <D::Message as Epoched>::Epoch: SenderQueueableEpoch,
+    <D::Message as Epoched>::Epoch: SenderQueueableEpoch + From<<D::Message as Epoched>::LinEpoch>,
 {
     pub fn new<I>(algo: D, peer_ids: I) -> Self
     where
@@ -320,16 +320,16 @@ where
     {
         SenderQueueBuilder {
             algo,
-            epoch: <D::Message as Epoched>::Epoch::default(),
+            lin_epoch: <D::Message as Epoched>::LinEpoch::default(),
             outgoing_queue: BTreeMap::default(),
             peer_epochs: peer_ids
-                .map(|id| (id, <D::Message as Epoched>::Epoch::default()))
+                .map(|id| (id, <D::Message as Epoched>::LinEpoch::default()))
                 .collect(),
         }
     }
 
-    pub fn epoch(mut self, epoch: <D::Message as Epoched>::Epoch) -> Self {
-        self.epoch = epoch;
+    pub fn lin_epoch(mut self, lin_epoch: <D::Message as Epoched>::LinEpoch) -> Self {
+        self.lin_epoch = lin_epoch;
         self
     }
 
@@ -340,22 +340,22 @@ where
 
     pub fn peer_epochs(
         mut self,
-        peer_epochs: BTreeMap<D::NodeId, <D::Message as Epoched>::Epoch>,
+        peer_epochs: BTreeMap<D::NodeId, <D::Message as Epoched>::LinEpoch>,
     ) -> Self {
         self.peer_epochs = peer_epochs;
         self
     }
 
     pub fn build(self, our_id: D::NodeId) -> (SenderQueue<D>, Step<D>) {
-        let epoch = <D::Message as Epoched>::Epoch::default();
+        let lin_epoch = <D::Message as Epoched>::LinEpoch::default();
         let sq = SenderQueue {
             algo: self.algo,
             our_id,
-            epoch: self.epoch,
+            lin_epoch: self.lin_epoch,
             outgoing_queue: self.outgoing_queue,
             peer_epochs: self.peer_epochs,
         };
-        let step: Step<D> = Target::All.message(Message::EpochStarted(epoch)).into();
+        let step: Step<D> = Target::All.message(Message::EpochStarted(lin_epoch)).into();
         (sq, step)
     }
 }

@@ -43,9 +43,14 @@ pub struct HoneyBadger<C, N: Rand> {
 
 impl<C, N: Rand> Epoched for HoneyBadger<C, N> {
     type Epoch = u64;
+    type LinEpoch = u64;
 
     fn epoch(&self) -> Self::Epoch {
         self.epoch
+    }
+
+    fn linearizable_epoch(&self) -> Option<Self::LinEpoch> {
+        Some(self.epoch)
     }
 }
 

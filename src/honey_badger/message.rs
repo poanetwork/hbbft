@@ -37,8 +37,13 @@ pub struct Message<N: Rand> {
 
 impl<N: Rand> Epoched for Message<N> {
     type Epoch = u64;
+    type LinEpoch = u64;
 
     fn epoch(&self) -> u64 {
         self.epoch
+    }
+
+    fn linearizable_epoch(&self) -> Option<u64> {
+        Some(self.epoch)
     }
 }

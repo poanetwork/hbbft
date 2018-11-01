@@ -1,4 +1,3 @@
-use log::error;
 use rand::Rand;
 use serde::{de::DeserializeOwned, Serialize};
 
@@ -24,13 +23,13 @@ where
         }
     }
 
-    fn next_epoch(&self) -> Epoch {
+    fn next_epoch(&self) -> (u64, u64) {
         let epoch = self.epoch;
         let era = self.era;
         if self.change == ChangeState::None {
-            Epoch(era, Some(epoch - era + 1))
+            (era, epoch - era + 1)
         } else {
-            Epoch(epoch + 1, Some(0))
+            (epoch + 1, 0)
         }
     }
 }
@@ -39,25 +38,28 @@ impl<N> SenderQueueableMessage for Message<N>
 where
     N: Rand,
 {
-    fn is_accepted(&self, Epoch(them_era, them_hb_epoch): Epoch, max_future_epochs: u64) -> bool {
-        let Epoch(era, hb_epoch) = self.epoch();
+    fn is_accepted(&self, (them_era, them): (u64, u64), max_future_epochs: u64) -> bool {
+        let Epoch(era, us) = self.epoch();
         if era != them_era {
             return false;
         }
-        match (hb_epoch, them_hb_epoch) {
-            (Some(us), Some(them)) => them <= us && us <= them + max_future_epochs,
-            (None, Some(_)) => true,
-            (_, None) => {
-                // TODO: return a Fault.
-                error!("Peer's Honey Badger epoch undefined");
-                false
-            }
+        if let Some(us) = us {
+            them <= us && us <= them + max_future_epochs
+        } else {
+            true
         }
     }
 
-    fn is_obsolete(&self, Epoch(them_era, them_hb_epoch): Epoch) -> bool {
-        let Epoch(era, hb_epoch) = self.epoch();
-        era < them_era || (era == them_era && hb_epoch.is_some() && hb_epoch < them_hb_epoch)
+    fn is_obsolete(&self, (them_era, them): (u64, u64)) -> bool {
+        let Epoch(era, us) = self.epoch();
+        if era < them_era {
+            return true;
+        }
+        if let Some(us) = us {
+            era == them_era && us < them
+        } else {
+            false
+        }
     }
 }
 

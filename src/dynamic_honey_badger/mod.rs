@@ -2,11 +2,18 @@
 //!
 //! Like Honey Badger, this protocol allows a network of _N_ nodes with at most _f_ faulty ones,
 //! where _3 f < N_, to input "contributions" - any kind of data -, and to agree on a sequence of
-//! _batches_ of contributions. The protocol proceeds in _epochs_, starting at number 0, and outputs
-//! one batch in each epoch. It never terminates: It handles a continuous stream of incoming
+//! _batches_ of contributions. The protocol proceeds in linear _epochs_, starting at number 0, and
+//! outputs one batch in each epoch. It never terminates: It handles a continuous stream of incoming
 //! contributions and keeps producing new batches from them. All correct nodes will output the same
 //! batch for each epoch. Each validator proposes one contribution per epoch, and every batch will
 //! contain the contributions of at least _N - f_ validators.
+
+//! Epochs are divided into intervals called _eras_ starting at 0. Each following era begins
+//! immediately after a batch that
+//!
+//! - proposes a change in the set of validators or
+//!
+//! - finalizes that proposed change.
 //!
 //! Unlike Honey Badger, this algorithm allows dynamically adding and removing validators.
 //! As a signal to initiate converting observers to validators or vice versa, it defines a special
@@ -17,10 +24,10 @@
 //! create new cryptographic key shares for the new group of validators.
 //!
 //! The state of that process after each epoch is communicated via the `change` field in `Batch`.
-//! When this contains an `InProgress(..)` value, key generation begins. The joining validator (in
-//! the case of an `Add` change) must be an observer starting in the following epoch or earlier.
-//! When `change` is `Complete(..)`, the following epochs will be produced by the new set of
-//! validators.
+//! When this contains an `InProgress(..)` value, key generation begins and the following epoch
+//! starts the next era. The joining validator (in the case of an `Add` change) must be an observer
+//! starting in the following epoch or earlier.  When `change` is `Complete(..)`, the following
+//! epoch starts the next era with the new set of validators.
 //!
 //! New observers can only join the network after an epoch where `change` was not `None`. These
 //! epochs' batches contain a `JoinPlan`, which can be sent as an invitation to the new node: The
@@ -132,6 +139,13 @@ impl<N: Rand> Message<N> {
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, Serialize, Deserialize)]
 pub struct Epoch(pub(super) u64, pub(super) Option<u64>);
 
+/// The injection of linearizable epochs into `DynamicHoneyBadger` epochs.
+impl From<(u64, u64)> for Epoch {
+    fn from((era, hb_epoch): (u64, u64)) -> Epoch {
+        Epoch(era, Some(hb_epoch))
+    }
+}
+
 impl PartialOrd for Epoch {
     /// Partial ordering on epochs. For any `era` and `hb_epoch`, two epochs `Epoch(era, None)` and `Epoch(era,
     /// Some(hb_epoch))` are incomparable.
@@ -159,6 +173,7 @@ impl Default for Epoch {
 
 impl<N: Rand> Epoched for Message<N> {
     type Epoch = Epoch;
+    type LinEpoch = (u64, u64);
 
     fn epoch(&self) -> Epoch {
         match *self {
@@ -166,6 +181,11 @@ impl<N: Rand> Epoched for Message<N> {
             Message::KeyGen(era, _, _) => Epoch(era, None),
             Message::SignedVote(ref signed_vote) => Epoch(signed_vote.era(), None),
         }
+    }
+
+    fn linearizable_epoch(&self) -> Option<(u64, u64)> {
+        let Epoch(era, hb_epoch) = self.epoch();
+        hb_epoch.map(|hb_epoch| (era, hb_epoch))
     }
 }
 

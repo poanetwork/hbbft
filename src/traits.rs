@@ -29,6 +29,10 @@ impl<M> Message for M where M: Debug + Send + Sync {}
 pub trait SessionIdT: Display + Serialize + Send + Sync + Clone {}
 impl<S> SessionIdT for S where S: Display + Serialize + Send + Sync + Clone {}
 
+/// Epochs.
+pub trait EpochT: Copy + Message + Default + Eq + Ord + Serialize + DeserializeOwned {}
+impl<E> EpochT for E where E: Copy + Message + Default + Eq + Ord + Serialize + DeserializeOwned {}
+
 /// Single algorithm step outcome.
 ///
 /// Each time input (typically in the form of user input or incoming network messages) is provided
@@ -203,17 +207,29 @@ where
 /// notion of _epoch_. This interface summarizes the properties that are essential for the message
 /// sender queue.
 pub trait Epoched {
-    type Epoch: Copy + Message + Default + Eq + Ord + Serialize + DeserializeOwned;
+    /// Type of epoch. It is not required to be totally ordered.
+    type Epoch: EpochT;
+    /// A subtype of `Epoch` which contains sets of "linearizable epochs" such that each of those
+    /// sets is totally ordered and each has a least element.
+    type LinEpoch: EpochT;
 
     /// Returns the object's epoch number.
     fn epoch(&self) -> Self::Epoch;
+
+    /// Returns the object's linearizable epoch number if the object's epoch can be linearized.
+    fn linearizable_epoch(&self) -> Option<Self::LinEpoch>;
 }
 
 impl<M: Epoched, N> Epoched for TargetedMessage<M, N> {
     type Epoch = <M as Epoched>::Epoch;
+    type LinEpoch = <M as Epoched>::LinEpoch;
 
     fn epoch(&self) -> Self::Epoch {
         self.message.epoch()
+    }
+
+    fn linearizable_epoch(&self) -> Option<Self::LinEpoch> {
+        self.message.linearizable_epoch()
     }
 }
 
@@ -229,7 +245,7 @@ where
     /// remaining messages can be sent to remote nodes without delay.
     pub fn defer_messages(
         &mut self,
-        peer_epochs: &'i BTreeMap<D::NodeId, <D::Message as Epoched>::Epoch>,
+        peer_epochs: &'i BTreeMap<D::NodeId, <D::Message as Epoched>::LinEpoch>,
         max_future_epochs: u64,
     ) -> Vec<(D::NodeId, D::Message)>
     where
