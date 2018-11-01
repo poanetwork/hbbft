@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
+use super::EncryptionSchedule;
 use super::{ChangeState, JoinPlan};
 use {NetworkInfo, NodeIdT};
 
@@ -16,6 +17,8 @@ pub struct Batch<C, N> {
     pub(super) change: ChangeState<N>,
     /// The network info that applies to the _next_ epoch.
     pub(super) netinfo: Arc<NetworkInfo<N>>,
+    /// The current encryption schedule for threshold cryptography.
+    pub(super) encryption_schedule: EncryptionSchedule,
 }
 
 impl<C, N: NodeIdT> Batch<C, N> {
@@ -90,6 +93,7 @@ impl<C, N: NodeIdT> Batch<C, N> {
             change: self.change.clone(),
             pub_key_set: self.netinfo.public_key_set().clone(),
             pub_keys: self.netinfo.public_key_map().clone(),
+            encryption_schedule: self.encryption_schedule,
         })
     }
 
@@ -104,5 +108,6 @@ impl<C, N: NodeIdT> Batch<C, N> {
             && self.change == other.change
             && self.netinfo.public_key_set() == other.netinfo.public_key_set()
             && self.netinfo.public_key_map() == other.netinfo.public_key_map()
+            && self.encryption_schedule == other.encryption_schedule
     }
 }

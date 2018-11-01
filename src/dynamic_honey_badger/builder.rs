@@ -150,7 +150,7 @@ where
         let arc_netinfo = Arc::new(netinfo.clone());
         let honey_badger = HoneyBadger::builder(arc_netinfo.clone())
             .max_future_epochs(self.max_future_epochs)
-            .encryption_schedule(self.encryption_schedule)
+            .encryption_schedule(join_plan.encryption_schedule)
             .build();
         let mut dhb = DynamicHoneyBadger {
             netinfo,

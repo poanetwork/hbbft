@@ -1,5 +1,3 @@
-#![cfg_attr(feature = "cargo-clippy", allow(borrowed_box))]
-
 use std::collections::btree_map::Entry;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::{self, Display};

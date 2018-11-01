@@ -315,6 +315,7 @@ where
                 change,
                 netinfo: Arc::new(self.netinfo.clone()),
                 contributions: batch_contributions,
+                encryption_schedule: self.honey_badger.get_encryption_schedule(),
             });
         }
         // If `start_epoch` changed, we can now handle some queued messages.
@@ -384,11 +385,9 @@ where
             .session_id(epoch)
             .max_future_epochs(self.max_future_epochs)
             .rng(self.rng.sub_rng())
-            .encryption_schedule(if let Some(schedule) = encryption_schedule {
-                schedule
-            } else {
-                self.honey_badger.get_encryption_schedule()
-            }).build();
+            .encryption_schedule(
+                encryption_schedule.unwrap_or_else(|| self.honey_badger.get_encryption_schedule()),
+            ).build();
     }
 
     /// Handles a `Part` message that was output by Honey Badger.

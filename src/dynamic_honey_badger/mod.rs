@@ -68,6 +68,7 @@ use serde_derive::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 use self::votes::{SignedVote, VoteCounter};
+use super::threshold_decryption::EncryptionSchedule;
 use honey_badger::Message as HbMessage;
 use sync_key_gen::{Ack, Part, SyncKeyGen};
 use NodeIdT;
@@ -142,6 +143,8 @@ pub struct JoinPlan<N: Ord> {
     pub_key_set: PublicKeySet,
     /// The public keys of the nodes taking part in key generation.
     pub_keys: BTreeMap<N, PublicKey>,
+    /// The current encryption schedule for threshold cryptography.
+    encryption_schedule: EncryptionSchedule,
 }
 
 /// The ongoing key generation, together with information about the validator change.
