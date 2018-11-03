@@ -115,6 +115,11 @@ impl<N: NodeIdT> Broadcast<N> {
         }
     }
 
+    /// Returns the proposer's node ID.
+    pub fn proposer_id(&self) -> &N {
+        &self.proposer_id
+    }
+
     /// Breaks the input value into shards of equal length and encodes them --
     /// and some extra parity shards -- with a Reed-Solomon erasure coding
     /// scheme. The returned value contains the shard assigned to this
