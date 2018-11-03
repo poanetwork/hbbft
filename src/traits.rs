@@ -26,8 +26,8 @@ pub trait Message: Debug + Send + Sync {}
 impl<M> Message for M where M: Debug + Send + Sync {}
 
 /// Session identifiers.
-pub trait SessionIdT: Display + Serialize + Send + Sync + Clone {}
-impl<S> SessionIdT for S where S: Display + Serialize + Send + Sync + Clone {}
+pub trait SessionIdT: Display + Serialize + Send + Sync + Clone + Debug {}
+impl<S> SessionIdT for S where S: Display + Serialize + Send + Sync + Clone + Debug {}
 
 /// Epochs.
 pub trait EpochT: Copy + Message + Default + Eq + Ord + Serialize + DeserializeOwned {}

@@ -5,6 +5,7 @@
 
 use std::fmt;
 
+use hex_fmt::HexFmt;
 use rand;
 
 /// Workaround trait for creating new random number generators
@@ -28,4 +29,9 @@ where
 /// Prints "`<RNG>`" as a placeholder for a random number generator in debug output.
 pub fn fmt_rng<T>(_: T, f: &mut fmt::Formatter) -> fmt::Result {
     f.write_str("<RNG>")
+}
+
+/// Prints a byte slice as shortened hexadecimal in debug output.
+pub fn fmt_hex<T: AsRef<[u8]>>(bytes: T, f: &mut fmt::Formatter) -> fmt::Result {
+    write!(f, "{:10}", HexFmt(bytes))
 }
