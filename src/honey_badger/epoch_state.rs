@@ -51,8 +51,8 @@ where
     fn set_ciphertext(&mut self, ciphertext: Ciphertext) -> td::Result<td::Step<N>> {
         match self {
             DecryptionState::Ongoing(ref mut td) => {
-                td.set_message(ciphertext)?;
-                td.sign()
+                td.set_ciphertext(ciphertext)?;
+                td.start_decryption()
             }
             DecryptionState::Complete(_) => Ok(td::Step::default()),
         }

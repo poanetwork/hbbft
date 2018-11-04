@@ -108,7 +108,9 @@ where
             info!("Nonce: {}", nonce);
             let new_coin = |netinfo: _| {
                 let mut newcoin = ThresholdSign::new(netinfo);
-                newcoin.set_message(nonce.clone()).unwrap();
+                newcoin
+                    .set_document(nonce.clone())
+                    .expect("Failed to set the new coin's ID");
                 newcoin
             };
             let network = TestNetwork::new(num_good_nodes, num_faulty_nodes, adversary, new_coin);

@@ -271,8 +271,8 @@ impl AbaCommonCoinAdversary {
                     let coin_id = bincode::serialize(&(0 as SessionId, epoch))
                         .expect("Failed to serialize coin_id");
                     let mut coin = ThresholdSign::new(netinfo);
-                    coin.set_message(coin_id)
-                        .expect("Failed to set coin's message");
+                    coin.set_document(coin_id)
+                        .expect("Failed to set the coin's ID");
                     let _ = coin
                         .handle_input(())
                         .expect("Calling handle_input on Coin failed");

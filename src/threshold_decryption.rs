@@ -53,6 +53,8 @@ pub enum Error {
     UnknownSender,
     #[fail(display = "Decryption failed: {:?}", _0)]
     Decryption(crypto::error::Error),
+    #[fail(display = "Start decryption called before setting ciphertext")]
+    CiphertextIsNone,
 }
 
 /// A threshold decryption result.
@@ -85,7 +87,7 @@ impl<N: NodeIdT> DistAlgorithm for ThresholdDecryption<N> {
     type Error = Error;
 
     fn handle_input(&mut self, _input: ()) -> Result<Step<N>> {
-        self.sign()
+        self.start_decryption()
     }
 
     fn handle_message(&mut self, sender_id: &N, message: Message) -> Result<Step<N>> {
@@ -115,19 +117,22 @@ impl<N: NodeIdT> ThresholdDecryption<N> {
     /// Sets the ciphertext, sends the decryption share, and tries to decrypt it.
     /// This must be called exactly once, with the same ciphertext in all participating nodes.
     /// If we have enough shares, outputs the plaintext.
-    pub fn set_message(&mut self, ct: Ciphertext) -> Result<()> {
+    pub fn set_ciphertext(&mut self, ct: Ciphertext) -> Result<()> {
         if self.ciphertext.is_some() {
             return Err(Error::MultipleInputs(Box::new(ct)));
+        }
+        if self.netinfo.secret_key_share().decrypt_share(&ct).is_none() {
+            return Err(Error::InvalidCiphertext(Box::new(ct.clone())));
         }
         self.ciphertext = Some(ct);
         Ok(())
     }
 
-    /// Sends our signature shares, and if we have collected enough, returns the decrypted message.
-    /// Returns an empty step if the ciphertext hasn't been received yet.
-    pub fn sign(&mut self) -> Result<Step<N>> {
+    /// Sends our decryption shares to peers, and if we have collected enough, returns the decrypted
+    /// message. Returns an error if the ciphertext hasn't been received yet.
+    pub fn start_decryption(&mut self) -> Result<Step<N>> {
         let ct = match self.ciphertext {
-            None => return Ok(Step::default()),
+            None => return Err(Error::CiphertextIsNone),
             Some(ref ct) => ct.clone(),
         };
         let mut step = Step::default();
@@ -136,10 +141,7 @@ impl<N: NodeIdT> ThresholdDecryption<N> {
             step.extend(self.try_output()?);
             return Ok(step);
         }
-        let share = match self.netinfo.secret_key_share().decrypt_share(&ct) {
-            None => return Err(Error::InvalidCiphertext(Box::new(ct.clone()))),
-            Some(share) => share,
-        };
+        let share = self.netinfo.secret_key_share().decrypt_share_no_verify(&ct);
         let our_id = self.our_id().clone();
         let msg = Target::All.message(Message(share.clone()));
         step.messages.push(msg);
@@ -163,7 +165,9 @@ impl<N: NodeIdT> ThresholdDecryption<N> {
             return Ok(Step::default()); // Don't waste time on redundant shares.
         }
         // Before checking the share, ensure the sender is a known validator
-        self.netinfo.public_key_share(sender_id).ok_or(Error::UnknownSender)?;
+        self.netinfo
+            .public_key_share(sender_id)
+            .ok_or(Error::UnknownSender)?;
         let Message(share) = message;
         if !self.is_share_valid(sender_id, &share) {
             let fault_kind = FaultKind::UnverifiedDecryptionShareSender;
