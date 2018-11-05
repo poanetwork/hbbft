@@ -1,14 +1,17 @@
 //! Common supertraits for distributed algorithms.
 
+use std::collections::BTreeMap;
 use std::fmt::{Debug, Display};
 use std::hash::Hash;
 use std::iter::once;
 
 use failure::Fail;
-use serde::Serialize;
+use rand::Rand;
+use serde::{de::DeserializeOwned, Serialize};
 
 use fault_log::{Fault, FaultLog};
-use TargetedMessage;
+use sender_queue::SenderQueueableMessage;
+use {Target, TargetedMessage};
 
 /// A transaction, user message, or other user data.
 pub trait Contribution: Eq + Debug + Hash + Send + Sync {}
@@ -25,6 +28,10 @@ impl<M> Message for M where M: Debug + Send + Sync {}
 /// Session identifiers.
 pub trait SessionIdT: Display + Serialize + Send + Sync + Clone {}
 impl<S> SessionIdT for S where S: Display + Serialize + Send + Sync + Clone {}
+
+/// Epochs.
+pub trait EpochT: Copy + Message + Default + Eq + Ord + Serialize + DeserializeOwned {}
+impl<E> EpochT for E where E: Copy + Message + Default + Eq + Ord + Serialize + DeserializeOwned {}
 
 /// Single algorithm step outcome.
 ///
@@ -180,6 +187,107 @@ impl<D: DistAlgorithm> From<TargetedMessage<D::Message, D::NodeId>> for Step<D> 
             messages: once(msg).collect(),
             ..Step::default()
         }
+    }
+}
+
+impl<D, I> From<I> for Step<D>
+where
+    D: DistAlgorithm,
+    I: IntoIterator<Item = TargetedMessage<D::Message, D::NodeId>>,
+{
+    fn from(msgs: I) -> Self {
+        Step {
+            messages: msgs.into_iter().collect(),
+            ..Step::default()
+        }
+    }
+}
+
+/// An interface to objects with epoch numbers. Different algorithms may have different internal
+/// notion of _epoch_. This interface summarizes the properties that are essential for the message
+/// sender queue.
+pub trait Epoched {
+    /// Type of epoch. It is not required to be totally ordered.
+    type Epoch: EpochT;
+    /// A subtype of `Epoch` which contains sets of "linearizable epochs" such that each of those
+    /// sets is totally ordered and each has a least element.
+    type LinEpoch: EpochT;
+
+    /// Returns the object's epoch number.
+    fn epoch(&self) -> Self::Epoch;
+
+    /// Returns the object's linearizable epoch number if the object's epoch can be linearized.
+    fn linearizable_epoch(&self) -> Option<Self::LinEpoch>;
+}
+
+impl<M: Epoched, N> Epoched for TargetedMessage<M, N> {
+    type Epoch = <M as Epoched>::Epoch;
+    type LinEpoch = <M as Epoched>::LinEpoch;
+
+    fn epoch(&self) -> Self::Epoch {
+        self.message.epoch()
+    }
+
+    fn linearizable_epoch(&self) -> Option<Self::LinEpoch> {
+        self.message.linearizable_epoch()
+    }
+}
+
+impl<'i, D> Step<D>
+where
+    D: DistAlgorithm,
+    <D as DistAlgorithm>::NodeId: NodeIdT + Rand,
+    <D as DistAlgorithm>::Message:
+        'i + Clone + SenderQueueableMessage + Serialize + DeserializeOwned,
+{
+    /// Removes and returns any messages that are not yet accepted by remote nodes according to the
+    /// mapping `remote_epochs`. This way the returned messages are postponed until later, and the
+    /// remaining messages can be sent to remote nodes without delay.
+    pub fn defer_messages(
+        &mut self,
+        peer_epochs: &'i BTreeMap<D::NodeId, <D::Message as Epoched>::LinEpoch>,
+        max_future_epochs: u64,
+    ) -> Vec<(D::NodeId, D::Message)>
+    where
+        <D as DistAlgorithm>::NodeId: 'i,
+    {
+        let messages = &mut self.messages;
+        let mut deferred_msgs: Vec<(D::NodeId, D::Message)> = Vec::new();
+        let mut passed_msgs: Vec<_> = Vec::new();
+        for msg in messages.drain(..) {
+            match msg.target.clone() {
+                Target::Node(id) => {
+                    if let Some(&them) = peer_epochs.get(&id) {
+                        if msg.message.is_accepted(them, max_future_epochs) {
+                            passed_msgs.push(msg);
+                        } else if !msg.message.is_obsolete(them) {
+                            deferred_msgs.push((id, msg.message));
+                        }
+                    }
+                }
+                Target::All => {
+                    if peer_epochs
+                        .values()
+                        .all(|&them| msg.message.is_accepted(them, max_future_epochs))
+                    {
+                        passed_msgs.push(msg);
+                    } else {
+                        // The `Target::All` message is split into two sets of point messages: those
+                        // which can be sent without delay and those which should be postponed.
+                        for (id, &them) in peer_epochs {
+                            if msg.message.is_accepted(them, max_future_epochs) {
+                                passed_msgs
+                                    .push(Target::Node(id.clone()).message(msg.message.clone()));
+                            } else if !msg.message.is_obsolete(them) {
+                                deferred_msgs.push((id.clone(), msg.message.clone()));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        messages.extend(passed_msgs);
+        deferred_msgs
     }
 }
 

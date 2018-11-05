@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
-use std::{fmt, mem, result};
+use std::{fmt, result};
 
 use bincode;
 use crypto::Signature;
@@ -30,9 +30,9 @@ pub struct DynamicHoneyBadger<C, N: Rand> {
     /// Shared network data.
     pub(super) netinfo: NetworkInfo<N>,
     /// The maximum number of future epochs for which we handle messages simultaneously.
-    pub(super) max_future_epochs: usize,
+    pub(super) max_future_epochs: u64,
     /// The first epoch after the latest node change.
-    pub(super) start_epoch: u64,
+    pub(super) era: u64,
     /// The buffer and counter for the pending and committed change votes.
     pub(super) vote_counter: VoteCounter<N>,
     /// Pending node transactions that we will propose in the next epoch.
@@ -41,8 +41,6 @@ pub struct DynamicHoneyBadger<C, N: Rand> {
     pub(super) honey_badger: HoneyBadger<InternalContrib<C, N>, N>,
     /// The current key generation process, and the change it applies to.
     pub(super) key_gen_state: Option<KeyGenState<N>>,
-    /// A queue for messages from future epochs that cannot be handled yet.
-    pub(super) incoming_queue: Vec<(N, Message<N>)>,
     /// A random number generator used for secret key generation.
     // Boxed to avoid overloading the algorithm's type with more generics.
     #[derivative(Debug(format_with = "util::fmt_rng"))]
@@ -107,7 +105,7 @@ where
         let key_gen_messages = self
             .key_gen_msg_buffer
             .iter()
-            .filter(|kg_msg| kg_msg.epoch() == self.start_epoch)
+            .filter(|kg_msg| kg_msg.era() == self.era)
             .cloned()
             .collect();
         let step = self
@@ -137,16 +135,7 @@ where
     ///
     /// This must be called with every message we receive from another node.
     pub fn handle_message(&mut self, sender_id: &N, message: Message<N>) -> Result<Step<C, N>> {
-        let epoch = message.start_epoch();
-        if epoch < self.start_epoch {
-            // Obsolete message.
-            Ok(Step::default())
-        } else if epoch > self.start_epoch {
-            // Message cannot be handled yet. Save it for later.
-            let entry = (sender_id.clone(), message);
-            self.incoming_queue.push(entry);
-            Ok(Step::default())
-        } else {
+        if message.era() == self.era {
             match message {
                 Message::HoneyBadger(_, hb_msg) => {
                     self.handle_honey_badger_message(sender_id, hb_msg)
@@ -159,6 +148,11 @@ where
                     .add_pending_vote(sender_id, signed_vote)
                     .map(FaultLog::into),
             }
+        } else if message.era() > self.era {
+            Ok(Fault::new(sender_id.clone(), FaultKind::UnexpectedDhbMessageEra).into())
+        } else {
+            // The message is late; discard it.
+            Ok(Step::default())
         }
     }
 
@@ -238,7 +232,7 @@ where
             return Ok(Fault::new(sender_id.clone(), fault_kind).into());
         }
 
-        let tx = SignedKeyGenMsg(self.start_epoch, sender_id.clone(), kg_msg, sig);
+        let tx = SignedKeyGenMsg(self.era, sender_id.clone(), kg_msg, sig);
         self.key_gen_msg_buffer.push(tx);
         Ok(FaultLog::default())
     }
@@ -249,10 +243,10 @@ where
         hb_step: honey_badger::Step<InternalContrib<C, N>, N>,
     ) -> Result<Step<C, N>> {
         let mut step: Step<C, N> = Step::default();
-        let start_epoch = self.start_epoch;
-        let output = step.extend_with(hb_step, |hb_msg| Message::HoneyBadger(start_epoch, hb_msg));
+        let output = step.extend_with(hb_step, |hb_msg| Message::HoneyBadger(self.era, hb_msg));
         for hb_batch in output {
-            let batch_epoch = hb_batch.epoch + self.start_epoch;
+            let batch_era = self.era;
+            let batch_epoch = hb_batch.epoch + batch_era;
             let mut batch_contributions = BTreeMap::new();
 
             // Add the user transactions to `batch` and handle votes and DKG messages.
@@ -267,9 +261,9 @@ where
                 batch_contributions.insert(id.clone(), contrib);
                 self.key_gen_msg_buffer
                     .retain(|skgm| !key_gen_messages.contains(skgm));
-                for SignedKeyGenMsg(epoch, s_id, kg_msg, sig) in key_gen_messages {
-                    if epoch != self.start_epoch {
-                        let fault_kind = FaultKind::InvalidKeyGenMessageEpoch;
+                for SignedKeyGenMsg(era, s_id, kg_msg, sig) in key_gen_messages {
+                    if era != self.era {
+                        let fault_kind = FaultKind::InvalidKeyGenMessageEra;
                         step.fault_log.append(id.clone(), fault_kind);
                     } else if !self.verify_signature(&s_id, &sig, &kg_msg)? {
                         let fault_kind = FaultKind::InvalidKeyGenMessageSignature;
@@ -282,7 +276,6 @@ where
                     }
                 }
             }
-
             let change = if let Some(kgs) = self.take_ready_key_gen() {
                 // If DKG completed, apply the change, restart Honey Badger, and inform the user.
                 debug!("{}: DKG for {:?} complete!", self, kgs.change);
@@ -306,28 +299,22 @@ where
             };
             step.output.push(Batch {
                 epoch: batch_epoch,
+                era: batch_era,
                 change,
                 netinfo: Arc::new(self.netinfo.clone()),
                 contributions: batch_contributions,
                 encryption_schedule: self.honey_badger.get_encryption_schedule(),
             });
         }
-        // If `start_epoch` changed, we can now handle some queued messages.
-        if start_epoch < self.start_epoch {
-            let queue = mem::replace(&mut self.incoming_queue, Vec::new());
-            for (sender_id, msg) in queue {
-                step.extend(self.handle_message(&sender_id, msg)?);
-            }
-        }
         Ok(step)
     }
 
     pub(super) fn update_encryption_schedule(
         &mut self,
-        epoch: u64,
+        era: u64,
         encryption_schedule: EncryptionSchedule,
     ) -> Result<Step<C, N>> {
-        self.restart_honey_badger(epoch, Some(encryption_schedule));
+        self.restart_honey_badger(era, Some(encryption_schedule));
         Ok(Step::default())
     }
 
@@ -335,7 +322,7 @@ where
     /// by the current change.
     pub(super) fn update_key_gen(
         &mut self,
-        epoch: u64,
+        era: u64,
         change: &NodeChange<N>,
     ) -> Result<Step<C, N>> {
         if self.key_gen_state.as_ref().map(|kgs| &kgs.change) == Some(change) {
@@ -350,7 +337,7 @@ where
         } {
             warn!("{}: No-op change: {:?}", self, change);
         }
-        self.restart_honey_badger(epoch, None);
+        self.restart_honey_badger(era, None);
         // TODO: This needs to be the same as `num_faulty` will be in the _new_
         // `NetworkInfo` if the change goes through. It would be safer to deduplicate.
         let threshold = (pub_keys.len() - 1) / 3;
@@ -366,17 +353,13 @@ where
     }
 
     /// Starts a new `HoneyBadger` instance and resets the vote counter.
-    fn restart_honey_badger(
-        &mut self,
-        epoch: u64,
-        encryption_schedule: Option<EncryptionSchedule>,
-    ) {
-        self.start_epoch = epoch;
-        self.key_gen_msg_buffer.retain(|kg_msg| kg_msg.0 >= epoch);
+    fn restart_honey_badger(&mut self, era: u64, encryption_schedule: Option<EncryptionSchedule>) {
+        self.era = era;
+        self.key_gen_msg_buffer.retain(|kg_msg| kg_msg.0 >= era);
         let netinfo = Arc::new(self.netinfo.clone());
-        self.vote_counter = VoteCounter::new(netinfo.clone(), epoch);
+        self.vote_counter = VoteCounter::new(netinfo.clone(), era);
         self.honey_badger = HoneyBadger::builder(netinfo)
-            .session_id(epoch)
+            .session_id(era)
             .max_future_epochs(self.max_future_epochs)
             .rng(self.rng.sub_rng())
             .encryption_schedule(
@@ -434,11 +417,10 @@ where
         let sig = Box::new(self.netinfo.secret_key().sign(ser));
         if self.netinfo.is_validator() {
             let our_id = self.our_id().clone();
-            let signed_msg =
-                SignedKeyGenMsg(self.start_epoch, our_id, kg_msg.clone(), *sig.clone());
+            let signed_msg = SignedKeyGenMsg(self.era, our_id, kg_msg.clone(), *sig.clone());
             self.key_gen_msg_buffer.push(signed_msg);
         }
-        let msg = Message::KeyGen(self.start_epoch, kg_msg, sig);
+        let msg = Message::KeyGen(self.era, kg_msg, sig);
         Ok(Target::All.message(msg).into())
     }
 
@@ -479,6 +461,11 @@ where
         let pk_opt = self.netinfo.public_key(node_id).or_else(get_candidate_key);
         Ok(pk_opt.map_or(false, |pk| pk.verify(&sig, ser)))
     }
+
+    /// Returns the maximum future epochs of the Honey Badger algorithm instance.
+    pub fn max_future_epochs(&self) -> u64 {
+        self.max_future_epochs
+    }
 }
 
 impl<C, N> fmt::Display for DynamicHoneyBadger<C, N>
@@ -487,6 +474,6 @@ where
     N: NodeIdT + Serialize + DeserializeOwned + Rand,
 {
     fn fmt(&self, f: &mut fmt::Formatter) -> result::Result<(), fmt::Error> {
-        write!(f, "{:?} DHB(era: {})", self.our_id(), self.start_epoch)
+        write!(f, "{:?} DHB(era: {})", self.our_id(), self.era)
     }
 }

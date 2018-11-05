@@ -10,10 +10,10 @@ pub mod net;
 use std::{collections, time};
 
 use hbbft::dynamic_honey_badger::{Change, ChangeState, DynamicHoneyBadger, Input, NodeChange};
-use hbbft::DistAlgorithm;
+use hbbft::sender_queue::SenderQueue;
 use net::adversary::ReorderingAdversary;
 use net::proptest::{gen_seed, NetworkDimension, TestRng, TestRngSeed};
-use net::NetBuilder;
+use net::{NetBuilder, NewNodeInfo};
 use proptest::{prelude::ProptestConfig, prop_compose, proptest, proptest_helper};
 use rand::{Rng, SeedableRng};
 
@@ -102,11 +102,16 @@ fn do_drop_and_readd(cfg: TestConfig) {
         // Ensure runs are reproducible.
         .rng(rng.gen::<TestRng>())
         .adversary(ReorderingAdversary::new(rng.gen::<TestRng>()))
-        .using(move |node| {
-            println!("Constructing new dynamic honey badger node #{}", node.id);
-            DynamicHoneyBadger::builder()
+        .using_step(move |node: NewNodeInfo<SenderQueue<_>>| {
+            let id = node.id;
+            println!("Constructing new dynamic honey badger node #{}", id);
+            let dhb = DynamicHoneyBadger::builder()
                 .rng(node.rng)
-                .build(node.netinfo)
+                .build(node.netinfo.clone());
+            SenderQueue::builder(
+                dhb,
+                node.netinfo.all_ids().filter(|&&them| them != id).cloned(),
+            ).build(node.id)
         }).build()
         .expect("could not construct test network");
 
@@ -166,6 +171,7 @@ fn do_drop_and_readd(cfg: TestConfig) {
                     // Now we can add the node again. Public keys will be reused.
                     let pk = net[*pivot_node_id]
                         .algorithm()
+                        .algo()
                         .netinfo()
                         .secret_key()
                         .public_key();
