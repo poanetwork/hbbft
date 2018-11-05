@@ -1,8 +1,10 @@
 //! # Collaborative Threshold Signing
 //!
-//! The algorithm is instantiated with data to sign, and waits for the input (no data, just `()`),
-//! then sends a signature share to the others. When at least _f + 1_ correct validators have done
-//! so, each node outputs the same, valid signature of the data.
+//! The algorithm is instantiated and waits to recieve a document to sign, as well as signature
+//! shares from threshold signature validation peers. Once `set_document` is successfully called,
+//! then `handle_input(())` or `sign()` is called, which then sends a signature share to each
+//! threshold signature validation peer. When at least _f + 1_ validators have shared their
+//! signatures in this manner, each node outputs the same, valid signature of the data.
 //!
 //! In addition to signing, this can also be used as a source of pseudorandomness: The signature
 //! cannot be known until more than _f_ validators have contributed their shares.
@@ -63,7 +65,7 @@ impl Message {
 #[derive(Debug)]
 pub struct ThresholdSign<N> {
     netinfo: Arc<NetworkInfo<N>>,
-    /// The hash of the data to be signed.
+    /// The hash of the document to be signed.
     doc_hash: Option<G2>,
     /// All received threshold signature shares.
     received_shares: BTreeMap<N, SignatureShare>,
@@ -185,7 +187,7 @@ impl<N: NodeIdT> ThresholdSign<N> {
     /// Returns `true` if the share is valid, or if we don't have the message data yet.
     fn is_share_valid(&self, id: &N, share: &SignatureShare) -> bool {
         let hash = match self.doc_hash {
-            None => return true, // No data yet. Verification postponed.
+            None => return true, // No document yet. Verification postponed.
             Some(ref doc_hash) => doc_hash,
         };
         match self.netinfo.public_key_share(id) {

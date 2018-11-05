@@ -7,8 +7,9 @@
 //!
 //! The algorithm uses a threshold encryption scheme: A message encrypted to the network's public
 //! key can be collaboratively decrypted by combining at least _f + 1_ decryption shares. Each
-//! validator holds a secret key share, and uses it to produce and multicast a decryption share.
-//! The algorithm outputs as soon as _f + 1_ of them have been received.
+//! validator holds a secret key share, and uses it to produce and multicast a decryption share once
+//! a ciphertext is provided. The algorithm outputs as soon as it receives a ciphertext and _f + 1_
+//! threshold shares.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
