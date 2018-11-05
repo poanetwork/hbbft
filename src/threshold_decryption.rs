@@ -73,6 +73,8 @@ pub struct ThresholdDecryption<N> {
     ciphertext: Option<Ciphertext>,
     /// All received threshold decryption shares.
     shares: BTreeMap<N, DecryptionShare>,
+    /// Whether we already sent our shares.
+    had_input: bool,
     /// Whether we have already returned the output.
     terminated: bool,
 }
@@ -110,6 +112,7 @@ impl<N: NodeIdT> ThresholdDecryption<N> {
             netinfo,
             ciphertext: None,
             shares: BTreeMap::new(),
+            had_input: false,
             terminated: false,
         }
     }
@@ -121,7 +124,7 @@ impl<N: NodeIdT> ThresholdDecryption<N> {
         if self.ciphertext.is_some() {
             return Err(Error::MultipleInputs(Box::new(ct)));
         }
-        if self.netinfo.secret_key_share().decrypt_share(&ct).is_none() {
+        if !ct.verify() {
             return Err(Error::InvalidCiphertext(Box::new(ct.clone())));
         }
         self.ciphertext = Some(ct);
@@ -131,12 +134,13 @@ impl<N: NodeIdT> ThresholdDecryption<N> {
     /// Sends our decryption shares to peers, and if we have collected enough, returns the decrypted
     /// message. Returns an error if the ciphertext hasn't been received yet.
     pub fn start_decryption(&mut self) -> Result<Step<N>> {
-        let ct = match self.ciphertext {
-            None => return Err(Error::CiphertextIsNone),
-            Some(ref ct) => ct.clone(),
-        };
+        if self.had_input {
+            return Ok(Step::default()); // Don't waste time on redundant shares.
+        }
+        let ct = self.ciphertext.clone().ok_or(Error::CiphertextIsNone)?;
         let mut step = Step::default();
         step.fault_log.extend(self.remove_invalid_shares());
+        self.had_input = true;
         if !self.netinfo.is_validator() {
             step.extend(self.try_output()?);
             return Ok(step);
@@ -214,9 +218,10 @@ impl<N: NodeIdT> ThresholdDecryption<N> {
         }
         let ct = match self.ciphertext {
             None => return Ok(Step::default()), // Still waiting for the ciphertext.
-            Some(ref ct) => ct,
+            Some(ref ct) => ct.clone(),
         };
         self.terminated = true;
+        let step = self.start_decryption()?; // Before terminating, make sure we sent our share.
         let plaintext = {
             let to_idx = |(id, share)| {
                 let idx = self
@@ -228,9 +233,9 @@ impl<N: NodeIdT> ThresholdDecryption<N> {
             let share_itr = self.shares.iter().map(to_idx);
             self.netinfo
                 .public_key_set()
-                .decrypt(share_itr, ct)
+                .decrypt(share_itr, &ct)
                 .map_err(Error::Decryption)?
         };
-        Ok(Step::default().with_output(plaintext))
+        Ok(step.with_output(plaintext))
     }
 }

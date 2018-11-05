@@ -103,7 +103,7 @@ impl<N: NodeIdT> DistAlgorithm for ThresholdSign<N> {
 }
 
 impl<N: NodeIdT> ThresholdSign<N> {
-    /// Creates a new instance of `ThresholdSign`, with the goal to collaboratively sign `msg`.
+    /// Creates a new instance of `ThresholdSign`, with the goal to collaboratively sign `doc`.
     pub fn new(netinfo: Arc<NetworkInfo<N>>) -> Self {
         ThresholdSign {
             netinfo,
@@ -115,29 +115,30 @@ impl<N: NodeIdT> ThresholdSign<N> {
     }
 
     /// Sets doc_hash. Signature shares can only be sent after this function is completed.
-    pub fn set_document<M: AsRef<[u8]>>(&mut self, msg: M) -> Result<()> {
+    pub fn set_document<M: AsRef<[u8]>>(&mut self, doc: M) -> Result<()> {
         if self.doc_hash.is_some() {
             return Err(Error::MultipleMessagesToSign);
         }
-        self.doc_hash = Some(hash_g2(msg));
+        self.doc_hash = Some(hash_g2(doc));
         Ok(())
     }
 
     /// Sends our signature shares, and if we have collected enough, returns the full signature.
-    /// Returns an empty step if the message to sign hasn't been received yet.
+    /// Returns an error if the message to sign hasn't been received yet.
     pub fn sign(&mut self) -> Result<Step<N>> {
-        let hash = match self.doc_hash {
-            Some(hash) => hash,
-            None => return Err(Error::DocumentHashIsNone),
-        };
+        if self.had_input {
+            // Don't waste time on redundant shares.
+            return Ok(Step::default());
+        }
+        let hash = self.doc_hash.ok_or(Error::DocumentHashIsNone)?;
         self.had_input = true;
         let mut step = Step::default();
         step.fault_log.extend(self.remove_invalid_shares());
         if !self.netinfo.is_validator() {
-            return self.try_output();
+            return Ok(step.join(self.try_output()?));
         }
         let msg = Message(self.netinfo.secret_key_share().sign_g2(hash));
-        let mut step: Step<_> = Target::All.message(msg.clone()).into();
+        step.messages.push(Target::All.message(msg.clone()));
         let id = self.our_id().clone();
         step.extend(self.handle_message(&id, msg)?);
         Ok(step)
@@ -183,13 +184,13 @@ impl<N: NodeIdT> ThresholdSign<N> {
 
     /// Returns `true` if the share is valid, or if we don't have the message data yet.
     fn is_share_valid(&self, id: &N, share: &SignatureShare) -> bool {
-        let msg = match self.doc_hash {
+        let hash = match self.doc_hash {
             None => return true, // No data yet. Verification postponed.
             Some(ref doc_hash) => doc_hash,
         };
         match self.netinfo.public_key_share(id) {
             None => false, // Unknown sender.
-            Some(pk_i) => pk_i.verify_g2(&share, *msg),
+            Some(pk_i) => pk_i.verify_g2(&share, *hash),
         }
     }
 
@@ -198,11 +199,11 @@ impl<N: NodeIdT> ThresholdSign<N> {
             Some(hash) => hash,
             None => return Ok(Step::default()),
         };
-        if self.had_input && self.received_shares.len() > self.netinfo.num_faulty() {
+        if !self.terminated && self.received_shares.len() > self.netinfo.num_faulty() {
             let sig = self.combine_and_verify_sig(hash)?;
+            self.terminated = true;
             let step = self.sign()?; // Before terminating, make sure we sent our share.
             debug!("{} output {:?}", self, sig);
-            self.terminated = true;
             Ok(step.with_output(sig))
         } else {
             debug!(
