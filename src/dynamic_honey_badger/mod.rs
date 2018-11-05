@@ -8,12 +8,14 @@
 //! batch for each epoch. Each validator proposes one contribution per epoch, and every batch will
 //! contain the contributions of at least _N - f_ validators.
 
-//! Epochs are divided into intervals called _eras_ starting at 0. Each following era begins
-//! immediately after a batch that
+//! Epochs are divided into intervals called _eras_ starting at 0. An era covers the lifetime of
+//! exactly one instance of `HoneyBadger`. Each following era begins immediately after a batch that
 //!
-//! - proposes a change in the set of validators or
+//! - proposes a change in the set of validators,
 //!
-//! - finalizes that proposed change.
+//! - finalizes that proposed change or
+//!
+//! - updates the encryption schedule.
 //!
 //! Unlike Honey Badger, this algorithm allows dynamically adding and removing validators.
 //! As a signal to initiate converting observers to validators or vice versa, it defines a special
@@ -43,6 +45,7 @@
 //! * promote observer nodes to validators,
 //! * demote validator nodes to observers, and
 //! * remove observer nodes,
+//! * change how frequently nodes use threshold encryption,
 //!
 //! without interrupting the consensus process.
 //!

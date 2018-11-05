@@ -211,7 +211,7 @@ fn do_drop_and_readd(cfg: TestConfig) {
         // Examine potential algorithm output.
         for batch in step.output {
             println!(
-                "Received epoch {:?} batch on node {:?}.",
+                "Received epoch {} batch on node {:?}.",
                 batch.epoch(),
                 node_id,
             );

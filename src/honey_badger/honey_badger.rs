@@ -3,7 +3,6 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use derivative::Derivative;
-use log::debug;
 use rand::{Rand, Rng};
 use serde::{de::DeserializeOwned, Serialize};
 
@@ -164,7 +163,6 @@ where
         self.epochs.remove(&self.epoch);
         self.epoch += 1;
         self.has_input = false;
-        debug!("Started epoch {:?}", self.epoch);
     }
 
     /// Tries to decrypt contributions from all proposers and output those in a batch.
