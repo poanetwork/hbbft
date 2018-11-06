@@ -4,10 +4,21 @@ use crypto::PublicKey;
 use rand::Rand;
 use serde::{de::DeserializeOwned, Serialize};
 
-use super::{SenderQueue, Step};
+use super::{SenderQueue, SenderQueueableDistAlgorithm, Step};
 use queueing_honey_badger::{Change, QueueingHoneyBadger};
 use transaction_queue::TransactionQueue;
 use {Contribution, NodeIdT};
+
+impl<T, N, Q> SenderQueueableDistAlgorithm for QueueingHoneyBadger<T, N, Q>
+where
+    T: Contribution + Serialize + DeserializeOwned + Clone,
+    N: NodeIdT + Serialize + DeserializeOwned + Rand,
+    Q: TransactionQueue<T>,
+{
+    fn max_future_epochs(&self) -> u64 {
+        self.dyn_hb().max_future_epochs()
+    }
+}
 
 type Result<T, N, Q> =
     super::Result<Step<QueueingHoneyBadger<T, N, Q>>, QueueingHoneyBadger<T, N, Q>>;

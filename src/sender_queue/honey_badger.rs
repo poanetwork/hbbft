@@ -1,11 +1,11 @@
 use rand::Rand;
 use serde::{de::DeserializeOwned, Serialize};
 
-use super::{Batch, HoneyBadger, Message};
-use sender_queue::{
+use super::{
     SenderQueueableDistAlgorithm, SenderQueueableEpoch, SenderQueueableMessage,
     SenderQueueableOutput,
 };
+use honey_badger::{Batch, HoneyBadger, Message};
 use {Contribution, Epoched, NodeIdT};
 
 impl<C, N> SenderQueueableOutput<N, Message<N>> for Batch<C, N>

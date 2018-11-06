@@ -72,8 +72,6 @@ mod dynamic_honey_badger;
 mod error;
 mod votes;
 
-pub mod sender_queueable;
-
 use std::cmp::Ordering;
 use std::collections::BTreeMap;
 

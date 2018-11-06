@@ -22,8 +22,6 @@
 //! entries, any two nodes will likely make almost disjoint contributions instead of proposing
 //! the same transaction multiple times.
 
-pub mod sender_queueable;
-
 use std::fmt::{self, Display};
 use std::marker::PhantomData;
 use std::{cmp, iter};
