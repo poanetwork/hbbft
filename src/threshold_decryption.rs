@@ -7,8 +7,9 @@
 //!
 //! The algorithm uses a threshold encryption scheme: A message encrypted to the network's public
 //! key can be collaboratively decrypted by combining at least _f + 1_ decryption shares. Each
-//! validator holds a secret key share, and uses it to produce and multicast a decryption share.
-//! The algorithm outputs as soon as _f + 1_ of them have been received.
+//! validator holds a secret key share, and uses it to produce and multicast a decryption share once
+//! a ciphertext is provided. The algorithm outputs as soon as it receives a ciphertext and _f + 1_
+//! threshold shares.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -53,6 +54,8 @@ pub enum Error {
     UnknownSender,
     #[fail(display = "Decryption failed: {:?}", _0)]
     Decryption(crypto::error::Error),
+    #[fail(display = "Start decryption called before setting ciphertext")]
+    CiphertextIsNone,
 }
 
 /// A threshold decryption result.
@@ -71,6 +74,8 @@ pub struct ThresholdDecryption<N> {
     ciphertext: Option<Ciphertext>,
     /// All received threshold decryption shares.
     shares: BTreeMap<N, DecryptionShare>,
+    /// Whether we already sent our shares.
+    had_input: bool,
     /// Whether we have already returned the output.
     terminated: bool,
 }
@@ -79,13 +84,13 @@ pub type Step<N> = ::Step<ThresholdDecryption<N>>;
 
 impl<N: NodeIdT> DistAlgorithm for ThresholdDecryption<N> {
     type NodeId = N;
-    type Input = Ciphertext;
+    type Input = ();
     type Output = Vec<u8>;
     type Message = Message;
     type Error = Error;
 
-    fn handle_input(&mut self, input: Ciphertext) -> Result<Step<N>> {
-        self.set_ciphertext(input)
+    fn handle_input(&mut self, _input: ()) -> Result<Step<N>> {
+        self.start_decryption()
     }
 
     fn handle_message(&mut self, sender_id: &N, message: Message) -> Result<Step<N>> {
@@ -108,29 +113,49 @@ impl<N: NodeIdT> ThresholdDecryption<N> {
             netinfo,
             ciphertext: None,
             shares: BTreeMap::new(),
+            had_input: false,
             terminated: false,
         }
+    }
+
+    /// Creates a new instance of `ThresholdDecryption`, including setting the ciphertext to
+    /// decrypt.
+    pub fn new_with_ciphertext(netinfo: Arc<NetworkInfo<N>>, ct: Ciphertext) -> Result<Self> {
+        let mut td = ThresholdDecryption::new(netinfo);
+        td.set_ciphertext(ct)?;
+        Ok(td)
     }
 
     /// Sets the ciphertext, sends the decryption share, and tries to decrypt it.
     /// This must be called exactly once, with the same ciphertext in all participating nodes.
     /// If we have enough shares, outputs the plaintext.
-    pub fn set_ciphertext(&mut self, ct: Ciphertext) -> Result<Step<N>> {
+    pub fn set_ciphertext(&mut self, ct: Ciphertext) -> Result<()> {
         if self.ciphertext.is_some() {
             return Err(Error::MultipleInputs(Box::new(ct)));
         }
-        if !self.netinfo.is_validator() {
-            self.ciphertext = Some(ct);
-            return Ok(self.try_output()?);
+        if !ct.verify() {
+            return Err(Error::InvalidCiphertext(Box::new(ct.clone())));
         }
-        let share = match self.netinfo.secret_key_share().decrypt_share(&ct) {
-            None => return Err(Error::InvalidCiphertext(Box::new(ct))),
-            Some(share) => share,
-        };
         self.ciphertext = Some(ct);
-        let our_id = self.our_id().clone();
+        Ok(())
+    }
+
+    /// Sends our decryption shares to peers, and if we have collected enough, returns the decrypted
+    /// message. Returns an error if the ciphertext hasn't been received yet.
+    pub fn start_decryption(&mut self) -> Result<Step<N>> {
+        if self.had_input {
+            return Ok(Step::default()); // Don't waste time on redundant shares.
+        }
+        let ct = self.ciphertext.clone().ok_or(Error::CiphertextIsNone)?;
         let mut step = Step::default();
         step.fault_log.extend(self.remove_invalid_shares());
+        self.had_input = true;
+        if !self.netinfo.is_validator() {
+            step.extend(self.try_output()?);
+            return Ok(step);
+        }
+        let share = self.netinfo.secret_key_share().decrypt_share_no_verify(&ct);
+        let our_id = self.our_id().clone();
         let msg = Target::All.message(Message(share.clone()));
         step.messages.push(msg);
         self.shares.insert(our_id, share);
@@ -152,6 +177,10 @@ impl<N: NodeIdT> ThresholdDecryption<N> {
         if self.terminated {
             return Ok(Step::default()); // Don't waste time on redundant shares.
         }
+        // Before checking the share, ensure the sender is a known validator
+        self.netinfo
+            .public_key_share(sender_id)
+            .ok_or(Error::UnknownSender)?;
         let Message(share) = message;
         if !self.is_share_valid(sender_id, &share) {
             let fault_kind = FaultKind::UnverifiedDecryptionShareSender;
@@ -198,9 +227,10 @@ impl<N: NodeIdT> ThresholdDecryption<N> {
         }
         let ct = match self.ciphertext {
             None => return Ok(Step::default()), // Still waiting for the ciphertext.
-            Some(ref ct) => ct,
+            Some(ref ct) => ct.clone(),
         };
         self.terminated = true;
+        let step = self.start_decryption()?; // Before terminating, make sure we sent our share.
         let plaintext = {
             let to_idx = |(id, share)| {
                 let idx = self
@@ -212,9 +242,9 @@ impl<N: NodeIdT> ThresholdDecryption<N> {
             let share_itr = self.shares.iter().map(to_idx);
             self.netinfo
                 .public_key_set()
-                .decrypt(share_itr, ct)
+                .decrypt(share_itr, &ct)
                 .map_err(Error::Decryption)?
         };
-        Ok(Step::default().with_output(plaintext))
+        Ok(step.with_output(plaintext))
     }
 }
