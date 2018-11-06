@@ -65,3 +65,6 @@ overflow-checks = true
 
 [features]
 use-insecure-test-only-mock-crypto = ["threshold_crypto/use-insecure-test-only-mock-crypto"]
+# TODO: Remove this feature once https://github.com/darrenldl/reed-solomon-erasure/issues/28 is
+#       resolved.
+no-simd = ["reed-solomon-erasure/pure-rust"]
