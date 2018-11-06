@@ -28,6 +28,7 @@ use std::fmt::{self, Display};
 use std::marker::PhantomData;
 use std::{cmp, iter};
 
+use crypto::PublicKey;
 use derivative::Derivative;
 use failure::{Backtrace, Context, Fail};
 use rand::{Rand, Rng};
@@ -260,6 +261,22 @@ where
             .map_err(ErrorKind::Input)?
             .convert()
             .join(self.propose()?))
+    }
+
+    /// Casts a vote to add a node as a validator.
+    ///
+    /// This stores a pending vote for the change. It will be included in some future batch, and
+    /// once enough validators have been voted for the same change, it will take effect.
+    pub fn vote_to_add(&mut self, node_id: N, pub_key: PublicKey) -> Result<Step<T, N, Q>> {
+        self.vote_for(Change::NodeChange(NodeChange::Add(node_id, pub_key)))
+    }
+
+    /// Casts a vote to demote a validator to observer.
+    ///
+    /// This stores a pending vote for the change. It will be included in some future batch, and
+    /// once enough validators have been voted for the same change, it will take effect.
+    pub fn vote_to_remove(&mut self, node_id: N) -> Result<Step<T, N, Q>> {
+        self.vote_for(Change::NodeChange(NodeChange::Remove(node_id)))
     }
 
     /// Handles a message received from `sender_id`.

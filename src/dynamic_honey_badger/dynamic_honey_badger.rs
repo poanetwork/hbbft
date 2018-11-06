@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::{fmt, result};
 
 use bincode;
-use crypto::Signature;
+use crypto::{PublicKey, Signature};
 use derivative::Derivative;
 use log::{debug, warn};
 use rand::{self, Rand};
@@ -118,7 +118,7 @@ where
         self.process_output(step)
     }
 
-    /// Casts a vote to change the set of validators.
+    /// Casts a vote to change the set of validators or parameters.
     ///
     /// This stores a pending vote for the change. It will be included in some future batch, and
     /// once enough validators have been voted for the same change, it will take effect.
@@ -129,6 +129,22 @@ where
         let signed_vote = self.vote_counter.sign_vote_for(change)?.clone();
         let msg = Message::SignedVote(signed_vote);
         Ok(Target::All.message(msg).into())
+    }
+
+    /// Casts a vote to add a node as a validator.
+    ///
+    /// This stores a pending vote for the change. It will be included in some future batch, and
+    /// once enough validators have been voted for the same change, it will take effect.
+    pub fn vote_to_add(&mut self, node_id: N, pub_key: PublicKey) -> Result<Step<C, N>> {
+        self.vote_for(Change::NodeChange(NodeChange::Add(node_id, pub_key)))
+    }
+
+    /// Casts a vote to demote a validator to observer.
+    ///
+    /// This stores a pending vote for the change. It will be included in some future batch, and
+    /// once enough validators have been voted for the same change, it will take effect.
+    pub fn vote_to_remove(&mut self, node_id: N) -> Result<Step<C, N>> {
+        self.vote_for(Change::NodeChange(NodeChange::Remove(node_id)))
     }
 
     /// Handles a message received from `sender_id`.
