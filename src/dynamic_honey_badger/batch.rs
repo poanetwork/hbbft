@@ -10,6 +10,8 @@ use {NetworkInfo, NodeIdT};
 pub struct Batch<C, N> {
     /// The sequence number: there is exactly one batch in each epoch.
     pub(super) epoch: u64,
+    /// The current `DynamicHoneyBadger` era.
+    pub(super) era: u64,
     /// The user contributions committed in this epoch.
     pub(super) contributions: BTreeMap<N, C>,
     /// The current state of adding or removing a node: whether any is in progress, or completed
@@ -22,8 +24,14 @@ pub struct Batch<C, N> {
 }
 
 impl<C, N: NodeIdT> Batch<C, N> {
+    /// Returns the linear epoch of this `DynamicHoneyBadger` batch.
     pub fn epoch(&self) -> u64 {
         self.epoch
+    }
+
+    /// Returns the `DynamicHoneyBadger` era of the batch.
+    pub fn era(&self) -> u64 {
+        self.era
     }
 
     /// Returns whether any change to the set of participating nodes is in progress or was
@@ -89,7 +97,7 @@ impl<C, N: NodeIdT> Batch<C, N> {
             return None;
         }
         Some(JoinPlan {
-            epoch: self.epoch + 1,
+            era: self.epoch + 1,
             change: self.change.clone(),
             pub_key_set: self.netinfo.public_key_set().clone(),
             pub_keys: self.netinfo.public_key_map().clone(),
@@ -104,6 +112,7 @@ impl<C, N: NodeIdT> Batch<C, N> {
         C: PartialEq,
     {
         self.epoch == other.epoch
+            && self.era == other.era
             && self.contributions == other.contributions
             && self.change == other.change
             && self.netinfo.public_key_set() == other.netinfo.public_key_set()

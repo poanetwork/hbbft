@@ -21,7 +21,7 @@ pub struct HoneyBadgerBuilder<C, N> {
     /// Start in this epoch.
     epoch: u64,
     /// The maximum number of future epochs for which we handle messages simultaneously.
-    max_future_epochs: usize,
+    max_future_epochs: u64,
     /// Random number generator passed on to algorithm instance for signing and encrypting.
     rng: Box<dyn Rng>,
     /// Strategy used to handle the output of the `Subset` algorithm.
@@ -73,7 +73,7 @@ where
     }
 
     /// Sets the maximum number of future epochs for which we handle messages simultaneously.
-    pub fn max_future_epochs(&mut self, max_future_epochs: usize) -> &mut Self {
+    pub fn max_future_epochs(&mut self, max_future_epochs: u64) -> &mut Self {
         self.max_future_epochs = max_future_epochs;
         self
     }
@@ -102,7 +102,6 @@ where
             has_input: false,
             epochs: BTreeMap::new(),
             max_future_epochs: self.max_future_epochs as u64,
-            incoming_queue: BTreeMap::new(),
             rng: Box::new(self.rng.sub_rng()),
             subset_handling_strategy: self.subset_handling_strategy.clone(),
             encryption_schedule: self.encryption_schedule,

@@ -5,6 +5,8 @@ use serde_derive::{Deserialize, Serialize};
 use subset;
 use threshold_decryption;
 
+use Epoched;
+
 /// The content of a `HoneyBadger` message. It should be further annotated with an epoch.
 #[derive(Clone, Debug, Deserialize, Rand, Serialize)]
 pub enum MessageContent<N: Rand> {
@@ -33,8 +35,15 @@ pub struct Message<N: Rand> {
     pub(super) content: MessageContent<N>,
 }
 
-impl<N: Rand> Message<N> {
-    pub fn epoch(&self) -> u64 {
+impl<N: Rand> Epoched for Message<N> {
+    type Epoch = u64;
+    type LinEpoch = u64;
+
+    fn epoch(&self) -> u64 {
         self.epoch
+    }
+
+    fn linearizable_epoch(&self) -> Option<u64> {
+        Some(self.epoch)
     }
 }
