@@ -317,14 +317,16 @@ impl<N: NodeIdT, S: SessionIdT> BinaryAgreement<N, S> {
     /// Creates the initial coin state for the current epoch, i.e. sets it to the predetermined
     /// value, or initializes a `ThresholdSign` instance.
     fn coin_state(&self) -> Result<CoinState<N>> {
-        Ok(match self.epoch % 3 {
-            0 => CoinState::Decided(true),
-            1 => CoinState::Decided(false),
+        match self.epoch % 3 {
+            0 => Ok(CoinState::Decided(true)),
+            1 => Ok(CoinState::Decided(false)),
             _ => {
                 let coin_id = bincode::serialize(&(&self.session_id, self.epoch))?;
-                CoinState::InProgress(Box::new(ThresholdSign::new(self.netinfo.clone(), coin_id)))
+                let mut ts = ThresholdSign::new(self.netinfo.clone());
+                ts.set_document(coin_id).map_err(Error::InvokeCoin)?;
+                Ok(CoinState::InProgress(Box::new(ts)))
             }
-        })
+        }
     }
 
     /// Decides on a value and broadcasts a `Term` message with that value.
