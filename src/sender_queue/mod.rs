@@ -5,9 +5,11 @@
 //! epoch matches the epoch of the message. Thus no queueing is required for incoming messages since
 //! any incoming messages with non-matching epochs can be safely discarded.
 
-mod dynamic_honey_badger;
 mod message;
-mod queueing_honey_badger;
+
+pub mod dynamic_honey_badger;
+pub mod honey_badger;
+pub mod queueing_honey_badger;
 
 use std::collections::BTreeMap;
 use std::fmt::Debug;

@@ -29,8 +29,6 @@ mod error;
 mod honey_badger;
 mod message;
 
-pub mod sender_queueable;
-
 pub use self::batch::Batch;
 pub use self::builder::HoneyBadgerBuilder;
 pub use self::error::{Error, ErrorKind, Result};
