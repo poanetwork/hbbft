@@ -118,6 +118,14 @@ impl<N: NodeIdT> ThresholdDecryption<N> {
         }
     }
 
+    /// Creates a new instance of `ThresholdDecryption`, including setting the ciphertext to
+    /// decrypt.
+    pub fn new_with_ciphertext(netinfo: Arc<NetworkInfo<N>>, ct: Ciphertext) -> Result<Self> {
+        let mut td = ThresholdDecryption::new(netinfo);
+        td.set_ciphertext(ct)?;
+        Ok(td)
+    }
+
     /// Sets the ciphertext, sends the decryption share, and tries to decrypt it.
     /// This must be called exactly once, with the same ciphertext in all participating nodes.
     /// If we have enough shares, outputs the plaintext.

@@ -116,6 +116,13 @@ impl<N: NodeIdT> ThresholdSign<N> {
         }
     }
 
+    /// Creates a new instance of `ThresholdSign`, including setting the document to sign.
+    pub fn new_with_document<M: AsRef<[u8]>>(netinfo: Arc<NetworkInfo<N>>, doc: M) -> Result<Self> {
+        let mut ts = ThresholdSign::new(netinfo);
+        ts.set_document(doc)?;
+        Ok(ts)
+    }
+
     /// Sets doc_hash. Signature shares can only be sent after this function is completed.
     pub fn set_document<M: AsRef<[u8]>>(&mut self, doc: M) -> Result<()> {
         if self.doc_hash.is_some() {
