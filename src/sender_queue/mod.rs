@@ -5,7 +5,9 @@
 //! epoch matches the epoch of the message. Thus no queueing is required for incoming messages since
 //! any incoming messages with non-matching epochs can be safely discarded.
 
+mod dynamic_honey_badger;
 mod message;
+mod queueing_honey_badger;
 
 use std::collections::BTreeMap;
 use std::fmt::Debug;
@@ -155,11 +157,7 @@ where
     }
 
     pub fn handle_input(&mut self, input: D::Input) -> Result<Step<D>, D> {
-        let mut step = self.algo.handle_input(input)?;
-        let mut sender_queue_step = self.update_lin_epoch(&step);
-        self.defer_messages(&mut step);
-        sender_queue_step.extend(step.map(|output| output, Message::from));
-        Ok(sender_queue_step)
+        self.apply(|algo| algo.handle_input(input))
     }
 
     pub fn handle_message(
@@ -171,6 +169,19 @@ where
             Message::EpochStarted(lin_epoch) => Ok(self.handle_epoch_started(sender_id, lin_epoch)),
             Message::Algo(msg) => self.handle_message_content(sender_id, msg),
         }
+    }
+
+    /// Applies `f` to the wrapped algorithm and converts the step in the result to a sender queue
+    /// step, deferring or dropping messages, where necessary.
+    pub fn apply<F>(&mut self, f: F) -> Result<Step<D>, D>
+    where
+        F: FnOnce(&mut D) -> Result<::Step<D>, D>,
+    {
+        let mut step = f(&mut self.algo)?;
+        let mut sender_queue_step = self.update_lin_epoch(&step);
+        self.defer_messages(&mut step);
+        sender_queue_step.extend(step.map(|output| output, Message::from));
+        Ok(sender_queue_step)
     }
 
     /// Handles an epoch start announcement.
@@ -239,11 +250,7 @@ where
         sender_id: &D::NodeId,
         content: D::Message,
     ) -> Result<Step<D>, D> {
-        let mut step = self.algo.handle_message(sender_id, content)?;
-        let mut sender_queue_step = self.update_lin_epoch(&step);
-        self.defer_messages(&mut step);
-        sender_queue_step.extend(step.map(|output| output, Message::from));
-        Ok(sender_queue_step)
+        self.apply(|algo| algo.handle_message(sender_id, content))
     }
 
     /// Updates the current Honey Badger epoch.
