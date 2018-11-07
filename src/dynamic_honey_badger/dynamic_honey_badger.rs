@@ -21,7 +21,7 @@ use honey_badger::{self, HoneyBadger, Message as HbMessage};
 use sync_key_gen::{Ack, AckOutcome, Part, PartOutcome, SyncKeyGen};
 use threshold_decrypt::EncryptionSchedule;
 use util::{self, SubRng};
-use {Contribution, DistAlgorithm, NetworkInfo, NodeIdT, Target};
+use {Contribution, DistAlgorithm, Epoched, NetworkInfo, NodeIdT, Target};
 
 /// A Honey Badger instance that can handle adding and removing nodes.
 #[derive(Derivative)]
@@ -491,5 +491,17 @@ where
 {
     fn fmt(&self, f: &mut fmt::Formatter) -> result::Result<(), fmt::Error> {
         write!(f, "{:?} DHB(era: {})", self.our_id(), self.era)
+    }
+}
+
+impl<C, N> Epoched for DynamicHoneyBadger<C, N>
+where
+    C: Contribution + Serialize + DeserializeOwned,
+    N: NodeIdT + Serialize + DeserializeOwned + Rand,
+{
+    type Epoch = (u64, u64);
+
+    fn epoch(&self) -> (u64, u64) {
+        (self.era, self.honey_badger.epoch())
     }
 }

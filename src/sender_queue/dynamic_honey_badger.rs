@@ -7,13 +7,12 @@ use rand::Rand;
 use serde::{de::DeserializeOwned, Serialize};
 
 use super::{
-    SenderQueue, SenderQueueableDistAlgorithm, SenderQueueableEpoch, SenderQueueableMessage,
-    SenderQueueableOutput,
+    SenderQueue, SenderQueueableDistAlgorithm, SenderQueueableMessage, SenderQueueableOutput,
 };
 use {Contribution, DaStep, Epoched, NodeIdT};
 
 use dynamic_honey_badger::{
-    Batch, Change, ChangeState, DynamicHoneyBadger, Epoch, Error as DhbError, Message, NodeChange,
+    Batch, Change, ChangeState, DynamicHoneyBadger, Error as DhbError, Message, NodeChange,
 };
 
 impl<C, N> SenderQueueableOutput<N, Message<N>> for Batch<C, N>
@@ -31,14 +30,16 @@ where
             None
         }
     }
+}
 
-    fn next_epoch(&self) -> (u64, u64) {
-        let epoch = self.epoch();
-        let era = self.era();
-        if *self.change() == ChangeState::None {
-            (era, epoch - era + 1)
-        } else {
-            (epoch + 1, 0)
+impl<N: Rand> Epoched for Message<N> {
+    type Epoch = (u64, u64);
+
+    fn epoch(&self) -> (u64, u64) {
+        match *self {
+            Message::HoneyBadger(era, ref msg) => (era, msg.epoch()),
+            Message::KeyGen(era, _, _) => (era, 0),
+            Message::SignedVote(ref signed_vote) => (signed_vote.era(), 0),
         }
     }
 }
@@ -47,37 +48,23 @@ impl<N> SenderQueueableMessage for Message<N>
 where
     N: Rand,
 {
-    fn is_accepted(&self, (them_era, them): (u64, u64), max_future_epochs: u64) -> bool {
-        let Epoch(era, us) = self.epoch();
-        if era != them_era {
-            return false;
-        }
-        if let Some(us) = us {
-            them <= us && us <= them + max_future_epochs
-        } else {
-            true
+    fn is_premature(&self, (them_era, them): (u64, u64), max_future_epochs: u64) -> bool {
+        match *self {
+            Message::HoneyBadger(era, ref msg) => {
+                era > them_era || (era == them_era && msg.epoch() > them + max_future_epochs)
+            }
+            Message::KeyGen(era, _, _) => era > them_era,
+            Message::SignedVote(ref signed_vote) => signed_vote.era() > them_era,
         }
     }
 
     fn is_obsolete(&self, (them_era, them): (u64, u64)) -> bool {
-        let Epoch(era, us) = self.epoch();
-        if era < them_era {
-            return true;
-        }
-        if let Some(us) = us {
-            era == them_era && us < them
-        } else {
-            false
-        }
-    }
-}
-
-impl SenderQueueableEpoch for Epoch {
-    fn spanning_epochs(&self) -> Vec<Self> {
-        if let Epoch(era, Some(_)) = *self {
-            vec![Epoch(era, None)]
-        } else {
-            vec![]
+        match *self {
+            Message::HoneyBadger(era, ref msg) => {
+                era < them_era || (era == them_era && msg.epoch() < them)
+            }
+            Message::KeyGen(era, _, _) => era < them_era,
+            Message::SignedVote(ref signed_vote) => signed_vote.era() < them_era,
         }
     }
 }

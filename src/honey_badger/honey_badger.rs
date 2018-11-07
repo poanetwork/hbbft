@@ -8,7 +8,7 @@ use serde::{de::DeserializeOwned, Serialize};
 
 use super::epoch_state::EpochState;
 use super::{Batch, Error, ErrorKind, HoneyBadgerBuilder, Message, Result};
-use {util, Contribution, DistAlgorithm, Epoched, Fault, FaultKind, NetworkInfo, NodeIdT};
+use {util, Contribution, DistAlgorithm, Fault, FaultKind, NetworkInfo, NodeIdT};
 
 pub use super::epoch_state::SubsetHandlingStrategy;
 use threshold_decrypt::EncryptionSchedule;
@@ -38,19 +38,6 @@ pub struct HoneyBadger<C, N: Rand> {
     pub(super) subset_handling_strategy: SubsetHandlingStrategy,
     /// The schedule for which rounds we should use threshold encryption.
     pub(super) encryption_schedule: EncryptionSchedule,
-}
-
-impl<C, N: Rand> Epoched for HoneyBadger<C, N> {
-    type Epoch = u64;
-    type LinEpoch = u64;
-
-    fn epoch(&self) -> Self::Epoch {
-        self.epoch
-    }
-
-    fn linearizable_epoch(&self) -> Option<Self::LinEpoch> {
-        Some(self.epoch)
-    }
 }
 
 pub type Step<C, N> = ::DaStep<HoneyBadger<C, N>>;
@@ -127,16 +114,16 @@ where
             return Err(ErrorKind::UnknownSender.into());
         }
         let Message { epoch, content } = message;
-        if self.epoch <= epoch && epoch <= self.epoch + self.max_future_epochs {
+        if epoch > self.epoch + self.max_future_epochs {
+            Ok(Fault::new(sender_id.clone(), FaultKind::UnexpectedHbMessageEpoch).into())
+        } else if epoch < self.epoch {
+            // The message is late; discard it.
+            Ok(Step::default())
+        } else {
             let step = self
                 .epoch_state_mut(epoch)?
                 .handle_message_content(sender_id, content)?;
             Ok(step.join(self.try_output_batches()?))
-        } else if epoch > self.epoch + self.max_future_epochs {
-            Ok(Fault::new(sender_id.clone(), FaultKind::UnexpectedHbMessageEpoch).into())
-        } else {
-            // The message is late; discard it.
-            Ok(Step::default())
         }
     }
 
@@ -145,8 +132,15 @@ where
         !self.netinfo.is_validator() || self.has_input
     }
 
+    /// Returns the current encryption schedule that determines in which epochs contributions are
+    /// encrypted.
     pub fn get_encryption_schedule(&self) -> EncryptionSchedule {
         self.encryption_schedule
+    }
+
+    /// Returns the current epoch.
+    pub fn epoch(&self) -> u64 {
+        self.epoch
     }
 
     /// Returns the number of validators from which we have already received a proposal for the
