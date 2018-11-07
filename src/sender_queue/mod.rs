@@ -148,7 +148,8 @@ where
     D::Output: SenderQueueableOutput<D::NodeId, D::Message>,
     <D::Message as Epoched>::Epoch: SenderQueueableEpoch + From<<D::Message as Epoched>::LinEpoch>,
 {
-    /// Returns a new `SenderQueueBuilder` configured to manage a given `DynamicHoneyBadger` instance.
+    /// Returns a new `SenderQueueBuilder` configured to manage a given `DynamicHoneyBadger`
+    /// instance.
     pub fn builder<I>(algo: D, peer_ids: I) -> SenderQueueBuilder<D>
     where
         I: Iterator<Item = D::NodeId>,
