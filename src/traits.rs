@@ -220,16 +220,12 @@ where
     /// remaining messages can be sent to remote nodes without delay.
     pub fn defer_messages(
         &mut self,
-        peer_epochs: &'i BTreeMap<N, <M as Epoched>::LinEpoch>,
+        peer_epochs: &BTreeMap<N, <M as Epoched>::LinEpoch>,
         max_future_epochs: u64,
-    ) -> Vec<(N, M)>
-    where
-        N: 'i,
-    {
-        let messages = &mut self.messages;
+    ) -> Vec<(N, M)> {
         let mut deferred_msgs: Vec<(N, M)> = Vec::new();
         let mut passed_msgs: Vec<_> = Vec::new();
-        for msg in messages.drain(..) {
+        for msg in self.messages.drain(..) {
             match msg.target.clone() {
                 Target::Node(id) => {
                     if let Some(&them) = peer_epochs.get(&id) {
@@ -261,7 +257,7 @@ where
                 }
             }
         }
-        messages.extend(passed_msgs);
+        self.messages.extend(passed_msgs);
         deferred_msgs
     }
 }
