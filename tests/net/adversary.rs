@@ -38,7 +38,7 @@ use std::{cmp, fmt};
 
 use rand::Rng;
 
-use hbbft::{DistAlgorithm, Step};
+use hbbft::{DaStep, DistAlgorithm};
 
 use net::{CrankError, NetMessage, Node, VirtualNet};
 
@@ -143,7 +143,7 @@ where
     }
 
     /// Normally dispatch a message
-    pub fn dispatch_message(&mut self, msg: NetMessage<D>) -> Result<Step<D>, CrankError<D>> {
+    pub fn dispatch_message(&mut self, msg: NetMessage<D>) -> Result<DaStep<D>, CrankError<D>> {
         self.0.dispatch_message(msg)
     }
 
@@ -336,7 +336,7 @@ where
         &mut self,
         mut net: NetMutHandle<D>,
         msg: NetMessage<D>,
-    ) -> Result<Step<D>, CrankError<D>> {
+    ) -> Result<DaStep<D>, CrankError<D>> {
         net.dispatch_message(msg)
     }
 }

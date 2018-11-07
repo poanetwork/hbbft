@@ -1,17 +1,19 @@
 //! Convenience methods for a `SenderQueue` wrapping a `DynamicHoneyBadger`.
 
+use std::result;
+
 use crypto::PublicKey;
 use rand::Rand;
 use serde::{de::DeserializeOwned, Serialize};
 
 use super::{
     SenderQueue, SenderQueueableDistAlgorithm, SenderQueueableEpoch, SenderQueueableMessage,
-    SenderQueueableOutput, Step,
+    SenderQueueableOutput,
 };
-use {Contribution, Epoched, NodeIdT};
+use {Contribution, DaStep, Epoched, NodeIdT};
 
 use dynamic_honey_badger::{
-    Batch, Change, ChangeState, DynamicHoneyBadger, Epoch, Message, NodeChange,
+    Batch, Change, ChangeState, DynamicHoneyBadger, Epoch, Error as DhbError, Message, NodeChange,
 };
 
 impl<C, N> SenderQueueableOutput<N, Message<N>> for Batch<C, N>
@@ -90,7 +92,7 @@ where
     }
 }
 
-type Result<C, N> = super::Result<Step<DynamicHoneyBadger<C, N>>, DynamicHoneyBadger<C, N>>;
+type Result<C, N> = result::Result<DaStep<SenderQueue<DynamicHoneyBadger<C, N>>>, DhbError>;
 
 impl<C, N> SenderQueue<DynamicHoneyBadger<C, N>>
 where

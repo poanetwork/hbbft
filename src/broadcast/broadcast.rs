@@ -37,7 +37,7 @@ pub struct Broadcast<N> {
     readys: BTreeMap<N, Vec<u8>>,
 }
 
-pub type Step<N> = ::Step<Broadcast<N>>;
+pub type Step<N> = ::DaStep<Broadcast<N>>;
 
 impl<N: NodeIdT> DistAlgorithm for Broadcast<N> {
     type NodeId = N;

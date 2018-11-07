@@ -78,12 +78,12 @@ impl<N: NodeIdT, S: SessionIdT> DistAlgorithm for BinaryAgreement<N, S> {
     type Message = Message;
     type Error = Error;
 
-    fn handle_input(&mut self, input: Self::Input) -> Result<Step<N, S>> {
+    fn handle_input(&mut self, input: Self::Input) -> Result<Step<N>> {
         self.propose(input)
     }
 
     /// Receive input from a remote node.
-    fn handle_message(&mut self, sender_id: &Self::NodeId, msg: Message) -> Result<Step<N, S>> {
+    fn handle_message(&mut self, sender_id: &Self::NodeId, msg: Message) -> Result<Step<N>> {
         self.handle_message(sender_id, msg)
     }
 
@@ -122,20 +122,20 @@ impl<N: NodeIdT, S: SessionIdT> BinaryAgreement<N, S> {
     /// output. Otherwise either output is possible.
     ///
     /// Note that if `can_propose` returns `false`, it is already too late to affect the outcome.
-    pub fn propose(&mut self, input: bool) -> Result<Step<N, S>> {
+    pub fn propose(&mut self, input: bool) -> Result<Step<N>> {
         if !self.can_propose() {
             return Ok(Step::default());
         }
         // Set the initial estimated value to the input value.
         self.estimated = Some(input);
-        let sbvb_step = self.sbv_broadcast.handle_input(input)?;
+        let sbvb_step = self.sbv_broadcast.send_bval(input)?;
         self.handle_sbvb_step(sbvb_step)
     }
 
     /// Handles a message received from `sender_id`.
     ///
     /// This must be called with every message we receive from another node.
-    pub fn handle_message(&mut self, sender_id: &N, msg: Message) -> Result<Step<N, S>> {
+    pub fn handle_message(&mut self, sender_id: &N, msg: Message) -> Result<Step<N>> {
         let Message { epoch, content } = msg;
         if self.decision.is_some() || (epoch < self.epoch && content.can_expire()) {
             // Message is obsolete: We are already in a later epoch or terminated.
@@ -161,9 +161,9 @@ impl<N: NodeIdT, S: SessionIdT> BinaryAgreement<N, S> {
         &mut self,
         sender_id: &N,
         content: MessageContent,
-    ) -> Result<Step<N, S>> {
+    ) -> Result<Step<N>> {
         match content {
-            MessageContent::SbvBroadcast(msg) => self.handle_sbv_broadcast(sender_id, msg),
+            MessageContent::SbvBroadcast(msg) => self.handle_sbv_broadcast(sender_id, &msg),
             MessageContent::Conf(v) => self.handle_conf(sender_id, v),
             MessageContent::Term(v) => self.handle_term(sender_id, v),
             MessageContent::Coin(msg) => self.handle_coin(sender_id, *msg),
@@ -174,15 +174,15 @@ impl<N: NodeIdT, S: SessionIdT> BinaryAgreement<N, S> {
     fn handle_sbv_broadcast(
         &mut self,
         sender_id: &N,
-        msg: sbv_broadcast::Message,
-    ) -> Result<Step<N, S>> {
-        let sbvb_step = self.sbv_broadcast.handle_message(sender_id, msg)?;
+        msg: &sbv_broadcast::Message,
+    ) -> Result<Step<N>> {
+        let sbvb_step = self.sbv_broadcast.handle_message(sender_id, &msg)?;
         self.handle_sbvb_step(sbvb_step)
     }
 
     /// Handles a Synchronized Binary Value Broadcast step. On output, starts the `Conf` round or
     /// decides.
-    fn handle_sbvb_step(&mut self, sbvb_step: sbv_broadcast::Step<N>) -> Result<Step<N, S>> {
+    fn handle_sbvb_step(&mut self, sbvb_step: sbv_broadcast::Step<N>) -> Result<Step<N>> {
         let mut step = Step::default();
         let output = step.extend_with(sbvb_step, |msg| {
             MessageContent::SbvBroadcast(msg).with_epoch(self.epoch)
@@ -208,7 +208,7 @@ impl<N: NodeIdT, S: SessionIdT> BinaryAgreement<N, S> {
 
     /// Handles a `Conf` message. When _N - f_ `Conf` messages with values in `bin_values` have
     /// been received, updates the epoch or decides.
-    fn handle_conf(&mut self, sender_id: &N, v: BoolSet) -> Result<Step<N, S>> {
+    fn handle_conf(&mut self, sender_id: &N, v: BoolSet) -> Result<Step<N>> {
         self.received_conf.insert(sender_id.clone(), v);
         self.try_finish_conf_round()
     }
@@ -216,7 +216,7 @@ impl<N: NodeIdT, S: SessionIdT> BinaryAgreement<N, S> {
     /// Handles a `Term(v)` message. If we haven't yet decided on a value and there are more than
     /// _f_ such messages with the same value from different nodes, performs expedite termination:
     /// decides on `v`, broadcasts `Term(v)` and terminates the instance.
-    fn handle_term(&mut self, sender_id: &N, b: bool) -> Result<Step<N, S>> {
+    fn handle_term(&mut self, sender_id: &N, b: bool) -> Result<Step<N>> {
         self.received_term[b].insert(sender_id.clone());
         // Check for the expedite termination condition.
         if self.decision.is_some() {
@@ -234,7 +234,7 @@ impl<N: NodeIdT, S: SessionIdT> BinaryAgreement<N, S> {
 
     /// Handles a `ThresholdSign` message. If there is output, starts the next epoch. The function
     /// may output a decision value.
-    fn handle_coin(&mut self, sender_id: &N, msg: threshold_sign::Message) -> Result<Step<N, S>> {
+    fn handle_coin(&mut self, sender_id: &N, msg: threshold_sign::Message) -> Result<Step<N>> {
         let ts_step = match self.coin_state {
             CoinState::Decided(_) => return Ok(Step::default()), // Coin value is already decided.
             CoinState::InProgress(ref mut ts) => ts
@@ -245,7 +245,7 @@ impl<N: NodeIdT, S: SessionIdT> BinaryAgreement<N, S> {
     }
 
     /// Multicasts a `Conf(values)` message, and handles it.
-    fn send_conf(&mut self, values: BoolSet) -> Result<Step<N, S>> {
+    fn send_conf(&mut self, values: BoolSet) -> Result<Step<N>> {
         if self.conf_values.is_some() {
             // Only one `Conf` message is allowed in an epoch.
             return Ok(Step::default());
@@ -262,11 +262,11 @@ impl<N: NodeIdT, S: SessionIdT> BinaryAgreement<N, S> {
     }
 
     /// Multicasts and handles a message. Does nothing if we are only an observer.
-    fn send(&mut self, content: MessageContent) -> Result<Step<N, S>> {
+    fn send(&mut self, content: MessageContent) -> Result<Step<N>> {
         if !self.netinfo.is_validator() {
             return Ok(Step::default());
         }
-        let step: Step<N, S> = Target::All
+        let step: Step<N> = Target::All
             .message(content.clone().with_epoch(self.epoch))
             .into();
         let our_id = &self.our_id().clone();
@@ -274,7 +274,7 @@ impl<N: NodeIdT, S: SessionIdT> BinaryAgreement<N, S> {
     }
 
     /// Handles a step returned from the `ThresholdSign`.
-    fn on_coin_step(&mut self, ts_step: threshold_sign::Step<N>) -> Result<Step<N, S>> {
+    fn on_coin_step(&mut self, ts_step: threshold_sign::Step<N>) -> Result<Step<N>> {
         let mut step = Step::default();
         let epoch = self.epoch;
         let to_msg = |c_msg| MessageContent::Coin(Box::new(c_msg)).with_epoch(epoch);
@@ -293,7 +293,7 @@ impl<N: NodeIdT, S: SessionIdT> BinaryAgreement<N, S> {
     /// With two conf values, the next epoch's estimate is the coin value. If there is only one conf
     /// value and that disagrees with the coin, the conf value is the next epoch's estimate. If
     /// the unique conf value agrees with the coin, terminates and decides on that value.
-    fn try_update_epoch(&mut self) -> Result<Step<N, S>> {
+    fn try_update_epoch(&mut self) -> Result<Step<N>> {
         if self.decision.is_some() {
             // Avoid an infinite regression without making a Binary Agreement step.
             return Ok(Step::default());
@@ -330,7 +330,7 @@ impl<N: NodeIdT, S: SessionIdT> BinaryAgreement<N, S> {
     }
 
     /// Decides on a value and broadcasts a `Term` message with that value.
-    fn decide(&mut self, b: bool) -> Step<N, S> {
+    fn decide(&mut self, b: bool) -> Step<N> {
         if self.decision.is_some() {
             return Step::default();
         }
@@ -348,7 +348,7 @@ impl<N: NodeIdT, S: SessionIdT> BinaryAgreement<N, S> {
     }
 
     /// Checks whether the _N - f_ `Conf` messages have arrived, and if so, activates the coin.
-    fn try_finish_conf_round(&mut self) -> Result<Step<N, S>> {
+    fn try_finish_conf_round(&mut self) -> Result<Step<N>> {
         if self.conf_values.is_none() || self.count_conf() < self.netinfo.num_correct() {
             return Ok(Step::default());
         }
@@ -368,7 +368,7 @@ impl<N: NodeIdT, S: SessionIdT> BinaryAgreement<N, S> {
     }
 
     /// Increments the epoch, sets the new estimate and handles queued messages.
-    fn update_epoch(&mut self, b: bool) -> Result<Step<N, S>> {
+    fn update_epoch(&mut self, b: bool) -> Result<Step<N>> {
         self.sbv_broadcast.clear(&self.received_term);
         self.received_conf.clear();
         for (v, id) in &self.received_term {
@@ -384,7 +384,7 @@ impl<N: NodeIdT, S: SessionIdT> BinaryAgreement<N, S> {
         );
 
         self.estimated = Some(b);
-        let sbvb_step = self.sbv_broadcast.handle_input(b)?;
+        let sbvb_step = self.sbv_broadcast.send_bval(b)?;
         let mut step = self.handle_sbvb_step(sbvb_step)?;
         let queued_msgs = self
             .incoming_queue

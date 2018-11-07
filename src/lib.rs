@@ -153,4 +153,6 @@ pub use crypto::pairing;
 pub use fault_log::{Fault, FaultKind, FaultLog};
 pub use messaging::{SourcedMessage, Target, TargetedMessage};
 pub use network_info::NetworkInfo;
-pub use traits::{Contribution, DistAlgorithm, Epoched, Message, NodeIdT, SessionIdT, Step};
+pub use traits::{
+    Contribution, DaStep, DistAlgorithm, Epoched, Message, NodeIdT, SessionIdT, Step,
+};

@@ -57,22 +57,14 @@ impl<E> EpochT for E where E: Copy + Message + Default + Eq + Ord + Serialize + 
 /// catch it, instead of potentially stalling the algorithm.
 #[must_use = "The algorithm step result must be used."]
 #[derive(Debug)]
-pub struct Step<D>
-where
-    D: DistAlgorithm,
-    <D as DistAlgorithm>::NodeId: NodeIdT,
-{
-    pub output: Vec<D::Output>,
-    pub fault_log: FaultLog<D::NodeId>,
-    pub messages: Vec<TargetedMessage<D::Message, D::NodeId>>,
+pub struct Step<M, O, N> {
+    pub output: Vec<O>,
+    pub fault_log: FaultLog<N>,
+    pub messages: Vec<TargetedMessage<M, N>>,
 }
 
-impl<D> Default for Step<D>
-where
-    D: DistAlgorithm,
-    <D as DistAlgorithm>::NodeId: NodeIdT,
-{
-    fn default() -> Step<D> {
+impl<M, O, N> Default for Step<M, O, N> {
+    fn default() -> Self {
         Step {
             output: Vec::default(),
             fault_log: FaultLog::default(),
@@ -81,15 +73,12 @@ where
     }
 }
 
-impl<D: DistAlgorithm> Step<D>
-where
-    <D as DistAlgorithm>::NodeId: NodeIdT,
-{
+impl<M, O, N> Step<M, O, N> {
     /// Creates a new `Step` from the given collections.
     pub fn new(
-        output: Vec<D::Output>,
-        fault_log: FaultLog<D::NodeId>,
-        messages: Vec<TargetedMessage<D::Message, D::NodeId>>,
+        output: Vec<O>,
+        fault_log: FaultLog<N>,
+        messages: Vec<TargetedMessage<M, N>>,
     ) -> Self {
         Step {
             output,
@@ -99,18 +88,17 @@ where
     }
 
     /// Returns the same step, with the given additional output.
-    pub fn with_output<T: Into<Option<D::Output>>>(mut self, output: T) -> Self {
+    pub fn with_output<T: Into<Option<O>>>(mut self, output: T) -> Self {
         self.output.extend(output.into());
         self
     }
 
     /// Converts `self` into a step of another type, given conversion methods for output and
     /// messages.
-    pub fn map<D2, FO, FM>(self, f_out: FO, f_msg: FM) -> Step<D2>
+    pub fn map<M2, O2, FO, FM>(self, f_out: FO, f_msg: FM) -> Step<M2, O2, N>
     where
-        D2: DistAlgorithm<NodeId = D::NodeId>,
-        FO: Fn(D::Output) -> D2::Output,
-        FM: Fn(D::Message) -> D2::Message,
+        FO: Fn(O) -> O2,
+        FM: Fn(M) -> M2,
     {
         Step {
             output: self.output.into_iter().map(f_out).collect(),
@@ -120,10 +108,9 @@ where
     }
 
     /// Extends `self` with `other`s messages and fault logs, and returns `other.output`.
-    pub fn extend_with<D2, FM>(&mut self, other: Step<D2>, f_msg: FM) -> Vec<D2::Output>
+    pub fn extend_with<M2, O2, FM>(&mut self, other: Step<M2, O2, N>, f_msg: FM) -> Vec<O2>
     where
-        D2: DistAlgorithm<NodeId = D::NodeId>,
-        FM: Fn(D2::Message) -> D::Message,
+        FM: Fn(M2) -> M,
     {
         self.fault_log.extend(other.fault_log);
         let msgs = other.messages.into_iter().map(|tm| tm.map(&f_msg));
@@ -144,27 +131,14 @@ where
         self
     }
 
-    /// Converts this step into an equivalent step for a different `DistAlgorithm`.
-    // This cannot be a `From` impl, because it would conflict with `impl From<T> for T`.
-    pub fn convert<D2>(self) -> Step<D2>
-    where
-        D2: DistAlgorithm<NodeId = D::NodeId, Output = D::Output, Message = D::Message>,
-    {
-        Step {
-            output: self.output,
-            fault_log: self.fault_log,
-            messages: self.messages,
-        }
-    }
-
     /// Returns `true` if there are no messages, faults or outputs.
     pub fn is_empty(&self) -> bool {
         self.output.is_empty() && self.fault_log.is_empty() && self.messages.is_empty()
     }
 }
 
-impl<D: DistAlgorithm> From<FaultLog<D::NodeId>> for Step<D> {
-    fn from(fault_log: FaultLog<D::NodeId>) -> Self {
+impl<M, O, N> From<FaultLog<N>> for Step<M, O, N> {
+    fn from(fault_log: FaultLog<N>) -> Self {
         Step {
             fault_log,
             ..Step::default()
@@ -172,8 +146,8 @@ impl<D: DistAlgorithm> From<FaultLog<D::NodeId>> for Step<D> {
     }
 }
 
-impl<D: DistAlgorithm> From<Fault<D::NodeId>> for Step<D> {
-    fn from(fault: Fault<D::NodeId>) -> Self {
+impl<M, O, N> From<Fault<N>> for Step<M, O, N> {
+    fn from(fault: Fault<N>) -> Self {
         Step {
             fault_log: fault.into(),
             ..Step::default()
@@ -181,8 +155,8 @@ impl<D: DistAlgorithm> From<Fault<D::NodeId>> for Step<D> {
     }
 }
 
-impl<D: DistAlgorithm> From<TargetedMessage<D::Message, D::NodeId>> for Step<D> {
-    fn from(msg: TargetedMessage<D::Message, D::NodeId>) -> Self {
+impl<M, O, N> From<TargetedMessage<M, N>> for Step<M, O, N> {
+    fn from(msg: TargetedMessage<M, N>) -> Self {
         Step {
             messages: once(msg).collect(),
             ..Step::default()
@@ -190,10 +164,9 @@ impl<D: DistAlgorithm> From<TargetedMessage<D::Message, D::NodeId>> for Step<D> 
     }
 }
 
-impl<D, I> From<I> for Step<D>
+impl<I, M, O, N> From<I> for Step<M, O, N>
 where
-    D: DistAlgorithm,
-    I: IntoIterator<Item = TargetedMessage<D::Message, D::NodeId>>,
+    I: IntoIterator<Item = TargetedMessage<M, N>>,
 {
     fn from(msgs: I) -> Self {
         Step {
@@ -233,26 +206,28 @@ impl<M: Epoched, N> Epoched for TargetedMessage<M, N> {
     }
 }
 
-impl<'i, D> Step<D>
+/// An alias for the type of `Step` returned by `D`'s methods.
+pub type DaStep<D> =
+    Step<<D as DistAlgorithm>::Message, <D as DistAlgorithm>::Output, <D as DistAlgorithm>::NodeId>;
+
+impl<'i, M, O, N> Step<M, O, N>
 where
-    D: DistAlgorithm,
-    <D as DistAlgorithm>::NodeId: NodeIdT + Rand,
-    <D as DistAlgorithm>::Message:
-        'i + Clone + SenderQueueableMessage + Serialize + DeserializeOwned,
+    N: NodeIdT + Rand,
+    M: 'i + Clone + SenderQueueableMessage + Serialize + DeserializeOwned,
 {
     /// Removes and returns any messages that are not yet accepted by remote nodes according to the
     /// mapping `remote_epochs`. This way the returned messages are postponed until later, and the
     /// remaining messages can be sent to remote nodes without delay.
     pub fn defer_messages(
         &mut self,
-        peer_epochs: &'i BTreeMap<D::NodeId, <D::Message as Epoched>::LinEpoch>,
+        peer_epochs: &'i BTreeMap<N, <M as Epoched>::LinEpoch>,
         max_future_epochs: u64,
-    ) -> Vec<(D::NodeId, D::Message)>
+    ) -> Vec<(N, M)>
     where
-        <D as DistAlgorithm>::NodeId: 'i,
+        N: 'i,
     {
         let messages = &mut self.messages;
-        let mut deferred_msgs: Vec<(D::NodeId, D::Message)> = Vec::new();
+        let mut deferred_msgs: Vec<(N, M)> = Vec::new();
         let mut passed_msgs: Vec<_> = Vec::new();
         for msg in messages.drain(..) {
             match msg.target.clone() {
@@ -306,7 +281,7 @@ pub trait DistAlgorithm: Send + Sync {
     type Error: Fail;
 
     /// Handles an input provided by the user, and returns
-    fn handle_input(&mut self, input: Self::Input) -> Result<Step<Self>, Self::Error>
+    fn handle_input(&mut self, input: Self::Input) -> Result<DaStep<Self>, Self::Error>
     where
         Self: Sized;
 
@@ -315,7 +290,7 @@ pub trait DistAlgorithm: Send + Sync {
         &mut self,
         sender_id: &Self::NodeId,
         message: Self::Message,
-    ) -> Result<Step<Self>, Self::Error>
+    ) -> Result<DaStep<Self>, Self::Error>
     where
         Self: Sized;
 

@@ -6,13 +6,13 @@ use super::{Error, MessageContent, Result};
 use binary_agreement;
 use broadcast::{self, Broadcast};
 use rand::Rand;
-use {DistAlgorithm, NetworkInfo, NodeIdT, SessionIdT};
+use {NetworkInfo, NodeIdT, SessionIdT};
 
 type BaInstance<N, S> = binary_agreement::BinaryAgreement<N, BaSessionId<S>>;
-type ValueAndStep<N, S> = (Option<Vec<u8>>, Step<N, S>);
-type BaResult<N, S> = binary_agreement::Result<binary_agreement::Step<N, BaSessionId<S>>>;
+type ValueAndStep<N> = (Option<Vec<u8>>, Step<N>);
+type BaResult<N> = binary_agreement::Result<binary_agreement::Step<N>>;
 
-pub type Step<N, S> = ::Step<ProposalState<N, S>>;
+pub type Step<N> = ::Step<MessageContent, Vec<u8>, N>;
 
 /// The state of a proposal's broadcast and agreement process.
 #[derive(Debug)]
@@ -26,30 +26,6 @@ pub enum ProposalState<N: Rand, S> {
     Accepted(Broadcast<N>),
     /// We are done: either we output (`true`) or we dropped the value (`false`).
     Complete(bool),
-}
-
-impl<N: NodeIdT + Rand, S: SessionIdT> DistAlgorithm for ProposalState<N, S> {
-    type NodeId = N;
-    type Input = Vec<u8>;
-    type Output = Vec<u8>;
-    type Message = MessageContent;
-    type Error = Error;
-
-    fn handle_input(&mut self, input: Self::Input) -> Result<Step<N, S>> {
-        self.propose(input)
-    }
-
-    fn handle_message(&mut self, sender_id: &N, message: MessageContent) -> Result<Step<N, S>> {
-        self.handle_message(sender_id, message)
-    }
-
-    fn terminated(&self) -> bool {
-        self.complete()
-    }
-
-    fn our_id(&self) -> &Self::NodeId {
-        unreachable!() // We don't actually need `DistAlgorithm`, just `Step`.
-    }
 }
 
 impl<N: NodeIdT + Rand, S: SessionIdT> ProposalState<N, S> {
@@ -89,12 +65,12 @@ impl<N: NodeIdT + Rand, S: SessionIdT> ProposalState<N, S> {
     }
 
     /// Makes a proposal by broadcasting a value.
-    pub fn propose(&mut self, value: Vec<u8>) -> Result<Step<N, S>> {
+    pub fn propose(&mut self, value: Vec<u8>) -> Result<Step<N>> {
         self.transition(|state| state.handle_broadcast(|bc| bc.broadcast(value)))
     }
 
     /// Handles a message received from `sender_id`.
-    pub fn handle_message(&mut self, sender_id: &N, msg: MessageContent) -> Result<Step<N, S>> {
+    pub fn handle_message(&mut self, sender_id: &N, msg: MessageContent) -> Result<Step<N>> {
         self.transition(|state| match msg {
             MessageContent::Agreement(ba_msg) => {
                 state.handle_agreement(|ba| ba.handle_message(sender_id, ba_msg))
@@ -106,12 +82,12 @@ impl<N: NodeIdT + Rand, S: SessionIdT> ProposalState<N, S> {
     }
 
     /// Votes for rejecting the proposal, if still possible.
-    pub fn vote_false(&mut self) -> Result<Step<N, S>> {
+    pub fn vote_false(&mut self) -> Result<Step<N>> {
         self.transition(|state| state.handle_agreement(|ba| ba.propose(false)))
     }
 
     /// Applies `f` to the `Broadcast` instance, and updates the state according to the outcome.
-    fn handle_broadcast<F>(self, f: F) -> (Self, Result<Step<N, S>>)
+    fn handle_broadcast<F>(self, f: F) -> (Self, Result<Step<N>>)
     where
         F: FnOnce(&mut Broadcast<N>) -> broadcast::Result<broadcast::Step<N>>,
     {
@@ -137,9 +113,9 @@ impl<N: NodeIdT + Rand, S: SessionIdT> ProposalState<N, S> {
 
     /// Applies `f` to the `BinaryAgreement` instance, and updates the state according to the
     /// outcome.
-    fn handle_agreement<F>(self, f: F) -> (Self, Result<Step<N, S>>)
+    fn handle_agreement<F>(self, f: F) -> (Self, Result<Step<N>>)
     where
-        F: FnOnce(&mut BaInstance<N, S>) -> BaResult<N, S>,
+        F: FnOnce(&mut BaInstance<N, S>) -> BaResult<N>,
     {
         use self::ProposalState::*;
         match self {
@@ -160,7 +136,7 @@ impl<N: NodeIdT + Rand, S: SessionIdT> ProposalState<N, S> {
     }
 
     /// Converts a `Broadcast` result and returns the output, if there was one.
-    fn convert_bc(result: broadcast::Result<broadcast::Step<N>>) -> Result<ValueAndStep<N, S>> {
+    fn convert_bc(result: broadcast::Result<broadcast::Step<N>>) -> Result<ValueAndStep<N>> {
         let bc_step = result.map_err(Error::HandleBroadcast)?;
         let mut step = Step::default();
         let opt_value = step.extend_with(bc_step, MessageContent::Broadcast).pop();
@@ -168,7 +144,7 @@ impl<N: NodeIdT + Rand, S: SessionIdT> ProposalState<N, S> {
     }
 
     /// Converts a `BinaryAgreement` step and returns the output, if there was one.
-    fn convert_ba(result: BaResult<N, S>) -> Result<(Option<bool>, Step<N, S>)> {
+    fn convert_ba(result: BaResult<N>) -> Result<(Option<bool>, Step<N>)> {
         let ba_step = result.map_err(Error::HandleAgreement)?;
         let mut step = Step::default();
         let opt_decision = step.extend_with(ba_step, MessageContent::Agreement).pop();
@@ -176,9 +152,9 @@ impl<N: NodeIdT + Rand, S: SessionIdT> ProposalState<N, S> {
     }
 
     /// Applies the given transition to `self`.
-    fn transition<F>(&mut self, f: F) -> Result<Step<N, S>>
+    fn transition<F>(&mut self, f: F) -> Result<Step<N>>
     where
-        F: FnOnce(Self) -> (Self, Result<Step<N, S>>),
+        F: FnOnce(Self) -> (Self, Result<Step<N>>),
     {
         // Temporary value: We need to take ownership of the state to make it transition.
         let (new_state, result) = f(mem::replace(self, ProposalState::Complete(false)));

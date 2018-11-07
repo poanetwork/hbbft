@@ -19,7 +19,7 @@ use subset::{self as cs, Subset, SubsetOutput};
 use threshold_decrypt::{self as td, ThresholdDecrypt};
 use {Contribution, DistAlgorithm, NetworkInfo, NodeIdT};
 
-type CsStep<N> = cs::Step<N, EpochId>;
+type CsStep<N> = cs::Step<N>;
 
 /// The status of an encrypted contribution.
 #[derive(Debug)]

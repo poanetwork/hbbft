@@ -26,7 +26,7 @@ use threshold_crypto as crypto;
 
 use hbbft::dynamic_honey_badger::Batch;
 use hbbft::util::SubRng;
-use hbbft::{self, Contribution, DistAlgorithm, NetworkInfo, NodeIdT, Step};
+use hbbft::{self, Contribution, DaStep, DistAlgorithm, NetworkInfo, NodeIdT, Step};
 
 use try_some;
 
@@ -197,7 +197,7 @@ pub type NetMessage<D> =
 fn process_step<'a, D>(
     nodes: &'a mut collections::BTreeMap<D::NodeId, Node<D>>,
     sender: D::NodeId,
-    step: &Step<D>,
+    step: &DaStep<D>,
     dest: &mut collections::VecDeque<NetMessage<D>>,
 ) -> usize
 where
@@ -307,7 +307,7 @@ where
     /// Number of faulty nodes in the network.
     num_faulty: usize,
     /// Dist-algorithm constructor function.
-    cons: Option<Box<Fn(NewNodeInfo<D>) -> (D, Step<D>)>>,
+    cons: Option<Box<Fn(NewNodeInfo<D>) -> (D, DaStep<D>)>>,
     /// Network adversary.
     adversary: Option<Box<dyn Adversary<D>>>,
     /// Trace-enabling flag. `None` means use environment.
@@ -463,7 +463,7 @@ where
     #[inline]
     pub fn using_step<F>(mut self, cons: F) -> Self
     where
-        F: Fn(NewNodeInfo<D>) -> (D, Step<D>) + 'static,
+        F: Fn(NewNodeInfo<D>) -> (D, DaStep<D>) + 'static,
     {
         self.cons = Some(Box::new(cons));
         self
@@ -729,7 +729,7 @@ where
         cons: F,
     ) -> Result<Self, crypto::error::Error>
     where
-        F: Fn(NewNodeInfo<D>) -> (D, Step<D>),
+        F: Fn(NewNodeInfo<D>) -> (D, DaStep<D>),
         I: IntoIterator<Item = D::NodeId>,
         R: rand::Rng,
     {
@@ -789,7 +789,7 @@ where
     ///
     /// Retrieves the receiving node for a `msg` and hands over the payload.
     #[inline]
-    pub fn dispatch_message(&mut self, msg: NetMessage<D>) -> Result<Step<D>, CrankError<D>> {
+    pub fn dispatch_message(&mut self, msg: NetMessage<D>) -> Result<DaStep<D>, CrankError<D>> {
         let node = self
             .nodes
             .get_mut(&msg.to)
@@ -816,7 +816,7 @@ where
     ///
     /// Panics if `id` does not name a valid node.
     #[inline]
-    pub fn send_input(&mut self, id: D::NodeId, input: D::Input) -> Result<Step<D>, D::Error> {
+    pub fn send_input(&mut self, id: D::NodeId, input: D::Input) -> Result<DaStep<D>, D::Error> {
         let step = self
             .nodes
             .get_mut(&id)
@@ -842,7 +842,7 @@ where
     /// If a successful `Step` was generated, all of its messages are queued on the network and the
     /// `Step` is returned.
     #[inline]
-    pub fn crank(&mut self) -> Option<Result<(D::NodeId, Step<D>), CrankError<D>>> {
+    pub fn crank(&mut self) -> Option<Result<(D::NodeId, DaStep<D>), CrankError<D>>> {
         // Check limits.
         if let Some(limit) = self.crank_limit {
             if self.crank_count >= limit {
@@ -893,7 +893,7 @@ where
                 .ok_or_else(|| CrankError::NodeDisappeared(msg.to.clone()))
         ).is_faulty();
 
-        let step: Step<_> = if is_faulty {
+        let step: Step<_, _, _> = if is_faulty {
             // The swap-dance is painful here, as we are creating an `opt_step` just to avoid
             // borrow issues.
             let mut adv = self.adversary.take();
@@ -932,7 +932,7 @@ where
     ///
     /// Shortcut for cranking the network, expecting both progress to be made as well as processing
     /// to proceed.
-    pub fn crank_expect(&mut self) -> (D::NodeId, Step<D>) {
+    pub fn crank_expect(&mut self) -> (D::NodeId, DaStep<D>) {
         self.crank()
             .expect("crank: network queue empty")
             .expect("crank: node failed to process step")
@@ -956,7 +956,7 @@ where
     pub fn broadcast_input<'a>(
         &'a mut self,
         input: &'a D::Input,
-    ) -> Result<Vec<(D::NodeId, Step<D>)>, D::Error> {
+    ) -> Result<Vec<(D::NodeId, DaStep<D>)>, D::Error> {
         // Note: The tricky lifetime annotation basically says that the input value given must
         //       live as long as the iterator returned lives (because it is cloned on every step,
         //       with steps only evaluated each time `next()` is called. For the same reason the
@@ -1050,7 +1050,7 @@ where
     D::Message: Clone,
     D::Output: Clone,
 {
-    type Item = Result<(D::NodeId, Step<D>), CrankError<D>>;
+    type Item = Result<(D::NodeId, DaStep<D>), CrankError<D>>;
 
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
