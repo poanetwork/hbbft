@@ -65,10 +65,10 @@ pub type Result<T> = ::std::result::Result<T, Error>;
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Rand)]
 pub struct Message(pub DecryptionShare);
 
-/// A Threshold Decryption algorithm instance. If every node inputs the same data, encrypted to the
+/// A Threshold Decrypt algorithm instance. If every node inputs the same data, encrypted to the
 /// network's public key, every node will output the decrypted data.
 #[derive(Debug)]
-pub struct ThresholdDecryption<N> {
+pub struct ThresholdDecrypt<N> {
     netinfo: Arc<NetworkInfo<N>>,
     /// The encrypted data.
     ciphertext: Option<Ciphertext>,
@@ -80,9 +80,9 @@ pub struct ThresholdDecryption<N> {
     terminated: bool,
 }
 
-pub type Step<N> = ::Step<ThresholdDecryption<N>>;
+pub type Step<N> = ::Step<ThresholdDecrypt<N>>;
 
-impl<N: NodeIdT> DistAlgorithm for ThresholdDecryption<N> {
+impl<N: NodeIdT> DistAlgorithm for ThresholdDecrypt<N> {
     type NodeId = N;
     type Input = ();
     type Output = Vec<u8>;
@@ -106,10 +106,10 @@ impl<N: NodeIdT> DistAlgorithm for ThresholdDecryption<N> {
     }
 }
 
-impl<N: NodeIdT> ThresholdDecryption<N> {
-    /// Creates a new Threshold Decryption instance.
+impl<N: NodeIdT> ThresholdDecrypt<N> {
+    /// Creates a new Threshold Decrypt instance.
     pub fn new(netinfo: Arc<NetworkInfo<N>>) -> Self {
-        ThresholdDecryption {
+        ThresholdDecrypt {
             netinfo,
             ciphertext: None,
             shares: BTreeMap::new(),
@@ -118,10 +118,10 @@ impl<N: NodeIdT> ThresholdDecryption<N> {
         }
     }
 
-    /// Creates a new instance of `ThresholdDecryption`, including setting the ciphertext to
+    /// Creates a new instance of `ThresholdDecrypt`, including setting the ciphertext to
     /// decrypt.
     pub fn new_with_ciphertext(netinfo: Arc<NetworkInfo<N>>, ct: Ciphertext) -> Result<Self> {
-        let mut td = ThresholdDecryption::new(netinfo);
+        let mut td = ThresholdDecrypt::new(netinfo);
         td.set_ciphertext(ct)?;
         Ok(td)
     }

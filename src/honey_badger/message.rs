@@ -3,7 +3,7 @@ use rand_derive::Rand;
 use serde_derive::{Deserialize, Serialize};
 
 use subset;
-use threshold_decryption;
+use threshold_decrypt;
 
 use Epoched;
 
@@ -15,7 +15,7 @@ pub enum MessageContent<N: Rand> {
     /// A decrypted share of the output of `proposer_id`.
     DecryptionShare {
         proposer_id: N,
-        share: threshold_decryption::Message,
+        share: threshold_decrypt::Message,
     },
 }
 

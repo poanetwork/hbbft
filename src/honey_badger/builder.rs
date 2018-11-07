@@ -7,7 +7,7 @@ use serde::{de::DeserializeOwned, Serialize};
 
 use super::HoneyBadger;
 use honey_badger::SubsetHandlingStrategy;
-use threshold_decryption::EncryptionSchedule;
+use threshold_decrypt::EncryptionSchedule;
 use util::SubRng;
 use {Contribution, NetworkInfo, NodeIdT};
 

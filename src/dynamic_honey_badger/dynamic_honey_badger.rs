@@ -19,7 +19,7 @@ use fault_log::{Fault, FaultKind, FaultLog};
 use honey_badger::{self, HoneyBadger, Message as HbMessage};
 
 use sync_key_gen::{Ack, AckOutcome, Part, PartOutcome, SyncKeyGen};
-use threshold_decryption::EncryptionSchedule;
+use threshold_decrypt::EncryptionSchedule;
 use util::{self, SubRng};
 use {Contribution, DistAlgorithm, NetworkInfo, NodeIdT, Target};
 

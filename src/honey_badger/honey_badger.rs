@@ -11,7 +11,7 @@ use super::{Batch, Error, ErrorKind, HoneyBadgerBuilder, Message, Result};
 use {util, Contribution, DistAlgorithm, Epoched, Fault, FaultKind, NetworkInfo, NodeIdT};
 
 pub use super::epoch_state::SubsetHandlingStrategy;
-use threshold_decryption::EncryptionSchedule;
+use threshold_decrypt::EncryptionSchedule;
 
 /// An instance of the Honey Badger Byzantine fault tolerant consensus algorithm.
 #[derive(Derivative)]

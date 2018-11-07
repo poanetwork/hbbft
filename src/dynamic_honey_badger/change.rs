@@ -1,6 +1,6 @@
 use crypto::PublicKey;
 use serde_derive::{Deserialize, Serialize};
-use threshold_decryption::EncryptionSchedule;
+use threshold_decrypt::EncryptionSchedule;
 
 #[derive(Clone, Copy, Eq, PartialEq, Serialize, Deserialize, Hash, Debug)]
 pub enum NodeChange<N> {

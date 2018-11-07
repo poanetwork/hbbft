@@ -80,7 +80,7 @@ use rand::Rand;
 use serde_derive::{Deserialize, Serialize};
 
 use self::votes::{SignedVote, VoteCounter};
-use super::threshold_decryption::EncryptionSchedule;
+use super::threshold_decrypt::EncryptionSchedule;
 use honey_badger::Message as HbMessage;
 use sync_key_gen::{Ack, Part, SyncKeyGen};
 use {Epoched, NodeIdT};
