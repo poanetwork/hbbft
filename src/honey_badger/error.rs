@@ -4,7 +4,7 @@ use bincode;
 use failure::{Backtrace, Context, Fail};
 
 use subset;
-use threshold_decryption;
+use threshold_decrypt;
 
 /// Honey badger error variants.
 #[derive(Debug, Fail)]
@@ -18,7 +18,7 @@ pub enum ErrorKind {
     #[fail(display = "Failed to handle Subset message: {}", _0)]
     HandleSubsetMessage(subset::Error),
     #[fail(display = "Threshold decryption error: {}", _0)]
-    ThresholdDecryption(threshold_decryption::Error),
+    ThresholdDecrypt(threshold_decrypt::Error),
     #[fail(display = "Unknown sender")]
     UnknownSender,
 }

@@ -16,7 +16,7 @@ use serde_derive::Serialize;
 use super::{Batch, ErrorKind, MessageContent, Result, Step};
 use fault_log::{Fault, FaultKind, FaultLog};
 use subset::{self as cs, Subset, SubsetOutput};
-use threshold_decryption::{self as td, ThresholdDecryption};
+use threshold_decrypt::{self as td, ThresholdDecrypt};
 use {Contribution, DistAlgorithm, NetworkInfo, NodeIdT};
 
 type CsStep<N> = cs::Step<N, EpochId>;
@@ -25,7 +25,7 @@ type CsStep<N> = cs::Step<N, EpochId>;
 #[derive(Debug)]
 enum DecryptionState<N> {
     /// Decryption is still ongoing; we are waiting for decryption shares and/or ciphertext.
-    Ongoing(Box<ThresholdDecryption<N>>),
+    Ongoing(Box<ThresholdDecrypt<N>>),
     /// Decryption is complete. This contains the plaintext.
     Complete(Vec<u8>),
 }
@@ -34,9 +34,9 @@ impl<N> DecryptionState<N>
 where
     N: NodeIdT + Rand,
 {
-    /// Creates a new `ThresholdDecryption` instance, waiting for shares and a ciphertext.
+    /// Creates a new `ThresholdDecrypt` instance, waiting for shares and a ciphertext.
     fn new(netinfo: Arc<NetworkInfo<N>>) -> Self {
-        DecryptionState::Ongoing(Box::new(ThresholdDecryption::new(netinfo)))
+        DecryptionState::Ongoing(Box::new(ThresholdDecrypt::new(netinfo)))
     }
 
     /// Handles a message containing a decryption share.
@@ -246,7 +246,7 @@ where
         self.subset.received_proposals()
     }
 
-    /// Handles a message for the Subset or a Threshold Decryption instance.
+    /// Handles a message for the Subset or a Threshold Decrypt instance.
     pub fn handle_message_content(
         &mut self,
         sender_id: &N,
@@ -270,7 +270,7 @@ where
                         entry.insert(DecryptionState::new(self.netinfo.clone()))
                     }
                 }.handle_message(sender_id, share)
-                .map_err(ErrorKind::ThresholdDecryption)?;
+                .map_err(ErrorKind::ThresholdDecrypt)?;
                 self.process_decryption(proposer_id, td_step)
             }
         }
@@ -357,7 +357,7 @@ where
         Ok(step)
     }
 
-    /// Processes a Threshold Decryption step.
+    /// Processes a Threshold Decrypt step.
     fn process_decryption(&mut self, proposer_id: N, td_step: td::Step<N>) -> Result<Step<C, N>> {
         let mut step = Step::default();
         let opt_output = step.extend_with(td_step, |share| {
@@ -374,7 +374,7 @@ where
     }
 
     /// Given the output of the Subset algorithm, inputs the ciphertexts into the Threshold
-    /// Decryption instances and sends our own decryption shares.
+    /// Decrypt instances and sends our own decryption shares.
     fn send_decryption_share(&mut self, proposer_id: N, v: &[u8]) -> Result<Step<C, N>> {
         let ciphertext: Ciphertext = match bincode::deserialize(v) {
             Ok(ciphertext) => ciphertext,
@@ -391,7 +391,7 @@ where
             Err(td::Error::InvalidCiphertext(_)) => {
                 Ok(Fault::new(proposer_id, FaultKind::InvalidCiphertext).into())
             }
-            Err(err) => Err(ErrorKind::ThresholdDecryption(err).into()),
+            Err(err) => Err(ErrorKind::ThresholdDecrypt(err).into()),
         }
     }
 }

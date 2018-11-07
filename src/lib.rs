@@ -91,7 +91,7 @@
 //! receive a valid signature. The outcome cannot be known by the adversary before at least one
 //! correct node has provided input, and can be used as a source of pseudorandomness.
 //!
-//! [**Threshold Decryption**](threshold_decryption/index.html)
+//! [**Threshold Decrypt**](threshold_decrypt/index.html)
 //!
 //! Each node inputs the same ciphertext, encrypted to the public master key. Once _f + 1_
 //! validators have received input, all nodes output the decrypted data.
@@ -144,7 +144,7 @@ pub mod queueing_honey_badger;
 pub mod sender_queue;
 pub mod subset;
 pub mod sync_key_gen;
-pub mod threshold_decryption;
+pub mod threshold_decrypt;
 pub mod threshold_sign;
 pub mod transaction_queue;
 pub mod util;

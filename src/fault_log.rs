@@ -22,7 +22,7 @@ pub enum FaultKind {
     InvalidCiphertext,
     /// `HoneyBadger` received a message with an invalid epoch.
     UnexpectedHbMessageEpoch,
-    /// `ThresholdDecryption` received multiple shares from the same sender.
+    /// `ThresholdDecrypt` received multiple shares from the same sender.
     MultipleDecryptionShares,
     /// `Broadcast` received a `Value` from a node other than the proposer.
     ReceivedValueFromNonProposer,
