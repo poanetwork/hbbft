@@ -12,7 +12,7 @@ use super::{Error, Message, MessageContent, Result};
 use rand::Rand;
 use {util, DistAlgorithm, NetworkInfo, NodeIdT, SessionIdT};
 
-pub type Step<N, S> = ::Step<Subset<N, S>>;
+pub type Step<N> = ::Step<Message<N>, SubsetOutput<N>, N>;
 
 #[derive(Derivative, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[derivative(Debug)]
@@ -44,11 +44,11 @@ impl<N: NodeIdT + Rand, S: SessionIdT> DistAlgorithm for Subset<N, S> {
     type Message = Message<N>;
     type Error = Error;
 
-    fn handle_input(&mut self, input: Self::Input) -> Result<Step<N, S>> {
+    fn handle_input(&mut self, input: Self::Input) -> Result<Step<N>> {
         self.propose(input)
     }
 
-    fn handle_message(&mut self, sender_id: &N, message: Message<N>) -> Result<Step<N, S>> {
+    fn handle_message(&mut self, sender_id: &N, message: Message<N>) -> Result<Step<N>> {
         self.handle_message(sender_id, message)
     }
 
@@ -90,7 +90,7 @@ impl<N: NodeIdT + Rand, S: SessionIdT> Subset<N, S> {
     /// Proposes a value for the subset.
     ///
     /// Returns an error if we already made a proposal.
-    pub fn propose(&mut self, value: Vec<u8>) -> Result<Step<N, S>> {
+    pub fn propose(&mut self, value: Vec<u8>) -> Result<Step<N>> {
         if !self.netinfo.is_validator() {
             return Ok(Step::default());
         }
@@ -107,7 +107,7 @@ impl<N: NodeIdT + Rand, S: SessionIdT> Subset<N, S> {
     /// Handles a message received from `sender_id`.
     ///
     /// This must be called with every message we receive from another node.
-    pub fn handle_message(&mut self, sender_id: &N, msg: Message<N>) -> Result<Step<N, S>> {
+    pub fn handle_message(&mut self, sender_id: &N, msg: Message<N>) -> Result<Step<N>> {
         let prop_step = self
             .proposal_states
             .get_mut(&msg.proposer_id)
@@ -123,7 +123,7 @@ impl<N: NodeIdT + Rand, S: SessionIdT> Subset<N, S> {
         self.proposal_states.values().filter(received).count()
     }
 
-    fn convert_step(proposer_id: &N, prop_step: ProposalStep<N, S>) -> Step<N, S> {
+    fn convert_step(proposer_id: &N, prop_step: ProposalStep<N>) -> Step<N> {
         let from_p_msg = |p_msg: MessageContent| p_msg.with(proposer_id.clone());
         let mut step = Step::default();
         if let Some(value) = step.extend_with(prop_step, from_p_msg).pop() {
@@ -141,7 +141,7 @@ impl<N: NodeIdT + Rand, S: SessionIdT> Subset<N, S> {
 
     /// Checks the voting and termination conditions: If enough proposals have been accepted, votes
     /// "no" for the remaining ones. If all proposals have been decided, outputs `Done`.
-    fn try_output(&mut self) -> Result<Step<N, S>> {
+    fn try_output(&mut self) -> Result<Step<N>> {
         if self.decided || self.count_accepted() < self.netinfo.num_correct() {
             return Ok(Step::default());
         }

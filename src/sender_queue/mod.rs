@@ -17,7 +17,7 @@ use std::fmt::Debug;
 use rand::Rand;
 use serde::{de::DeserializeOwned, Serialize};
 
-use {DistAlgorithm, Epoched, NodeIdT, Target};
+use {DaStep, DistAlgorithm, Epoched, NodeIdT, Target};
 
 pub use self::message::Message;
 
@@ -103,9 +103,7 @@ where
     peer_epochs: BTreeMap<D::NodeId, <D::Message as Epoched>::LinEpoch>,
 }
 
-pub type Step<D> = ::Step<SenderQueue<D>>;
-
-pub type Result<T, D> = ::std::result::Result<T, <D as DistAlgorithm>::Error>;
+pub type Step<D> = ::DaStep<SenderQueue<D>>;
 
 impl<D> DistAlgorithm for SenderQueue<D>
 where
@@ -121,7 +119,7 @@ where
     type Message = Message<D::Message>;
     type Error = D::Error;
 
-    fn handle_input(&mut self, input: Self::Input) -> Result<Step<D>, D> {
+    fn handle_input(&mut self, input: Self::Input) -> Result<DaStep<Self>, D::Error> {
         self.handle_input(input)
     }
 
@@ -129,7 +127,7 @@ where
         &mut self,
         sender_id: &D::NodeId,
         message: Self::Message,
-    ) -> Result<Step<D>, D> {
+    ) -> Result<DaStep<Self>, D::Error> {
         self.handle_message(sender_id, message)
     }
 
@@ -158,7 +156,7 @@ where
         SenderQueueBuilder::new(algo, peer_ids)
     }
 
-    pub fn handle_input(&mut self, input: D::Input) -> Result<Step<D>, D> {
+    pub fn handle_input(&mut self, input: D::Input) -> Result<DaStep<Self>, D::Error> {
         self.apply(|algo| algo.handle_input(input))
     }
 
@@ -166,7 +164,7 @@ where
         &mut self,
         sender_id: &D::NodeId,
         message: Message<D::Message>,
-    ) -> Result<Step<D>, D> {
+    ) -> Result<DaStep<Self>, D::Error> {
         match message {
             Message::EpochStarted(lin_epoch) => Ok(self.handle_epoch_started(sender_id, lin_epoch)),
             Message::Algo(msg) => self.handle_message_content(sender_id, msg),
@@ -175,9 +173,9 @@ where
 
     /// Applies `f` to the wrapped algorithm and converts the step in the result to a sender queue
     /// step, deferring or dropping messages, where necessary.
-    pub fn apply<F>(&mut self, f: F) -> Result<Step<D>, D>
+    pub fn apply<F>(&mut self, f: F) -> Result<DaStep<Self>, D::Error>
     where
-        F: FnOnce(&mut D) -> Result<::Step<D>, D>,
+        F: FnOnce(&mut D) -> Result<DaStep<D>, D::Error>,
     {
         let mut step = f(&mut self.algo)?;
         let mut sender_queue_step = self.update_lin_epoch(&step);
@@ -191,7 +189,7 @@ where
         &mut self,
         sender_id: &D::NodeId,
         lin_epoch: <D::Message as Epoched>::LinEpoch,
-    ) -> Step<D> {
+    ) -> DaStep<Self> {
         self.peer_epochs
             .entry(sender_id.clone())
             .and_modify(|e| {
@@ -225,7 +223,7 @@ where
         &mut self,
         sender_id: &D::NodeId,
         epoch: <D::Message as Epoched>::Epoch,
-    ) -> Step<D> {
+    ) -> DaStep<Self> {
         // Send any HB messages for the HB epoch.
         let mut ready_messages = self
             .outgoing_queue
@@ -239,7 +237,7 @@ where
                     .unwrap_or_default(),
             );
         }
-        Step::from(
+        Step::<D>::from(
             ready_messages
                 .into_iter()
                 .map(|msg| Target::Node(sender_id.clone()).message(Message::Algo(msg))),
@@ -251,12 +249,12 @@ where
         &mut self,
         sender_id: &D::NodeId,
         content: D::Message,
-    ) -> Result<Step<D>, D> {
+    ) -> Result<DaStep<Self>, D::Error> {
         self.apply(|algo| algo.handle_message(sender_id, content))
     }
 
     /// Updates the current Honey Badger epoch.
-    fn update_lin_epoch(&mut self, step: &::Step<D>) -> Step<D> {
+    fn update_lin_epoch(&mut self, step: &DaStep<D>) -> DaStep<Self> {
         // Look up `DynamicHoneyBadger` epoch updates and collect any added peers.
         let new_epoch = step.output.iter().fold(self.lin_epoch, |lin_epoch, batch| {
             let max_epoch = lin_epoch.max(batch.next_epoch());
@@ -276,7 +274,7 @@ where
                 .message(Message::EpochStarted(self.lin_epoch))
                 .into()
         } else {
-            Step::default()
+            Step::<D>::default()
         }
     }
 
@@ -284,7 +282,7 @@ where
     /// decomposing a `Target::All` message into `Target::Node` messages and sending some of the
     /// resulting messages while placing onto the queue those remaining messages whose recipient is
     /// currently at an earlier epoch.
-    fn defer_messages(&mut self, step: &mut ::Step<D>) {
+    fn defer_messages(&mut self, step: &mut DaStep<D>) {
         let max_future_epochs = self.algo.max_future_epochs();
         // Append the deferred messages onto the queues.
         for (id, message) in step.defer_messages(&self.peer_epochs, max_future_epochs) {
@@ -355,7 +353,7 @@ where
         self
     }
 
-    pub fn build(self, our_id: D::NodeId) -> (SenderQueue<D>, Step<D>) {
+    pub fn build(self, our_id: D::NodeId) -> (SenderQueue<D>, DaStep<SenderQueue<D>>) {
         let lin_epoch = <D::Message as Epoched>::LinEpoch::default();
         let sq = SenderQueue {
             algo: self.algo,
@@ -364,7 +362,7 @@ where
             outgoing_queue: self.outgoing_queue,
             peer_epochs: self.peer_epochs,
         };
-        let step: Step<D> = Target::All.message(Message::EpochStarted(lin_epoch)).into();
+        let step = Target::All.message(Message::EpochStarted(lin_epoch)).into();
         (sq, step)
     }
 }

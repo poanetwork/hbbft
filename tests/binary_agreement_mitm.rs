@@ -16,7 +16,7 @@ use std::sync::{Arc, Mutex};
 
 use hbbft::binary_agreement::{BinaryAgreement, MessageContent, SbvMessage};
 use hbbft::threshold_sign::ThresholdSign;
-use hbbft::{DistAlgorithm, NetworkInfo, Step};
+use hbbft::{DaStep, DistAlgorithm, NetworkInfo};
 
 use net::adversary::{NetMutHandle, QueuePosition};
 use net::err::CrankError;
@@ -415,7 +415,7 @@ impl Adversary<Algo> for AbaCommonCoinAdversary {
         &mut self,
         _: NetMutHandle<Algo>,
         msg: NetMessage<Algo>,
-    ) -> Result<Step<Algo>, CrankError<Algo>> {
+    ) -> Result<DaStep<Algo>, CrankError<Algo>> {
         if let MessageContent::Coin(ref coin_msg) = msg.payload().content {
             let mut new_coin_state = None;
             if let CoinState::InProgress(ref mut coin) = self.coin_state {
@@ -430,7 +430,7 @@ impl Adversary<Algo> for AbaCommonCoinAdversary {
                 self.coin_state = new_coin_state;
             }
         }
-        Ok(Step::default())
+        Ok(DaStep::<Algo>::default())
     }
 }
 

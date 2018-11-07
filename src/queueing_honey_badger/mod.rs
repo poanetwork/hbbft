@@ -105,7 +105,7 @@ pub struct QueueingHoneyBadgerBuilder<T, N: Rand, Q> {
     _phantom: PhantomData<T>,
 }
 
-pub type QueueingHoneyBadgerWithStep<T, N, Q> = (QueueingHoneyBadger<T, N, Q>, Step<T, N, Q>);
+pub type QueueingHoneyBadgerWithStep<T, N, Q> = (QueueingHoneyBadger<T, N, Q>, Step<T, N>);
 
 impl<T, N, Q> QueueingHoneyBadgerBuilder<T, N, Q>
 where
@@ -187,7 +187,7 @@ pub struct QueueingHoneyBadger<T, N: Rand, Q> {
     rng: Box<dyn Rng + Send + Sync>,
 }
 
-pub type Step<T, N, Q> = ::Step<QueueingHoneyBadger<T, N, Q>>;
+pub type Step<T, N> = ::Step<Message<N>, Batch<T, N>, N>;
 
 impl<T, N, Q> DistAlgorithm for QueueingHoneyBadger<T, N, Q>
 where
@@ -201,7 +201,7 @@ where
     type Message = Message<N>;
     type Error = Error;
 
-    fn handle_input(&mut self, input: Self::Input) -> Result<Step<T, N, Q>> {
+    fn handle_input(&mut self, input: Self::Input) -> Result<Step<T, N>> {
         // User transactions are forwarded to `HoneyBadger` right away. Internal messages are
         // in addition signed and broadcast.
         match input {
@@ -210,7 +210,7 @@ where
         }
     }
 
-    fn handle_message(&mut self, sender_id: &N, message: Self::Message) -> Result<Step<T, N, Q>> {
+    fn handle_message(&mut self, sender_id: &N, message: Self::Message) -> Result<Step<T, N>> {
         self.handle_message(sender_id, message)
     }
 
@@ -243,7 +243,7 @@ where
     /// If no proposal has yet been made for the current epoch, this may trigger one. In this case,
     /// a nonempty step will returned, with the corresponding messages. (Or, if we are the only
     /// validator, even with the completed batch as an output.)
-    pub fn push_transaction(&mut self, tx: T) -> Result<Step<T, N, Q>> {
+    pub fn push_transaction(&mut self, tx: T) -> Result<Step<T, N>> {
         self.queue.extend(iter::once(tx));
         self.propose()
     }
@@ -252,12 +252,11 @@ where
     ///
     /// This stores a pending vote for the change. It will be included in some future batch, and
     /// once enough validators have been voted for the same change, it will take effect.
-    pub fn vote_for(&mut self, change: Change<N>) -> Result<Step<T, N, Q>> {
+    pub fn vote_for(&mut self, change: Change<N>) -> Result<Step<T, N>> {
         Ok(self
             .dyn_hb
             .handle_input(Input::Change(change))
             .map_err(ErrorKind::Input)?
-            .convert()
             .join(self.propose()?))
     }
 
@@ -265,7 +264,7 @@ where
     ///
     /// This stores a pending vote for the change. It will be included in some future batch, and
     /// once enough validators have been voted for the same change, it will take effect.
-    pub fn vote_to_add(&mut self, node_id: N, pub_key: PublicKey) -> Result<Step<T, N, Q>> {
+    pub fn vote_to_add(&mut self, node_id: N, pub_key: PublicKey) -> Result<Step<T, N>> {
         self.vote_for(Change::NodeChange(NodeChange::Add(node_id, pub_key)))
     }
 
@@ -273,19 +272,18 @@ where
     ///
     /// This stores a pending vote for the change. It will be included in some future batch, and
     /// once enough validators have been voted for the same change, it will take effect.
-    pub fn vote_to_remove(&mut self, node_id: N) -> Result<Step<T, N, Q>> {
+    pub fn vote_to_remove(&mut self, node_id: N) -> Result<Step<T, N>> {
         self.vote_for(Change::NodeChange(NodeChange::Remove(node_id)))
     }
 
     /// Handles a message received from `sender_id`.
     ///
     /// This must be called with every message we receive from another node.
-    pub fn handle_message(&mut self, sender_id: &N, message: Message<N>) -> Result<Step<T, N, Q>> {
+    pub fn handle_message(&mut self, sender_id: &N, message: Message<N>) -> Result<Step<T, N>> {
         let step = self
             .dyn_hb
             .handle_message(sender_id, message)
-            .map_err(ErrorKind::HandleMessage)?
-            .convert::<Self>();
+            .map_err(ErrorKind::HandleMessage)?;
         for batch in &step.output {
             self.queue.remove_multiple(batch.iter());
         }
@@ -308,7 +306,7 @@ where
     }
 
     /// Initiates the next epoch by proposing a batch from the queue.
-    fn propose(&mut self) -> Result<Step<T, N, Q>> {
+    fn propose(&mut self) -> Result<Step<T, N>> {
         let mut step = Step::default();
         while self.can_propose() {
             let amount = cmp::max(1, self.batch_size / self.dyn_hb.netinfo().num_nodes());
@@ -316,8 +314,7 @@ where
             step.extend(
                 self.dyn_hb
                     .handle_input(Input::User(proposal))
-                    .map_err(ErrorKind::Propose)?
-                    .convert(),
+                    .map_err(ErrorKind::Propose)?,
             );
         }
         Ok(step)

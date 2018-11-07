@@ -16,11 +16,11 @@ use serde_derive::{Deserialize, Serialize};
 
 use super::bool_multimap::BoolMultimap;
 use super::bool_set::{self, BoolSet};
-use super::{Error, Result};
+use super::Result;
 use fault_log::{Fault, FaultKind};
-use {DistAlgorithm, NetworkInfo, NodeIdT, Target};
+use {NetworkInfo, NodeIdT, Target};
 
-pub type Step<N> = ::Step<SbvBroadcast<N>>;
+pub type Step<N> = ::Step<Message, BoolSet, N>;
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub enum Message {
@@ -59,33 +59,6 @@ pub struct SbvBroadcast<N> {
     terminated: bool,
 }
 
-impl<N: NodeIdT> DistAlgorithm for SbvBroadcast<N> {
-    type NodeId = N;
-    type Input = bool;
-    type Output = BoolSet;
-    type Message = Message;
-    type Error = Error;
-
-    fn handle_input(&mut self, input: Self::Input) -> Result<Step<N>> {
-        self.send_bval(input)
-    }
-
-    fn handle_message(&mut self, sender_id: &Self::NodeId, msg: Self::Message) -> Result<Step<N>> {
-        match msg {
-            Message::BVal(b) => self.handle_bval(sender_id, b),
-            Message::Aux(b) => self.handle_aux(sender_id, b),
-        }
-    }
-
-    fn terminated(&self) -> bool {
-        self.terminated
-    }
-
-    fn our_id(&self) -> &Self::NodeId {
-        self.netinfo.our_id()
-    }
-}
-
 impl<N: NodeIdT> SbvBroadcast<N> {
     pub fn new(netinfo: Arc<NetworkInfo<N>>) -> Self {
         SbvBroadcast {
@@ -108,6 +81,27 @@ impl<N: NodeIdT> SbvBroadcast<N> {
         self.terminated = false;
     }
 
+    pub fn handle_message(&mut self, sender_id: &N, msg: &Message) -> Result<Step<N>> {
+        match msg {
+            Message::BVal(b) => self.handle_bval(sender_id, *b),
+            Message::Aux(b) => self.handle_aux(sender_id, *b),
+        }
+    }
+
+    /// Returns the current `bin_values`: the set of `b` for which _2 f + 1_ `BVal`s were received.
+    pub fn bin_values(&self) -> BoolSet {
+        self.bin_values
+    }
+
+    /// Multicasts a `BVal(b)` message, and handles it.
+    pub fn send_bval(&mut self, b: bool) -> Result<Step<N>> {
+        // Record the value `b` as sent. If it was already there, don't send it again.
+        if !self.sent_bval.insert(b) {
+            return Ok(Step::default());
+        }
+        self.send(&Message::BVal(b))
+    }
+
     /// Handles a `BVal(b)` message.
     ///
     /// Upon receiving _f + 1_ `BVal(b)`, multicasts `BVal(b)`. Upon receiving _2 f + 1_ `BVal(b)`,
@@ -126,7 +120,7 @@ impl<N: NodeIdT> SbvBroadcast<N> {
             self.bin_values.insert(b);
 
             if self.bin_values != bool_set::BOTH {
-                step.extend(self.send(Message::Aux(b))?) // First entry: send `Aux(b)`.
+                step.extend(self.send(&Message::Aux(b))?) // First entry: send `Aux(b)`.
             } else {
                 step.extend(self.try_output()?); // Otherwise just check for `Conf` condition.
             }
@@ -139,28 +133,14 @@ impl<N: NodeIdT> SbvBroadcast<N> {
         Ok(step)
     }
 
-    /// Returns the current `bin_values`: the set of `b` for which _2 f + 1_ `BVal`s were received.
-    pub fn bin_values(&self) -> BoolSet {
-        self.bin_values
-    }
-
     /// Multicasts and handles a message. Does nothing if we are only an observer.
-    fn send(&mut self, msg: Message) -> Result<Step<N>> {
+    fn send(&mut self, msg: &Message) -> Result<Step<N>> {
         if !self.netinfo.is_validator() {
             return self.try_output();
         }
         let step: Step<_> = Target::All.message(msg.clone()).into();
-        let our_id = &self.our_id().clone();
-        Ok(step.join(self.handle_message(our_id, msg)?))
-    }
-
-    /// Multicasts a `BVal(b)` message, and handles it.
-    fn send_bval(&mut self, b: bool) -> Result<Step<N>> {
-        // Record the value `b` as sent. If it was already there, don't send it again.
-        if !self.sent_bval.insert(b) {
-            return Ok(Step::default());
-        }
-        self.send(Message::BVal(b))
+        let our_id = &self.netinfo.our_id().clone();
+        Ok(step.join(self.handle_message(our_id, &msg)?))
     }
 
     /// Handles an `Aux` message.

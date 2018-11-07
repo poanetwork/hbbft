@@ -53,7 +53,7 @@ impl<C, N: Rand> Epoched for HoneyBadger<C, N> {
     }
 }
 
-pub type Step<C, N> = ::Step<HoneyBadger<C, N>>;
+pub type Step<C, N> = ::DaStep<HoneyBadger<C, N>>;
 
 impl<C, N> DistAlgorithm for HoneyBadger<C, N>
 where

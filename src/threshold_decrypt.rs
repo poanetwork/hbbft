@@ -80,7 +80,7 @@ pub struct ThresholdDecrypt<N> {
     terminated: bool,
 }
 
-pub type Step<N> = ::Step<ThresholdDecrypt<N>>;
+pub type Step<N> = ::DaStep<ThresholdDecrypt<N>>;
 
 impl<N: NodeIdT> DistAlgorithm for ThresholdDecrypt<N> {
     type NodeId = N;

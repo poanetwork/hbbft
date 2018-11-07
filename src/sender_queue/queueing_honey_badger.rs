@@ -1,13 +1,15 @@
 //! Convenience methods for a `SenderQueue` wrapping a `QueueingHoneyBadger`.
 
+use std::result;
+
 use crypto::PublicKey;
 use rand::Rand;
 use serde::{de::DeserializeOwned, Serialize};
 
-use super::{SenderQueue, SenderQueueableDistAlgorithm, Step};
-use queueing_honey_badger::{Change, QueueingHoneyBadger};
+use super::{SenderQueue, SenderQueueableDistAlgorithm};
+use queueing_honey_badger::{Change, Error as QhbError, QueueingHoneyBadger};
 use transaction_queue::TransactionQueue;
-use {Contribution, NodeIdT};
+use {Contribution, DaStep, NodeIdT};
 
 impl<T, N, Q> SenderQueueableDistAlgorithm for QueueingHoneyBadger<T, N, Q>
 where
@@ -20,8 +22,7 @@ where
     }
 }
 
-type Result<T, N, Q> =
-    super::Result<Step<QueueingHoneyBadger<T, N, Q>>, QueueingHoneyBadger<T, N, Q>>;
+type Result<T, N, Q> = result::Result<DaStep<SenderQueue<QueueingHoneyBadger<T, N, Q>>>, QhbError>;
 
 impl<T, N, Q> SenderQueue<QueueingHoneyBadger<T, N, Q>>
 where

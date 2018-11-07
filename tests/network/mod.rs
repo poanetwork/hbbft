@@ -10,7 +10,9 @@ use rand_derive::Rand;
 use serde_derive::{Deserialize, Serialize};
 
 use hbbft::dynamic_honey_badger::Batch;
-use hbbft::{Contribution, DistAlgorithm, Fault, NetworkInfo, Step, Target, TargetedMessage};
+use hbbft::{
+    Contribution, DaStep, DistAlgorithm, Fault, NetworkInfo, Step, Target, TargetedMessage,
+};
 
 /// A node identifier. In the tests, nodes are simply numbered.
 #[derive(Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Clone, Copy, Serialize, Deserialize, Rand)]
@@ -59,7 +61,7 @@ impl<D: DistAlgorithm> TestNode<D> {
     }
 
     /// Creates a new test node with the given broadcast instance.
-    fn new((algo, step): (D, Step<D>)) -> TestNode<D> {
+    fn new((algo, step): (D, DaStep<D>)) -> TestNode<D> {
         TestNode {
             id: algo.our_id().clone(),
             algo,
@@ -403,7 +405,7 @@ where
         new_algo: F,
     ) -> TestNetwork<A, D>
     where
-        F: Fn(Arc<NetworkInfo<NodeId>>) -> (D, Step<D>),
+        F: Fn(Arc<NetworkInfo<NodeId>>) -> (D, DaStep<D>),
         G: Fn(BTreeMap<D::NodeId, Arc<NetworkInfo<D::NodeId>>>) -> A,
     {
         let mut rng = rand::thread_rng();

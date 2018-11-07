@@ -27,7 +27,7 @@ use signifix::{metric, TryFrom};
 use hbbft::dynamic_honey_badger::DynamicHoneyBadger;
 use hbbft::queueing_honey_badger::{Batch, QueueingHoneyBadger};
 use hbbft::sender_queue::{Message, SenderQueue};
-use hbbft::{DistAlgorithm, NetworkInfo, Step, Target};
+use hbbft::{DaStep, DistAlgorithm, NetworkInfo, Step, Target};
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 const USAGE: &str = "
@@ -137,14 +137,14 @@ pub struct TestNode<D: DistAlgorithm> {
     hw_quality: HwQuality,
 }
 
-type TestNodeStepResult<D> = Step<D>;
+type TestNodeStepResult<D> = DaStep<D>;
 
 impl<D: DistAlgorithm> TestNode<D>
 where
     D::Message: Serialize + DeserializeOwned,
 {
     /// Creates a new test node with the given broadcast instance.
-    fn new((algo, step): (D, Step<D>), hw_quality: HwQuality) -> TestNode<D> {
+    fn new((algo, step): (D, DaStep<D>), hw_quality: HwQuality) -> TestNode<D> {
         let out_queue = step
             .messages
             .into_iter()
@@ -264,7 +264,7 @@ where
         hw_quality: HwQuality,
     ) -> TestNetwork<D>
     where
-        F: Fn(NetworkInfo<NodeId>) -> (D, Step<D>),
+        F: Fn(NetworkInfo<NodeId>) -> (D, DaStep<D>),
     {
         let node_ids = (0..(good_num + adv_num)).map(NodeId);
         let netinfos = NetworkInfo::generate_map(node_ids, &mut rand::thread_rng())

@@ -75,7 +75,7 @@ pub struct ThresholdSign<N> {
     terminated: bool,
 }
 
-pub type Step<N> = ::Step<ThresholdSign<N>>;
+pub type Step<N> = ::DaStep<ThresholdSign<N>>;
 
 impl<N: NodeIdT> DistAlgorithm for ThresholdSign<N> {
     type NodeId = N;

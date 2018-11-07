@@ -103,7 +103,7 @@ impl From<bincode::Error> for Error {
 /// An Binary Agreement result.
 pub type Result<T> = ::std::result::Result<T, Error>;
 
-pub type Step<N, T> = ::Step<BinaryAgreement<N, T>>;
+pub type Step<N> = ::Step<Message, bool, N>;
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub enum MessageContent {

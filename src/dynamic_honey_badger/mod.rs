@@ -91,7 +91,7 @@ pub use self::change::{Change, ChangeState, NodeChange};
 pub use self::dynamic_honey_badger::DynamicHoneyBadger;
 pub use self::error::{Error, ErrorKind, Result};
 
-pub type Step<C, N> = ::Step<DynamicHoneyBadger<C, N>>;
+pub type Step<C, N> = ::DaStep<DynamicHoneyBadger<C, N>>;
 
 /// The user input for `DynamicHoneyBadger`.
 #[derive(Clone, Debug)]
