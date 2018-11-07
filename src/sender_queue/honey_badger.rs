@@ -1,10 +1,7 @@
 use rand::Rand;
 use serde::{de::DeserializeOwned, Serialize};
 
-use super::{
-    SenderQueueableDistAlgorithm, SenderQueueableEpoch, SenderQueueableMessage,
-    SenderQueueableOutput,
-};
+use super::{SenderQueueableDistAlgorithm, SenderQueueableMessage, SenderQueueableOutput};
 use honey_badger::{Batch, HoneyBadger, Message};
 use {Contribution, Epoched, NodeIdT};
 
@@ -16,9 +13,13 @@ where
     fn added_node(&self) -> Option<N> {
         None
     }
+}
 
-    fn next_epoch(&self) -> u64 {
-        self.epoch + 1
+impl<N: Rand> Epoched for Message<N> {
+    type Epoch = u64;
+
+    fn epoch(&self) -> u64 {
+        self.epoch()
     }
 }
 
@@ -26,9 +27,8 @@ impl<N> SenderQueueableMessage for Message<N>
 where
     N: Rand,
 {
-    fn is_accepted(&self, them: u64, max_future_epochs: u64) -> bool {
-        let our_epoch = self.epoch();
-        them <= our_epoch && our_epoch <= them + max_future_epochs
+    fn is_premature(&self, them: u64, max_future_epochs: u64) -> bool {
+        self.epoch() > them + max_future_epochs
     }
 
     fn is_obsolete(&self, them: u64) -> bool {
@@ -36,9 +36,15 @@ where
     }
 }
 
-impl SenderQueueableEpoch for u64 {
-    fn spanning_epochs(&self) -> Vec<Self> {
-        vec![]
+impl<C, N> Epoched for HoneyBadger<C, N>
+where
+    C: Contribution + Serialize + DeserializeOwned,
+    N: NodeIdT + Rand,
+{
+    type Epoch = u64;
+
+    fn epoch(&self) -> u64 {
+        self.epoch()
     }
 }
 

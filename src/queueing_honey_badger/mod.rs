@@ -36,7 +36,7 @@ use dynamic_honey_badger::{self, Batch as DhbBatch, DynamicHoneyBadger, Message}
 use transaction_queue::TransactionQueue;
 use {util, Contribution, DistAlgorithm, NodeIdT};
 
-pub use dynamic_honey_badger::{Change, ChangeState, Epoch, Input, NodeChange};
+pub use dynamic_honey_badger::{Change, ChangeState, Input, NodeChange};
 
 /// Queueing honey badger error variants.
 #[derive(Debug, Fail)]

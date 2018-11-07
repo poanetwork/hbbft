@@ -24,7 +24,7 @@ use rand::Rng;
 use hbbft::honey_badger::{Batch, HoneyBadger, MessageContent};
 use hbbft::sender_queue::{self, SenderQueue, Step};
 use hbbft::transaction_queue::TransactionQueue;
-use hbbft::{threshold_decrypt, DistAlgorithm, Epoched, NetworkInfo, Target, TargetedMessage};
+use hbbft::{threshold_decrypt, DistAlgorithm, NetworkInfo, Target, TargetedMessage};
 
 use network::{
     Adversary, MessageScheduler, MessageWithSender, NodeId, RandomAdversary, SilentAdversary,
@@ -74,10 +74,10 @@ impl Adversary<UsizeHoneyBadger> for FaultyShareAdversary {
         if sender_id < self.num_good {
             if let TargetedMessage {
                 target: Target::All,
-                message,
+                message: sender_queue::Message::Algo(hb_msg),
             } = msg
             {
-                let epoch = message.epoch();
+                let epoch = hb_msg.epoch();
                 // Set the trigger to simulate decryption share messages.
                 self.share_triggers.entry(epoch).or_insert(true);
             }

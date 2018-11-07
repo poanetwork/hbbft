@@ -9,7 +9,20 @@ use serde::{de::DeserializeOwned, Serialize};
 use super::{SenderQueue, SenderQueueableDistAlgorithm};
 use queueing_honey_badger::{Change, Error as QhbError, QueueingHoneyBadger};
 use transaction_queue::TransactionQueue;
-use {Contribution, DaStep, NodeIdT};
+use {Contribution, DaStep, Epoched, NodeIdT};
+
+impl<T, N, Q> Epoched for QueueingHoneyBadger<T, N, Q>
+where
+    T: Contribution + Serialize + DeserializeOwned + Clone,
+    N: NodeIdT + Serialize + DeserializeOwned + Rand,
+    Q: TransactionQueue<T>,
+{
+    type Epoch = (u64, u64);
+
+    fn epoch(&self) -> (u64, u64) {
+        self.dyn_hb().epoch()
+    }
+}
 
 impl<T, N, Q> SenderQueueableDistAlgorithm for QueueingHoneyBadger<T, N, Q>
 where
