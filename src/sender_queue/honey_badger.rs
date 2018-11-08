@@ -15,24 +15,22 @@ where
     }
 }
 
-impl<N: Rand> Epoched for Message<N> {
-    type Epoch = u64;
-
-    fn epoch(&self) -> u64 {
-        self.epoch()
-    }
-}
-
 impl<N> SenderQueueableMessage for Message<N>
 where
     N: Rand,
 {
+    type Epoch = u64;
+
     fn is_premature(&self, them: u64, max_future_epochs: u64) -> bool {
         self.epoch() > them + max_future_epochs
     }
 
     fn is_obsolete(&self, them: u64) -> bool {
         self.epoch() < them
+    }
+
+    fn first_epoch(&self) -> u64 {
+        self.epoch()
     }
 }
 

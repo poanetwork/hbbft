@@ -1,18 +1,18 @@
 use rand::{Rand, Rng};
 use serde_derive::{Deserialize, Serialize};
 
-use Epoched;
+use super::SenderQueueableMessage;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
-pub enum Message<M: Epoched> {
-    EpochStarted(<M as Epoched>::Epoch),
+pub enum Message<M: SenderQueueableMessage> {
+    EpochStarted(M::Epoch),
     Algo(M),
 }
 
 impl<M> Rand for Message<M>
 where
-    M: Epoched + Rand,
-    <M as Epoched>::Epoch: Rand,
+    M: SenderQueueableMessage + Rand,
+    M::Epoch: Rand,
 {
     fn rand<R: Rng>(rng: &mut R) -> Self {
         let message_type = *rng.choose(&["epoch", "algo"]).unwrap();
@@ -25,7 +25,7 @@ where
     }
 }
 
-impl<M: Epoched> From<M> for Message<M> {
+impl<M: SenderQueueableMessage> From<M> for Message<M> {
     fn from(message: M) -> Self {
         Message::Algo(message)
     }

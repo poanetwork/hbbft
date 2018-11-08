@@ -186,14 +186,6 @@ pub trait Epoched {
     fn epoch(&self) -> Self::Epoch;
 }
 
-impl<M: Epoched, N> Epoched for TargetedMessage<M, N> {
-    type Epoch = <M as Epoched>::Epoch;
-
-    fn epoch(&self) -> Self::Epoch {
-        self.message.epoch()
-    }
-}
-
 /// An alias for the type of `Step` returned by `D`'s methods.
 pub type DaStep<D> =
     Step<<D as DistAlgorithm>::Message, <D as DistAlgorithm>::Output, <D as DistAlgorithm>::NodeId>;
@@ -208,7 +200,7 @@ where
     /// remaining messages can be sent to remote nodes without delay.
     pub fn defer_messages(
         &mut self,
-        peer_epochs: &BTreeMap<N, <M as Epoched>::Epoch>,
+        peer_epochs: &BTreeMap<N, M::Epoch>,
         max_future_epochs: u64,
     ) -> Vec<(N, M)> {
         let mut deferred_msgs: Vec<(N, M)> = Vec::new();
