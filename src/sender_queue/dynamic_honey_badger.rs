@@ -9,7 +9,7 @@ use serde::{de::DeserializeOwned, Serialize};
 use super::{
     SenderQueue, SenderQueueableDistAlgorithm, SenderQueueableMessage, SenderQueueableOutput,
 };
-use {Contribution, DaStep, Epoched, NodeIdT};
+use {Contribution, DaStep, NodeIdT};
 
 use dynamic_honey_badger::{
     Batch, Change, ChangeState, DynamicHoneyBadger, Error as DhbError, Message, NodeChange,
@@ -32,22 +32,12 @@ where
     }
 }
 
-impl<N: Rand> Epoched for Message<N> {
-    type Epoch = (u64, u64);
-
-    fn epoch(&self) -> (u64, u64) {
-        match *self {
-            Message::HoneyBadger(era, ref msg) => (era, msg.epoch()),
-            Message::KeyGen(era, _, _) => (era, 0),
-            Message::SignedVote(ref signed_vote) => (signed_vote.era(), 0),
-        }
-    }
-}
-
 impl<N> SenderQueueableMessage for Message<N>
 where
     N: Rand,
 {
+    type Epoch = (u64, u64);
+
     fn is_premature(&self, (them_era, them): (u64, u64), max_future_epochs: u64) -> bool {
         match *self {
             Message::HoneyBadger(era, ref msg) => {
@@ -65,6 +55,14 @@ where
             }
             Message::KeyGen(era, _, _) => era < them_era,
             Message::SignedVote(ref signed_vote) => signed_vote.era() < them_era,
+        }
+    }
+
+    fn first_epoch(&self) -> (u64, u64) {
+        match *self {
+            Message::HoneyBadger(era, ref msg) => (era, msg.epoch()),
+            Message::KeyGen(era, _, _) => (era, 0),
+            Message::SignedVote(ref signed_vote) => (signed_vote.era(), 0),
         }
     }
 }
