@@ -232,7 +232,7 @@ struct AbaCommonCoinAdversary {
     stage: usize,
     stage_progress: usize,
     sent_stage_messages: bool,
-    epoch: u32,
+    epoch: u64,
     coin_state: CoinState<NodeId>,
     /// The estimated value for nodes in A.
     a_estimated: bool,
@@ -250,7 +250,7 @@ impl AbaCommonCoinAdversary {
 
     fn new_with_epoch(
         netinfo_mutex: Arc<Mutex<Option<Arc<NetworkInfo<NodeId>>>>>,
-        epoch: u32,
+        epoch: u64,
         a_estimated: bool,
     ) -> Self {
         AbaCommonCoinAdversary {
