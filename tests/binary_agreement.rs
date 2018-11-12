@@ -1,74 +1,79 @@
 #![deny(unused_must_use)]
-//! Tests of the Binary Agreement protocol. Only one proposer instance
-//! is tested. Each of the nodes in the simulated network run only one instance
-//! of Binary Agreement. This way we only test correctness of the protocol and not
-//! message dispatch between multiple proposers.
+//! Tests of the Binary Agreement protocol
+//!
+//! Only one proposer instance is tested. Each of the nodes in the simulated network run only one
+//! instance of Binary Agreement. This way we only test correctness of the protocol and not message
+//! dispatch between multiple proposers.
 //!
 //! There are three properties that are tested:
 //!
-//! - Agreement: If any correct node outputs the bit b, then every correct node outputs b.
+//! - Agreement: If any correct node outputs the bit `b`, then every correct node outputs `b`.
 //!
 //! - Termination: If all correct nodes receive input, then every correct node outputs a bit.
 //!
-//! - Validity: If any correct node outputs b, then at least one correct node received b as input.
-//!
-//! TODO: Implement adversaries and send BVAL messages at different times.
+//! - Validity: If any correct node outputs `b`, then at least one correct node received `b` as
+//! input.
 
 extern crate env_logger;
+extern crate failure;
 extern crate hbbft;
+extern crate integer_sqrt;
 extern crate log;
+extern crate proptest;
 extern crate rand;
-extern crate rand_derive;
-extern crate serde_derive;
-extern crate threshold_crypto as crypto;
+extern crate threshold_crypto;
 
-mod network;
+mod net;
 
 use std::iter::once;
 use std::sync::Arc;
+use std::time;
 
 use log::info;
 use rand::Rng;
 
 use hbbft::binary_agreement::BinaryAgreement;
-use hbbft::NetworkInfo;
+use hbbft::DistAlgorithm;
 
-use network::{Adversary, MessageScheduler, NodeId, SilentAdversary, TestNetwork, TestNode};
+use net::adversary::ReorderingAdversary;
+use net::proptest::TestRng;
+use net::{NetBuilder, NewNodeInfo, VirtualNet};
 
-fn test_binary_agreement<A: Adversary<BinaryAgreement<NodeId, u8>>>(
-    mut network: TestNetwork<A, BinaryAgreement<NodeId, u8>>,
-    input: Option<bool>,
-) {
-    let ids: Vec<NodeId> = network.nodes.keys().cloned().collect();
-    for id in ids {
-        network.input(id, input.unwrap_or_else(rand::random));
-    }
+type NodeId = usize;
+type SessionId = u8;
+type Algo = BinaryAgreement<NodeId, SessionId>;
 
-    // Handle messages in random order until all nodes have output the proposed value.
-    while !network.nodes.values().all(TestNode::terminated) {
-        network.step();
-    }
-    // Verify that all instances output the same value.
-    let mut expected = input;
-    for node in network.nodes.values() {
-        if let Some(b) = expected {
-            assert!(once(&b).eq(node.outputs()));
-        } else {
-            assert_eq!(1, node.outputs().len());
-            expected = Some(node.outputs()[0]);
+impl VirtualNet<Algo> {
+    fn test_binary_agreement<R>(&mut self, input: Option<bool>, mut rng: R)
+    where
+        R: Rng + 'static,
+    {
+        let ids: Vec<NodeId> = self.nodes().map(|n| n.id().clone()).collect();
+        for id in ids {
+            let _ = self.send_input(id, input.unwrap_or_else(|| rng.gen::<bool>()));
         }
+
+        // Handle messages in random order until all nodes have output the proposed value.
+        while !self.nodes().all(|node| node.algorithm().terminated()) {
+            let _ = self.crank_expect();
+        }
+        // Verify that all instances output the same value.
+        let mut expected = input;
+        for node in self.nodes() {
+            if let Some(b) = expected {
+                assert!(once(&b).eq(node.outputs()));
+            } else {
+                assert_eq!(1, node.outputs().len());
+                expected = Some(node.outputs()[0]);
+            }
+        }
+        // TODO: As soon as observers are added to the test framework, compare the expected output
+        // against the output of observers.
     }
-    assert!(expected.iter().eq(network.observer.outputs()));
 }
 
-fn test_binary_agreement_different_sizes<A, F>(new_adversary: F)
-where
-    A: Adversary<BinaryAgreement<NodeId, u8>>,
-    F: Fn(usize, usize) -> A,
-{
-    // This returns an error in all but the first test.
-    let _ = env_logger::try_init();
-
+fn test_binary_agreement_different_sizes() {
+    // FIXME: Seed the Rng.
     let mut rng = rand::thread_rng();
     let sizes = (1..6)
         .chain(once(rng.gen_range(6, 20)))
@@ -81,12 +86,18 @@ where
                 "Test start: {} good nodes and {} faulty nodes, input: {:?}",
                 num_good_nodes, num_faulty_nodes, input
             );
-            let adversary = |_| new_adversary(num_good_nodes, num_faulty_nodes);
-            let new_ba = |netinfo: Arc<NetworkInfo<NodeId>>| {
-                BinaryAgreement::new(netinfo, 0).expect("Binary Agreement instance")
-            };
-            let network = TestNetwork::new(num_good_nodes, num_faulty_nodes, adversary, new_ba);
-            test_binary_agreement(network, input);
+            let mut net: VirtualNet<_> = NetBuilder::new(0..size)
+                .num_faulty(num_faulty_nodes)
+                .message_limit(10_000 * size as usize)
+                .time_limit(time::Duration::from_secs(30 * size as u64))
+                .rng(rng.gen::<TestRng>())
+                .adversary(ReorderingAdversary::new(rng.gen::<TestRng>()))
+                .using(move |node_info: NewNodeInfo<_>| {
+                    BinaryAgreement::new(Arc::new(node_info.netinfo), 0)
+                        .expect("Failed to create a BinaryAgreement instance.")
+                }).build()
+                .expect("Could not construct test network.");
+            net.test_binary_agreement(input, rng.gen::<TestRng>());
             info!(
                 "Test success: {} good nodes and {} faulty nodes, input: {:?}",
                 num_good_nodes, num_faulty_nodes, input
@@ -95,14 +106,9 @@ where
     }
 }
 
+/// Tests Binary Agreement with random inputs, all `false` inputs and all `true` inputs.
 #[test]
-fn test_binary_agreement_random_silent() {
-    let new_adversary = |_: usize, _: usize| SilentAdversary::new(MessageScheduler::Random);
-    test_binary_agreement_different_sizes(new_adversary);
-}
-
-#[test]
-fn test_binary_agreement_first_silent() {
-    let new_adversary = |_: usize, _: usize| SilentAdversary::new(MessageScheduler::First);
-    test_binary_agreement_different_sizes(new_adversary);
+fn binary_agreement() {
+    let _ = env_logger::try_init();
+    test_binary_agreement_different_sizes();
 }
