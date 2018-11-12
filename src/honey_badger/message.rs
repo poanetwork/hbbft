@@ -4,9 +4,12 @@ use serde_derive::{Deserialize, Serialize};
 
 use subset;
 use threshold_decrypt;
+use threshold_sign;
 
 /// The content of a `HoneyBadger` message. It should be further annotated with an epoch.
 #[derive(Clone, Debug, Deserialize, Rand, Serialize)]
+// `threshold_sign::Message` triggers this Clippy lint, but `Box<T>` doesn't implement `Rand`.
+#[cfg_attr(feature = "cargo-clippy", allow(large_enum_variant))]
 pub enum MessageContent<N: Rand> {
     /// A message belonging to the subset algorithm in the given epoch.
     Subset(subset::Message<N>),
@@ -15,6 +18,8 @@ pub enum MessageContent<N: Rand> {
         proposer_id: N,
         share: threshold_decrypt::Message,
     },
+    /// A share of the signature used as a pseudorandom value.
+    SignatureShare(threshold_sign::Message),
 }
 
 impl<N: Rand> MessageContent<N> {

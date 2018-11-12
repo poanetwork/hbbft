@@ -11,15 +11,14 @@ use serde::{de::DeserializeOwned, Serialize};
 
 use super::votes::{SignedVote, VoteCounter};
 use super::{
-    Batch, Change, ChangeState, DynamicHoneyBadgerBuilder, Error, ErrorKind, Input,
-    InternalContrib, KeyGenMessage, KeyGenState, Message, NodeChange, Result, SignedKeyGenMsg,
-    Step,
+    Batch, Change, ChangeState, DynamicHoneyBadgerBuilder, EncryptionSchedule, Error, ErrorKind,
+    Input, InternalContrib, KeyGenMessage, KeyGenState, Message, NodeChange, Result,
+    SignedKeyGenMsg, Step,
 };
 use fault_log::{Fault, FaultKind, FaultLog};
 use honey_badger::{self, HoneyBadger, Message as HbMessage};
 
 use sync_key_gen::{Ack, AckOutcome, Part, PartOutcome, SyncKeyGen};
-use threshold_decrypt::EncryptionSchedule;
 use util::{self, SubRng};
 use {Contribution, DistAlgorithm, Epoched, NetworkInfo, NodeIdT, Target};
 
@@ -319,6 +318,7 @@ where
                 change,
                 netinfo: Arc::new(self.netinfo.clone()),
                 contributions: batch_contributions,
+                random_value: hb_batch.random_value,
                 encryption_schedule: self.honey_badger.get_encryption_schedule(),
             });
         }

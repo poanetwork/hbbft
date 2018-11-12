@@ -1,3 +1,4 @@
+use crypto::Signature;
 use std::collections::BTreeMap;
 
 use NodeIdT;
@@ -5,8 +6,15 @@ use NodeIdT;
 /// A batch of contributions the algorithm has output.
 #[derive(Clone, Debug)]
 pub struct Batch<C, N> {
+    /// This batch's epoch number. Each epoch produces exactly one batch.
     pub epoch: u64,
+    /// The set of agreed contributions, by the contributor's node ID.
     pub contributions: BTreeMap<N, C>,
+    /// The signature that can be used as a pseudorandom value: None of the validators knew
+    /// its value before the other of the batch were decided.
+    ///
+    /// If the `random_value` option is `false` (default), this is `None`.
+    pub random_value: Option<Signature>,
 }
 
 impl<C, N: NodeIdT> Batch<C, N> {

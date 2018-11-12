@@ -5,13 +5,13 @@ use std::sync::Arc;
 use derivative::Derivative;
 use rand::{Rand, Rng};
 use serde::{de::DeserializeOwned, Serialize};
+use serde_derive::{Deserialize, Serialize};
 
 use super::epoch_state::EpochState;
 use super::{Batch, Error, ErrorKind, HoneyBadgerBuilder, Message, Result};
 use {util, Contribution, DistAlgorithm, Fault, FaultKind, NetworkInfo, NodeIdT};
 
 pub use super::epoch_state::SubsetHandlingStrategy;
-use threshold_decrypt::EncryptionSchedule;
 
 /// An instance of the Honey Badger Byzantine fault tolerant consensus algorithm.
 #[derive(Derivative)]
@@ -38,6 +38,8 @@ pub struct HoneyBadger<C, N: Rand> {
     pub(super) subset_handling_strategy: SubsetHandlingStrategy,
     /// The schedule for which rounds we should use threshold encryption.
     pub(super) encryption_schedule: EncryptionSchedule,
+    /// Whether to generate a pseudorandom value in each epoch.
+    pub(super) random_value: bool,
 }
 
 pub type Step<C, N> = ::DaStep<HoneyBadger<C, N>>;
@@ -185,6 +187,7 @@ where
                 self.session_id,
                 epoch,
                 self.subset_handling_strategy.clone(),
+                self.random_value,
                 self.encryption_schedule.use_on_epoch(epoch),
             )?),
         })
@@ -193,5 +196,26 @@ where
     /// Returns the maximum future epochs of the Honey Badger algorithm instance.
     pub fn max_future_epochs(&self) -> u64 {
         self.max_future_epochs
+    }
+}
+
+/// How frequently Threshold Encryption should be used.
+#[derive(Clone, Copy, Eq, PartialEq, Serialize, Deserialize, Hash, Debug)]
+pub enum EncryptionSchedule {
+    Always,
+    Never,
+    EveryNthEpoch(u32),
+    /// How many with encryption, followed by how many without encryption.
+    TickTock(u32, u32),
+}
+
+impl EncryptionSchedule {
+    pub fn use_on_epoch(self, epoch: u64) -> bool {
+        match self {
+            EncryptionSchedule::Always => true,
+            EncryptionSchedule::Never => false,
+            EncryptionSchedule::EveryNthEpoch(n) => (epoch % u64::from(n)) == 0,
+            EncryptionSchedule::TickTock(on, off) => (epoch % u64::from(on + off)) <= u64::from(on),
+        }
     }
 }

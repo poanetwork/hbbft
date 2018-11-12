@@ -7,9 +7,11 @@ use crypto::{SecretKey, SecretKeySet, SecretKeyShare};
 use rand::{self, Rand, Rng};
 use serde::{de::DeserializeOwned, Serialize};
 
-use super::{Change, ChangeState, DynamicHoneyBadger, JoinPlan, Result, Step, VoteCounter};
+use super::{
+    Change, ChangeState, DynamicHoneyBadger, EncryptionSchedule, JoinPlan, Result, Step,
+    VoteCounter,
+};
 use honey_badger::{HoneyBadger, SubsetHandlingStrategy};
-use threshold_decrypt::EncryptionSchedule;
 use util::SubRng;
 use {Contribution, NetworkInfo, NodeIdT};
 
@@ -25,6 +27,8 @@ pub struct DynamicHoneyBadgerBuilder<C, N> {
     rng: Box<dyn rand::Rng>,
     /// Strategy used to handle the output of the `Subset` algorithm.
     subset_handling_strategy: SubsetHandlingStrategy,
+    /// Whether to generate a pseudorandom value in each epoch.
+    random_value: bool,
     /// Schedule for adding threshold encryption to some percentage of rounds
     encryption_schedule: EncryptionSchedule,
     _phantom: PhantomData<(C, N)>,
@@ -41,6 +45,7 @@ where
             max_future_epochs: 3,
             rng: Box::new(rand::thread_rng()),
             subset_handling_strategy: SubsetHandlingStrategy::Incremental,
+            random_value: false,
             encryption_schedule: EncryptionSchedule::Always,
             _phantom: PhantomData,
         }
@@ -85,6 +90,12 @@ where
         self
     }
 
+    /// Whether to generate a pseudorandom value in each epoch.
+    pub fn random_value(&mut self, random_value: bool) -> &mut Self {
+        self.random_value = random_value;
+        self
+    }
+
     /// Sets the schedule to use for threshold encryption.
     pub fn encryption_schedule(&mut self, encryption_schedule: EncryptionSchedule) -> &mut Self {
         self.encryption_schedule = encryption_schedule;
@@ -98,6 +109,7 @@ where
             max_future_epochs,
             rng,
             subset_handling_strategy,
+            random_value,
             encryption_schedule,
             _phantom,
         } = self;
@@ -109,6 +121,7 @@ where
             .max_future_epochs(max_future_epochs)
             .rng(rng.sub_rng())
             .subset_handling_strategy(subset_handling_strategy.clone())
+            .random_value(*random_value)
             .encryption_schedule(*encryption_schedule)
             .build();
         DynamicHoneyBadger {
@@ -153,6 +166,7 @@ where
         let honey_badger = HoneyBadger::builder(arc_netinfo.clone())
             .max_future_epochs(self.max_future_epochs)
             .encryption_schedule(join_plan.encryption_schedule)
+            .random_value(join_plan.random_value)
             .build();
         let mut dhb = DynamicHoneyBadger {
             netinfo,
