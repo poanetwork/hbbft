@@ -1,9 +1,10 @@
 #![deny(unused_must_use)]
 //! Tests of the Binary Agreement protocol
 //!
-//! Only one proposer instance is tested. Each of the nodes in the simulated network run only one
-//! instance of Binary Agreement. This way we only test correctness of the protocol and not message
-//! dispatch between multiple proposers.
+//! Each of the nodes in the simulated network runs only one instance of Binary Agreement for node
+//! `0`, the proposer. In real applications there would be multiple proposers in the
+//! network. However, having only one proposer allows to test correctness of the protocol rather
+//! than message dispatch between multiple proposers.
 //!
 //! There are three properties that are tested:
 //!
@@ -23,7 +24,7 @@ extern crate proptest;
 extern crate rand;
 extern crate threshold_crypto;
 
-mod net;
+pub mod net;
 
 use std::iter::once;
 use std::sync::Arc;
@@ -40,15 +41,13 @@ use net::proptest::TestRng;
 use net::{NetBuilder, NewNodeInfo, VirtualNet};
 
 type NodeId = usize;
-type SessionId = u8;
-type Algo = BinaryAgreement<NodeId, SessionId>;
 
-impl VirtualNet<Algo> {
+impl VirtualNet<BinaryAgreement<NodeId, u8>> {
     fn test_binary_agreement<R>(&mut self, input: Option<bool>, mut rng: R)
     where
         R: Rng + 'static,
     {
-        let ids: Vec<NodeId> = self.nodes().map(|n| n.id().clone()).collect();
+        let ids: Vec<NodeId> = self.nodes().map(|n| *n.id()).collect();
         for id in ids {
             let _ = self.send_input(id, input.unwrap_or_else(|| rng.gen::<bool>()));
         }
@@ -86,6 +85,7 @@ fn test_binary_agreement_different_sizes() {
                 "Test start: {} good nodes and {} faulty nodes, input: {:?}",
                 num_good_nodes, num_faulty_nodes, input
             );
+            // Create a network with `size` validators and one observer.
             let mut net: VirtualNet<_> = NetBuilder::new(0..size)
                 .num_faulty(num_faulty_nodes)
                 .message_limit(10_000 * size as usize)
