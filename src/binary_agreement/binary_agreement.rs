@@ -107,8 +107,7 @@ impl ReceivedMessages {
         None
     }
 
-    /// Creates message content from `ReceivedMessages`. That message content, together with a
-    /// target node ID, forms messages that can be sent to the target node.
+    /// Creates message content from `ReceivedMessages`. That message content can then be handled.
     fn messages(self) -> Vec<MessageContent> {
         let ReceivedMessages {
             bval,
