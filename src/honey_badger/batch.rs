@@ -10,8 +10,11 @@ pub struct Batch<C, N> {
     pub epoch: u64,
     /// The set of agreed contributions, by the contributor's node ID.
     pub contributions: BTreeMap<N, C>,
-    /// The signature that can be used as a pseudorandom value: None of the validators knew
-    /// its value before the other of the batch were decided.
+    /// The signature that can be used as a pseudorandom value.
+    ///
+    /// This value was only revealed to the validators after the set of contributions had been
+    /// decided. None of the validators knew it when they could still influence the contents of the
+    /// batch.
     ///
     /// If the `random_value` option is `false` (default), this is `None`.
     pub random_value: Option<Signature>,
