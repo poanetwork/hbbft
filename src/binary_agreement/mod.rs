@@ -119,7 +119,7 @@ pub enum MessageContent {
 
 impl MessageContent {
     /// Creates an message with a given epoch number.
-    pub fn with_epoch(self, epoch: u32) -> Message {
+    pub fn with_epoch(self, epoch: u64) -> Message {
         Message {
             epoch,
             content: self,
@@ -138,7 +138,7 @@ impl MessageContent {
 /// Messages sent during the Binary Agreement stage.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Rand)]
 pub struct Message {
-    pub epoch: u32,
+    pub epoch: u64,
     pub content: MessageContent,
 }
 

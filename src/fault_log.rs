@@ -69,6 +69,12 @@ pub enum FaultKind {
     DuplicateBVal,
     /// `BinaryAgreement` received a duplicate `Aux` message.
     DuplicateAux,
+    /// `BinaryAgreement` received multiple `Conf` messages.
+    MultipleConf,
+    /// `BinaryAgreement` received multiple `Term` messages.
+    MultipleTerm,
+    /// `BinaryAgreement` received a message with an epoch too far ahead.
+    AgreementEpoch,
 }
 
 /// A structure representing the context of a faulty node. This structure

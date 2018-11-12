@@ -22,7 +22,7 @@ use {NetworkInfo, NodeIdT, Target};
 
 pub type Step<N> = ::Step<Message, BoolSet, N>;
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, PartialOrd, Eq, Ord)]
 pub enum Message {
     BVal(bool),
     Aux(bool),
