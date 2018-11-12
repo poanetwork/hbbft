@@ -1,6 +1,8 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
+use crypto::Signature;
+
 use super::EncryptionSchedule;
 use super::{ChangeState, JoinPlan};
 use {NetworkInfo, NodeIdT};
@@ -14,6 +16,8 @@ pub struct Batch<C, N> {
     pub(super) era: u64,
     /// The user contributions committed in this epoch.
     pub(super) contributions: BTreeMap<N, C>,
+    /// The signature that can be used as a pseudorandom value.
+    pub(super) random_value: Option<Signature>,
     /// The current state of adding or removing a node: whether any is in progress, or completed
     /// this epoch.
     pub(super) change: ChangeState<N>,
@@ -102,6 +106,7 @@ impl<C, N: NodeIdT> Batch<C, N> {
             pub_key_set: self.netinfo.public_key_set().clone(),
             pub_keys: self.netinfo.public_key_map().clone(),
             encryption_schedule: self.encryption_schedule,
+            random_value: self.random_value.is_some(),
         })
     }
 
@@ -118,5 +123,13 @@ impl<C, N: NodeIdT> Batch<C, N> {
             && self.netinfo.public_key_set() == other.netinfo.public_key_set()
             && self.netinfo.public_key_map() == other.netinfo.public_key_map()
             && self.encryption_schedule == other.encryption_schedule
+    }
+
+    /// Returns the signature that can be used as a pseudorandom value: None of the validators knew
+    /// its value before the other of the batch were decided.
+    ///
+    /// If the `random_value` option is `false` (default), this is `None`.
+    pub fn random_value(&self) -> Option<&Signature> {
+        self.random_value.as_ref()
     }
 }

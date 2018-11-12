@@ -21,7 +21,8 @@ use itertools::Itertools;
 use log::info;
 use rand::Rng;
 
-use hbbft::honey_badger::{Batch, HoneyBadger, MessageContent};
+use hbbft::crypto::Signature;
+use hbbft::honey_badger::{Batch, EncryptionSchedule, HoneyBadger, MessageContent};
 use hbbft::sender_queue::{self, SenderQueue, Step};
 use hbbft::transaction_queue::TransactionQueue;
 use hbbft::{threshold_decrypt, DistAlgorithm, NetworkInfo, Target, TargetedMessage};
@@ -163,17 +164,21 @@ fn verify_output_sequence<A>(network: &TestNetwork<A, UsizeHoneyBadger>)
 where
     A: Adversary<UsizeHoneyBadger>,
 {
-    let mut expected: Option<BTreeMap<&_, &_>> = None;
+    let mut expected: Option<BTreeMap<&_, (&_, &_)>> = None;
     for node in network.nodes.values() {
         assert!(!node.outputs().is_empty());
-        let outputs: BTreeMap<&u64, &BTreeMap<NodeId, Vec<usize>>> = node
+        let outputs: BTreeMap<&u64, (&BTreeMap<NodeId, Vec<usize>>, &Signature)> = node
             .outputs()
             .iter()
             .map(
                 |Batch {
                      epoch,
                      contributions,
-                 }| (epoch, contributions),
+                     random_value,
+                 }| {
+                    let random_value = random_value.as_ref().expect("missing random value");
+                    (epoch, (contributions, random_value))
+                },
             ).collect();
         if expected.is_none() {
             expected = Some(outputs);
@@ -194,7 +199,11 @@ fn new_honey_badger(
         .filter(|&&them| them != our_id)
         .cloned()
         .chain(iter::once(observer));
-    SenderQueue::builder(HoneyBadger::builder(netinfo).build(), peer_ids).build(our_id)
+    let hb = HoneyBadger::builder(netinfo)
+        .encryption_schedule(EncryptionSchedule::EveryNthEpoch(2))
+        .random_value(true)
+        .build();
+    SenderQueue::builder(hb, peer_ids).build(our_id)
 }
 
 fn test_honey_badger_different_sizes<A, F>(new_adversary: F, num_txs: usize)

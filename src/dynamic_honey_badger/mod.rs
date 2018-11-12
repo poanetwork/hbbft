@@ -79,8 +79,7 @@ use rand::Rand;
 use serde_derive::{Deserialize, Serialize};
 
 use self::votes::{SignedVote, VoteCounter};
-use super::threshold_decrypt::EncryptionSchedule;
-use honey_badger::Message as HbMessage;
+use honey_badger::{EncryptionSchedule, Message as HbMessage};
 use sync_key_gen::{Ack, Part, SyncKeyGen};
 use NodeIdT;
 
@@ -148,6 +147,8 @@ pub struct JoinPlan<N: Ord> {
     pub_keys: BTreeMap<N, PublicKey>,
     /// The current encryption schedule for threshold cryptography.
     encryption_schedule: EncryptionSchedule,
+    /// Whether to generate a pseudorandom value in each epoch.
+    random_value: bool,
 }
 
 /// The ongoing key generation, together with information about the validator change.
