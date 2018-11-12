@@ -30,11 +30,17 @@ init_with = "1.1.0"
 log = "0.4.1"
 rand = "0.4.2"
 rand_derive = "0.3.1"
-reed-solomon-erasure = "3.1.0"
 serde = "1.0.55"
 serde_derive = "1.0.55"
 threshold_crypto = "0.2.1"
 tiny-keccak = "1.4"
+
+[target.'cfg(android)'.dependencies.reed-solomon-erasure]
+version = "3.1.0"
+features = ["pure-rust"]
+
+[target.'cfg(not(android))'.dependencies.reed-solomon-erasure]
+version = "3.1.0"
 
 [dev-dependencies]
 colored = "1.6"
@@ -65,6 +71,4 @@ overflow-checks = true
 
 [features]
 use-insecure-test-only-mock-crypto = ["threshold_crypto/use-insecure-test-only-mock-crypto"]
-# TODO: Remove this feature once https://github.com/darrenldl/reed-solomon-erasure/issues/28 is
-#       resolved.
-no-simd = ["reed-solomon-erasure/pure-rust"]
+
