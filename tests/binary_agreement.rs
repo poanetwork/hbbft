@@ -15,11 +15,9 @@
 //! - Validity: If any correct node outputs `b`, then at least one correct node received `b` as
 //! input.
 
-extern crate env_logger;
 extern crate failure;
 extern crate hbbft;
 extern crate integer_sqrt;
-extern crate log;
 extern crate proptest;
 extern crate rand;
 extern crate threshold_crypto;
@@ -30,19 +28,53 @@ use std::iter::once;
 use std::sync::Arc;
 use std::time;
 
-use log::info;
-use rand::Rng;
+use proptest::{prelude::ProptestConfig, prop_compose, proptest, proptest_helper};
+use rand::{Rng, SeedableRng};
 
 use hbbft::binary_agreement::BinaryAgreement;
 use hbbft::DistAlgorithm;
 
 use net::adversary::ReorderingAdversary;
-use net::proptest::TestRng;
+use net::proptest::{gen_seed, NetworkDimension, TestRng, TestRngSeed};
 use net::{NetBuilder, NewNodeInfo, VirtualNet};
 
-type NodeId = usize;
+/// Test configuration for Binary Agreement tests.
+#[derive(Debug)]
+struct TestConfig {
+    /// The desired network dimension.
+    dimension: NetworkDimension,
+    /// Random number generator to be passed to subsystems.
+    seed: TestRngSeed,
+}
 
-impl VirtualNet<BinaryAgreement<NodeId, u8>> {
+prop_compose! {
+    /// Strategy to generate a test configuration.
+    fn arb_config()
+        (
+            dimension in NetworkDimension::range(1, 50),
+            seed in gen_seed()
+        ) -> TestConfig
+    {
+        TestConfig { dimension, seed }
+    }
+}
+
+/// Proptest wrapper for `binary_agreement`.
+proptest!{
+    #![proptest_config(ProptestConfig {
+        cases: 1, .. ProptestConfig::default()
+    })]
+    #[test]
+    #[cfg_attr(feature = "cargo-clippy", allow(unnecessary_operation))]
+    fn binary_agreement_wrapper(cfg in arb_config()) {
+        binary_agreement(cfg)
+    }
+}
+
+type NodeId = u16;
+type Algo = BinaryAgreement<NodeId, u8>;
+
+impl VirtualNet<Algo> {
     fn test_binary_agreement<R>(&mut self, input: Option<bool>, mut rng: R)
     where
         R: Rng + 'static,
@@ -71,44 +103,34 @@ impl VirtualNet<BinaryAgreement<NodeId, u8>> {
     }
 }
 
-fn test_binary_agreement_different_sizes() {
-    // FIXME: Seed the Rng.
-    let mut rng = rand::thread_rng();
-    let sizes = (1..6)
-        .chain(once(rng.gen_range(6, 20)))
-        .chain(once(rng.gen_range(30, 50)));
-    for size in sizes {
-        let num_faulty_nodes = (size - 1) / 3;
-        let num_good_nodes = size - num_faulty_nodes;
-        for &input in &[None, Some(false), Some(true)] {
-            info!(
-                "Test start: {} good nodes and {} faulty nodes, input: {:?}",
-                num_good_nodes, num_faulty_nodes, input
-            );
-            // Create a network with `size` validators and one observer.
-            let mut net: VirtualNet<_> = NetBuilder::new(0..size)
-                .num_faulty(num_faulty_nodes)
-                .message_limit(10_000 * size as usize)
-                .time_limit(time::Duration::from_secs(30 * size as u64))
-                .rng(rng.gen::<TestRng>())
-                .adversary(ReorderingAdversary::new(rng.gen::<TestRng>()))
-                .using(move |node_info: NewNodeInfo<_>| {
-                    BinaryAgreement::new(Arc::new(node_info.netinfo), 0)
-                        .expect("Failed to create a BinaryAgreement instance.")
-                }).build()
-                .expect("Could not construct test network.");
-            net.test_binary_agreement(input, rng.gen::<TestRng>());
-            info!(
-                "Test success: {} good nodes and {} faulty nodes, input: {:?}",
-                num_good_nodes, num_faulty_nodes, input
-            );
-        }
+/// Tests Binary Agreement on a given configuration with random inputs, with all `false` inputs and
+/// with all `true` inputs.
+fn binary_agreement(cfg: TestConfig) {
+    let mut rng: TestRng = TestRng::from_seed(cfg.seed);
+    let size = cfg.dimension.size();
+    let num_faulty_nodes = cfg.dimension.faulty();
+    let num_good_nodes = size - num_faulty_nodes;
+    for &input in &[None, Some(false), Some(true)] {
+        println!(
+            "Test start: {} good nodes and {} faulty nodes, input: {:?}",
+            num_good_nodes, num_faulty_nodes, input
+        );
+        // Create a network with `size` validators and one observer.
+        let mut net: VirtualNet<Algo> = NetBuilder::new(0..size as u16)
+            .num_faulty(num_faulty_nodes as usize)
+            .message_limit(10_000 * size as usize)
+            .time_limit(time::Duration::from_secs(30 * size as u64))
+            .rng(rng.gen::<TestRng>())
+            .adversary(ReorderingAdversary::new(rng.gen::<TestRng>()))
+            .using(move |node_info: NewNodeInfo<_>| {
+                BinaryAgreement::new(Arc::new(node_info.netinfo), 0)
+                    .expect("Failed to create a BinaryAgreement instance.")
+            }).build()
+            .expect("Could not construct test network.");
+        net.test_binary_agreement(input, rng.gen::<TestRng>());
+        println!(
+            "Test success: {} good nodes and {} faulty nodes, input: {:?}",
+            num_good_nodes, num_faulty_nodes, input
+        );
     }
-}
-
-/// Tests Binary Agreement with random inputs, all `false` inputs and all `true` inputs.
-#[test]
-fn binary_agreement() {
-    let _ = env_logger::try_init();
-    test_binary_agreement_different_sizes();
 }
