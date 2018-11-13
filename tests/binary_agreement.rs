@@ -105,6 +105,7 @@ impl VirtualNet<Algo> {
 
 /// Tests Binary Agreement on a given configuration with random inputs, with all `false` inputs and
 /// with all `true` inputs.
+#[cfg_attr(feature = "cargo-clippy", allow(needless_pass_by_value))]
 fn binary_agreement(cfg: TestConfig) {
     let mut rng: TestRng = TestRng::from_seed(cfg.seed);
     let size = cfg.dimension.size();
