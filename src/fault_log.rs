@@ -79,8 +79,8 @@ pub enum FaultKind {
 
 /// A structure representing the context of a faulty node. This structure
 /// describes which node is faulty (`node_id`) and which faulty behavior
-/// the node exhibited ('kind').
-#[derive(Debug, PartialEq)]
+/// that the node exhibited ('kind').
+#[derive(Clone, Debug, PartialEq)]
 pub struct Fault<N> {
     /// The faulty node's ID.
     pub node_id: N,
