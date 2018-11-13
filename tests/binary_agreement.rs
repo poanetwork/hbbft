@@ -1,10 +1,8 @@
 #![deny(unused_must_use)]
 //! Tests of the Binary Agreement protocol
 //!
-//! Each of the nodes in the simulated network runs only one instance of Binary Agreement for node
-//! `0`, the proposer. In real applications there would be multiple proposers in the
-//! network. However, having only one proposer allows to test correctness of the protocol rather
-//! than message dispatch between multiple proposers.
+//! Each of the nodes in the simulated network runs one instance of Binary Agreement. This suffices
+//! to test correctness of the protocol.
 //!
 //! There are three properties that are tested:
 //!
@@ -28,6 +26,7 @@ use std::iter::once;
 use std::sync::Arc;
 use std::time;
 
+use proptest::arbitrary::any;
 use proptest::{prelude::ProptestConfig, prop_compose, proptest, proptest_helper};
 use rand::{Rng, SeedableRng};
 
@@ -45,6 +44,12 @@ struct TestConfig {
     dimension: NetworkDimension,
     /// Random number generator to be passed to subsystems.
     seed: TestRngSeed,
+    /// Input to Binary Agreement instances that has the following meaning:
+    ///
+    /// - `Some(b)`: all instances receive `b` as input.
+    ///
+    /// - `None`: each instance receives a random `bool` as input.
+    input: Option<bool>,
 }
 
 prop_compose! {
@@ -52,21 +57,22 @@ prop_compose! {
     fn arb_config()
         (
             dimension in NetworkDimension::range(1, 50),
-            seed in gen_seed()
+            seed in gen_seed(),
+            input in any::<Option<bool>>(),
         ) -> TestConfig
     {
-        TestConfig { dimension, seed }
+        TestConfig { dimension, seed, input }
     }
 }
 
-/// Proptest wrapper for `binary_agreement`.
+/// Proptest wrapper for `binary_agreement` that runs the test function on generated configurations.
 proptest!{
     #![proptest_config(ProptestConfig {
         cases: 1, .. ProptestConfig::default()
     })]
     #[test]
     #[cfg_attr(feature = "cargo-clippy", allow(unnecessary_operation))]
-    fn binary_agreement_wrapper(cfg in arb_config()) {
+    fn run_binary_agreement(cfg in arb_config()) {
         binary_agreement(cfg)
     }
 }
@@ -103,35 +109,32 @@ impl VirtualNet<Algo> {
     }
 }
 
-/// Tests Binary Agreement on a given configuration with random inputs, with all `false` inputs and
-/// with all `true` inputs.
+/// Tests Binary Agreement on a given configuration.
 #[cfg_attr(feature = "cargo-clippy", allow(needless_pass_by_value))]
 fn binary_agreement(cfg: TestConfig) {
     let mut rng: TestRng = TestRng::from_seed(cfg.seed);
     let size = cfg.dimension.size();
     let num_faulty_nodes = cfg.dimension.faulty();
     let num_good_nodes = size - num_faulty_nodes;
-    for &input in &[None, Some(false), Some(true)] {
-        println!(
-            "Test start: {} good nodes and {} faulty nodes, input: {:?}",
-            num_good_nodes, num_faulty_nodes, input
-        );
-        // Create a network with `size` validators and one observer.
-        let mut net: VirtualNet<Algo> = NetBuilder::new(0..size as u16)
-            .num_faulty(num_faulty_nodes as usize)
-            .message_limit(10_000 * size as usize)
-            .time_limit(time::Duration::from_secs(30 * size as u64))
-            .rng(rng.gen::<TestRng>())
-            .adversary(ReorderingAdversary::new(rng.gen::<TestRng>()))
-            .using(move |node_info: NewNodeInfo<_>| {
-                BinaryAgreement::new(Arc::new(node_info.netinfo), 0)
-                    .expect("Failed to create a BinaryAgreement instance.")
-            }).build()
-            .expect("Could not construct test network.");
-        net.test_binary_agreement(input, rng.gen::<TestRng>());
-        println!(
-            "Test success: {} good nodes and {} faulty nodes, input: {:?}",
-            num_good_nodes, num_faulty_nodes, input
-        );
-    }
+    println!(
+        "Test start: {} good nodes and {} faulty nodes, input: {:?}",
+        num_good_nodes, num_faulty_nodes, cfg.input
+    );
+    // Create a network with `size` validators and one observer.
+    let mut net: VirtualNet<Algo> = NetBuilder::new(0..size as u16)
+        .num_faulty(num_faulty_nodes as usize)
+        .message_limit(10_000 * size as usize)
+        .time_limit(time::Duration::from_secs(30 * size as u64))
+        .rng(rng.gen::<TestRng>())
+        .adversary(ReorderingAdversary::new(rng.gen::<TestRng>()))
+        .using(move |node_info: NewNodeInfo<_>| {
+            BinaryAgreement::new(Arc::new(node_info.netinfo), 0)
+                .expect("Failed to create a BinaryAgreement instance.")
+        }).build()
+        .expect("Could not construct test network.");
+    net.test_binary_agreement(cfg.input, rng.gen::<TestRng>());
+    println!(
+        "Test success: {} good nodes and {} faulty nodes, input: {:?}",
+        num_good_nodes, num_faulty_nodes, cfg.input
+    );
 }
