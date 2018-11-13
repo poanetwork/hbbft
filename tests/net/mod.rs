@@ -270,7 +270,7 @@ where
         .store_step(step);
     // Verify that no correct node is reported as faulty.
     for fault in &step.fault_log.0 {
-        if nodes.contains_key(&fault.node_id) {
+        if nodes.get(&fault.node_id).map(|n| !n.is_faulty()) == Some(true) {
             panic!("Unexpected fault: {:?}", fault);
         }
     }
