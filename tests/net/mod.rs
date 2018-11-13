@@ -26,7 +26,7 @@ use threshold_crypto as crypto;
 
 use hbbft::dynamic_honey_badger::Batch;
 use hbbft::util::SubRng;
-use hbbft::{self, Contribution, DaStep, DistAlgorithm, NetworkInfo, NodeIdT, Step};
+use hbbft::{self, Contribution, DaStep, DistAlgorithm, Fault, NetworkInfo, NodeIdT, Step};
 
 use try_some;
 
@@ -73,6 +73,8 @@ pub struct Node<D: DistAlgorithm> {
     is_faulty: bool,
     /// Captured algorithm outputs, in order.
     outputs: Vec<D::Output>,
+    /// Collected fault log.
+    faults: Vec<Fault<D::NodeId>>,
 }
 
 impl<D> fmt::Debug for Node<D>
@@ -96,6 +98,7 @@ impl<D: DistAlgorithm> Node<D> {
             algorithm,
             is_faulty,
             outputs: Vec::new(),
+            faults: Vec::new(),
         }
     }
 
@@ -131,6 +134,23 @@ impl<D: DistAlgorithm> Node<D> {
     #[inline]
     pub fn outputs(&self) -> &[D::Output] {
         self.outputs.as_slice()
+    }
+
+    /// List faults so far.
+    ///
+    /// All faults are collected for reference purposes.
+    #[inline]
+    pub fn faults(&self) -> &[Fault<D::NodeId>] {
+        self.faults.as_slice()
+    }
+
+    /// Collects all outputs and faults (not required for network operation) for user convenience.
+    fn store_step(&mut self, step: &DaStep<D>)
+    where
+        D::Output: Clone,
+    {
+        self.outputs.extend(step.output.iter().cloned());
+        self.faults.extend(step.fault_log.0.iter().cloned());
     }
 }
 
@@ -244,12 +264,16 @@ where
         }
     }
 
-    // Collect all outputs (not required for network operation) as a convenience for the user.
     nodes
         .get_mut(&sender)
         .expect("Trying to process a step with non-existing node ID")
-        .outputs
-        .extend(step.output.iter().cloned());
+        .store_step(step);
+    // Verify that no correct node is reported as faulty.
+    for fault in &step.fault_log.0 {
+        if nodes.contains_key(&fault.node_id) {
+            panic!("Unexpected fault: {:?}", fault);
+        }
+    }
 
     message_count
 }
