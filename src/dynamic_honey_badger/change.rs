@@ -8,7 +8,9 @@ use super::EncryptionSchedule;
 /// A node change action: adding or removing a node.
 #[derive(Clone, Eq, PartialEq, Serialize, Deserialize, Hash, Debug)]
 pub enum Change<N: Ord> {
-    /// Add or remove node from the set of validators. Contains the full new set of validators.
+    /// Change the set of validators to the one in the provided map. There are no restrictions on
+    /// the new set of validators. In particular, it can be disjoint with the current set of
+    /// validators.
     NodeChange(BTreeMap<N, PublicKey>),
     /// Change the threshold encryption schedule.
     /// Increase frequency to prevent censorship or decrease frequency for increased throughput.

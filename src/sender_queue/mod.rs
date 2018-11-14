@@ -41,9 +41,9 @@ pub trait SenderQueueableOutput<N, M>
 where
     N: NodeIdT,
 {
-    /// Returns the new set of validator that this batch is starting key generation for, including
-    /// the existing ones. These should be added to the set of all nodes.
-    fn new_nodes(&self) -> Vec<N>;
+    /// Returns the new set of validator that this batch is starting or completing key generation
+    /// for, including the existing ones. These should be added to the set of all nodes.
+    fn added_peers(&self) -> Vec<N>;
 }
 
 pub trait SenderQueueableDistAlgorithm: Epoched + DistAlgorithm {
@@ -206,7 +206,7 @@ where
             return Step::<D>::default();
         }
         // Look up `DynamicHoneyBadger` epoch updates and collect any added peers.
-        for node in step.output.iter().flat_map(|batch| batch.new_nodes()) {
+        for node in step.output.iter().flat_map(|batch| batch.added_peers()) {
             if &node != self.our_id() {
                 self.peer_epochs.entry(node).or_default();
             }

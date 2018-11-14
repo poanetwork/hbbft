@@ -20,7 +20,7 @@ where
     C: Contribution,
     N: NodeIdT + Rand,
 {
-    fn new_nodes(&self) -> Vec<N> {
+    fn added_peers(&self) -> Vec<N> {
         if let ChangeState::InProgress(Change::NodeChange(pub_keys)) = self.change() {
             // Register the new node to send broadcast messages to it from now on.
             pub_keys.keys().cloned().collect()
