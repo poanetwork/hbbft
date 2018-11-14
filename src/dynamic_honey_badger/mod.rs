@@ -85,7 +85,7 @@ use NodeIdT;
 
 pub use self::batch::Batch;
 pub use self::builder::DynamicHoneyBadgerBuilder;
-pub use self::change::{Change, ChangeState, NodeChange};
+pub use self::change::{Change, ChangeState};
 pub use self::dynamic_honey_badger::DynamicHoneyBadger;
 pub use self::error::{Error, ErrorKind, Result};
 
@@ -93,7 +93,7 @@ pub type Step<C, N> = ::DaStep<DynamicHoneyBadger<C, N>>;
 
 /// The user input for `DynamicHoneyBadger`.
 #[derive(Clone, Debug)]
-pub enum Input<C, N> {
+pub enum Input<C, N: Ord> {
     /// A user-defined contribution for the next epoch.
     User(C),
     /// A vote to change the set of validators.
@@ -113,7 +113,7 @@ pub enum KeyGenMessage {
 
 /// A message sent to or received from another node's Honey Badger instance.
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub enum Message<N: Rand> {
+pub enum Message<N: Rand + Ord> {
     /// A message belonging to the `HoneyBadger` algorithm started in the given epoch.
     HoneyBadger(u64, HbMessage<N>),
     /// A transaction to be committed, signed by a node.
@@ -122,7 +122,7 @@ pub enum Message<N: Rand> {
     SignedVote(SignedVote<N>),
 }
 
-impl<N: Rand> Message<N> {
+impl<N: Rand + Ord> Message<N> {
     fn era(&self) -> u64 {
         match *self {
             Message::HoneyBadger(era, _) => era,
@@ -153,38 +153,31 @@ pub struct JoinPlan<N: Ord> {
 
 /// The ongoing key generation, together with information about the validator change.
 #[derive(Debug)]
-struct KeyGenState<N> {
+struct KeyGenState<N: Ord> {
     /// The key generation instance.
     key_gen: SyncKeyGen<N>,
-    /// The change for which key generation is performed.
-    change: NodeChange<N>,
     /// The number of key generation messages received from each peer. At most _N + 1_ are
     /// accepted.
     msg_count: BTreeMap<N, usize>,
 }
 
 impl<N: NodeIdT> KeyGenState<N> {
-    fn new(key_gen: SyncKeyGen<N>, change: NodeChange<N>) -> Self {
+    fn new(key_gen: SyncKeyGen<N>) -> Self {
         KeyGenState {
             key_gen,
-            change,
             msg_count: BTreeMap::new(),
         }
     }
 
-    /// Returns `true` if the candidate's, if any, as well as enough validators' key generation
-    /// parts have been completed.
+    /// Returns `true` if enough validators' key generation parts have been completed.
     fn is_ready(&self) -> bool {
-        let candidate_ready = |id: &N| self.key_gen.is_node_ready(id);
-        self.key_gen.is_ready() && self.change.candidate().map_or(true, candidate_ready)
+        let kg = &self.key_gen;
+        kg.is_ready() && kg.count_complete() * 3 > 2 * kg.public_keys().len()
     }
 
-    /// If the node `node_id` is the currently joining candidate, returns its public key.
-    fn candidate_key(&self, node_id: &N) -> Option<&PublicKey> {
-        match self.change {
-            NodeChange::Add(ref id, ref pk) if id == node_id => Some(pk),
-            NodeChange::Add(_, _) | NodeChange::Remove(_) => None,
-        }
+    /// Returns the map of new validators and their public keys.
+    fn public_keys(&self) -> &BTreeMap<N, PublicKey> {
+        self.key_gen.public_keys()
     }
 
     /// Increments the message count for the given node, and returns the new count.
@@ -198,7 +191,7 @@ impl<N: NodeIdT> KeyGenState<N> {
 /// The contribution for the internal `HoneyBadger` instance: this includes a user-defined
 /// application-level contribution as well as internal signed messages.
 #[derive(Clone, Eq, PartialEq, Debug, Serialize, Deserialize, Hash)]
-struct InternalContrib<C, N> {
+struct InternalContrib<C, N: Ord> {
     /// A user-defined contribution.
     contrib: C,
     /// Key generation messages that get committed via Honey Badger to communicate synchronously.

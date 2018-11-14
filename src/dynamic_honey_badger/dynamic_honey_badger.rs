@@ -5,15 +5,14 @@ use std::{fmt, result};
 use bincode;
 use crypto::{PublicKey, Signature};
 use derivative::Derivative;
-use log::{debug, warn};
+use log::debug;
 use rand::{self, Rand};
 use serde::{de::DeserializeOwned, Serialize};
 
 use super::votes::{SignedVote, VoteCounter};
 use super::{
     Batch, Change, ChangeState, DynamicHoneyBadgerBuilder, EncryptionSchedule, Error, ErrorKind,
-    Input, InternalContrib, KeyGenMessage, KeyGenState, Message, NodeChange, Result,
-    SignedKeyGenMsg, Step,
+    Input, InternalContrib, KeyGenMessage, KeyGenState, Message, Result, SignedKeyGenMsg, Step,
 };
 use fault_log::{Fault, FaultKind, FaultLog};
 use honey_badger::{self, HoneyBadger, Message as HbMessage};
@@ -25,7 +24,7 @@ use {Contribution, DistAlgorithm, Epoched, NetworkInfo, NodeIdT, Target};
 /// A Honey Badger instance that can handle adding and removing nodes.
 #[derive(Derivative)]
 #[derivative(Debug)]
-pub struct DynamicHoneyBadger<C, N: Rand> {
+pub struct DynamicHoneyBadger<C, N: Rand + Ord> {
     /// Shared network data.
     pub(super) netinfo: NetworkInfo<N>,
     /// The maximum number of future epochs for which we handle messages simultaneously.
@@ -135,15 +134,19 @@ where
     /// This stores a pending vote for the change. It will be included in some future batch, and
     /// once enough validators have been voted for the same change, it will take effect.
     pub fn vote_to_add(&mut self, node_id: N, pub_key: PublicKey) -> Result<Step<C, N>> {
-        self.vote_for(Change::NodeChange(NodeChange::Add(node_id, pub_key)))
+        let mut pub_keys = self.netinfo.public_key_map().clone();
+        pub_keys.insert(node_id, pub_key);
+        self.vote_for(Change::NodeChange(pub_keys))
     }
 
     /// Casts a vote to demote a validator to observer.
     ///
     /// This stores a pending vote for the change. It will be included in some future batch, and
     /// once enough validators have been voted for the same change, it will take effect.
-    pub fn vote_to_remove(&mut self, node_id: N) -> Result<Step<C, N>> {
-        self.vote_for(Change::NodeChange(NodeChange::Remove(node_id)))
+    pub fn vote_to_remove(&mut self, node_id: &N) -> Result<Step<C, N>> {
+        let mut pub_keys = self.netinfo.public_key_map().clone();
+        pub_keys.remove(node_id);
+        self.vote_for(Change::NodeChange(pub_keys))
     }
 
     /// Handles a message received from `sender_id`.
@@ -193,15 +196,8 @@ where
         if self.vote_counter.pending_votes().any(is_our_vote) {
             return true; // We have pending input to vote for a validator change.
         }
-        let kgs = match self.key_gen_state {
-            None => return false, // No ongoing key generation.
-            Some(ref kgs) => kgs,
-        };
-        // If either we or the candidate have a pending key gen message, we should propose.
-        let ours_or_candidates = |msg: &SignedKeyGenMsg<_>| {
-            msg.1 == *self.our_id() || Some(&msg.1) == kgs.change.candidate()
-        };
-        self.key_gen_msg_buffer.iter().any(ours_or_candidates)
+        // If we have a pending key gen message, we should propose.
+        !self.key_gen_msg_buffer.is_empty()
     }
 
     /// Handles a message for the `HoneyBadger` instance.
@@ -293,16 +289,18 @@ where
             }
             let change = if let Some(kgs) = self.take_ready_key_gen() {
                 // If DKG completed, apply the change, restart Honey Badger, and inform the user.
-                debug!("{}: DKG for {:?} complete!", self, kgs.change);
+                debug!("{}: DKG for complete for: {:?}", self, kgs.public_keys());
                 self.netinfo = kgs.key_gen.into_network_info()?;
                 self.restart_honey_badger(batch_epoch + 1, None);
-                ChangeState::Complete(Change::NodeChange(kgs.change))
+                ChangeState::Complete(Change::NodeChange(self.netinfo.public_key_map().clone()))
             } else if let Some(change) = self.vote_counter.compute_winner().cloned() {
                 // If there is a new change, restart DKG. Inform the user about the current change.
-                step.extend(match &change {
-                    Change::NodeChange(change) => self.update_key_gen(batch_epoch + 1, &change)?,
+                step.extend(match change {
+                    Change::NodeChange(ref pub_keys) => {
+                        self.update_key_gen(batch_epoch + 1, pub_keys)?
+                    }
                     Change::EncryptionSchedule(schedule) => {
-                        self.update_encryption_schedule(batch_epoch + 1, *schedule)?
+                        self.update_encryption_schedule(batch_epoch + 1, schedule)?
                     }
                 });
                 match change {
@@ -339,28 +337,21 @@ where
     pub(super) fn update_key_gen(
         &mut self,
         era: u64,
-        change: &NodeChange<N>,
+        pub_keys: &BTreeMap<N, PublicKey>,
     ) -> Result<Step<C, N>> {
-        if self.key_gen_state.as_ref().map(|kgs| &kgs.change) == Some(change) {
+        if self.key_gen_state.as_ref().map(KeyGenState::public_keys) == Some(pub_keys) {
             return Ok(Step::default()); // The change is the same as before. Continue DKG as is.
         }
-        debug!("{}: Restarting DKG for {:?}.", self, change);
-        // Use the existing key shares - with the change applied - as keys for DKG.
-        let mut pub_keys = self.netinfo.public_key_map().clone();
-        if match *change {
-            NodeChange::Remove(ref id) => pub_keys.remove(id).is_none(),
-            NodeChange::Add(ref id, ref pk) => pub_keys.insert(id.clone(), pk.clone()).is_some(),
-        } {
-            warn!("{}: No-op change: {:?}", self, change);
-        }
+        debug!("{}: Restarting DKG for {:?}.", self, pub_keys);
         self.restart_honey_badger(era, None);
         // TODO: This needs to be the same as `num_faulty` will be in the _new_
         // `NetworkInfo` if the change goes through. It would be safer to deduplicate.
         let threshold = (pub_keys.len() - 1) / 3;
         let sk = self.netinfo.secret_key().clone();
         let our_id = self.our_id().clone();
-        let (key_gen, part) = SyncKeyGen::new(&mut self.rng, our_id, sk, pub_keys, threshold)?;
-        self.key_gen_state = Some(KeyGenState::new(key_gen, change.clone()));
+        let (key_gen, part) =
+            SyncKeyGen::new(&mut self.rng, our_id, sk, pub_keys.clone(), threshold)?;
+        self.key_gen_state = Some(KeyGenState::new(key_gen));
         if let Some(part) = part {
             self.send_transaction(KeyGenMessage::Part(part))
         } else {
@@ -460,7 +451,7 @@ where
     /// Returns `true` if the signature of `kg_msg` by the node with the specified ID is valid.
     /// Returns an error if the payload fails to serialize.
     ///
-    /// This accepts signatures from both validators and the currently joining candidate, if any.
+    /// This accepts signatures from both validators and currently joining candidates, if any.
     fn verify_signature(
         &self,
         node_id: &N,
@@ -469,13 +460,11 @@ where
     ) -> Result<bool> {
         let ser =
             bincode::serialize(kg_msg).map_err(|err| ErrorKind::VerifySignatureBincode(*err))?;
-        let get_candidate_key = || {
-            self.key_gen_state
-                .as_ref()
-                .and_then(|kgs| kgs.candidate_key(node_id))
-        };
-        let pk_opt = self.netinfo.public_key(node_id).or_else(get_candidate_key);
-        Ok(pk_opt.map_or(false, |pk| pk.verify(&sig, ser)))
+        let verify = |opt_pk: Option<&PublicKey>| opt_pk.map_or(false, |pk| pk.verify(&sig, &ser));
+        let kgs = self.key_gen_state.as_ref();
+        let current_key = self.netinfo.public_key(node_id);
+        let candidate_key = kgs.and_then(|kgs| kgs.public_keys().get(node_id));
+        Ok(verify(current_key) || verify(candidate_key))
     }
 
     /// Returns the maximum future epochs of the Honey Badger algorithm instance.

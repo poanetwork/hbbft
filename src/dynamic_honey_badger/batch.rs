@@ -9,7 +9,7 @@ use {NetworkInfo, NodeIdT};
 
 /// A batch of transactions the algorithm has output.
 #[derive(Clone, Debug)]
-pub struct Batch<C, N> {
+pub struct Batch<C, N: Ord> {
     /// The sequence number: there is exactly one batch in each epoch.
     pub(super) epoch: u64,
     /// The current `DynamicHoneyBadger` era.

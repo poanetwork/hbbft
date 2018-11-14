@@ -34,9 +34,9 @@ use serde::{de::DeserializeOwned, Serialize};
 
 use dynamic_honey_badger::{self, Batch as DhbBatch, DynamicHoneyBadger, Message};
 use transaction_queue::TransactionQueue;
-use {util, Contribution, DistAlgorithm, NodeIdT};
+use {util, Contribution, DistAlgorithm, NetworkInfo, NodeIdT};
 
-pub use dynamic_honey_badger::{Change, ChangeState, Input, NodeChange};
+pub use dynamic_honey_badger::{Change, ChangeState, Input};
 
 /// Queueing honey badger error variants.
 #[derive(Debug, Fail)]
@@ -95,7 +95,7 @@ pub type Result<T> = ::std::result::Result<T, Error>;
 
 /// A Queueing Honey Badger builder, to configure the parameters and create new instances of
 /// `QueueingHoneyBadger`.
-pub struct QueueingHoneyBadgerBuilder<T, N: Rand, Q> {
+pub struct QueueingHoneyBadgerBuilder<T, N: Rand + Ord, Q> {
     /// Shared network data.
     dyn_hb: DynamicHoneyBadger<Vec<T>, N>,
     /// The target number of transactions to be included in each batch.
@@ -175,7 +175,7 @@ where
 /// queue.
 #[derive(Derivative)]
 #[derivative(Debug)]
-pub struct QueueingHoneyBadger<T, N: Rand, Q> {
+pub struct QueueingHoneyBadger<T, N: Rand + Ord, Q> {
     /// The target number of transactions to be included in each batch.
     batch_size: usize,
     /// The internal managed `DynamicHoneyBadger` instance.
@@ -253,11 +253,7 @@ where
     /// This stores a pending vote for the change. It will be included in some future batch, and
     /// once enough validators have been voted for the same change, it will take effect.
     pub fn vote_for(&mut self, change: Change<N>) -> Result<Step<T, N>> {
-        Ok(self
-            .dyn_hb
-            .handle_input(Input::Change(change))
-            .map_err(ErrorKind::Input)?
-            .join(self.propose()?))
+        self.apply(|dyn_hb| dyn_hb.vote_for(change))
     }
 
     /// Casts a vote to add a node as a validator.
@@ -265,34 +261,43 @@ where
     /// This stores a pending vote for the change. It will be included in some future batch, and
     /// once enough validators have been voted for the same change, it will take effect.
     pub fn vote_to_add(&mut self, node_id: N, pub_key: PublicKey) -> Result<Step<T, N>> {
-        self.vote_for(Change::NodeChange(NodeChange::Add(node_id, pub_key)))
+        self.apply(|dyn_hb| dyn_hb.vote_to_add(node_id, pub_key))
     }
 
     /// Casts a vote to demote a validator to observer.
     ///
     /// This stores a pending vote for the change. It will be included in some future batch, and
     /// once enough validators have been voted for the same change, it will take effect.
-    pub fn vote_to_remove(&mut self, node_id: N) -> Result<Step<T, N>> {
-        self.vote_for(Change::NodeChange(NodeChange::Remove(node_id)))
+    pub fn vote_to_remove(&mut self, node_id: &N) -> Result<Step<T, N>> {
+        self.apply(|dyn_hb| dyn_hb.vote_to_remove(node_id))
     }
 
     /// Handles a message received from `sender_id`.
     ///
     /// This must be called with every message we receive from another node.
     pub fn handle_message(&mut self, sender_id: &N, message: Message<N>) -> Result<Step<T, N>> {
-        let step = self
-            .dyn_hb
-            .handle_message(sender_id, message)
-            .map_err(ErrorKind::HandleMessage)?;
-        for batch in &step.output {
-            self.queue.remove_multiple(batch.iter());
-        }
-        Ok(step.join(self.propose()?))
+        self.apply(|dyn_hb| dyn_hb.handle_message(sender_id, message))
     }
 
     /// Returns a reference to the internal managed `DynamicHoneyBadger` instance.
     pub fn dyn_hb(&self) -> &DynamicHoneyBadger<Vec<T>, N> {
         &self.dyn_hb
+    }
+
+    /// Returns the information about the node IDs in the network, and the cryptographic keys.
+    pub fn netinfo(&self) -> &NetworkInfo<N> {
+        self.dyn_hb.netinfo()
+    }
+
+    /// Applies a function `f` to the `DynamicHoneyBadger` instance and processes the step.
+    fn apply<F>(&mut self, f: F) -> Result<Step<T, N>>
+    where
+        F: FnOnce(&mut DynamicHoneyBadger<Vec<T>, N>) -> dynamic_honey_badger::Result<Step<T, N>>,
+    {
+        let step = f(&mut self.dyn_hb).map_err(ErrorKind::Input)?;
+        self.queue
+            .remove_multiple(step.output.iter().flat_map(Batch::iter));
+        Ok(step.join(self.propose()?))
     }
 
     /// Returns `true` if we are ready to propose our contribution for the next epoch, i.e. if the

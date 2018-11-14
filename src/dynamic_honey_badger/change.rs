@@ -1,49 +1,23 @@
+use std::collections::BTreeMap;
+
 use crypto::PublicKey;
 use serde_derive::{Deserialize, Serialize};
 
 use super::EncryptionSchedule;
 
-#[derive(Clone, Copy, Eq, PartialEq, Serialize, Deserialize, Hash, Debug)]
-pub enum NodeChange<N> {
-    /// Add a node. The public key is used only temporarily, for key generation.
-    Add(N, PublicKey),
-    /// Remove a node.
-    Remove(N),
-}
-
-impl<N> NodeChange<N> {
-    /// Returns the ID of the current candidate for being added, if any.
-    pub fn candidate(&self) -> Option<&N> {
-        match *self {
-            NodeChange::Add(ref id, _) => Some(id),
-            NodeChange::Remove(_) => None,
-        }
-    }
-}
-
 /// A node change action: adding or removing a node.
 #[derive(Clone, Eq, PartialEq, Serialize, Deserialize, Hash, Debug)]
-pub enum Change<N> {
-    // Add or Remove a node from the set of validators
-    NodeChange(NodeChange<N>),
+pub enum Change<N: Ord> {
+    /// Add or remove node from the set of validators. Contains the full new set of validators.
+    NodeChange(BTreeMap<N, PublicKey>),
     /// Change the threshold encryption schedule.
     /// Increase frequency to prevent censorship or decrease frequency for increased throughput.
     EncryptionSchedule(EncryptionSchedule),
 }
 
-impl<N> Change<N> {
-    /// Returns the ID of the current candidate for being added, if any.
-    pub fn candidate(&self) -> Option<&N> {
-        match self {
-            Change::NodeChange(node_change) => node_change.candidate(),
-            _ => None,
-        }
-    }
-}
-
 /// A change status: whether a change to the network is currently in progress or completed.
 #[derive(Clone, Eq, PartialEq, Serialize, Deserialize, Hash, Debug)]
-pub enum ChangeState<N> {
+pub enum ChangeState<N: Ord> {
     /// No change is currently being considered.
     None,
     /// A change is currently in progress. If it is a node addition, all broadcast messages must be
