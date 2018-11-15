@@ -6,9 +6,11 @@ use crypto::Signature;
 use serde::Serialize;
 use serde_derive::{Deserialize, Serialize};
 
-use super::{Change, ErrorKind, Result};
-use fault_log::{FaultKind, FaultLog};
+use super::{Change, ErrorKind, FaultKind, Result};
+use fault_log;
 use {NetworkInfo, NodeIdT};
+
+pub type FaultLog<N> = fault_log::FaultLog<N, FaultKind>;
 
 /// A buffer and counter collecting pending and committed votes for validator set changes.
 ///
@@ -190,8 +192,8 @@ mod tests {
     use std::sync::Arc;
 
     use super::super::NodeChange;
-    use super::{Change, SignedVote, VoteCounter};
-    use fault_log::{FaultKind, FaultLog};
+    use super::{Change, FaultKind, SignedVote, VoteCounter};
+    use fault_log::FaultLog;
     use rand;
     use NetworkInfo;
 

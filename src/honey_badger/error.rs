@@ -3,6 +3,7 @@ use std::fmt::{self, Display, Formatter};
 use bincode;
 use failure::{Backtrace, Context, Fail};
 
+use fault_log;
 use subset;
 use threshold_decrypt;
 use threshold_sign;
@@ -73,3 +74,29 @@ impl Display for Error {
 }
 
 pub type Result<T> = ::std::result::Result<T, Error>;
+
+/// Faults detectable from receiving honey badger messages
+#[derive(Debug, Fail, PartialEq)]
+pub enum FaultKind {
+    #[fail(display = "`HoneyBadger` received a decryption share for an unaccepted proposer.")]
+    UnexpectedDecryptionShare,
+    #[fail(display = "`HoneyBadger` was unable to deserialize a proposer's ciphertext.")]
+    DeserializeCiphertext,
+    #[fail(display = "`HoneyBadger` received an invalid ciphertext from the proposer.")]
+    InvalidCiphertext,
+    #[fail(display = "`HoneyBadger` received a message with an invalid epoch.")]
+    UnexpectedHbMessageEpoch,
+    #[fail(
+        display = "`HoneyBadger` could not deserialize bytes (i.e. a serialized Batch) from a
+                    given proposer into a vector of transactions."
+    )]
+    BatchDeserializationFailed,
+    #[fail(display = "`HoneyBadger` received a fault from `Subset`.")]
+    SubsetFault(subset::FaultKind),
+    #[fail(display = "`HoneyBadger` received a fault from `ThresholdDecrypt`.")]
+    DecryptionFault(threshold_decrypt::FaultKind),
+    #[fail(display = "`HoneyBadger` received a fault from `ThresholdSign`.")]
+    SigningFault(threshold_sign::FaultKind),
+}
+
+pub type FaultLog<N> = fault_log::FaultLog<N, FaultKind>;

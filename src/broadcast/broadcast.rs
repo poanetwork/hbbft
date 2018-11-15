@@ -10,8 +10,8 @@ use reed_solomon_erasure::ReedSolomon;
 
 use super::merkle::{Digest, MerkleTree, Proof};
 use super::message::HexProof;
-use super::{Error, Message, Result};
-use fault_log::{Fault, FaultKind};
+use super::{Error, FaultKind, Message, Result};
+use fault_log::Fault;
 use {DistAlgorithm, NetworkInfo, NodeIdT, Target};
 
 /// Broadcast algorithm instance.
@@ -45,6 +45,7 @@ impl<N: NodeIdT> DistAlgorithm for Broadcast<N> {
     type Output = Self::Input;
     type Message = Message;
     type Error = Error;
+    type FaultKind = FaultKind;
 
     fn handle_input(&mut self, input: Self::Input) -> Result<Step<N>> {
         self.broadcast(input)

@@ -16,11 +16,11 @@ use serde_derive::{Deserialize, Serialize};
 
 use super::bool_multimap::BoolMultimap;
 use super::bool_set::{self, BoolSet};
-use super::Result;
-use fault_log::{Fault, FaultKind};
+use super::{FaultKind, Result};
+use fault_log::Fault;
 use {NetworkInfo, NodeIdT, Target};
 
-pub type Step<N> = ::Step<Message, BoolSet, N>;
+pub type Step<N> = ::Step<Message, BoolSet, N, FaultKind>;
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, PartialOrd, Eq, Ord)]
 pub enum Message {

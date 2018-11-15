@@ -19,7 +19,7 @@ use failure::Fail;
 use rand_derive::Rand;
 use serde_derive::{Deserialize, Serialize};
 
-use fault_log::{Fault, FaultKind, FaultLog};
+use fault_log::{self, Fault};
 use {DistAlgorithm, NetworkInfo, NodeIdT, Target};
 
 /// A threshold decryption error.
@@ -39,6 +39,17 @@ pub enum Error {
 
 /// A threshold decryption result.
 pub type Result<T> = ::std::result::Result<T, Error>;
+
+/// A threshold decryption message fault
+#[derive(Debug, Fail, PartialEq)]
+pub enum FaultKind {
+    #[fail(display = "`ThresholdDecrypt` received multiple shares from the same sender.")]
+    MultipleDecryptionShares,
+    #[fail(display = "`HoneyBadger` received a decryption share from an unverified sender.")]
+    UnverifiedDecryptionShareSender,
+}
+
+pub type FaultLog<N> = fault_log::FaultLog<N, FaultKind>;
 
 /// A Threshold Decryption message.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Rand)]
@@ -67,6 +78,7 @@ impl<N: NodeIdT> DistAlgorithm for ThresholdDecrypt<N> {
     type Output = Vec<u8>;
     type Message = Message;
     type Error = Error;
+    type FaultKind = FaultKind;
 
     fn handle_input(&mut self, _input: ()) -> Result<Step<N>> {
         self.start_decryption()

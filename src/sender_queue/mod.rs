@@ -93,6 +93,7 @@ where
     type Output = D::Output;
     type Message = Message<D::Message>;
     type Error = D::Error;
+    type FaultKind = D::FaultKind;
 
     fn handle_input(&mut self, input: Self::Input) -> Result<DaStep<Self>, D::Error> {
         self.handle_input(input)
@@ -155,7 +156,7 @@ where
         let mut step = f(&mut self.algo)?;
         let mut sender_queue_step = self.update_epoch(&step);
         self.defer_messages(&mut step);
-        sender_queue_step.extend(step.map(|output| output, Message::from));
+        sender_queue_step.extend(step.map(|output| output, |fault| fault, Message::from));
         Ok(sender_queue_step)
     }
 

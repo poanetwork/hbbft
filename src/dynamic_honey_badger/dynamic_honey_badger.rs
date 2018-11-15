@@ -12,10 +12,10 @@ use serde::{de::DeserializeOwned, Serialize};
 use super::votes::{SignedVote, VoteCounter};
 use super::{
     Batch, Change, ChangeState, DynamicHoneyBadgerBuilder, EncryptionSchedule, Error, ErrorKind,
-    Input, InternalContrib, KeyGenMessage, KeyGenState, Message, NodeChange, Result,
+    FaultKind, Input, InternalContrib, KeyGenMessage, KeyGenState, Message, NodeChange, Result,
     SignedKeyGenMsg, Step,
 };
-use fault_log::{Fault, FaultKind, FaultLog};
+use fault_log::{Fault, FaultLog};
 use honey_badger::{self, HoneyBadger, Message as HbMessage};
 
 use sync_key_gen::{Ack, AckOutcome, Part, PartOutcome, SyncKeyGen};
@@ -56,6 +56,7 @@ where
     type Output = Batch<C, N>;
     type Message = Message<N>;
     type Error = Error;
+    type FaultKind = FaultKind;
 
     fn handle_input(&mut self, input: Self::Input) -> Result<Step<C, N>> {
         // User contributions are forwarded to `HoneyBadger` right away. Votes are signed and
@@ -228,7 +229,7 @@ where
         sender_id: &N,
         kg_msg: KeyGenMessage,
         sig: Signature,
-    ) -> Result<FaultLog<N>> {
+    ) -> Result<FaultLog<N, FaultKind>> {
         if !self.verify_signature(sender_id, &sig, &kg_msg)? {
             let fault_kind = FaultKind::InvalidKeyGenMessageSignature;
             return Ok(Fault::new(sender_id.clone(), fault_kind).into());
@@ -258,7 +259,12 @@ where
         hb_step: honey_badger::Step<InternalContrib<C, N>, N>,
     ) -> Result<Step<C, N>> {
         let mut step: Step<C, N> = Step::default();
-        let output = step.extend_with(hb_step, |hb_msg| Message::HoneyBadger(self.era, hb_msg));
+        let to_fault = |hb_fault: Fault<N, honey_badger::FaultKind>| {
+            Fault::new(hb_fault.node_id, FaultKind::HbFault(hb_fault.kind))
+        };
+        let output = step.extend_with(hb_step, to_fault, |hb_msg| {
+            Message::HoneyBadger(self.era, hb_msg)
+        });
         for hb_batch in output {
             let batch_era = self.era;
             let batch_epoch = hb_batch.epoch + batch_era;

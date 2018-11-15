@@ -113,7 +113,7 @@ fn new_queueing_hb(
     let rng = rand::thread_rng().gen::<Isaac64Rng>();
     let (qhb, qhb_step) = QueueingHoneyBadger::builder(dhb).batch_size(3).build(rng);
     let (sq, mut step) = SenderQueue::builder(qhb, peer_ids).build(our_id);
-    step.extend_with(qhb_step, Message::from);
+    step.extend_with(qhb_step, |fault| fault, Message::from);
     (sq, step)
 }
 

@@ -56,13 +56,16 @@ impl<E> EpochT for E where E: Copy + Message + Default + Eq + Ord + Serialize + 
 /// catch it, instead of potentially stalling the algorithm.
 #[must_use = "The algorithm step result must be used."]
 #[derive(Debug)]
-pub struct Step<M, O, N> {
+pub struct Step<M, O, N, F: Fail> {
     pub output: Vec<O>,
-    pub fault_log: FaultLog<N>,
+    pub fault_log: FaultLog<N, F>,
     pub messages: Vec<TargetedMessage<M, N>>,
 }
 
-impl<M, O, N> Default for Step<M, O, N> {
+impl<M, O, N, F> Default for Step<M, O, N, F>
+where
+    F: Fail,
+{
     fn default() -> Self {
         Step {
             output: Vec::default(),
@@ -72,11 +75,14 @@ impl<M, O, N> Default for Step<M, O, N> {
     }
 }
 
-impl<M, O, N> Step<M, O, N> {
+impl<M, O, N, F> Step<M, O, N, F>
+where
+    F: Fail,
+{
     /// Creates a new `Step` from the given collections.
     pub fn new(
         output: Vec<O>,
-        fault_log: FaultLog<N>,
+        fault_log: FaultLog<N, F>,
         messages: Vec<TargetedMessage<M, N>>,
     ) -> Self {
         Step {
@@ -92,26 +98,41 @@ impl<M, O, N> Step<M, O, N> {
         self
     }
 
-    /// Converts `self` into a step of another type, given conversion methods for output and
-    /// messages.
-    pub fn map<M2, O2, FO, FM>(self, f_out: FO, f_msg: FM) -> Step<M2, O2, N>
+    /// Converts `self` into a step of another type, given conversion methods for output, faults,
+    /// and messages.
+    pub fn map<M2, O2, F2, FO, FF, FM>(
+        self,
+        f_out: FO,
+        f_fail2fail: FF,
+        f_msg: FM,
+    ) -> Step<M2, O2, N, F2>
     where
+        F2: Fail,
         FO: Fn(O) -> O2,
+        FF: Fn(Fault<N, F>) -> Fault<N, F2>,
         FM: Fn(M) -> M2,
     {
         Step {
             output: self.output.into_iter().map(f_out).collect(),
-            fault_log: self.fault_log,
+            fault_log: self.fault_log.into_iter().map(f_fail2fail).collect(),
             messages: self.messages.into_iter().map(|tm| tm.map(&f_msg)).collect(),
         }
     }
 
     /// Extends `self` with `other`s messages and fault logs, and returns `other.output`.
-    pub fn extend_with<M2, O2, FM>(&mut self, other: Step<M2, O2, N>, f_msg: FM) -> Vec<O2>
+    pub fn extend_with<M2, O2, F2, FF, FM>(
+        &mut self,
+        other: Step<M2, O2, N, F2>,
+        f_fail2fail: FF,
+        f_msg: FM,
+    ) -> Vec<O2>
     where
+        F2: Fail,
+        FF: Fn(Fault<N, F2>) -> Fault<N, F>,
         FM: Fn(M2) -> M,
     {
-        self.fault_log.extend(other.fault_log);
+        let fails = other.fault_log.into_iter().map(f_fail2fail).collect();
+        self.fault_log.extend(fails);
         let msgs = other.messages.into_iter().map(|tm| tm.map(&f_msg));
         self.messages.extend(msgs);
         other.output
@@ -136,8 +157,11 @@ impl<M, O, N> Step<M, O, N> {
     }
 }
 
-impl<M, O, N> From<FaultLog<N>> for Step<M, O, N> {
-    fn from(fault_log: FaultLog<N>) -> Self {
+impl<M, O, N, F> From<FaultLog<N, F>> for Step<M, O, N, F>
+where
+    F: Fail,
+{
+    fn from(fault_log: FaultLog<N, F>) -> Self {
         Step {
             fault_log,
             ..Step::default()
@@ -145,8 +169,11 @@ impl<M, O, N> From<FaultLog<N>> for Step<M, O, N> {
     }
 }
 
-impl<M, O, N> From<Fault<N>> for Step<M, O, N> {
-    fn from(fault: Fault<N>) -> Self {
+impl<M, O, N, F> From<Fault<N, F>> for Step<M, O, N, F>
+where
+    F: Fail,
+{
+    fn from(fault: Fault<N, F>) -> Self {
         Step {
             fault_log: fault.into(),
             ..Step::default()
@@ -154,7 +181,10 @@ impl<M, O, N> From<Fault<N>> for Step<M, O, N> {
     }
 }
 
-impl<M, O, N> From<TargetedMessage<M, N>> for Step<M, O, N> {
+impl<M, O, N, F> From<TargetedMessage<M, N>> for Step<M, O, N, F>
+where
+    F: Fail,
+{
     fn from(msg: TargetedMessage<M, N>) -> Self {
         Step {
             messages: once(msg).collect(),
@@ -163,9 +193,10 @@ impl<M, O, N> From<TargetedMessage<M, N>> for Step<M, O, N> {
     }
 }
 
-impl<I, M, O, N> From<I> for Step<M, O, N>
+impl<I, M, O, N, F> From<I> for Step<M, O, N, F>
 where
     I: IntoIterator<Item = TargetedMessage<M, N>>,
+    F: Fail,
 {
     fn from(msgs: I) -> Self {
         Step {
@@ -187,13 +218,18 @@ pub trait Epoched {
 }
 
 /// An alias for the type of `Step` returned by `D`'s methods.
-pub type DaStep<D> =
-    Step<<D as DistAlgorithm>::Message, <D as DistAlgorithm>::Output, <D as DistAlgorithm>::NodeId>;
+pub type DaStep<D> = Step<
+    <D as DistAlgorithm>::Message,
+    <D as DistAlgorithm>::Output,
+    <D as DistAlgorithm>::NodeId,
+    <D as DistAlgorithm>::FaultKind,
+>;
 
-impl<'i, M, O, N> Step<M, O, N>
+impl<'i, M, O, N, F> Step<M, O, N, F>
 where
     N: NodeIdT,
     M: 'i + Clone + SenderQueueableMessage,
+    F: Fail,
 {
     /// Removes and returns any messages that are not yet accepted by remote nodes according to the
     /// mapping `remote_epochs`. This way the returned messages are postponed until later, and the
@@ -255,6 +291,8 @@ pub trait DistAlgorithm: Send + Sync {
     type Message: Message;
     /// The errors that can occur during execution.
     type Error: Fail;
+    /// The kinds of message faults that can be detected during execution.
+    type FaultKind: Fail;
 
     /// Handles an input provided by the user, and returns
     fn handle_input(&mut self, input: Self::Input) -> Result<DaStep<Self>, Self::Error>

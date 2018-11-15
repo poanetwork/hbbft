@@ -31,6 +31,6 @@ mod message;
 
 pub use self::batch::Batch;
 pub use self::builder::HoneyBadgerBuilder;
-pub use self::error::{Error, ErrorKind, Result};
+pub use self::error::{Error, ErrorKind, FaultKind, FaultLog, Result};
 pub use self::honey_badger::{EncryptionSchedule, HoneyBadger, Step, SubsetHandlingStrategy};
 pub use self::message::{Message, MessageContent};

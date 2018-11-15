@@ -449,7 +449,7 @@ fn main() {
             .build_with_transactions(txs.clone(), rand::thread_rng().gen::<Isaac64Rng>())
             .expect("instantiate QueueingHoneyBadger");
         let (sq, mut step) = SenderQueue::builder(qhb, peer_ids.into_iter()).build(our_id);
-        step.extend_with(qhb_step, Message::from);
+        step.extend_with(qhb_step, |fault| fault, Message::from);
         (sq, step)
     };
     let hw_quality = HwQuality {

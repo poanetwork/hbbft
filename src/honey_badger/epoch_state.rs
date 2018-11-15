@@ -13,8 +13,8 @@ use rand::{Rand, Rng};
 use serde::{de::DeserializeOwned, Serialize};
 use serde_derive::Serialize;
 
-use super::{Batch, ErrorKind, MessageContent, Result, Step};
-use fault_log::{Fault, FaultKind, FaultLog};
+use super::{Batch, ErrorKind, FaultKind, FaultLog, MessageContent, Result, Step};
+use fault_log::Fault;
 use subset::{self as cs, Subset, SubsetOutput};
 use threshold_decrypt::{self as td, ThresholdDecrypt};
 use threshold_sign::{self as ts, ThresholdSign};
@@ -38,8 +38,10 @@ impl<N: NodeIdT> SigningState<N> {
     fn handle_message(&mut self, sender_id: &N, msg: ts::Message) -> ts::Result<ts::Step<N>> {
         match self {
             SigningState::None => {
-                let fault_kind = FaultKind::UnexpectedSignatureShare;
-                Ok(Fault::new(sender_id.clone(), fault_kind).into())
+                let fault_kind = ts::FaultKind::UnexpectedSignatureShare;
+                let mut step = ts::Step::default();
+                step.fault_log.append(sender_id.clone(), fault_kind);
+                Ok(step)
             }
             SigningState::Ongoing(ref mut ts) => ts.handle_message(sender_id, msg),
             SigningState::Complete(_) => Ok(ts::Step::default()),
@@ -370,7 +372,10 @@ where
     /// Checks whether the subset has output, and if it does, sends out our decryption shares.
     fn process_subset(&mut self, cs_step: CsStep<N>) -> Result<Step<C, N>> {
         let mut step = Step::default();
-        let cs_outputs = step.extend_with(cs_step, |cs_msg| {
+        let to_fault = |cs_fault: Fault<N, cs::FaultKind>| {
+            Fault::new(cs_fault.node_id, FaultKind::SubsetFault(cs_fault.kind))
+        };
+        let cs_outputs = step.extend_with(cs_step, to_fault, |cs_msg| {
             MessageContent::Subset(cs_msg).with_epoch(self.epoch)
         });
         let mut has_seen_done = false;
@@ -423,12 +428,16 @@ where
     /// Processes a Threshold Decrypt step.
     fn process_decryption(&mut self, proposer_id: N, td_step: td::Step<N>) -> Result<Step<C, N>> {
         let mut step = Step::default();
-        let opt_output = step.extend_with(td_step, |share| {
-            MessageContent::DecryptionShare {
-                proposer_id: proposer_id.clone(),
-                share,
-            }.with_epoch(self.epoch)
-        });
+        let opt_output = step.extend_with(
+            td_step,
+            |fail| Fault::new(fail.node_id, FaultKind::DecryptionFault(fail.kind)),
+            |share| {
+                MessageContent::DecryptionShare {
+                    proposer_id: proposer_id.clone(),
+                    share,
+                }.with_epoch(self.epoch)
+            },
+        );
         if let Some(output) = opt_output.into_iter().next() {
             self.decryption
                 .insert(proposer_id, DecryptionState::Complete(output));
@@ -439,9 +448,11 @@ where
     /// Processes a Threshold Sign step.
     fn process_signing(&mut self, ts_step: ts::Step<N>) -> Result<Step<C, N>> {
         let mut step = Step::default();
-        let opt_output = step.extend_with(ts_step, |share| {
-            MessageContent::SignatureShare(share).with_epoch(self.epoch)
-        });
+        let opt_output = step.extend_with(
+            ts_step,
+            |fault| Fault::new(fault.node_id, FaultKind::SigningFault(fault.kind)),
+            |share| MessageContent::SignatureShare(share).with_epoch(self.epoch),
+        );
         if let Some(output) = opt_output.into_iter().next() {
             self.signing = SigningState::Complete(Box::new(output));
         }

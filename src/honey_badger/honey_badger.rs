@@ -8,8 +8,8 @@ use serde::{de::DeserializeOwned, Serialize};
 use serde_derive::{Deserialize, Serialize};
 
 use super::epoch_state::EpochState;
-use super::{Batch, Error, ErrorKind, HoneyBadgerBuilder, Message, Result};
-use {util, Contribution, DistAlgorithm, Fault, FaultKind, NetworkInfo, NodeIdT};
+use super::{Batch, Error, ErrorKind, FaultKind, HoneyBadgerBuilder, Message, Result};
+use {util, Contribution, DistAlgorithm, Fault, NetworkInfo, NodeIdT};
 
 pub use super::epoch_state::SubsetHandlingStrategy;
 
@@ -54,6 +54,7 @@ where
     type Output = Batch<C, N>;
     type Message = Message<N>;
     type Error = Error;
+    type FaultKind = FaultKind;
 
     fn handle_input(&mut self, input: Self::Input) -> Result<Step<C, N>> {
         self.propose(&input)

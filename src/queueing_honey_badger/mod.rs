@@ -32,7 +32,7 @@ use failure::{Backtrace, Context, Fail};
 use rand::{Rand, Rng};
 use serde::{de::DeserializeOwned, Serialize};
 
-use dynamic_honey_badger::{self, Batch as DhbBatch, DynamicHoneyBadger, Message};
+use dynamic_honey_badger::{self, Batch as DhbBatch, DynamicHoneyBadger, FaultKind, Message};
 use transaction_queue::TransactionQueue;
 use {util, Contribution, DistAlgorithm, NodeIdT};
 
@@ -187,7 +187,7 @@ pub struct QueueingHoneyBadger<T, N: Rand, Q> {
     rng: Box<dyn Rng + Send + Sync>,
 }
 
-pub type Step<T, N> = ::Step<Message<N>, Batch<T, N>, N>;
+pub type Step<T, N> = ::Step<Message<N>, Batch<T, N>, N, FaultKind>;
 
 impl<T, N, Q> DistAlgorithm for QueueingHoneyBadger<T, N, Q>
 where
@@ -200,6 +200,7 @@ where
     type Output = Batch<T, N>;
     type Message = Message<N>;
     type Error = Error;
+    type FaultKind = FaultKind;
 
     fn handle_input(&mut self, input: Self::Input) -> Result<Step<T, N>> {
         // User transactions are forwarded to `HoneyBadger` right away. Internal messages are
