@@ -105,24 +105,20 @@ impl MessageScheduler {
         &self,
         nodes: &BTreeMap<D::NodeId, TestNode<D>>,
     ) -> D::NodeId {
-        match *self {
-            MessageScheduler::First => nodes
-                .iter()
-                .find(|(_, node)| !node.queue.is_empty())
-                .map(|(id, _)| id.clone())
-                .expect("no more messages in queue"),
-            MessageScheduler::Random => {
-                let ids: Vec<D::NodeId> = nodes
-                    .iter()
-                    .filter(|(_, node)| !node.queue.is_empty())
-                    .map(|(id, _)| id.clone())
-                    .collect();
-                rand::thread_rng()
-                    .choose(&ids)
-                    .expect("no more messages in queue")
-                    .clone()
-            }
-        }
+        let mut ids = nodes
+            .iter()
+            .filter(|(_, node)| !node.queue.is_empty())
+            .map(|(id, _)| id.clone());
+        let rand_node = match *self {
+            MessageScheduler::First => rand::thread_rng().gen_weighted_bool(10),
+            MessageScheduler::Random => true,
+        };
+        if rand_node {
+            let ids: Vec<D::NodeId> = ids.collect();
+            rand::thread_rng().choose(&ids).cloned()
+        } else {
+            ids.next()
+        }.expect("no more messages in queue")
     }
 }
 
