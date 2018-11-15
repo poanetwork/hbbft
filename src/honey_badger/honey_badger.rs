@@ -140,8 +140,8 @@ where
         self.encryption_schedule
     }
 
-    /// Returns the current epoch.
-    pub fn epoch(&self) -> u64 {
+    /// Returns the epoch of the next batch that will be output.
+    pub fn next_epoch(&self) -> u64 {
         self.epoch
     }
 

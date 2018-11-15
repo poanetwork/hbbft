@@ -300,6 +300,11 @@ where
         Ok(step.join(self.propose()?))
     }
 
+    /// Returns the epoch of the next batch that will be output.
+    pub fn next_epoch(&self) -> u64 {
+        self.dyn_hb.next_epoch()
+    }
+
     /// Returns `true` if we are ready to propose our contribution for the next epoch, i.e. if the
     /// previous epoch has completed and we have either pending transactions or we are required to
     /// make a proposal to avoid stalling the network.

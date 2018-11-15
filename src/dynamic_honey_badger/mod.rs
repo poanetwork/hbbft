@@ -151,6 +151,13 @@ pub struct JoinPlan<N: Ord> {
     random_value: bool,
 }
 
+impl<N: Ord> JoinPlan<N> {
+    /// The epoch of the first batch the new node will observe.
+    pub fn next_epoch(&self) -> u64 {
+        self.era
+    }
+}
+
 /// The ongoing key generation, together with information about the validator change.
 #[derive(Debug)]
 struct KeyGenState<N: Ord> {

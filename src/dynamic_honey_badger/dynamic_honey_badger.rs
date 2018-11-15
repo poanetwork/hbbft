@@ -200,6 +200,11 @@ where
         !self.key_gen_msg_buffer.is_empty()
     }
 
+    /// The epoch of the next batch that will be output.
+    pub fn next_epoch(&self) -> u64 {
+        self.era + self.honey_badger.next_epoch()
+    }
+
     /// Handles a message for the `HoneyBadger` instance.
     fn handle_honey_badger_message(
         &mut self,
