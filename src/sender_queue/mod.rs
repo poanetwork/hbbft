@@ -146,9 +146,14 @@ where
         }
     }
 
+    /// Returns an immutable reference to the wrapped algorithm.
+    pub fn inner(&self) -> &D {
+        &self.algo
+    }
+
     /// Applies `f` to the wrapped algorithm and converts the step in the result to a sender queue
     /// step, deferring or dropping messages, where necessary.
-    pub fn apply<F>(&mut self, f: F) -> Result<DaStep<Self>, D::Error>
+    fn apply<F>(&mut self, f: F) -> Result<DaStep<Self>, D::Error>
     where
         F: FnOnce(&mut D) -> Result<DaStep<D>, D::Error>,
     {

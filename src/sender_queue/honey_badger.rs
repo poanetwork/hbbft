@@ -42,7 +42,7 @@ where
     type Epoch = u64;
 
     fn epoch(&self) -> u64 {
-        self.epoch()
+        self.next_epoch()
     }
 }
 
