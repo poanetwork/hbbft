@@ -506,7 +506,7 @@ impl<N: NodeIdT, S: SessionIdT> BinaryAgreement<N, S> {
 
     /// If the `Conf` round can be finished, activates the coin.
     fn try_finish_conf_round(&mut self) -> Result<Step<N>> {
-        if self.can_finish_conf_round() {
+        if !self.can_finish_conf_round() {
             return Ok(Step::default());
         }
         // FIXME: Reduce to `Decided` in case of `AllEtEnd` and `EncryptionShedule::Always`.
