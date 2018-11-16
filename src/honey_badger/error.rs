@@ -28,6 +28,8 @@ pub enum ErrorKind {
     ThresholdSign(threshold_sign::Error),
     #[fail(display = "Unknown sender")]
     UnknownSender,
+    #[fail(display = "Failed to set the random value: {}", _0)]
+    SetRandomValue(subset::Error),
 }
 
 /// A honey badger error.

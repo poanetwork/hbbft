@@ -20,8 +20,11 @@ use {DistAlgorithm, NetworkInfo, NodeIdT, SessionIdT, Target};
 enum CoinState<N> {
     /// The value was fixed in the current epoch, or the coin has already terminated.
     Decided(bool),
-    /// The coin value is not known yet.
-    InProgress(Box<ThresholdSign<N>>),
+    /// The coin value is not known yet. It is to be derived within the current session.
+    InProgressSession(Box<ThresholdSign<N>>),
+    /// The coin value is not known yet. It is to be derived from a shared random value at an upper
+    /// layer and set via `BinaryAgreeement::set_coin`.
+    InProgressDerived,
 }
 
 impl<N> CoinState<N> {
@@ -29,7 +32,7 @@ impl<N> CoinState<N> {
     fn value(&self) -> Option<bool> {
         match self {
             CoinState::Decided(value) => Some(*value),
-            CoinState::InProgress(_) => None,
+            _ => None,
         }
     }
 }
@@ -168,8 +171,8 @@ pub struct BinaryAgreement<N, S> {
     conf_values: Option<BoolSet>,
     /// The state of this epoch's coin.
     coin_state: CoinState<N>,
-    /// The common coin derived from a shared random value obtained in `HoneyBadger`.
-    derived_coin: Option<bool>,
+    /// Whether the coin is to be derived at an upper layer and set via `set_coin`.
+    derive_coin: bool,
 }
 
 impl<N: NodeIdT, S: SessionIdT> DistAlgorithm for BinaryAgreement<N, S> {
@@ -215,7 +218,7 @@ impl<N: NodeIdT, S: SessionIdT> BinaryAgreement<N, S> {
             incoming_queue: BTreeMap::new(),
             conf_values: None,
             coin_state: CoinState::Decided(true),
-            derived_coin: None,
+            derive_coin: false,
         })
     }
 
@@ -268,12 +271,19 @@ impl<N: NodeIdT, S: SessionIdT> BinaryAgreement<N, S> {
         self.epoch == 0 && self.estimated.is_none()
     }
 
-    /// Sets the random value for the common coin which is the same for each Binary Agreement
-    /// instance in the session. This function is called if the common coin is derived outside
-    /// `BinaryAgreement` from a shared random value. This method is mutually exclusive with
-    /// initiating the computation of the common coin from within `BinaryAgreement`.
-    pub fn set_coin(&mut self, coin: bool) {
-        self.derived_coin = Some(coin);
+    /// Sets the value of the common coin.
+    ///
+    /// The common coin value should be the same for each Binary Agreement instance in the
+    /// session. This function is called if the common coin is derived outside `BinaryAgreement`
+    /// from a shared random value. This method is mutually exclusive with initiating the
+    /// computation of the common coin from within `BinaryAgreement`.
+    pub fn set_coin(&mut self, coin: bool) -> Result<Step<N>> {
+        self.coin_state = CoinState::Decided(coin);
+        if self.can_finish_conf_round() {
+            self.try_update_epoch()
+        } else {
+            Ok(Step::default())
+        }
     }
 
     /// Dispatches the message content to the corresponding handling method.
@@ -311,13 +321,13 @@ impl<N: NodeIdT, S: SessionIdT> BinaryAgreement<N, S> {
             return Ok(step); // The `Conf` round has already started.
         }
         if let Some(aux_vals) = output.into_iter().next() {
-            // Execute the Coin schedule `false, true, get_coin(), false, true, get_coin(), ...`
+            // Execute the Coin schedule `true, false, get_coin(), true, false, get_coin(), ...`
             match self.coin_state {
                 CoinState::Decided(_) => {
                     self.conf_values = Some(aux_vals);
                     step.extend(self.try_update_epoch()?)
                 }
-                CoinState::InProgress(_) => {
+                _ => {
                     // Start the `Conf` message round.
                     step.extend(self.send_conf(aux_vals)?)
                 }
@@ -357,9 +367,13 @@ impl<N: NodeIdT, S: SessionIdT> BinaryAgreement<N, S> {
     fn handle_coin(&mut self, sender_id: &N, msg: threshold_sign::Message) -> Result<Step<N>> {
         let ts_step = match self.coin_state {
             CoinState::Decided(_) => return Ok(Step::default()), // Coin value is already decided.
-            CoinState::InProgress(ref mut ts) => ts
+            CoinState::InProgressSession(ref mut ts) => ts
                 .handle_message(sender_id, msg)
                 .map_err(Error::HandleThresholdSign)?,
+
+            CoinState::InProgressDerived => {
+                return Ok(Fault::new(sender_id.clone(), FaultKind::SessionCoin).into())
+            }
         };
         self.on_coin_step(ts_step)
     }
@@ -441,10 +455,14 @@ impl<N: NodeIdT, S: SessionIdT> BinaryAgreement<N, S> {
             0 => Ok(CoinState::Decided(true)),
             1 => Ok(CoinState::Decided(false)),
             _ => {
-                let coin_id = bincode::serialize(&(&self.session_id, self.epoch))?;
-                let mut ts = ThresholdSign::new(self.netinfo.clone());
-                ts.set_document(coin_id).map_err(Error::InvokeCoin)?;
-                Ok(CoinState::InProgress(Box::new(ts)))
+                if self.derive_coin {
+                    Ok(CoinState::InProgressDerived)
+                } else {
+                    let coin_id = bincode::serialize(&(&self.session_id, self.epoch))?;
+                    let mut ts = ThresholdSign::new(self.netinfo.clone());
+                    ts.set_document(coin_id).map_err(Error::InvokeCoin)?;
+                    Ok(CoinState::InProgressSession(Box::new(ts)))
+                }
             }
         }
     }
@@ -467,20 +485,26 @@ impl<N: NodeIdT, S: SessionIdT> BinaryAgreement<N, S> {
         step
     }
 
-    /// Checks whether the _N - f_ `Conf` messages have arrived, and if so, activates the coin.
+    /// Checks whether the algorithm has started the `Conf` round and _N - f_ `Conf` messages have
+    /// arrived.
+    fn can_finish_conf_round(&mut self) -> bool {
+        self.conf_values.is_some() && self.count_conf() >= self.netinfo.num_correct()
+    }
+
+    /// If the `Conf` round can be finished, activates the coin.
     fn try_finish_conf_round(&mut self) -> Result<Step<N>> {
-        if self.conf_values.is_none() || self.count_conf() < self.netinfo.num_correct() {
+        if self.can_finish_conf_round() {
             return Ok(Step::default());
         }
-
         // FIXME: Reduce to `Decided` in case of `AllEtEnd` and `EncryptionShedule::Always`.
         //
         // Q: Also include `EveryNthEpoch` and `TickTock`?
 
         // Invoke the coin.
         let ts_step = match self.coin_state {
-            CoinState::Decided(_) => return Ok(Step::default()), // Coin has already decided.
-            CoinState::InProgress(ref mut ts) => ts.sign().map_err(Error::InvokeCoin)?,
+            CoinState::InProgressSession(ref mut ts) => ts.sign().map_err(Error::InvokeCoin)?,
+            _ => return Ok(Step::default()), // Coin has already decided or is expected from an
+                                             // upper layer.
         };
         Ok(self.on_coin_step(ts_step)?.join(self.try_update_epoch()?))
     }

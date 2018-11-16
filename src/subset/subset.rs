@@ -158,25 +158,21 @@ impl<N: NodeIdT + Rand, S: SessionIdT> Subset<N, S> {
         self.proposal_states.values().filter(received).count()
     }
 
-    /// Sets the shared random value for using instead of the session common coin.
-    pub fn set_random_value(&mut self, _random_value: &Signature) {
+    /// Sets the shared random value for using as a source of randomness to derive common coins for
+    /// `BinaryAgreement` instances.
+    ///
+    /// When common coins are derived this way, no session common coins are required, thus saving
+    /// additional threshold signature message rounds.
+    pub fn set_random_value(&mut self, _random_value: &Signature) -> Result<Step<N>> {
         // FIXME: Use `random_value`. For that there has to be access to the `G2` field of
         // `Signature`. Remove the dummy value.
         let dummy_fixed_value = G2Compressed::empty();
         let bits: BitIterator<G2Compressed> = BitIterator::new(dummy_fixed_value);
-        // FIXME: This will not set coins for all BA instances if there are more instances than
-        // bits.
-        for (b, ps) in bits.cycle().zip(self.proposal_states.values_mut()) {
-            match ps {
-                ProposalState::Ongoing(_, ref mut ba) => {
-                    ba.set_coin(b);
-                }
-                ProposalState::HasValue(_, ref mut ba) => {
-                    ba.set_coin(b);
-                }
-                _ => {}
-            }
+        let mut step = Step::default();
+        for (b, (proposer_id, ps)) in bits.cycle().zip(&mut self.proposal_states) {
+            step.extend(Self::convert_step(&proposer_id, ps.set_coin(b)?));
         }
+        Ok(step)
     }
 
     fn convert_step(proposer_id: &N, prop_step: ProposalStep<N>) -> Step<N> {

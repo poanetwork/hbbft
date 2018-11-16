@@ -86,6 +86,11 @@ impl<N: NodeIdT + Rand, S: SessionIdT> ProposalState<N, S> {
         self.transition(|state| state.handle_agreement(|ba| ba.propose(false)))
     }
 
+    /// Sets the derived common coin of the managed `BinaryAgreement` instance.
+    pub fn set_coin(&mut self, coin: bool) -> Result<Step<N>> {
+        self.transition(|state| state.handle_agreement(|ba| ba.set_coin(coin)))
+    }
+
     /// Applies `f` to the `Broadcast` instance, and updates the state according to the outcome.
     fn handle_broadcast<F>(self, f: F) -> (Self, Result<Step<N>>)
     where

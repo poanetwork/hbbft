@@ -107,11 +107,11 @@ where
     }
 
     /// Sets the shared random value if `Subset` is not yet complete.
-    pub fn set_random_value(&mut self, random_value: &Signature) {
+    pub fn set_random_value(&mut self, random_value: &Signature) -> Result<CsStep<N>> {
         match self {
-            SubsetState::Ongoing(ref mut s) => s.set_random_value(random_value),
-            SubsetState::Complete(_) => {}
-        }
+            SubsetState::Ongoing(ref mut cs) => cs.set_random_value(random_value),
+            SubsetState::Complete(_) => return Ok(cs::Step::default()),
+        }.map_err(|err| ErrorKind::SetRandomValue(err).into())
     }
 }
 
@@ -418,7 +418,8 @@ where
             MessageContent::SignatureShare(share).with_epoch(self.epoch)
         });
         if let Some(output) = opt_output.into_iter().next() {
-            self.subset.set_random_value(&output);
+            let cs_step = self.subset.set_random_value(&output)?;
+            step.extend(self.process_subset(cs_step)?);
             self.signing = SigningState::Complete(Box::new(output));
         }
         Ok(step)

@@ -77,6 +77,9 @@ pub enum FaultKind {
     MultipleTerm,
     /// `BinaryAgreement` received a message with an epoch too far ahead.
     AgreementEpoch,
+    /// `BinaryAgreement` received a `Coin` message when the coin is not determined within the
+    /// session.
+    SessionCoin,
 }
 
 /// A structure representing the context of a faulty node. This structure
