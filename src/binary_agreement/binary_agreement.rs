@@ -168,6 +168,8 @@ pub struct BinaryAgreement<N, S> {
     conf_values: Option<BoolSet>,
     /// The state of this epoch's coin.
     coin_state: CoinState<N>,
+    /// The common coin derived from a shared random value obtained in `HoneyBadger`.
+    derived_coin: Option<bool>,
 }
 
 impl<N: NodeIdT, S: SessionIdT> DistAlgorithm for BinaryAgreement<N, S> {
@@ -213,6 +215,7 @@ impl<N: NodeIdT, S: SessionIdT> BinaryAgreement<N, S> {
             incoming_queue: BTreeMap::new(),
             conf_values: None,
             coin_state: CoinState::Decided(true),
+            derived_coin: None,
         })
     }
 
@@ -263,6 +266,14 @@ impl<N: NodeIdT, S: SessionIdT> BinaryAgreement<N, S> {
     /// but it will have no effect on the outcome.
     pub fn can_propose(&self) -> bool {
         self.epoch == 0 && self.estimated.is_none()
+    }
+
+    /// Sets the random value for the common coin which is the same for each Binary Agreement
+    /// instance in the session. This function is called if the common coin is derived outside
+    /// `BinaryAgreement` from a shared random value. This method is mutually exclusive with
+    /// initiating the computation of the common coin from within `BinaryAgreement`.
+    pub fn set_coin(&mut self, coin: bool) {
+        self.derived_coin = Some(coin);
     }
 
     /// Dispatches the message content to the corresponding handling method.
@@ -461,6 +472,10 @@ impl<N: NodeIdT, S: SessionIdT> BinaryAgreement<N, S> {
         if self.conf_values.is_none() || self.count_conf() < self.netinfo.num_correct() {
             return Ok(Step::default());
         }
+
+        // FIXME: Reduce to `Decided` in case of `AllEtEnd` and `EncryptionShedule::Always`.
+        //
+        // Q: Also include `EveryNthEpoch` and `TickTock`?
 
         // Invoke the coin.
         let ts_step = match self.coin_state {

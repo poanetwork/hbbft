@@ -17,43 +17,10 @@ use super::{Batch, ErrorKind, MessageContent, Result, Step};
 use fault_log::{Fault, FaultKind, FaultLog};
 use subset::{self as cs, Subset, SubsetOutput};
 use threshold_decrypt::{self as td, ThresholdDecrypt};
-use threshold_sign::{self as ts, ThresholdSign};
+use threshold_sign::{self as ts, SigningState, ThresholdSign};
 use {Contribution, DistAlgorithm, NetworkInfo, NodeIdT};
 
 type CsStep<N> = cs::Step<N>;
-
-/// The status of the threshold signature for the random value.
-#[derive(Debug)]
-enum SigningState<N> {
-    /// No random value is required in this epoch.
-    None,
-    /// Signing is ongoing.
-    Ongoing(Box<ThresholdSign<N>>),
-    /// Signing is complete. This contains the signature.
-    Complete(Box<Signature>),
-}
-
-impl<N: NodeIdT> SigningState<N> {
-    /// Handles a message containing a decryption share.
-    fn handle_message(&mut self, sender_id: &N, msg: ts::Message) -> ts::Result<ts::Step<N>> {
-        match self {
-            SigningState::None => {
-                let fault_kind = FaultKind::UnexpectedSignatureShare;
-                Ok(Fault::new(sender_id.clone(), fault_kind).into())
-            }
-            SigningState::Ongoing(ref mut ts) => ts.handle_message(sender_id, msg),
-            SigningState::Complete(_) => Ok(ts::Step::default()),
-        }
-    }
-
-    /// Sends the signatures shares.
-    fn sign(&mut self) -> ts::Result<ts::Step<N>> {
-        match self {
-            SigningState::Ongoing(ref mut ts) => ts.sign(),
-            SigningState::None | SigningState::Complete(_) => Ok(ts::Step::default()),
-        }
-    }
-}
 
 /// The status of an encrypted contribution.
 #[derive(Debug)]
@@ -136,6 +103,14 @@ where
         match self {
             SubsetState::Ongoing(_) => None,
             SubsetState::Complete(ref ids) => Some(ids),
+        }
+    }
+
+    /// Sets the shared random value if `Subset` is not yet complete.
+    pub fn set_random_value(&mut self, random_value: &Signature) {
+        match self {
+            SubsetState::Ongoing(ref mut s) => s.set_random_value(random_value),
+            SubsetState::Complete(_) => {}
         }
     }
 }
@@ -443,6 +418,7 @@ where
             MessageContent::SignatureShare(share).with_epoch(self.epoch)
         });
         if let Some(output) = opt_output.into_iter().next() {
+            self.subset.set_random_value(&output);
             self.signing = SigningState::Complete(Box::new(output));
         }
         Ok(step)

@@ -43,6 +43,39 @@ pub enum Error {
     DocumentHashIsNone,
 }
 
+/// The status of the threshold signature when deriving a shared random value.
+#[derive(Debug)]
+pub enum SigningState<N> {
+    /// No random value is required.
+    None,
+    /// Signing is ongoing.
+    Ongoing(Box<ThresholdSign<N>>),
+    /// Signing is complete. This contains the shared random value.
+    Complete(Box<Signature>),
+}
+
+impl<N: NodeIdT> SigningState<N> {
+    /// Handles a message containing a decryption share.
+    pub fn handle_message(&mut self, sender_id: &N, msg: Message) -> Result<Step<N>> {
+        match self {
+            SigningState::None => {
+                let fault_kind = FaultKind::UnexpectedSignatureShare;
+                Ok(Fault::new(sender_id.clone(), fault_kind).into())
+            }
+            SigningState::Ongoing(ref mut ts) => ts.handle_message(sender_id, msg),
+            SigningState::Complete(_) => Ok(Step::default()),
+        }
+    }
+
+    /// Sends the signatures shares.
+    pub fn sign(&mut self) -> Result<Step<N>> {
+        match self {
+            SigningState::Ongoing(ref mut ts) => ts.sign(),
+            SigningState::None | SigningState::Complete(_) => Ok(Step::default()),
+        }
+    }
+}
+
 /// A threshold signing result.
 pub type Result<T> = ::std::result::Result<T, Error>;
 
