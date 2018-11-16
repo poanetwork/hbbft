@@ -25,7 +25,7 @@ use {DistAlgorithm, NetworkInfo, NodeIdT, SessionIdT, Target};
 /// `BinaryAgreement::set_coin`.
 ///
 /// In case of the first method, in some epochs the coin is decided from the start, in others it
-/// starts to be defined, as denoted by the state `InProgressSession`. The difference of the second
+/// starts undefined, as denoted by the state `InProgressSession`. The difference of the second
 /// method is that every epoch that is not decided from the start begins with `InProgressDerived`
 /// and then the common coin is derived from a shared random value at an upper layer. These two
 /// methods are mutually exclusive. Once the common coin is computed according to any of these
