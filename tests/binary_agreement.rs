@@ -83,7 +83,7 @@ where
             );
             let adversary = |_| new_adversary(num_good_nodes, num_faulty_nodes);
             let new_ba = |netinfo: Arc<NetworkInfo<NodeId>>| {
-                BinaryAgreement::new(netinfo, 0).expect("Binary Agreement instance")
+                BinaryAgreement::new(netinfo, 0, false).expect("Binary Agreement instance")
             };
             let network = TestNetwork::new(num_good_nodes, num_faulty_nodes, adversary, new_ba);
             test_binary_agreement(network, input);

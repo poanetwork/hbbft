@@ -447,7 +447,8 @@ fn reordering_attack() {
             if info.id == 0 {
                 *adversary_netinfo.lock().unwrap() = Some(netinfo.clone());
             }
-            BinaryAgreement::new(netinfo, 0).expect("failed to create BinaryAgreement instance")
+            BinaryAgreement::new(netinfo, 0, false)
+                .expect("failed to create BinaryAgreement instance")
         }).num_faulty(1)
         .build()
         .unwrap();

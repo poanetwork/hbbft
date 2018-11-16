@@ -6,46 +6,12 @@ use crypto::Signature;
 use derivative::Derivative;
 use hex_fmt::HexFmt;
 use log::debug;
-use pairing::{bls12_381::G2Compressed, EncodedPoint};
 use serde_derive::Serialize;
 
 use super::proposal_state::{ProposalState, Step as ProposalStep};
 use super::{Error, Message, MessageContent, Result};
 use rand::Rand;
 use {util, DistAlgorithm, NetworkInfo, NodeIdT, SessionIdT};
-
-#[derive(Debug, Clone)]
-/// An iterator of bits in finite sequential data.
-pub struct BitIterator<E> {
-    /// Data for iterating over.
-    t: E,
-    /// The number of remaining bits until the end.
-    n: usize,
-}
-
-impl<E: AsRef<[u8]>> BitIterator<E> {
-    /// Creates a new iterator for the given data and sets the number of remaining bits.
-    pub fn new(t: E) -> Self {
-        let n = t.as_ref().len() * 8;
-        BitIterator { t, n }
-    }
-}
-
-// FIXME: tests!
-impl<E: AsRef<[u8]>> Iterator for BitIterator<E> {
-    type Item = bool;
-
-    fn next(&mut self) -> Option<bool> {
-        if self.n == 0 {
-            None
-        } else {
-            self.n -= 1;
-            let part = self.n / 8;
-            let bit = self.n - (8 * part);
-            Some(self.t.as_ref()[part] & (1 << bit) > 0)
-        }
-    }
-}
 
 pub type Step<N> = ::Step<Message<N>, SubsetOutput<N>, N>;
 
@@ -163,11 +129,8 @@ impl<N: NodeIdT + Rand, S: SessionIdT> Subset<N, S> {
     ///
     /// When common coins are derived this way, no session common coins are required, thus saving
     /// additional threshold signature message rounds.
-    pub fn set_random_value(&mut self, _random_value: &Signature) -> Result<Step<N>> {
-        // FIXME: Use `random_value`. For that there has to be access to the `G2` field of
-        // `Signature`. Remove the dummy value.
-        let dummy_fixed_value = G2Compressed::empty();
-        let bits: BitIterator<G2Compressed> = BitIterator::new(dummy_fixed_value);
+    pub fn set_random_value(&mut self, random_value: &Signature) -> Result<Step<N>> {
+        let bits = random_value.bit_iter();
         let mut step = Step::default();
         for (b, (proposer_id, ps)) in bits.cycle().zip(&mut self.proposal_states) {
             step.extend(Self::convert_step(&proposer_id, ps.set_coin(b)?));

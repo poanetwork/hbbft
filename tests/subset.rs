@@ -80,8 +80,9 @@ where
     // This returns an error in all but the first test.
     let _ = env_logger::try_init();
 
-    let new_subset =
-        |netinfo: Arc<NetworkInfo<NodeId>>| Subset::new(netinfo, 0).expect("new Subset instance");
+    let new_subset = |netinfo: Arc<NetworkInfo<NodeId>>| {
+        Subset::new(netinfo, 0, false).expect("new Subset instance")
+    };
     TestNetwork::new(good_num, bad_num, adversary, new_subset)
 }
 
