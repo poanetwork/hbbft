@@ -117,7 +117,7 @@ where
 
 /// A flag used when constructing an `EpochState` to determine which behavior to use when receiving
 /// proposals from a `Subset` instance.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum SubsetHandlingStrategy {
     /// Sets the `EpochState` to return proposals as they are contributed.
     Incremental,
@@ -223,7 +223,10 @@ where
         require_decryption: bool,
     ) -> Result<Self> {
         let epoch_id = EpochId { hb_id, epoch };
-        let cs = Subset::new(netinfo.clone(), epoch_id).map_err(ErrorKind::CreateSubset)?;
+        let derive_coin =
+            require_decryption && subset_handling_strategy == SubsetHandlingStrategy::AllAtEnd;
+        let cs =
+            Subset::new(netinfo.clone(), epoch_id, derive_coin).map_err(ErrorKind::CreateSubset)?;
         let signing = if random_value {
             let rand_id = ("random_value", hb_id, epoch);
             let doc = bincode::serialize(&rand_id).map_err(|err| ErrorKind::RandBincode(*err))?;

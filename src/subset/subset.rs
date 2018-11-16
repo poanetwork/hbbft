@@ -101,7 +101,7 @@ impl<N: NodeIdT + Rand, S: SessionIdT> Subset<N, S> {
     ///
     /// If multiple `Subset`s are instantiated within a single network, they must use different
     /// session identifiers to foil replay attacks.
-    pub fn new(netinfo: Arc<NetworkInfo<N>>, session_id: S) -> Result<Self> {
+    pub fn new(netinfo: Arc<NetworkInfo<N>>, session_id: S, derive_coin: bool) -> Result<Self> {
         let mut proposal_states = BTreeMap::new();
         for (proposer_idx, proposer_id) in netinfo.all_ids().enumerate() {
             let ba_id = BaSessionId {
@@ -110,7 +110,7 @@ impl<N: NodeIdT + Rand, S: SessionIdT> Subset<N, S> {
             };
             proposal_states.insert(
                 proposer_id.clone(),
-                ProposalState::new(netinfo.clone(), ba_id, proposer_id.clone())?,
+                ProposalState::new(netinfo.clone(), ba_id, proposer_id.clone(), derive_coin)?,
             );
         }
 

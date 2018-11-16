@@ -14,8 +14,22 @@ use fault_log::{Fault, FaultKind};
 use threshold_sign::{self, Message as TsMessage, ThresholdSign};
 use {DistAlgorithm, NetworkInfo, NodeIdT, SessionIdT, Target};
 
-/// The state of the current epoch's coin. In some epochs this is fixed, in others it starts
-/// with in `InProgress`.
+/// The state of the current epoch's coin.
+///
+/// There are two methods for computing the common coin:
+///
+/// 1. by computing a threshold signature within the Binary Agreement session on the nodes belonging
+/// to this session, and
+///
+/// 2. by computing a shared random value at an upper layer and setting the common coin using
+/// `BinaryAgreement::set_coin`.
+///
+/// In case of the first method, in some epochs the coin is decided from the start, in others it
+/// starts to be defined, as denoted by the state `InProgressSession`. The difference of the second
+/// method is that every epoch that is not decided from the start begins with `InProgressDerived`
+/// and then the common coin is derived from a shared random value at an upper layer. These two
+/// methods are mutually exclusive. Once the common coin is computed according to any of these
+/// methods, it is `Decided`.
 #[derive(Debug)]
 enum CoinState<N> {
     /// The value was fixed in the current epoch, or the coin has already terminated.
@@ -204,7 +218,7 @@ impl<N: NodeIdT, S: SessionIdT> DistAlgorithm for BinaryAgreement<N, S> {
 impl<N: NodeIdT, S: SessionIdT> BinaryAgreement<N, S> {
     /// Creates a new `BinaryAgreement` instance with the given session identifier, to prevent
     /// replaying messages in other instances.
-    pub fn new(netinfo: Arc<NetworkInfo<N>>, session_id: S) -> Result<Self> {
+    pub fn new(netinfo: Arc<NetworkInfo<N>>, session_id: S, derive_coin: bool) -> Result<Self> {
         Ok(BinaryAgreement {
             netinfo: netinfo.clone(),
             session_id,
@@ -218,7 +232,7 @@ impl<N: NodeIdT, S: SessionIdT> BinaryAgreement<N, S> {
             incoming_queue: BTreeMap::new(),
             conf_values: None,
             coin_state: CoinState::Decided(true),
-            derive_coin: false,
+            derive_coin,
         })
     }
 
@@ -370,7 +384,6 @@ impl<N: NodeIdT, S: SessionIdT> BinaryAgreement<N, S> {
             CoinState::InProgressSession(ref mut ts) => ts
                 .handle_message(sender_id, msg)
                 .map_err(Error::HandleThresholdSign)?,
-
             CoinState::InProgressDerived => {
                 return Ok(Fault::new(sender_id.clone(), FaultKind::SessionCoin).into())
             }
