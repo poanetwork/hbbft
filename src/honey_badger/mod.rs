@@ -28,9 +28,12 @@ mod epoch_state;
 mod error;
 mod honey_badger;
 mod message;
+mod params;
 
 pub use self::batch::Batch;
 pub use self::builder::HoneyBadgerBuilder;
+pub use self::epoch_state::SubsetHandlingStrategy;
 pub use self::error::{Error, ErrorKind, Result};
-pub use self::honey_badger::{EncryptionSchedule, HoneyBadger, Step, SubsetHandlingStrategy};
+pub use self::honey_badger::{EncryptionSchedule, HoneyBadger, Step};
 pub use self::message::{Message, MessageContent};
+pub use self::params::Params;

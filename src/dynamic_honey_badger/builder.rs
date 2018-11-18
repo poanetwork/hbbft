@@ -11,7 +11,7 @@ use super::{
     Change, ChangeState, DynamicHoneyBadger, EncryptionSchedule, JoinPlan, Result, Step,
     VoteCounter,
 };
-use honey_badger::{HoneyBadger, SubsetHandlingStrategy};
+use honey_badger::{HoneyBadger, Params, SubsetHandlingStrategy};
 use util::SubRng;
 use {Contribution, NetworkInfo, NodeIdT};
 
@@ -20,17 +20,11 @@ use {Contribution, NetworkInfo, NodeIdT};
 pub struct DynamicHoneyBadgerBuilder<C, N> {
     /// Start in this era.
     era: u64,
-    /// The maximum number of future epochs for which we handle messages simultaneously.
-    max_future_epochs: u64,
     /// Random number generator passed on to algorithm instance for key generation. Also used to
     /// instantiate `HoneyBadger`.
     rng: Box<dyn rand::Rng>,
-    /// Strategy used to handle the output of the `Subset` algorithm.
-    subset_handling_strategy: SubsetHandlingStrategy,
-    /// Whether to generate a pseudorandom value in each epoch.
-    random_value: bool,
-    /// Schedule for adding threshold encryption to some percentage of rounds
-    encryption_schedule: EncryptionSchedule,
+    /// Parameters controlling Honey Badger's behavior and performance.
+    params: Params,
     _phantom: PhantomData<(C, N)>,
 }
 
@@ -42,11 +36,8 @@ where
         // TODO: Use the defaults from `HoneyBadgerBuilder`.
         DynamicHoneyBadgerBuilder {
             era: 0,
-            max_future_epochs: 3,
             rng: Box::new(rand::thread_rng()),
-            subset_handling_strategy: SubsetHandlingStrategy::Incremental,
-            random_value: false,
-            encryption_schedule: EncryptionSchedule::Always,
+            params: Params::default(),
             _phantom: PhantomData,
         }
     }
@@ -71,7 +62,7 @@ where
 
     /// Sets the maximum number of future epochs for which we handle messages simultaneously.
     pub fn max_future_epochs(&mut self, max_future_epochs: u64) -> &mut Self {
-        self.max_future_epochs = max_future_epochs;
+        self.params.max_future_epochs = max_future_epochs;
         self
     }
 
@@ -86,19 +77,25 @@ where
         &mut self,
         subset_handling_strategy: SubsetHandlingStrategy,
     ) -> &mut Self {
-        self.subset_handling_strategy = subset_handling_strategy;
+        self.params.subset_handling_strategy = subset_handling_strategy;
         self
     }
 
     /// Whether to generate a pseudorandom value in each epoch.
     pub fn random_value(&mut self, random_value: bool) -> &mut Self {
-        self.random_value = random_value;
+        self.params.random_value = random_value;
         self
     }
 
     /// Sets the schedule to use for threshold encryption.
     pub fn encryption_schedule(&mut self, encryption_schedule: EncryptionSchedule) -> &mut Self {
-        self.encryption_schedule = encryption_schedule;
+        self.params.encryption_schedule = encryption_schedule;
+        self
+    }
+
+    /// Sets the parameters controlling Honey Badger's behavior and performance.
+    pub fn params(&mut self, params: Params) -> &mut Self {
+        self.params = params;
         self
     }
 
@@ -106,28 +103,20 @@ where
     pub fn build(&mut self, netinfo: NetworkInfo<N>) -> DynamicHoneyBadger<C, N> {
         let DynamicHoneyBadgerBuilder {
             era,
-            max_future_epochs,
             rng,
-            subset_handling_strategy,
-            random_value,
-            encryption_schedule,
+            params,
             _phantom,
         } = self;
-        let era = *era;
-        let max_future_epochs = *max_future_epochs;
         let arc_netinfo = Arc::new(netinfo.clone());
         let honey_badger = HoneyBadger::builder(arc_netinfo.clone())
-            .session_id(era)
-            .max_future_epochs(max_future_epochs)
+            .session_id(*era)
+            .params(params.clone())
             .rng(rng.sub_rng())
-            .subset_handling_strategy(subset_handling_strategy.clone())
-            .random_value(*random_value)
-            .encryption_schedule(*encryption_schedule)
             .build();
         DynamicHoneyBadger {
             netinfo,
-            max_future_epochs,
-            era,
+            max_future_epochs: params.max_future_epochs,
+            era: *era,
             vote_counter: VoteCounter::new(arc_netinfo, 0),
             key_gen_msg_buffer: Vec::new(),
             honey_badger,
@@ -164,13 +153,13 @@ where
         );
         let arc_netinfo = Arc::new(netinfo.clone());
         let honey_badger = HoneyBadger::builder(arc_netinfo.clone())
-            .max_future_epochs(self.max_future_epochs)
+            .max_future_epochs(self.params.max_future_epochs)
             .encryption_schedule(join_plan.encryption_schedule)
             .random_value(join_plan.random_value)
             .build();
         let mut dhb = DynamicHoneyBadger {
             netinfo,
-            max_future_epochs: self.max_future_epochs,
+            max_future_epochs: self.params.max_future_epochs,
             era: join_plan.era,
             vote_counter: VoteCounter::new(arc_netinfo, join_plan.era),
             key_gen_msg_buffer: Vec::new(),

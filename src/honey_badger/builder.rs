@@ -5,8 +5,7 @@ use std::sync::Arc;
 use rand::{self, Rand, Rng};
 use serde::{de::DeserializeOwned, Serialize};
 
-use super::{EncryptionSchedule, HoneyBadger};
-use honey_badger::SubsetHandlingStrategy;
+use super::{EncryptionSchedule, HoneyBadger, Params, SubsetHandlingStrategy};
 use util::SubRng;
 use {Contribution, NetworkInfo, NodeIdT};
 
@@ -19,16 +18,10 @@ pub struct HoneyBadgerBuilder<C, N> {
     session_id: u64,
     /// Start in this epoch.
     epoch: u64,
-    /// The maximum number of future epochs for which we handle messages simultaneously.
-    max_future_epochs: u64,
     /// Random number generator passed on to algorithm instance for signing and encrypting.
     rng: Box<dyn Rng>,
-    /// Strategy used to handle the output of the `Subset` algorithm.
-    subset_handling_strategy: SubsetHandlingStrategy,
-    /// Whether to generate a pseudorandom value in each epoch.
-    random_value: bool,
-    /// Schedule for adding threshold encryption to some percentage of rounds
-    encryption_schedule: EncryptionSchedule,
+    /// Parameters controlling Honey Badger's behavior and performance.
+    params: Params,
     _phantom: PhantomData<C>,
 }
 
@@ -44,11 +37,8 @@ where
             netinfo,
             session_id: 0,
             epoch: 0,
-            max_future_epochs: 3,
             rng: Box::new(rand::thread_rng()),
-            subset_handling_strategy: SubsetHandlingStrategy::Incremental,
-            random_value: false,
-            encryption_schedule: EncryptionSchedule::Always,
+            params: Params::default(),
             _phantom: PhantomData,
         }
     }
@@ -76,7 +66,7 @@ where
 
     /// Sets the maximum number of future epochs for which we handle messages simultaneously.
     pub fn max_future_epochs(&mut self, max_future_epochs: u64) -> &mut Self {
-        self.max_future_epochs = max_future_epochs;
+        self.params.max_future_epochs = max_future_epochs;
         self
     }
 
@@ -85,19 +75,25 @@ where
         &mut self,
         subset_handling_strategy: SubsetHandlingStrategy,
     ) -> &mut Self {
-        self.subset_handling_strategy = subset_handling_strategy;
+        self.params.subset_handling_strategy = subset_handling_strategy;
         self
     }
 
     /// Whether to generate a pseudorandom value in each epoch.
     pub fn random_value(&mut self, random_value: bool) -> &mut Self {
-        self.random_value = random_value;
+        self.params.random_value = random_value;
         self
     }
 
     /// Sets the schedule to use for threshold encryption.
     pub fn encryption_schedule(&mut self, encryption_schedule: EncryptionSchedule) -> &mut Self {
-        self.encryption_schedule = encryption_schedule;
+        self.params.encryption_schedule = encryption_schedule;
+        self
+    }
+
+    /// Sets the parameters controlling Honey Badger's behavior and performance.
+    pub fn params(&mut self, params: Params) -> &mut Self {
+        self.params = params;
         self
     }
 
@@ -109,11 +105,8 @@ where
             epoch: self.epoch,
             has_input: false,
             epochs: BTreeMap::new(),
-            max_future_epochs: self.max_future_epochs as u64,
+            params: self.params.clone(),
             rng: Box::new(self.rng.sub_rng()),
-            subset_handling_strategy: self.subset_handling_strategy.clone(),
-            encryption_schedule: self.encryption_schedule,
-            random_value: self.random_value,
         }
     }
 }
