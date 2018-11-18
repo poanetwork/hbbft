@@ -11,7 +11,7 @@ use super::epoch_state::EpochState;
 use super::{Batch, Error, ErrorKind, HoneyBadgerBuilder, Message, Result};
 use {util, Contribution, DistAlgorithm, Fault, FaultKind, NetworkInfo, NodeIdT};
 
-pub use super::epoch_state::SubsetHandlingStrategy;
+use super::Params;
 
 /// An instance of the Honey Badger Byzantine fault tolerant consensus algorithm.
 #[derive(Derivative)]
@@ -28,18 +28,12 @@ pub struct HoneyBadger<C, N: Rand> {
     pub(super) has_input: bool,
     /// The subalgorithms for ongoing epochs.
     pub(super) epochs: BTreeMap<u64, EpochState<C, N>>,
-    /// The maximum number of `Subset` instances that we run simultaneously.
-    pub(super) max_future_epochs: u64,
+    /// Parameters controlling Honey Badger's behavior and performance.
+    pub(super) params: Params,
     /// A random number generator used for secret key generation.
     // Boxed to avoid overloading the algorithm's type with more generics.
     #[derivative(Debug(format_with = "util::fmt_rng"))]
     pub(super) rng: Box<dyn Rng + Send + Sync>,
-    /// Represents the optimization strategy to use for output of the `Subset` algorithm.
-    pub(super) subset_handling_strategy: SubsetHandlingStrategy,
-    /// The schedule for which rounds we should use threshold encryption.
-    pub(super) encryption_schedule: EncryptionSchedule,
-    /// Whether to generate a pseudorandom value in each epoch.
-    pub(super) random_value: bool,
 }
 
 pub type Step<C, N> = ::DaStep<HoneyBadger<C, N>>;
@@ -116,7 +110,7 @@ where
             return Err(ErrorKind::UnknownSender.into());
         }
         let Message { epoch, content } = message;
-        if epoch > self.epoch + self.max_future_epochs {
+        if epoch > self.epoch + self.params.max_future_epochs {
             Ok(Fault::new(sender_id.clone(), FaultKind::UnexpectedHbMessageEpoch).into())
         } else if epoch < self.epoch {
             // The message is late; discard it.
@@ -137,7 +131,7 @@ where
     /// Returns the current encryption schedule that determines in which epochs contributions are
     /// encrypted.
     pub fn get_encryption_schedule(&self) -> EncryptionSchedule {
-        self.encryption_schedule
+        self.params.encryption_schedule
     }
 
     /// Returns the epoch of the next batch that will be output.
@@ -186,16 +180,16 @@ where
                 self.netinfo.clone(),
                 self.session_id,
                 epoch,
-                self.subset_handling_strategy.clone(),
-                self.random_value,
-                self.encryption_schedule.use_on_epoch(epoch),
+                self.params.subset_handling_strategy.clone(),
+                self.params.random_value,
+                self.params.encryption_schedule.use_on_epoch(epoch),
             )?),
         })
     }
 
     /// Returns the maximum future epochs of the Honey Badger algorithm instance.
     pub fn max_future_epochs(&self) -> u64 {
-        self.max_future_epochs
+        self.params.max_future_epochs
     }
 }
 
