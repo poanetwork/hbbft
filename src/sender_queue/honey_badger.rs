@@ -10,8 +10,8 @@ where
     C: Contribution,
     N: NodeIdT + Rand,
 {
-    fn added_node(&self) -> Option<N> {
-        None
+    fn added_peers(&self) -> Vec<N> {
+        Vec::new()
     }
 }
 

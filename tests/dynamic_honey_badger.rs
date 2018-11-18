@@ -20,9 +20,7 @@ use itertools::Itertools;
 use log::info;
 use rand::{Isaac64Rng, Rng};
 
-use hbbft::dynamic_honey_badger::{
-    Batch, Change, ChangeState, DynamicHoneyBadger, Input, NodeChange,
-};
+use hbbft::dynamic_honey_badger::{Batch, Change, ChangeState, DynamicHoneyBadger, Input};
 use hbbft::sender_queue::{SenderQueue, Step};
 use hbbft::transaction_queue::TransactionQueue;
 use hbbft::NetworkInfo;
@@ -43,25 +41,25 @@ where
         network.input(*id, Input::User(queue.choose(&mut rng, 3, 10)));
     }
 
-    network.input_all(Input::Change(Change::NodeChange(NodeChange::Remove(
-        NodeId(0),
-    ))));
+    let netinfo = network.observer.instance().algo().netinfo().clone();
+    let pub_keys_add = netinfo.public_key_map().clone();
+    let mut pub_keys_rm = pub_keys_add.clone();
+    pub_keys_rm.remove(&NodeId(0));
+    network.input_all(Input::Change(Change::NodeChange(pub_keys_rm.clone())));
 
-    fn has_remove(node: &TestNode<UsizeDhb>) -> bool {
-        node.outputs().iter().any(|batch| {
-            *batch.change()
-                == ChangeState::Complete(Change::NodeChange(NodeChange::Remove(NodeId(0))))
-        })
-    }
-
-    fn has_add(node: &TestNode<UsizeDhb>) -> bool {
-        node.outputs().iter().any(|batch| match *batch.change() {
-            ChangeState::Complete(Change::NodeChange(NodeChange::Add(ref id, _))) => {
-                *id == NodeId(0)
-            }
+    let has_remove = |node: &TestNode<UsizeDhb>| {
+        node.outputs().iter().any(|batch| match batch.change() {
+            ChangeState::Complete(Change::NodeChange(pub_keys)) => pub_keys == &pub_keys_rm,
             _ => false,
         })
-    }
+    };
+
+    let has_add = |node: &TestNode<UsizeDhb>| {
+        node.outputs().iter().any(|batch| match batch.change() {
+            ChangeState::Complete(Change::NodeChange(pub_keys)) => pub_keys == &pub_keys_add,
+            _ => false,
+        })
+    };
 
     // Returns `true` if the node has not output all transactions yet.
     let node_busy = |node: &TestNode<UsizeDhb>| {
@@ -99,16 +97,7 @@ where
         network.step();
         // Once all nodes have processed the removal of node 0, add it again.
         if !input_add && network.nodes.values().all(has_remove) {
-            let pk = network.nodes[&NodeId(0)]
-                .instance()
-                .algo()
-                .netinfo()
-                .secret_key()
-                .public_key();
-            network.input_all(Input::Change(Change::NodeChange(NodeChange::Add(
-                NodeId(0),
-                pk,
-            ))));
+            network.input_all(Input::Change(Change::NodeChange(pub_keys_add.clone())));
             input_add = true;
         }
     }

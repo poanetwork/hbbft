@@ -75,7 +75,7 @@ where
     ///
     /// This stores a pending vote for the change. It will be included in some future batch, and
     /// once enough validators have been voted for the same change, it will take effect.
-    pub fn vote_to_remove(&mut self, node_id: N) -> Result<T, N, Q> {
+    pub fn vote_to_remove(&mut self, node_id: &N) -> Result<T, N, Q> {
         self.apply(|algo| algo.vote_to_remove(node_id))
     }
 }

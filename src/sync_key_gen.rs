@@ -351,6 +351,11 @@ impl<N: NodeIdT> SyncKeyGen<N> {
         Ok((key_gen, Some(Part(commit, rows))))
     }
 
+    /// Returns the map of participating nodes and their public keys.
+    pub fn public_keys(&self) -> &BTreeMap<N, PublicKey> {
+        &self.pub_keys
+    }
+
     /// Handles a `Part` message. If it is valid, returns an `Ack` message to be broadcast.
     ///
     /// If we are only an observer, `None` is returned instead and no messages need to be sent.

@@ -12,7 +12,7 @@ use super::{
 use {Contribution, DaStep, NodeIdT};
 
 use dynamic_honey_badger::{
-    Batch, Change, ChangeState, DynamicHoneyBadger, Error as DhbError, Message, NodeChange,
+    Batch, Change, ChangeState, DynamicHoneyBadger, Error as DhbError, Message,
 };
 
 impl<C, N> SenderQueueableOutput<N, Message<N>> for Batch<C, N>
@@ -20,21 +20,19 @@ where
     C: Contribution,
     N: NodeIdT + Rand,
 {
-    fn added_node(&self) -> Option<N> {
-        if let ChangeState::InProgress(Change::NodeChange(NodeChange::Add(ref id, _))) =
-            self.change()
-        {
+    fn added_peers(&self) -> Vec<N> {
+        if let ChangeState::InProgress(Change::NodeChange(pub_keys)) = self.change() {
             // Register the new node to send broadcast messages to it from now on.
-            Some(id.clone())
+            pub_keys.keys().cloned().collect()
         } else {
-            None
+            Vec::new()
         }
     }
 }
 
 impl<N> SenderQueueableMessage for Message<N>
 where
-    N: Rand,
+    N: Rand + Ord,
 {
     type Epoch = (u64, u64);
 
@@ -114,7 +112,7 @@ where
     ///
     /// This stores a pending vote for the change. It will be included in some future batch, and
     /// once enough validators have been voted for the same change, it will take effect.
-    pub fn vote_to_remove(&mut self, node_id: N) -> Result<C, N> {
+    pub fn vote_to_remove(&mut self, node_id: &N) -> Result<C, N> {
         self.apply(|algo| algo.vote_to_remove(node_id))
     }
 }

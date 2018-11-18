@@ -21,9 +21,7 @@ use log::info;
 use rand::{Isaac64Rng, Rng};
 
 use hbbft::dynamic_honey_badger::DynamicHoneyBadger;
-use hbbft::queueing_honey_badger::{
-    Batch, Change, ChangeState, Input, NodeChange, QueueingHoneyBadger,
-};
+use hbbft::queueing_honey_badger::{Batch, Change, ChangeState, Input, QueueingHoneyBadger};
 use hbbft::sender_queue::{Message, SenderQueue, Step};
 use hbbft::NetworkInfo;
 
@@ -36,29 +34,30 @@ fn test_queueing_honey_badger<A>(mut network: TestNetwork<A, QHB>, num_txs: usiz
 where
     A: Adversary<QHB>,
 {
+    let netinfo = network.observer.instance().algo().netinfo().clone();
+    let pub_keys_add = netinfo.public_key_map().clone();
+    let mut pub_keys_rm = pub_keys_add.clone();
+    pub_keys_rm.remove(&NodeId(0));
+    network.input_all(Input::Change(Change::NodeChange(pub_keys_rm.clone())));
+
     // The second half of the transactions will be input only after a node has been removed.
-    network.input_all(Input::Change(Change::NodeChange(NodeChange::Remove(
-        NodeId(0),
-    ))));
     for tx in 0..(num_txs / 2) {
         network.input_all(Input::User(tx));
     }
 
-    fn has_remove(node: &TestNode<QHB>) -> bool {
-        node.outputs().iter().any(|batch| {
-            *batch.change()
-                == ChangeState::Complete(Change::NodeChange(NodeChange::Remove(NodeId(0))))
-        })
-    }
-
-    fn has_add(node: &TestNode<QHB>) -> bool {
-        node.outputs().iter().any(|batch| match *batch.change() {
-            ChangeState::Complete(Change::NodeChange(NodeChange::Add(ref id, _))) => {
-                *id == NodeId(0)
-            }
+    let has_remove = |node: &TestNode<QHB>| {
+        node.outputs().iter().any(|batch| match batch.change() {
+            ChangeState::Complete(Change::NodeChange(pub_keys)) => pub_keys == &pub_keys_rm,
             _ => false,
         })
-    }
+    };
+
+    let has_add = |node: &TestNode<QHB>| {
+        node.outputs().iter().any(|batch| match batch.change() {
+            ChangeState::Complete(Change::NodeChange(pub_keys)) => pub_keys == &pub_keys_add,
+            _ => false,
+        })
+    };
 
     // Returns `true` if the node has not output all transactions yet.
     // If it has, and has advanced another epoch, it clears all messages for later epochs.
@@ -80,17 +79,7 @@ where
             for tx in (num_txs / 2)..num_txs {
                 network.input_all(Input::User(tx));
             }
-            let pk = network.nodes[&NodeId(0)]
-                .instance()
-                .algo()
-                .dyn_hb()
-                .netinfo()
-                .secret_key()
-                .public_key();
-            network.input_all(Input::Change(Change::NodeChange(NodeChange::Add(
-                NodeId(0),
-                pk,
-            ))));
+            network.input_all(Input::Change(Change::NodeChange(pub_keys_add.clone())));
             input_add = true;
         }
     }

@@ -15,7 +15,7 @@ use {NetworkInfo, NodeIdT};
 /// This is reset whenever the set of validators changes or a change reaches _f + 1_ votes. We call
 /// the epochs since the last reset the current _era_.
 #[derive(Debug)]
-pub struct VoteCounter<N> {
+pub struct VoteCounter<N: Ord> {
     /// Shared network data.
     netinfo: Arc<NetworkInfo<N>>,
     /// The epoch when voting was reset.
@@ -158,7 +158,7 @@ where
 
 /// A vote fore removing or adding a validator.
 #[derive(Eq, PartialEq, Debug, Serialize, Deserialize, Hash, Clone)]
-struct Vote<N> {
+struct Vote<N: Ord> {
     /// The change this vote is for.
     change: Change<N>,
     /// The epoch in which the current era began.
@@ -169,13 +169,13 @@ struct Vote<N> {
 
 /// A signed vote for removing or adding a validator.
 #[derive(Eq, PartialEq, Debug, Serialize, Deserialize, Hash, Clone)]
-pub struct SignedVote<N> {
+pub struct SignedVote<N: Ord> {
     vote: Vote<N>,
     voter: N,
     sig: Signature,
 }
 
-impl<N> SignedVote<N> {
+impl<N: Ord> SignedVote<N> {
     pub fn era(&self) -> u64 {
         self.vote.era
     }
@@ -187,9 +187,9 @@ impl<N> SignedVote<N> {
 
 #[cfg(test)]
 mod tests {
+    use std::iter;
     use std::sync::Arc;
 
-    use super::super::NodeChange;
     use super::{Change, SignedVote, VoteCounter};
     use fault_log::{FaultKind, FaultLog};
     use rand;
@@ -198,12 +198,14 @@ mod tests {
     /// Returns a vector of `node_num` `VoteCounter`s, and some signed example votes.
     ///
     /// If `signed_votes` is the second entry of the return value, then `signed_votes[i][j]` is the
-    /// the vote for `Remove(j)` by node `i`. Each node signed `Remove(0)`, `Remove(1)`, ... in
-    /// order.
+    /// the vote by node `i` for making `j` the only validator. Each node signed this for nodes
+    /// `0`, `1`, ... in order.
     fn setup(node_num: usize, era: u64) -> (Vec<VoteCounter<usize>>, Vec<Vec<SignedVote<usize>>>) {
+        let mut rng = rand::thread_rng();
         // Create keys for threshold cryptography.
-        let netinfos = NetworkInfo::generate_map(0..node_num, &mut rand::thread_rng())
+        let netinfos = NetworkInfo::generate_map(0..node_num, &mut rng)
             .expect("Failed to generate `NetworkInfo` map");
+        let pub_keys = netinfos[&0].public_key_map().clone();
 
         // Create a `VoteCounter` instance for each node.
         let create_counter =
@@ -213,13 +215,9 @@ mod tests {
         // Sign a few votes.
         let sign_votes = |counter: &mut VoteCounter<usize>| {
             (0..node_num)
-                .map(NodeChange::Remove)
-                .map(|change| {
-                    counter
-                        .sign_vote_for(Change::NodeChange(change))
-                        .expect("sign vote")
-                        .clone()
-                }).collect::<Vec<_>>()
+                .map(|j| Change::NodeChange(iter::once((j, pub_keys[&j])).collect()))
+                .map(|change| counter.sign_vote_for(change).expect("sign vote").clone())
+                .collect::<Vec<_>>()
         };
         let signed_votes: Vec<_> = counters.iter_mut().map(sign_votes).collect();
         (counters, signed_votes)
@@ -305,9 +303,9 @@ mod tests {
             .add_committed_vote(&1, sv[2][1].clone())
             .expect("add committed");
         assert!(faults.is_empty());
-        assert_eq!(
-            ct.compute_winner(),
-            Some(&Change::NodeChange(NodeChange::Remove(1)))
-        );
+        match ct.compute_winner() {
+            Some(Change::NodeChange(pub_keys)) => assert!(pub_keys.keys().eq(iter::once(&1))),
+            winner => panic!("Unexpected winner: {:?}", winner),
+        }
     }
 }
