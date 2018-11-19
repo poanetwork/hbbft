@@ -11,7 +11,7 @@ use crypto::{Ciphertext, Signature};
 use log::error;
 use rand::{Rand, Rng};
 use serde::{de::DeserializeOwned, Serialize};
-use serde_derive::Serialize;
+use serde_derive::{Deserialize, Serialize};
 
 use super::{Batch, ErrorKind, MessageContent, Result, Step};
 use fault_log::{Fault, FaultKind, FaultLog};
@@ -142,7 +142,7 @@ where
 
 /// A flag used when constructing an `EpochState` to determine which behavior to use when receiving
 /// proposals from a `Subset` instance.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum SubsetHandlingStrategy {
     /// Sets the `EpochState` to return proposals as they are contributed.
     Incremental,
