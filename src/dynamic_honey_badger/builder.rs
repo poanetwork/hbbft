@@ -3,14 +3,11 @@ use std::iter::once;
 use std::marker::PhantomData;
 use std::sync::Arc;
 
-use crypto::{SecretKey, SecretKeySet, SecretKeyShare};
+use crypto::{SecretKey, SecretKeySet};
 use rand::{self, Rand, Rng};
 use serde::{de::DeserializeOwned, Serialize};
 
-use super::{
-    Change, ChangeState, DynamicHoneyBadger, EncryptionSchedule, JoinPlan, Result, Step,
-    VoteCounter,
-};
+use super::{DynamicHoneyBadger, EncryptionSchedule, JoinPlan, Result, Step, VoteCounter};
 use honey_badger::{HoneyBadger, Params, SubsetHandlingStrategy};
 use util::SubRng;
 use {Contribution, NetworkInfo, NodeIdT};
@@ -137,43 +134,16 @@ where
     }
 
     /// Creates a new `DynamicHoneyBadger` configured to join the network at the epoch specified in
-    /// the `JoinPlan`.
+    /// the `JoinPlan`. This ignores the builder's configuration settings.
+    ///
+    /// **Deprecated**: Please use `DynamicHoneyBadger::new_joining` instead.
+    #[deprecated]
     pub fn build_joining(
         &mut self,
         our_id: N,
         secret_key: SecretKey,
         join_plan: JoinPlan<N>,
     ) -> Result<(DynamicHoneyBadger<C, N>, Step<C, N>)> {
-        let netinfo = NetworkInfo::new(
-            our_id,
-            SecretKeyShare::default(), // TODO: Should be an option?
-            join_plan.pub_key_set,
-            secret_key,
-            join_plan.pub_keys,
-        );
-        let arc_netinfo = Arc::new(netinfo.clone());
-        let honey_badger = HoneyBadger::builder(arc_netinfo.clone())
-            .max_future_epochs(self.params.max_future_epochs)
-            .encryption_schedule(join_plan.encryption_schedule)
-            .random_value(join_plan.random_value)
-            .build();
-        let mut dhb = DynamicHoneyBadger {
-            netinfo,
-            max_future_epochs: self.params.max_future_epochs,
-            era: join_plan.era,
-            vote_counter: VoteCounter::new(arc_netinfo, join_plan.era),
-            key_gen_msg_buffer: Vec::new(),
-            honey_badger,
-            key_gen_state: None,
-            rng: Box::new(self.rng.sub_rng()),
-        };
-        let step = match join_plan.change {
-            ChangeState::InProgress(ref change) => match change {
-                Change::NodeChange(change) => dhb.update_key_gen(join_plan.era, change)?,
-                _ => Step::default(),
-            },
-            ChangeState::None | ChangeState::Complete(..) => Step::default(),
-        };
-        Ok((dhb, step))
+        DynamicHoneyBadger::new_joining(our_id, secret_key, join_plan, self.rng.sub_rng())
     }
 }

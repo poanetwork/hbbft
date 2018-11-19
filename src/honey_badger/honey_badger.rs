@@ -191,6 +191,11 @@ where
     pub fn max_future_epochs(&self) -> u64 {
         self.params.max_future_epochs
     }
+
+    /// Returns the parameters controlling Honey Badger's behavior and performance.
+    pub fn params(&self) -> &Params {
+        &self.params
+    }
 }
 
 /// How frequently Threshold Encryption should be used.

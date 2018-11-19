@@ -3,16 +3,17 @@ use std::sync::Arc;
 use std::{fmt, result};
 
 use bincode;
-use crypto::{PublicKey, Signature};
+use crypto::{PublicKey, SecretKey, SecretKeyShare, Signature};
 use derivative::Derivative;
 use log::debug;
-use rand::{self, Rand};
+use rand::{self, Rand, Rng};
 use serde::{de::DeserializeOwned, Serialize};
 
 use super::votes::{SignedVote, VoteCounter};
 use super::{
     Batch, Change, ChangeState, DynamicHoneyBadgerBuilder, EncryptionSchedule, Error, ErrorKind,
-    Input, InternalContrib, KeyGenMessage, KeyGenState, Message, Result, SignedKeyGenMsg, Step,
+    Input, InternalContrib, JoinPlan, KeyGenMessage, KeyGenState, Message, Params, Result,
+    SignedKeyGenMsg, Step,
 };
 use fault_log::{Fault, FaultKind, FaultLog};
 use honey_badger::{self, HoneyBadger, Message as HbMessage};
@@ -86,6 +87,47 @@ where
     /// Returns a new `DynamicHoneyBadgerBuilder`.
     pub fn builder() -> DynamicHoneyBadgerBuilder<C, N> {
         DynamicHoneyBadgerBuilder::new()
+    }
+
+    /// Creates a new `DynamicHoneyBadger` ready to join the network specified in the `JoinPlan`.
+    pub fn new_joining<R: Rng + Send + Sync + 'static>(
+        our_id: N,
+        secret_key: SecretKey,
+        join_plan: JoinPlan<N>,
+        mut rng: R,
+    ) -> Result<(Self, Step<C, N>)> {
+        let netinfo = NetworkInfo::new(
+            our_id,
+            SecretKeyShare::default(), // TODO: Should be an option?
+            join_plan.pub_key_set,
+            secret_key,
+            join_plan.pub_keys,
+        );
+        let max_future_epochs = join_plan.params.max_future_epochs;
+        let arc_netinfo = Arc::new(netinfo.clone());
+        let honey_badger = HoneyBadger::builder(arc_netinfo.clone())
+            .session_id(join_plan.era)
+            .params(join_plan.params)
+            .rng(rng.sub_rng())
+            .build();
+        let mut dhb = DynamicHoneyBadger {
+            netinfo,
+            max_future_epochs,
+            era: join_plan.era,
+            vote_counter: VoteCounter::new(arc_netinfo, join_plan.era),
+            key_gen_msg_buffer: Vec::new(),
+            honey_badger,
+            key_gen_state: None,
+            rng: Box::new(rng),
+        };
+        let step = match join_plan.change {
+            ChangeState::InProgress(ref change) => match change {
+                Change::NodeChange(change) => dhb.update_key_gen(join_plan.era, change)?,
+                _ => Step::default(),
+            },
+            ChangeState::None | ChangeState::Complete(..) => Step::default(),
+        };
+        Ok((dhb, step))
     }
 
     /// Returns `true` if input for the current epoch has already been provided.
@@ -296,18 +338,19 @@ where
                 // If DKG completed, apply the change, restart Honey Badger, and inform the user.
                 debug!("{}: DKG for complete for: {:?}", self, kgs.public_keys());
                 self.netinfo = kgs.key_gen.into_network_info()?;
-                self.restart_honey_badger(batch_epoch + 1, None);
+                let params = self.honey_badger.params().clone();
+                self.restart_honey_badger(batch_epoch + 1, params);
                 ChangeState::Complete(Change::NodeChange(self.netinfo.public_key_map().clone()))
             } else if let Some(change) = self.vote_counter.compute_winner().cloned() {
                 // If there is a new change, restart DKG. Inform the user about the current change.
-                step.extend(match change {
+                match change {
                     Change::NodeChange(ref pub_keys) => {
-                        self.update_key_gen(batch_epoch + 1, pub_keys)?
+                        step.extend(self.update_key_gen(batch_epoch + 1, pub_keys)?);
                     }
                     Change::EncryptionSchedule(schedule) => {
-                        self.update_encryption_schedule(batch_epoch + 1, schedule)?
+                        self.update_encryption_schedule(batch_epoch + 1, schedule);
                     }
-                });
+                }
                 match change {
                     Change::NodeChange(_) => ChangeState::InProgress(change),
                     Change::EncryptionSchedule(_) => ChangeState::Complete(change),
@@ -322,19 +365,17 @@ where
                 netinfo: Arc::new(self.netinfo.clone()),
                 contributions: batch_contributions,
                 random_value: hb_batch.random_value,
-                encryption_schedule: self.honey_badger.get_encryption_schedule(),
+                params: self.honey_badger.params().clone(),
             });
         }
         Ok(step)
     }
 
-    pub(super) fn update_encryption_schedule(
-        &mut self,
-        era: u64,
-        encryption_schedule: EncryptionSchedule,
-    ) -> Result<Step<C, N>> {
-        self.restart_honey_badger(era, Some(encryption_schedule));
-        Ok(Step::default())
+    /// Restarts Honey Badger with the new encryption schedule.
+    pub(super) fn update_encryption_schedule(&mut self, era: u64, schedule: EncryptionSchedule) {
+        let mut params = self.honey_badger.params().clone();
+        params.encryption_schedule = schedule;
+        self.restart_honey_badger(era, params);
     }
 
     /// If the winner of the vote has changed, restarts Key Generation for the set of nodes implied
@@ -348,7 +389,8 @@ where
             return Ok(Step::default()); // The change is the same as before. Continue DKG as is.
         }
         debug!("{}: Restarting DKG for {:?}.", self, pub_keys);
-        self.restart_honey_badger(era, None);
+        let params = self.honey_badger.params().clone();
+        self.restart_honey_badger(era, params);
         // TODO: This needs to be the same as `num_faulty` will be in the _new_
         // `NetworkInfo` if the change goes through. It would be safer to deduplicate.
         let threshold = (pub_keys.len() - 1) / 3;
@@ -365,18 +407,16 @@ where
     }
 
     /// Starts a new `HoneyBadger` instance and resets the vote counter.
-    fn restart_honey_badger(&mut self, era: u64, encryption_schedule: Option<EncryptionSchedule>) {
+    fn restart_honey_badger(&mut self, era: u64, params: Params) {
         self.era = era;
         self.key_gen_msg_buffer.retain(|kg_msg| kg_msg.0 >= era);
         let netinfo = Arc::new(self.netinfo.clone());
         self.vote_counter = VoteCounter::new(netinfo.clone(), era);
         self.honey_badger = HoneyBadger::builder(netinfo)
             .session_id(era)
-            .max_future_epochs(self.max_future_epochs)
             .rng(self.rng.sub_rng())
-            .encryption_schedule(
-                encryption_schedule.unwrap_or_else(|| self.honey_badger.get_encryption_schedule()),
-            ).build();
+            .params(params)
+            .build();
     }
 
     /// Handles a `Part` message that was output by Honey Badger.

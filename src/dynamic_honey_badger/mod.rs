@@ -79,7 +79,7 @@ use rand::Rand;
 use serde_derive::{Deserialize, Serialize};
 
 use self::votes::{SignedVote, VoteCounter};
-use honey_badger::{EncryptionSchedule, Message as HbMessage};
+use honey_badger::{EncryptionSchedule, Message as HbMessage, Params};
 use sync_key_gen::{Ack, Part, SyncKeyGen};
 use NodeIdT;
 
@@ -145,10 +145,8 @@ pub struct JoinPlan<N: Ord> {
     pub_key_set: PublicKeySet,
     /// The public keys of the nodes taking part in key generation.
     pub_keys: BTreeMap<N, PublicKey>,
-    /// The current encryption schedule for threshold cryptography.
-    encryption_schedule: EncryptionSchedule,
-    /// Whether to generate a pseudorandom value in each epoch.
-    random_value: bool,
+    /// Parameters controlling Honey Badger's behavior and performance.
+    params: Params,
 }
 
 impl<N: Ord> JoinPlan<N> {

@@ -1,7 +1,9 @@
+use serde_derive::{Deserialize, Serialize};
+
 use super::{EncryptionSchedule, SubsetHandlingStrategy};
 
 /// Parameters controlling Honey Badger's behavior and performance.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Params {
     /// The maximum number of future epochs for which we handle messages simultaneously.
     pub max_future_epochs: u64,
