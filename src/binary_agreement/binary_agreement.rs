@@ -509,10 +509,6 @@ impl<N: NodeIdT, S: SessionIdT> BinaryAgreement<N, S> {
         if !self.can_finish_conf_round() {
             return Ok(Step::default());
         }
-        // FIXME: Reduce to `Decided` in case of `AllEtEnd` and `EncryptionShedule::Always`.
-        //
-        // Q: Also include `EveryNthEpoch` and `TickTock`?
-
         // Invoke the coin.
         let ts_step = match self.coin_state {
             CoinState::InProgressSession(ref mut ts) => ts.sign().map_err(Error::InvokeCoin)?,
