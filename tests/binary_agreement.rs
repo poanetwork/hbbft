@@ -78,9 +78,8 @@ proptest!{
 }
 
 type NodeId = u16;
-type Algo = BinaryAgreement<NodeId, u8>;
 
-impl VirtualNet<Algo> {
+impl VirtualNet<BinaryAgreement<NodeId, u8>> {
     fn test_binary_agreement<R>(&mut self, input: Option<bool>, mut rng: R)
     where
         R: Rng + 'static,
@@ -121,7 +120,7 @@ fn binary_agreement(cfg: TestConfig) {
         num_good_nodes, num_faulty_nodes, cfg.input
     );
     // Create a network with `size` validators and one observer.
-    let mut net: VirtualNet<Algo> = NetBuilder::new(0..size as u16)
+    let (mut net, _) = NetBuilder::new(0..size as u16)
         .num_faulty(num_faulty_nodes as usize)
         .message_limit(10_000 * size as usize)
         .time_limit(time::Duration::from_secs(30 * size as u64))
