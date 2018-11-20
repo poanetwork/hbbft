@@ -439,7 +439,7 @@ fn reordering_attack() {
     let _ = env_logger::try_init();
     let ids: Vec<NodeId> = (0..NUM_NODES).collect();
     let adversary_netinfo: Arc<Mutex<Option<Arc<NetworkInfo<NodeId>>>>> = Default::default();
-    let mut net = NetBuilder::new(ids.iter().cloned())
+    let (mut net, _) = NetBuilder::new(ids.iter().cloned())
         .adversary(AbaCommonCoinAdversary::new(adversary_netinfo.clone()))
         .crank_limit(10000)
         .using(move |info| {

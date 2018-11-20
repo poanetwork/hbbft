@@ -22,7 +22,6 @@ use std::{cmp, collections, env, fmt, fs, io, ops, process, time};
 
 use rand;
 use rand::{Rand, Rng};
-use threshold_crypto as crypto;
 
 use hbbft::dynamic_honey_badger::Batch;
 use hbbft::util::SubRng;
@@ -219,7 +218,8 @@ fn process_step<'a, D>(
     sender: D::NodeId,
     step: &DaStep<D>,
     dest: &mut collections::VecDeque<NetMessage<D>>,
-) -> usize
+    error_on_fault: bool,
+) -> Result<usize, CrankError<D>>
 where
     D: DistAlgorithm + 'a,
     D::Message: Clone,
@@ -268,14 +268,15 @@ where
         .get_mut(&sender)
         .expect("Trying to process a step with non-existing node ID")
         .store_step(step);
-    // Verify that no correct node is reported as faulty.
-    for fault in &step.fault_log.0 {
-        if nodes.get(&fault.node_id).map_or(false, |n| !n.is_faulty()) {
-            panic!("Unexpected fault: {:?}", fault);
+    if error_on_fault {
+        // Verify that no correct node is reported as faulty.
+        for fault in &step.fault_log.0 {
+            if nodes.get(&fault.node_id).map_or(false, |n| !n.is_faulty()) {
+                return Err(CrankError::Fault(fault.clone()));
+            }
         }
     }
-
-    message_count
+    Ok(message_count)
 }
 
 /// New network node construction information.
@@ -342,6 +343,9 @@ where
     message_limit: Option<usize>,
     /// Optional time limit.
     time_limit: Option<time::Duration>,
+    /// Property to cause an error if a `Fault` is output from a correct node. By default,
+    /// encountering a fault leads to an error.
+    error_on_fault: bool,
     /// Random number generator used to generate keys.
     rng: Option<Box<dyn Rng>>,
 }
@@ -360,6 +364,7 @@ where
             .field("crank_limit", &self.crank_limit)
             .field("message_limit", &self.message_limit)
             .field("time_limit", &self.time_limit)
+            .field("error_on_fault", &self.error_on_fault)
             .field("rng", &"<RNG>")
             .finish()
     }
@@ -391,6 +396,7 @@ where
             crank_limit: None,
             message_limit: None,
             time_limit: DEFAULT_TIME_LIMIT,
+            error_on_fault: true,
             rng: None,
         }
     }
@@ -480,6 +486,16 @@ where
         self
     }
 
+    /// Property to cause an error if a `Fault` is output from a correct node. By default,
+    /// encountering a fault leads to an error.
+    ///
+    /// The deault setting `true` can be changed using this function.
+    #[inline]
+    pub fn error_on_fault(mut self, error_on_fault: bool) -> Self {
+        self.error_on_fault = error_on_fault;
+        self
+    }
+
     /// Constructor function (with step).
     ///
     /// The constructor function is used to construct each node in the network. Any step returned
@@ -513,7 +529,7 @@ where
     ///
     /// If the total number of nodes is not `> 3 * num_faulty`, construction will panic.
     #[inline]
-    pub fn build(self) -> Result<VirtualNet<D>, crypto::error::Error> {
+    pub fn build(self) -> Result<(VirtualNet<D>, Vec<(D::NodeId, DaStep<D>)>), CrankError<D>> {
         let rng: Box<dyn Rng> = self.rng.unwrap_or_else(|| Box::new(rand::thread_rng()));
 
         // The time limit can be overriden through environment variables:
@@ -537,9 +553,13 @@ where
 
         // Note: Closure is not redundant, won't compile without it.
         #[cfg_attr(feature = "cargo-clippy", allow(redundant_closure))]
-        let mut net = VirtualNet::new(self.node_ids, self.num_faulty as usize, rng, move |node| {
-            cons(node)
-        })?;
+        let (mut net, steps) = VirtualNet::new(
+            self.node_ids,
+            self.num_faulty as usize,
+            rng,
+            move |node| cons(node),
+            self.error_on_fault,
+        )?;
 
         if self.adversary.is_some() {
             net.adversary = self.adversary;
@@ -561,7 +581,7 @@ where
         net.message_limit = self.message_limit;
         net.time_limit = time_limit;
 
-        Ok(net)
+        Ok((net, steps))
     }
 }
 
@@ -593,6 +613,10 @@ where
     time_limit: Option<time::Duration>,
     /// The instant the network was created.
     start_time: time::Instant,
+    /// Property to cause an error if a `Fault` is output from a correct node. Setting this to
+    /// `false` switches allows to carry on with the test despite `Fault`s reported for a correct
+    /// node.
+    error_on_fault: bool,
 }
 
 impl<D> fmt::Debug for VirtualNet<D>
@@ -609,6 +633,7 @@ where
             .field("crank_limit", &self.crank_limit)
             .field("message_count", &self.message_count)
             .field("message_limit", &self.message_limit)
+            .field("error_on_fault", &self.error_on_fault)
             .finish()
     }
 }
@@ -738,7 +763,8 @@ where
     /// construct nodes, the `cons` function is passed the ID and the generated `NetworkInfo` and
     /// expected to return a (`DistAlgorithm`, `Step`) tuple.
     ///
-    /// All messages from the resulting step are queued for delivery.
+    /// All messages from the resulting step are queued for delivery. The function outputs the
+    /// initial steps of the nodes in the constructed network for testing purposes.
     ///
     /// This function is not used directly, instead the `NetBuilder` should be used.
     ///
@@ -751,14 +777,16 @@ where
         faulty: usize,
         mut rng: R,
         cons: F,
-    ) -> Result<Self, crypto::error::Error>
+        error_on_fault: bool,
+    ) -> Result<(Self, Vec<(D::NodeId, DaStep<D>)>), CrankError<D>>
     where
         F: Fn(NewNodeInfo<D>) -> (D, DaStep<D>),
         I: IntoIterator<Item = D::NodeId>,
         R: rand::Rng,
     {
         // Generate a new set of cryptographic keys for threshold cryptography.
-        let net_infos = NetworkInfo::generate_map(node_ids, &mut rng)?;
+        let net_infos =
+            NetworkInfo::generate_map(node_ids, &mut rng).map_err(CrankError::Crypto)?;
 
         assert!(
             faulty * 3 < net_infos.len(),
@@ -786,27 +814,33 @@ where
 
         let mut message_count: usize = 0;
         // For every recorded step, apply it.
-        for (sender, step) in steps {
-            message_count = message_count.saturating_add(process_step(
+        for (sender, step) in &steps {
+            let n = process_step(
                 &mut nodes,
-                sender,
-                &step,
+                sender.clone(),
+                step,
                 &mut messages,
-            ));
+                error_on_fault,
+            )?;
+            message_count = message_count.saturating_add(n);
         }
 
-        Ok(VirtualNet {
-            nodes,
-            messages,
-            adversary: Some(Box::new(adversary::NullAdversary::new())),
-            trace: None,
-            crank_count: 0,
-            crank_limit: None,
-            message_count,
-            message_limit: None,
-            time_limit: None,
-            start_time: time::Instant::now(),
-        })
+        Ok((
+            VirtualNet {
+                nodes,
+                messages,
+                adversary: Some(Box::new(adversary::NullAdversary::new())),
+                trace: None,
+                crank_count: 0,
+                crank_limit: None,
+                message_count,
+                message_limit: None,
+                time_limit: None,
+                start_time: time::Instant::now(),
+                error_on_fault: true,
+            },
+            steps.into_iter().collect(),
+        ))
     }
 
     /// Helper function to dispatch messages.
@@ -820,13 +854,13 @@ where
             .ok_or_else(|| CrankError::NodeDisappeared(msg.to.clone()))?;
 
         // Store a copy of the message, in case we need to pass it to the error variant.
-        // By reducing the information in `CrankError::AlgorithmError`, we could reduce overhead
+        // By reducing the information in `CrankError::HandleMessage`, we could reduce overhead
         // here if necessary.
         let msg_copy = msg.clone();
         let step = node
             .algorithm
             .handle_message(&msg.from, msg.payload)
-            .map_err(move |err| CrankError::AlgorithmError { msg: msg_copy, err })?;
+            .map_err(move |err| CrankError::HandleMessage { msg: msg_copy, err })?;
 
         Ok(step)
     }
@@ -840,20 +874,26 @@ where
     ///
     /// Panics if `id` does not name a valid node.
     #[inline]
-    pub fn send_input(&mut self, id: D::NodeId, input: D::Input) -> Result<DaStep<D>, D::Error> {
+    pub fn send_input(
+        &mut self,
+        id: D::NodeId,
+        input: D::Input,
+    ) -> Result<DaStep<D>, CrankError<D>> {
         let step = self
             .nodes
             .get_mut(&id)
             .expect("cannot handle input on non-existing node")
             .algorithm
-            .handle_input(input)?;
+            .handle_input(input)
+            .map_err(CrankError::Algorithm)?;
 
         self.message_count = self.message_count.saturating_add(process_step(
             &mut self.nodes,
             id,
             &step,
             &mut self.messages,
-        ));
+            self.error_on_fault,
+        )?);
 
         Ok(step)
     }
@@ -939,12 +979,16 @@ where
 
         // All messages are expanded and added to the queue. We opt for copying them, so we can
         // return unaltered step later on for inspection.
-        self.message_count = self.message_count.saturating_add(process_step(
+        match process_step(
             &mut self.nodes,
             receiver.clone(),
             &step,
             &mut self.messages,
-        ));
+            self.error_on_fault,
+        ) {
+            Ok(n) => self.message_count = self.message_count.saturating_add(n),
+            Err(e) => return Some(Err(e)),
+        }
 
         // Increase the crank count.
         self.crank_count += 1;
@@ -980,7 +1024,7 @@ where
     pub fn broadcast_input<'a>(
         &'a mut self,
         input: &'a D::Input,
-    ) -> Result<Vec<(D::NodeId, DaStep<D>)>, D::Error> {
+    ) -> Result<Vec<(D::NodeId, DaStep<D>)>, CrankError<D>> {
         // Note: The tricky lifetime annotation basically says that the input value given must
         //       live as long as the iterator returned lives (because it is cloned on every step,
         //       with steps only evaluated each time `next()` is called. For the same reason the
@@ -994,19 +1038,23 @@ where
             .map(move |node| {
                 Ok((
                     node.id().clone(),
-                    node.algorithm.handle_input(input.clone())?,
+                    node.algorithm
+                        .handle_input(input.clone())
+                        .map_err(CrankError::Algorithm)?,
                 ))
             }).collect::<Result<_, _>>()?;
 
         // Process all messages from all steps in the queue.
-        steps.iter().for_each(|(id, step)| {
-            self.message_count = self.message_count.saturating_add(process_step(
+        for (id, step) in &steps {
+            let n = process_step(
                 &mut self.nodes,
                 id.clone(),
                 step,
                 &mut self.messages,
-            ));
-        });
+                self.error_on_fault,
+            )?;
+            self.message_count = self.message_count.saturating_add(n);
+        }
 
         Ok(steps)
     }

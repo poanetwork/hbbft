@@ -93,7 +93,7 @@ fn do_drop_and_readd(cfg: TestConfig) {
     let mut rng: TestRng = TestRng::from_seed(cfg.seed);
 
     // First, we create a new test network with Honey Badger instances.
-    let mut net = NetBuilder::new(0..cfg.dimension.size())
+    let (mut net, _) = NetBuilder::new(0..cfg.dimension.size())
         .num_faulty(cfg.dimension.faulty())
         // Limited to 15k messages per node.
         .message_limit(15_000 * cfg.dimension.size() as usize)
