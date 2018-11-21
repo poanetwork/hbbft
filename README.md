@@ -23,15 +23,21 @@ In an optimal networking environment, output includes data sent from each node. 
 
 In addition to **validators**, the algorithms support **observers**: These don't actively participate, and don't need to be trusted, but they receive the output as well, and are able to verify it under the assumption that more than two thirds of the validators are correct.
 
+Please see the following posts for more details:
+
+- [POA Network: Building Honey Badger BFT](https://medium.com/poa-network/poa-network-building-honey-badger-bft-c953afa4d926)
+
+- [POA Network: How Honey Badger BFT Consensus Works](https://medium.com/poa-network/poa-network-how-honey-badger-bft-consensus-works-4b16c0f1ff94)
+
 ## Algorithms
 
 - **[Honey Badger](src/honey_badger/honey_badger.rs):** Each node inputs transactions. The protocol outputs a sequence of batches of transactions.
 
 - **[Dynamic Honey Badger](src/dynamic_honey_badger/dynamic_honey_badger.rs):** A modified Honey Badger where nodes can dynamically add and remove other nodes to/from the network.
 
-- **[Queueing Honey Badger](src/queueing_honey_badger.rs):** Works exactly like Dynamic Honey Badger, but includes a built in transaction queue.
+- **[Queueing Honey Badger](src/queueing_honey_badger/mod.rs):** Works exactly like Dynamic Honey Badger, but includes a built in transaction queue.
 
-- **[Subset](src/subset.rs):** Each node inputs data. The nodes agree on a subset of suggested data.
+- **[Subset](src/subset/subset.rs):** Each node inputs data. The nodes agree on a subset of suggested data.
 
 - **[Broadcast](src/broadcast/broadcast.rs):** A proposer node inputs data and every node receives this output.
 
@@ -40,7 +46,7 @@ In addition to **validators**, the algorithms support **observers**: These don't
 - **[Threshold Sign](src/threshold_sign.rs):**
   Each node inputs the same data to be signed, and outputs the unique valid signature matching the public master key. It is used as a pseudorandom value in the Binary Agreement protocol.
 
-- **[Threshold Decryption](src/threshold_decryption.rs):**
+- **[Threshold Decryption](src/threshold_decrypt.rs):**
   Each node inputs the same ciphertext, encrypted to the public master key, and outputs the decrypted data.
 
 - **[Synchronous Key Generation](src/sync_key_gen.rs)** A dealerless algorithm that generates keys for threshold encryption and signing. Unlike the other algorithms, this one is _completely synchronous_ and should run on top of Honey Badger (or another consensus algorithm)
@@ -81,7 +87,7 @@ A basic [example](examples/README.md) is included to run a network simulation.
 $ cargo run --example simulation --release
 ```
 
-![Screenshot](screenshot.png)
+![Screenshot](assets/screenshot.png)
 
 |  Heading    | Definition
 | ----------- | -------------------------------------------------------------------------- |
@@ -125,10 +131,6 @@ $ cargo run --example simulation --release -- -b 500
 
 ```
 
-## Current TODOs
-
-See [Issues](https://github.com/poanetwork/hbbft/issues) for all tasks.
-
 ## Protocol Modifications
 
 Our implementation modifies the protocols described in "[The Honey Badger of BFT Protocols](https://eprint.iacr.org/2016/199.pdf)" in several ways:
@@ -149,6 +151,30 @@ We have simplified algorithm naming conventions from the original paper.
 | Broadcast        | Reliable Broadcast (RBC)                      |
 | Binary Agreement | Asynchronous Binary Byzantine Agreement (ABA) |
 
+
+## References
+
+* [The Honey Badger of BFT Protocols](https://eprint.iacr.org/2016/199.pdf)
+
+* [Honey Badger Video](https://www.youtube.com/watch?v=Qone4j1hCt8)
+
+
+* Other language implementations
+
+  * [Python](https://github.com/initc3/HoneyBadgerBFT-Python)
+
+  * [Go](https://github.com/anthdm/hbbft)
+
+  * [Erlang](https://github.com/helium/erlang-hbbft)
+
+  * [Rust](https://github.com/rphmeier/honeybadger) - unfinished implementation
+
+
+### Honey Badger Visualization
+
+![Screenshot](assets/honey_badger_diagram.svg)
+
+
 ## Contributing
 
 See the [CONTRIBUTING](CONTRIBUTING.md) document for contribution, testing and pull request protocol.
@@ -162,20 +188,4 @@ Licensed under either of:
 
 at your option.
 
-## References
 
-* [The Honey Badger of BFT Protocols](https://eprint.iacr.org/2016/199.pdf)
-
-* [Honey Badger Video](https://www.youtube.com/watch?v=Qone4j1hCt8)
-
-* [POA Network: Building Honey Badger BFT](https://medium.com/poa-network/poa-network-building-honey-badger-bft-c953afa4d926)
-
-* Other language implementations
-
-  * [Python](https://github.com/initc3/HoneyBadgerBFT-Python)
-
-  * [Go](https://github.com/anthdm/hbbft)
-
-  * [Erlang](https://github.com/helium/erlang-hbbft)
-
-  * [Rust](https://github.com/rphmeier/honeybadger) - unfinished implementation
