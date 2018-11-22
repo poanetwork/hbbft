@@ -24,7 +24,7 @@ use rand::Rng;
 use hbbft::honey_badger::{Batch, EncryptionSchedule, HoneyBadger, MessageContent};
 use hbbft::sender_queue::{self, SenderQueue, Step};
 use hbbft::transaction_queue::TransactionQueue;
-use hbbft::{threshold_decrypt, DistAlgorithm, NetworkInfo, Target, TargetedMessage};
+use hbbft::{threshold_decrypt, util, DistAlgorithm, NetworkInfo, Target, TargetedMessage};
 
 use network::{
     Adversary, MessageScheduler, MessageWithSender, NodeId, RandomAdversary, SilentAdversary,
@@ -101,6 +101,7 @@ impl Adversary<UsizeHoneyBadger> for FaultyShareAdversary {
                         .encrypt(fake_proposal);
                     let share = adv_node
                         .secret_key_share()
+                        .expect("missing adversary key share")
                         .decrypt_share(&fake_ciphertext)
                         .expect("decryption share");
                     // Send the share to remote nodes.
@@ -207,7 +208,7 @@ where
     let mut rng = rand::thread_rng();
     let sizes = vec![1, 2, 3, 5, rng.gen_range(6, 10)];
     for size in sizes {
-        let num_adv_nodes = (size - 1) / 3;
+        let num_adv_nodes = util::max_faulty(size);
         let num_good_nodes = size - num_adv_nodes;
         info!(
             "Network size: {} good nodes, {} faulty nodes",

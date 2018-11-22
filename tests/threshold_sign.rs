@@ -19,7 +19,7 @@ use rand_derive::Rand;
 use serde_derive::{Deserialize, Serialize};
 
 use crypto::Signature;
-use hbbft::threshold_sign::ThresholdSign;
+use hbbft::{threshold_sign::ThresholdSign, util};
 
 use network::{Adversary, MessageScheduler, NodeId, SilentAdversary, TestNetwork, TestNode};
 
@@ -93,7 +93,7 @@ where
     }
 
     for size in sizes {
-        let num_faulty_nodes = (size - 1) / 3;
+        let num_faulty_nodes = util::max_faulty(size);
         let num_good_nodes = size - num_faulty_nodes;
         info!(
             "Network size: {} good nodes, {} faulty nodes",

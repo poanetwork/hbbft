@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::{fmt, result};
 
 use bincode;
-use crypto::{PublicKey, SecretKey, SecretKeyShare, Signature};
+use crypto::{PublicKey, SecretKey, Signature};
 use derivative::Derivative;
 use log::debug;
 use rand::{self, Rand, Rng};
@@ -98,7 +98,7 @@ where
     ) -> Result<(Self, Step<C, N>)> {
         let netinfo = NetworkInfo::new(
             our_id,
-            SecretKeyShare::default(), // TODO: Should be an option?
+            None,
             join_plan.pub_key_set,
             secret_key,
             join_plan.pub_keys,
@@ -390,9 +390,7 @@ where
         debug!("{}: Restarting DKG for {:?}.", self, pub_keys);
         let params = self.honey_badger.params().clone();
         self.restart_honey_badger(era, params);
-        // TODO: This needs to be the same as `num_faulty` will be in the _new_
-        // `NetworkInfo` if the change goes through. It would be safer to deduplicate.
-        let threshold = (pub_keys.len() - 1) / 3;
+        let threshold = util::max_faulty(pub_keys.len());
         let sk = self.netinfo.secret_key().clone();
         let our_id = self.our_id().clone();
         let (key_gen, part) =

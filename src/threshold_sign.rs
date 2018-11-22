@@ -143,10 +143,11 @@ impl<N: NodeIdT> ThresholdSign<N> {
         self.had_input = true;
         let mut step = Step::default();
         step.fault_log.extend(self.remove_invalid_shares());
-        if !self.netinfo.is_validator() {
-            return Ok(step.join(self.try_output()?));
-        }
-        let msg = Message(self.netinfo.secret_key_share().sign_g2(hash));
+        // TODO: Remove `cloned()` once non-lexical lifetimes are stable.
+        let msg = match self.netinfo.secret_key_share().cloned() {
+            Some(sks) => Message(sks.sign_g2(hash)),
+            None => return Ok(step.join(self.try_output()?)), // Not a validator.
+        };
         step.messages.push(Target::All.message(msg.clone()));
         let id = self.our_id().clone();
         step.extend(self.handle_message(&id, msg)?);

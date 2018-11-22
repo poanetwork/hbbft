@@ -3,7 +3,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use crypto::{self, PublicKey, PublicKeySet, PublicKeyShare, SecretKey, SecretKeyShare};
 use rand;
 
-use NodeIdT;
+use {util, NodeIdT};
 
 /// Common data shared between algorithms: the nodes' IDs and key shares.
 #[derive(Debug, Clone)]
@@ -12,8 +12,7 @@ pub struct NetworkInfo<N> {
     num_nodes: usize,
     num_faulty: usize,
     is_validator: bool,
-    // TODO: Should this be an option? It only makes sense for validators.
-    secret_key_share: SecretKeyShare,
+    secret_key_share: Option<SecretKeyShare>,
     secret_key: SecretKey,
     public_key_set: PublicKeySet,
     public_key_shares: BTreeMap<N, PublicKeyShare>,
@@ -27,9 +26,9 @@ impl<N: NodeIdT> NetworkInfo<N> {
     /// All nodes in the network must share the same public information. Validators' IDs must be
     /// keys in the `public_keys` map, and their secret key share must match their share in the
     /// `public_key_set`.
-    pub fn new(
+    pub fn new<SKS: Into<Option<SecretKeyShare>>>(
         our_id: N,
-        secret_key_share: SecretKeyShare,
+        secret_key_share: SKS,
         public_key_set: PublicKeySet,
         secret_key: SecretKey,
         public_keys: BTreeMap<N, PublicKey>,
@@ -48,9 +47,9 @@ impl<N: NodeIdT> NetworkInfo<N> {
         NetworkInfo {
             our_id,
             num_nodes,
-            num_faulty: (num_nodes - 1) / 3,
+            num_faulty: util::max_faulty(num_nodes),
             is_validator,
-            secret_key_share,
+            secret_key_share: secret_key_share.into(),
             secret_key,
             public_key_set,
             public_key_shares,
@@ -91,10 +90,10 @@ impl<N: NodeIdT> NetworkInfo<N> {
         self.num_nodes - self.num_faulty
     }
 
-    /// Returns our secret key share for threshold cryptography.
+    /// Returns our secret key share for threshold cryptography, or `None` if not a validator.
     #[inline]
-    pub fn secret_key_share(&self) -> &SecretKeyShare {
-        &self.secret_key_share
+    pub fn secret_key_share(&self) -> Option<&SecretKeyShare> {
+        self.secret_key_share.as_ref()
     }
 
     /// Returns our secret key for encryption and signing.
@@ -166,7 +165,7 @@ impl<N: NodeIdT> NetworkInfo<N> {
         use crypto::SecretKeySet;
 
         let all_ids: BTreeSet<N> = ids.into_iter().collect();
-        let num_faulty = (all_ids.len() - 1) / 3;
+        let num_faulty = util::max_faulty(all_ids.len());
 
         // Generate the keys for threshold cryptography.
         let sk_set = SecretKeySet::random(num_faulty, rng);

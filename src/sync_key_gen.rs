@@ -462,8 +462,7 @@ impl<N: NodeIdT> SyncKeyGen<N> {
     /// All participating nodes must have handled the exact same sequence of `Part` and `Ack`
     /// messages before calling this method. Otherwise their key shares will not match.
     pub fn into_network_info(self) -> Result<NetworkInfo<N>, Error> {
-        let (pk_set, opt_sk_share) = self.generate()?;
-        let sk_share = opt_sk_share.unwrap_or_default(); // TODO: Make this an option.
+        let (pk_set, sk_share) = self.generate()?;
         let netinfo = NetworkInfo::new(self.our_id, sk_share, pk_set, self.sec_key, self.pub_keys);
         Ok(netinfo)
     }
