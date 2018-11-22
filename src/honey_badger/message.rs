@@ -4,7 +4,6 @@ use serde_derive::{Deserialize, Serialize};
 
 use subset;
 use threshold_decrypt;
-use threshold_sign;
 
 /// The content of a `HoneyBadger` message. It should be further annotated with an epoch.
 #[derive(Clone, Debug, Deserialize, Rand, Serialize)]
@@ -18,8 +17,6 @@ pub enum MessageContent<N: Rand> {
         proposer_id: N,
         share: threshold_decrypt::Message,
     },
-    /// A share of the signature used as a pseudorandom value.
-    SignatureShare(threshold_sign::Message),
 }
 
 impl<N: Rand> MessageContent<N> {

@@ -7,7 +7,7 @@ use std::result;
 use std::sync::Arc;
 
 use bincode;
-use crypto::{Ciphertext, Signature};
+use crypto::Ciphertext;
 use log::error;
 use rand::{Rand, Rng};
 use serde::{de::DeserializeOwned, Serialize};
@@ -17,43 +17,9 @@ use super::{Batch, ErrorKind, MessageContent, Result, Step};
 use fault_log::{Fault, FaultKind, FaultLog};
 use subset::{self as cs, Subset, SubsetOutput};
 use threshold_decrypt::{self as td, ThresholdDecrypt};
-use threshold_sign::{self as ts, ThresholdSign};
 use {Contribution, DistAlgorithm, NetworkInfo, NodeIdT};
 
 type CsStep<N> = cs::Step<N>;
-
-/// The status of the threshold signature for the random value.
-#[derive(Debug)]
-enum SigningState<N> {
-    /// No random value is required in this epoch.
-    None,
-    /// Signing is ongoing.
-    Ongoing(Box<ThresholdSign<N>>),
-    /// Signing is complete. This contains the signature.
-    Complete(Box<Signature>),
-}
-
-impl<N: NodeIdT> SigningState<N> {
-    /// Handles a message containing a decryption share.
-    fn handle_message(&mut self, sender_id: &N, msg: ts::Message) -> ts::Result<ts::Step<N>> {
-        match self {
-            SigningState::None => {
-                let fault_kind = FaultKind::UnexpectedSignatureShare;
-                Ok(Fault::new(sender_id.clone(), fault_kind).into())
-            }
-            SigningState::Ongoing(ref mut ts) => ts.handle_message(sender_id, msg),
-            SigningState::Complete(_) => Ok(ts::Step::default()),
-        }
-    }
-
-    /// Sends the signatures shares.
-    fn sign(&mut self) -> ts::Result<ts::Step<N>> {
-        match self {
-            SigningState::Ongoing(ref mut ts) => ts.sign(),
-            SigningState::None | SigningState::Complete(_) => Ok(ts::Step::default()),
-        }
-    }
-}
 
 /// The status of an encrypted contribution.
 #[derive(Debug)]
@@ -222,8 +188,6 @@ pub struct EpochState<C, N: Rand> {
     subset: SubsetState<N>,
     /// The status of threshold decryption, by proposer.
     decryption: BTreeMap<N, DecryptionState<N>>,
-    /// The status of the threshold signature for the random value.
-    signing: SigningState<N>,
     /// Nodes found so far in `Subset` output.
     accepted_proposers: BTreeSet<N>,
     /// Determines the behavior upon receiving proposals from `subset`.
@@ -244,26 +208,15 @@ where
         hb_id: u64,
         epoch: u64,
         subset_handling_strategy: SubsetHandlingStrategy,
-        random_value: bool,
         require_decryption: bool,
     ) -> Result<Self> {
         let epoch_id = EpochId { hb_id, epoch };
         let cs = Subset::new(netinfo.clone(), epoch_id).map_err(ErrorKind::CreateSubset)?;
-        let signing = if random_value {
-            let rand_id = ("random_value", hb_id, epoch);
-            let doc = bincode::serialize(&rand_id).map_err(|err| ErrorKind::RandBincode(*err))?;
-            let ts = ThresholdSign::new_with_document(netinfo.clone(), doc)
-                .map_err(ErrorKind::CreateThresholdSign)?;
-            SigningState::Ongoing(Box::new(ts))
-        } else {
-            SigningState::None
-        };
         Ok(EpochState {
             epoch,
             netinfo,
             subset: SubsetState::Ongoing(cs),
             decryption: BTreeMap::default(),
-            signing,
             accepted_proposers: Default::default(),
             subset_handler: subset_handling_strategy.into(),
             require_decryption,
@@ -321,24 +274,12 @@ where
                 .map_err(ErrorKind::ThresholdDecrypt)?;
                 self.process_decryption(proposer_id, td_step)
             }
-            MessageContent::SignatureShare(share) => {
-                let ts_step = self
-                    .signing
-                    .handle_message(sender_id, share)
-                    .map_err(ErrorKind::ThresholdSign)?;
-                self.process_signing(ts_step)
-            }
         }
     }
 
     /// When contributions of transactions have been decrypted for all valid proposers in this
     /// epoch, moves those contributions into a batch, outputs the batch and updates the epoch.
     pub fn try_output_batch(&self) -> Option<(Batch<C, N>, FaultLog<N>)> {
-        let random_value = match &self.signing {
-            SigningState::None => None,
-            SigningState::Ongoing(_) => return None,
-            SigningState::Complete(signature) => Some(*signature.clone()),
-        };
         let proposer_ids = self.subset.accepted_ids()?;
         let mut plaintexts = Vec::new();
         // Collect accepted plaintexts. Return if some are not decrypted yet.
@@ -353,7 +294,6 @@ where
         let mut batch = Batch {
             epoch: self.epoch,
             contributions: BTreeMap::new(),
-            random_value,
         };
         // Deserialize the output. If it fails, the proposer of that item is faulty.
         for (id, plaintext) in plaintexts {
@@ -397,8 +337,6 @@ where
             }
 
             if is_done {
-                let ts_state = self.signing.sign().map_err(ErrorKind::ThresholdSign)?;
-                step.extend(self.process_signing(ts_state)?);
                 self.subset = SubsetState::Complete(self.accepted_proposers.clone());
                 let faulty_shares: Vec<_> = self
                     .decryption
@@ -432,18 +370,6 @@ where
         if let Some(output) = opt_output.into_iter().next() {
             self.decryption
                 .insert(proposer_id, DecryptionState::Complete(output));
-        }
-        Ok(step)
-    }
-
-    /// Processes a Threshold Sign step.
-    fn process_signing(&mut self, ts_step: ts::Step<N>) -> Result<Step<C, N>> {
-        let mut step = Step::default();
-        let opt_output = step.extend_with(ts_step, |share| {
-            MessageContent::SignatureShare(share).with_epoch(self.epoch)
-        });
-        if let Some(output) = opt_output.into_iter().next() {
-            self.signing = SigningState::Complete(Box::new(output));
         }
         Ok(step)
     }

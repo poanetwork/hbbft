@@ -364,7 +364,6 @@ where
                 change,
                 netinfo: Arc::new(self.netinfo.clone()),
                 contributions: batch_contributions,
-                random_value: hb_batch.random_value,
                 params: self.honey_badger.params().clone(),
             });
         }

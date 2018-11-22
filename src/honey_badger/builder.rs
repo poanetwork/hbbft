@@ -79,12 +79,6 @@ where
         self
     }
 
-    /// Whether to generate a pseudorandom value in each epoch.
-    pub fn random_value(&mut self, random_value: bool) -> &mut Self {
-        self.params.random_value = random_value;
-        self
-    }
-
     /// Sets the schedule to use for threshold encryption.
     pub fn encryption_schedule(&mut self, encryption_schedule: EncryptionSchedule) -> &mut Self {
         self.params.encryption_schedule = encryption_schedule;

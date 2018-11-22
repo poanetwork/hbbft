@@ -122,9 +122,9 @@
 //!     let mut payload: Vec<_> = vec![0; 128];
 //!     rng.fill_bytes(&mut payload[..]);
 //!
-//!     // Define a function for handling one step of a `Broadcast` instance. This function appends new
-//!     // messages onto the message queue and checks whether each node outputs at most once and the
-//!     // output is correct.
+//!     // Define a function for handling one step of a `Broadcast` instance. This function appends
+//!     // new messages onto the message queue and checks whether each node outputs at most once
+//!     // and the output is correct.
 //!     let on_step = |id: u64,
 //!                    step: Step<u64>,
 //!                    messages: &mut VecDeque<SourcedMessage<TargetedMessage<_, _>, _>>,
