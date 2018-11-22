@@ -22,8 +22,6 @@ pub enum FaultKind {
     InvalidCiphertext,
     /// `HoneyBadger` received a message with an invalid epoch.
     UnexpectedHbMessageEpoch,
-    /// `HoneyBadger` received a signatures share for the random value even though it is disabled.
-    UnexpectedSignatureShare,
     /// `ThresholdDecrypt` received multiple shares from the same sender.
     MultipleDecryptionShares,
     /// `Broadcast` received a `Value` from a node other than the proposer.

@@ -181,7 +181,6 @@ where
                 self.session_id,
                 epoch,
                 self.params.subset_handling_strategy.clone(),
-                self.params.random_value,
                 self.params.encryption_schedule.use_on_epoch(epoch),
             )?),
         })
