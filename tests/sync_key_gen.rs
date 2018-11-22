@@ -11,6 +11,7 @@ use std::collections::BTreeMap;
 use crypto::{PublicKey, SecretKey};
 
 use hbbft::sync_key_gen::{PartOutcome, SyncKeyGen};
+use hbbft::util;
 
 fn test_sync_key_gen_with(threshold: usize, node_num: usize) {
     // Generate individual key pairs for encryption. These are not suitable for threshold schemes.
@@ -100,7 +101,7 @@ fn test_sync_key_gen() {
     let _ = env_logger::try_init();
 
     for &node_num in &[1, 2, 3, 4, 8, 15] {
-        let threshold = (node_num - 1) / 3;
+        let threshold = util::max_faulty(node_num);
         test_sync_key_gen_with(threshold, node_num);
     }
 }

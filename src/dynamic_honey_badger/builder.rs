@@ -30,7 +30,6 @@ where
     N: Ord,
 {
     fn default() -> Self {
-        // TODO: Use the defaults from `HoneyBadgerBuilder`.
         DynamicHoneyBadgerBuilder {
             era: 0,
             rng: Box::new(rand::thread_rng()),

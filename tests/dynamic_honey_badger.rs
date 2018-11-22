@@ -23,7 +23,7 @@ use rand::{Isaac64Rng, Rng};
 use hbbft::dynamic_honey_badger::{Batch, Change, ChangeState, DynamicHoneyBadger, Input};
 use hbbft::sender_queue::{SenderQueue, Step};
 use hbbft::transaction_queue::TransactionQueue;
-use hbbft::NetworkInfo;
+use hbbft::{util, NetworkInfo};
 
 use network::{Adversary, MessageScheduler, NodeId, SilentAdversary, TestNetwork, TestNode};
 
@@ -134,7 +134,7 @@ where
     let sizes = vec![2, 3, 5, rng.gen_range(6, 10)];
     for size in sizes {
         // The test is removing one correct node, so we allow fewer faulty ones.
-        let num_adv_nodes = (size - 2) / 3;
+        let num_adv_nodes = util::max_faulty(size - 1);
         let num_good_nodes = size - num_adv_nodes;
         info!(
             "Network size: {} good nodes, {} faulty nodes",

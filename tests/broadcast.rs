@@ -19,7 +19,7 @@ use log::info;
 use rand::Rng;
 
 use hbbft::broadcast::{Broadcast, Message};
-use hbbft::{DistAlgorithm, NetworkInfo, Target, TargetedMessage};
+use hbbft::{util, DistAlgorithm, NetworkInfo, Target, TargetedMessage};
 use network::{
     Adversary, MessageScheduler, MessageWithSender, NodeId, RandomAdversary, SilentAdversary,
     TestNetwork, TestNode,
@@ -110,7 +110,7 @@ where
         .chain(once(rng.gen_range(6, 20)))
         .chain(once(rng.gen_range(30, 50)));
     for size in sizes {
-        let num_faulty_nodes = (size - 1) / 3;
+        let num_faulty_nodes = util::max_faulty(size);
         let num_good_nodes = size - num_faulty_nodes;
         info!(
             "Network size: {} good nodes, {} faulty nodes",

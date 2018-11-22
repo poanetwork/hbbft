@@ -135,11 +135,11 @@ impl<N: NodeIdT> ThresholdDecrypt<N> {
         let mut step = Step::default();
         step.fault_log.extend(self.remove_invalid_shares());
         self.had_input = true;
-        if !self.netinfo.is_validator() {
-            step.extend(self.try_output()?);
-            return Ok(step);
-        }
-        let share = self.netinfo.secret_key_share().decrypt_share_no_verify(&ct);
+        // TODO: Remove `cloned()` once non-lexical lifetimes are stable.
+        let share = match self.netinfo.secret_key_share().cloned() {
+            Some(sks) => sks.decrypt_share_no_verify(&ct),
+            None => return Ok(step.join(self.try_output()?)), // Not a validator.
+        };
         let our_id = self.our_id().clone();
         let msg = Target::All.message(Message(share.clone()));
         step.messages.push(msg);

@@ -3,7 +3,6 @@ use std::fmt::{self, Debug};
 use std::mem;
 use std::sync::Arc;
 
-use crypto::SecretKeyShare;
 use log::{debug, warn};
 use rand::{self, Rng};
 use rand_derive::Rand;
@@ -412,7 +411,7 @@ where
             let node_ni = netinfos.values().next().unwrap();
             NetworkInfo::new(
                 NodeId(good_num + adv_num),
-                SecretKeyShare::default(),
+                None,
                 node_ni.public_key_set().clone(),
                 rng.gen(),
                 node_ni.public_key_map().clone(),

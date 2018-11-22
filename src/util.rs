@@ -36,3 +36,10 @@ pub fn fmt_rng<T>(_: T, f: &mut fmt::Formatter) -> fmt::Result {
 pub fn fmt_hex<T: AsRef<[u8]>>(bytes: T, f: &mut fmt::Formatter) -> fmt::Result {
     write!(f, "{:10}", HexFmt(bytes))
 }
+
+/// Given a number of nodes, returns the maximum number of faulty nodes that can be tolerated: the
+/// greatest number less than one third of `n`.
+#[inline]
+pub fn max_faulty(n: usize) -> usize {
+    (n - 1) / 3
+}
