@@ -1,17 +1,23 @@
 use rand::Rand;
 use serde::{de::DeserializeOwned, Serialize};
 
-use super::{SenderQueueableDistAlgorithm, SenderQueueableMessage, SenderQueueableOutput};
+use super::{
+    NewValidators, SenderQueueableDistAlgorithm, SenderQueueableMessage, SenderQueueableOutput,
+};
 use crate::honey_badger::{Batch, HoneyBadger, Message};
 use crate::{Contribution, Epoched, NodeIdT};
 
-impl<C, N> SenderQueueableOutput<N, Message<N>> for Batch<C, N>
+impl<C, N> SenderQueueableOutput<N, u64> for Batch<C, N>
 where
     C: Contribution,
     N: NodeIdT + Rand,
 {
-    fn added_peers(&self) -> Vec<N> {
-        Vec::new()
+    fn new_validators(&self) -> NewValidators<N> {
+        NewValidators::None
+    }
+
+    fn output_epoch(&self) -> u64 {
+        self.epoch
     }
 }
 

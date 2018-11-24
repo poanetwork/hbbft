@@ -7,7 +7,8 @@ use rand::{Rand, Rng};
 use serde::{de::DeserializeOwned, Serialize};
 
 use super::{
-    SenderQueue, SenderQueueableDistAlgorithm, SenderQueueableMessage, SenderQueueableOutput,
+    NewValidators, SenderQueue, SenderQueueableDistAlgorithm, SenderQueueableMessage,
+    SenderQueueableOutput,
 };
 use crate::{Contribution, DaStep, NodeIdT};
 
@@ -15,18 +16,24 @@ use crate::dynamic_honey_badger::{
     Batch, Change, ChangeState, DynamicHoneyBadger, Error as DhbError, Message,
 };
 
-impl<C, N> SenderQueueableOutput<N, Message<N>> for Batch<C, N>
+impl<C, N> SenderQueueableOutput<N, (u64, u64)> for Batch<C, N>
 where
     C: Contribution,
     N: NodeIdT + Rand,
 {
-    fn added_peers(&self) -> Vec<N> {
+    fn new_validators(&self) -> NewValidators<N> {
         if let ChangeState::InProgress(Change::NodeChange(pub_keys)) = self.change() {
-            // Register the new node to send broadcast messages to it from now on.
-            pub_keys.keys().cloned().collect()
+            NewValidators::StartedKeyGen(pub_keys.keys().cloned().collect())
+        } else if let ChangeState::Complete(Change::NodeChange(pub_keys)) = self.change() {
+            NewValidators::CompletedKeyGen(pub_keys.keys().cloned().collect())
         } else {
-            Vec::new()
+            NewValidators::None
         }
+    }
+
+    fn output_epoch(&self) -> (u64, u64) {
+        let hb_epoch = self.epoch() - self.era();
+        (self.era(), hb_epoch)
     }
 }
 

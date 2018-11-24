@@ -39,14 +39,29 @@ pub trait SenderQueueableMessage {
     fn first_epoch(&self) -> Self::Epoch;
 }
 
+/// The new set of validators.
+pub enum NewValidators<N> {
+    /// Keep the current set of validators.
+    None,
+    /// Register the new validators to send broadcast messages from now on.
+    StartedKeyGen(Vec<N>),
+    /// Set the new set of validators. Start removing old validators.
+    CompletedKeyGen(Vec<N>),
+}
+
 /// An output type that is suitable for use with a sender queue.
-pub trait SenderQueueableOutput<N, M>
+pub trait SenderQueueableOutput<N, E>
 where
     N: NodeIdT,
 {
-    /// Returns the new set of validator that this batch is starting or completing key generation
-    /// for, including the existing ones. These should be added to the set of all nodes.
-    fn added_peers(&self) -> Vec<N>;
+    /// Returns the new set of validators for which this batch is starting or completing key
+    /// generation, possibly including current validators. New nodes in that set should be added to
+    /// the set of all nodes for tracking their epochs. Old validator not appearing in the set of
+    /// new validators should be removed from the set of all nodes.
+    fn new_validators(&self) -> NewValidators<N>;
+
+    /// The epoch in which the output was produced.
+    fn output_epoch(&self) -> E;
 }
 
 /// A `DistAlgorithm` that can be wrapped by a sender queue.
@@ -82,6 +97,11 @@ where
     /// The set of all remote nodes on the network including validator as well as non-validator
     /// (observer) nodes together with their epochs as of the last communication.
     peer_epochs: BTreeMap<D::NodeId, D::Epoch>,
+    /// The set of previously validating nodes now removed from the network. Each node is marked
+    /// with an epoch after which it left. The node is a member of this set from when it was voted
+    /// to be removed from the list of validators and until all messages have been delivered to it
+    /// for all epochs in which it was still a validator.
+    last_epochs: BTreeMap<D::NodeId, D::Epoch>,
 }
 
 /// A `SenderQueue` step. The output corresponds to the wrapped algorithm.
@@ -92,7 +112,7 @@ where
     D: SenderQueueableDistAlgorithm + Debug,
     D::Message: Clone + SenderQueueableMessage<Epoch = D::Epoch>,
     D::NodeId: NodeIdT,
-    D::Output: SenderQueueableOutput<D::NodeId, D::Message>,
+    D::Output: SenderQueueableOutput<D::NodeId, D::Epoch>,
 {
     type NodeId = D::NodeId;
     type Input = D::Input;
@@ -131,7 +151,7 @@ where
     D: SenderQueueableDistAlgorithm + Debug,
     D::Message: Clone + SenderQueueableMessage<Epoch = D::Epoch>,
     D::NodeId: NodeIdT,
-    D::Output: SenderQueueableOutput<D::NodeId, D::Message>,
+    D::Output: SenderQueueableOutput<D::NodeId, D::Epoch>,
 {
     /// Returns a new `SenderQueueBuilder` configured to manage a given `DynamicHoneyBadger`
     /// instance.
@@ -233,9 +253,22 @@ where
             return Step::<D>::default();
         }
         // Look up `DynamicHoneyBadger` epoch updates and collect any added peers.
-        for node in step.output.iter().flat_map(|batch| batch.added_peers()) {
-            if &node != self.our_id() {
-                self.peer_epochs.entry(node).or_default();
+        for batch in &step.output {
+            match batch.new_validators() {
+                NewValidators::None => {}
+                NewValidators::StartedKeyGen(validators) => {
+                    for id in validators {
+                        if &id != self.our_id() {
+                            self.peer_epochs.entry(id).or_default();
+                        }
+                    }
+                }
+                NewValidators::CompletedKeyGen(validators) => {
+                    for id in validators {
+                        // Begin the node removal process.
+                        *self.last_epochs.entry(id).or_default() = batch.output_epoch();
+                    }
+                }
             }
         }
         // Announce the new epoch.
@@ -259,6 +292,20 @@ where
                 .or_default()
                 .push(message);
         }
+        let mut removed_ids = Vec::new();
+        for (id, last_epoch) in &self.last_epochs {
+            if let Some(peer_epoch) = self.peer_epochs.get(id) {
+                if last_epoch <= peer_epoch {
+                    removed_ids.push(id.clone());
+                }
+            } else {
+                removed_ids.push(id.clone());
+            }
+        }
+        for id in removed_ids {
+            self.peer_epochs.remove(&id);
+            self.last_epochs.remove(&id);
+        }
     }
 
     /// Returns a reference to the managed algorithm.
@@ -276,6 +323,7 @@ where
     algo: D,
     outgoing_queue: OutgoingQueue<D>,
     peer_epochs: BTreeMap<D::NodeId, D::Epoch>,
+    last_epochs: BTreeMap<D::NodeId, D::Epoch>,
 }
 
 impl<D> SenderQueueBuilder<D>
@@ -283,7 +331,7 @@ where
     D: SenderQueueableDistAlgorithm + Debug,
     D::Message: Clone + SenderQueueableMessage<Epoch = D::Epoch>,
     D::NodeId: NodeIdT,
-    D::Output: SenderQueueableOutput<D::NodeId, D::Message>,
+    D::Output: SenderQueueableOutput<D::NodeId, D::Epoch>,
 {
     /// Creates a new builder, with an empty outgoing queue and the specified known peers.
     pub fn new<I>(algo: D, peer_ids: I) -> Self
@@ -294,6 +342,7 @@ where
             algo,
             outgoing_queue: BTreeMap::default(),
             peer_epochs: peer_ids.map(|id| (id, D::Epoch::default())).collect(),
+            last_epochs: BTreeMap::new(),
         }
     }
 
@@ -309,6 +358,12 @@ where
         self
     }
 
+    /// Sets the last epochs of the peers scheduled for removal.
+    pub fn last_epochs(mut self, last_epochs: BTreeMap<D::NodeId, D::Epoch>) -> Self {
+        self.last_epochs = last_epochs;
+        self
+    }
+
     /// Creates a new sender queue and returns the `Step` with the initial message.
     pub fn build(self, our_id: D::NodeId) -> (SenderQueue<D>, DaStep<SenderQueue<D>>) {
         let epoch = self.algo.epoch();
@@ -317,6 +372,7 @@ where
             our_id,
             outgoing_queue: self.outgoing_queue,
             peer_epochs: self.peer_epochs,
+            last_epochs: self.last_epochs,
         };
         let step = Target::All.message(Message::EpochStarted(epoch)).into();
         (sq, step)
