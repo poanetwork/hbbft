@@ -82,11 +82,14 @@ pub enum FaultKind {
 /// that the node exhibited ('kind').
 #[derive(Debug, PartialEq)]
 pub struct Fault<N> {
+    /// The faulty node's ID.
     pub node_id: N,
+    /// The kind of fault the node is blamed for.
     pub kind: FaultKind,
 }
 
 impl<N> Fault<N> {
+    /// Creates a new fault, blaming `node_id` for the `kind`.
     pub fn new(node_id: N, kind: FaultKind) -> Self {
         Fault { node_id, kind }
     }

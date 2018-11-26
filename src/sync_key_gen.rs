@@ -190,14 +190,16 @@ use {NetworkInfo, NodeIdT};
 /// being invalid.
 #[derive(Clone, Eq, PartialEq, Debug, Fail)]
 pub enum Error {
+    /// Error creating `SyncKeyGen`.
     #[fail(display = "Error creating SyncKeyGen: {}", _0)]
     Creation(CryptoError),
+    /// Error generating keys.
     #[fail(display = "Error generating keys: {}", _0)]
     Generation(CryptoError),
-    #[fail(display = "Error acknowledging part: {}", _0)]
-    Ack(CryptoError),
+    /// Unknown sender
     #[fail(display = "Unknown sender")]
     UnknownSender,
+    /// Failed to serialize message.
     #[fail(display = "Serialization error: {}", _0)]
     Serialize(String),
 }
@@ -544,29 +546,39 @@ impl<N: NodeIdT> SyncKeyGen<N> {
 /// An error in an `Ack` message sent by a faulty node.
 #[derive(Clone, Copy, Eq, PartialEq, Debug, Fail)]
 pub enum AckFault {
+    /// The number of values differs from the number of nodes.
     #[fail(display = "The number of values differs from the number of nodes")]
     ValueCount,
+    /// No corresponding Part received.
     #[fail(display = "No corresponding Part received")]
     MissingPart,
+    /// Value decryption failed.
     #[fail(display = "Value decryption failed")]
     DecryptValue,
+    /// Value deserialization failed.
     #[fail(display = "Value deserialization failed")]
     DeserializeValue,
-    #[fail(display = "Value doesn not match the commitment")]
+    /// Value doesn't match the commitment.
+    #[fail(display = "Value doesn't match the commitment")]
     ValueCommitment,
 }
 
 /// An error in a `Part` message sent by a faulty node.
 #[derive(Clone, Copy, Eq, PartialEq, Debug, Fail)]
 pub enum PartFault {
+    /// The number of rows differs from the number of nodes.
     #[fail(display = "The number of rows differs from the number of nodes")]
     RowCount,
+    /// Received multiple different Part messages from the same sender.
     #[fail(display = "Received multiple different Part messages from the same sender")]
     MultipleParts,
+    /// Could not decrypt our row in the Part message.
     #[fail(display = "Could not decrypt our row in the Part message")]
     DecryptRow,
+    /// Could not deserialize our row in the Part message.
     #[fail(display = "Could not deserialize our row in the Part message")]
     DeserializeRow,
+    /// Row does not match the commitment.
     #[fail(display = "Row does not match the commitment")]
     RowCommitment,
 }

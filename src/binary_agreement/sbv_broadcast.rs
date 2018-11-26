@@ -22,9 +22,13 @@ use {NetworkInfo, NodeIdT, Target};
 
 pub type Step<N> = ::Step<Message, BoolSet, N>;
 
+/// A message belonging to the Synchronized Binary Value Broadcast phase of a `BinaryAgreement`
+/// epoch.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, PartialOrd, Eq, Ord)]
 pub enum Message {
+    /// Contains the sender's estimate for the current epoch.
     BVal(bool),
+    /// A confirmation that the sender has received _2 f + 1_ `BVal`s with the same value.
     Aux(bool),
 }
 

@@ -13,7 +13,7 @@ use rand::{Rand, Rng};
 use serde::{de::DeserializeOwned, Serialize};
 use serde_derive::{Deserialize, Serialize};
 
-use super::{Batch, ErrorKind, MessageContent, Result, Step};
+use super::{Batch, Error, MessageContent, Result, Step};
 use fault_log::{Fault, FaultKind, FaultLog};
 use subset::{self as cs, Subset, SubsetOutput};
 use threshold_decrypt::{self as td, ThresholdDecrypt};
@@ -77,7 +77,7 @@ where
         match self {
             SubsetState::Ongoing(ref mut cs) => cs.handle_input(proposal),
             SubsetState::Complete(_) => return Ok(cs::Step::default()),
-        }.map_err(|err| ErrorKind::InputSubset(err).into())
+        }.map_err(Error::InputSubset)
     }
 
     /// Handles a message in the Subset instance, unless it has already completed.
@@ -85,7 +85,7 @@ where
         match self {
             SubsetState::Ongoing(ref mut cs) => cs.handle_message(sender_id, msg),
             SubsetState::Complete(_) => return Ok(cs::Step::default()),
-        }.map_err(|err| ErrorKind::HandleSubsetMessage(err).into())
+        }.map_err(Error::HandleSubsetMessage)
     }
 
     /// Returns the number of contributions that we have already received or, after completion, how
@@ -211,7 +211,7 @@ where
         require_decryption: bool,
     ) -> Result<Self> {
         let epoch_id = EpochId { hb_id, epoch };
-        let cs = Subset::new(netinfo.clone(), epoch_id).map_err(ErrorKind::CreateSubset)?;
+        let cs = Subset::new(netinfo.clone(), epoch_id).map_err(Error::CreateSubset)?;
         Ok(EpochState {
             epoch,
             netinfo,
@@ -226,15 +226,14 @@ where
 
     /// If the instance hasn't terminated yet, inputs our encrypted contribution.
     pub fn propose<R: Rng>(&mut self, proposal: &C, rng: &mut R) -> Result<Step<C, N>> {
-        let ser_prop =
-            bincode::serialize(&proposal).map_err(|err| ErrorKind::ProposeBincode(*err))?;
+        let ser_prop = bincode::serialize(&proposal).map_err(|err| Error::ProposeBincode(*err))?;
         let cs_step = self.subset.handle_input(if self.require_decryption {
             let ciphertext = self
                 .netinfo
                 .public_key_set()
                 .public_key()
                 .encrypt_with_rng(rng, ser_prop);
-            bincode::serialize(&ciphertext).map_err(|err| ErrorKind::ProposeBincode(*err))?
+            bincode::serialize(&ciphertext).map_err(|err| Error::ProposeBincode(*err))?
         } else {
             ser_prop
         })?;
@@ -271,7 +270,7 @@ where
                         entry.insert(DecryptionState::new(self.netinfo.clone()))
                     }
                 }.handle_message(sender_id, share)
-                .map_err(ErrorKind::ThresholdDecrypt)?;
+                .map_err(Error::ThresholdDecrypt)?;
                 self.process_decryption(proposer_id, td_step)
             }
         }
@@ -392,7 +391,7 @@ where
             Err(td::Error::InvalidCiphertext(_)) => {
                 Ok(Fault::new(proposer_id, FaultKind::InvalidCiphertext).into())
             }
-            Err(err) => Err(ErrorKind::ThresholdDecrypt(err).into()),
+            Err(err) => Err(Error::ThresholdDecrypt(err)),
         }
     }
 }

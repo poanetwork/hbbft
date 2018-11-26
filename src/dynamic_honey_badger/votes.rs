@@ -6,7 +6,7 @@ use crypto::Signature;
 use serde::Serialize;
 use serde_derive::{Deserialize, Serialize};
 
-use super::{Change, ErrorKind, Result};
+use super::{Change, Error, Result};
 use fault_log::{FaultKind, FaultLog};
 use {NetworkInfo, NodeIdT};
 
@@ -49,8 +49,7 @@ where
             era: self.era,
             num: self.pending.get(&voter).map_or(0, |sv| sv.vote.num + 1),
         };
-        let ser_vote =
-            bincode::serialize(&vote).map_err(|err| ErrorKind::SignVoteForBincode(*err))?;
+        let ser_vote = bincode::serialize(&vote).map_err(|err| Error::SerializeVote(*err))?;
         let signed_vote = SignedVote {
             vote,
             voter: voter.clone(),
@@ -149,8 +148,8 @@ where
 
     /// Returns `true` if the signature is valid.
     fn validate(&self, signed_vote: &SignedVote<N>) -> Result<bool> {
-        let ser_vote = bincode::serialize(&signed_vote.vote)
-            .map_err(|err| ErrorKind::ValidateBincode(*err))?;
+        let ser_vote =
+            bincode::serialize(&signed_vote.vote).map_err(|err| Error::SerializeVote(*err))?;
         let pk_opt = self.netinfo.public_key(&signed_vote.voter);
         Ok(pk_opt.map_or(false, |pk| pk.verify(&signed_vote.sig, ser_vote)))
     }

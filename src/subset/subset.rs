@@ -12,15 +12,19 @@ use super::{Error, Message, MessageContent, Result};
 use rand::Rand;
 use {util, DistAlgorithm, NetworkInfo, NodeIdT, SessionIdT};
 
+/// A `Subset` step, possibly containing several outputs.
 pub type Step<N> = ::Step<Message<N>, SubsetOutput<N>, N>;
 
+/// An output with an accepted contribution or the end of the set.
 #[derive(Derivative, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[derivative(Debug)]
 pub enum SubsetOutput<N> {
+    /// A contribution was accepted into the set.
     Contribution(
         N,
         #[derivative(Debug(format_with = "util::fmt_hex"))] Vec<u8>,
     ),
+    /// The set is complete.
     Done,
 }
 

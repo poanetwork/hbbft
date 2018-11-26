@@ -24,7 +24,8 @@ pub enum MessageContent {
 }
 
 impl MessageContent {
-    pub fn with<N: Rand>(self, proposer_id: N) -> Message<N> {
+    /// Returns a `Message` with this content and the specified proposer ID.
+    pub(super) fn with<N: Rand>(self, proposer_id: N) -> Message<N> {
         Message {
             proposer_id,
             content: self,

@@ -5,11 +5,10 @@
 //! epoch matches the epoch of the message. Thus no queueing is required for incoming messages since
 //! any incoming messages with non-matching epochs can be safely discarded.
 
+mod dynamic_honey_badger;
+mod honey_badger;
 mod message;
-
-pub mod dynamic_honey_badger;
-pub mod honey_badger;
-pub mod queueing_honey_badger;
+mod queueing_honey_badger;
 
 use std::collections::BTreeMap;
 use std::fmt::Debug;
@@ -19,7 +18,9 @@ use {DaStep, DistAlgorithm, Epoched, NodeIdT, Target};
 
 pub use self::message::Message;
 
+/// A message type that is suitable for use with a sender queue.
 pub trait SenderQueueableMessage {
+    /// The epoch type of the wrapped algorithm.
     type Epoch: EpochT;
 
     /// Whether the message needs to be deferred.
@@ -37,6 +38,7 @@ pub trait SenderQueueableMessage {
     fn first_epoch(&self) -> Self::Epoch;
 }
 
+/// An output type that is suitable for use with a sender queue.
 pub trait SenderQueueableOutput<N, M>
 where
     N: NodeIdT,
@@ -46,12 +48,14 @@ where
     fn added_peers(&self) -> Vec<N>;
 }
 
+/// A `DistAlgorithm` that can be wrapped by a sender queue.
 pub trait SenderQueueableDistAlgorithm: Epoched + DistAlgorithm {
     /// The maximum number of subsequent future epochs that the `DistAlgorithm` is allowed to handle
     /// messages for.
     fn max_future_epochs(&self) -> u64;
 }
 
+/// A map with outgoing messages, per epoch and per target node.
 pub type OutgoingQueue<D> = BTreeMap<
     <D as DistAlgorithm>::NodeId,
     BTreeMap<<D as Epoched>::Epoch, Vec<<D as DistAlgorithm>::Message>>,
@@ -79,6 +83,7 @@ where
     peer_epochs: BTreeMap<D::NodeId, D::Epoch>,
 }
 
+/// A `SenderQueue` step. The output corresponds to the wrapped algorithm.
 pub type Step<D> = ::DaStep<SenderQueue<D>>;
 
 impl<D> DistAlgorithm for SenderQueue<D>
@@ -131,10 +136,14 @@ where
         SenderQueueBuilder::new(algo, peer_ids)
     }
 
+    /// Handles an input. This will call the wrapped algorithm's `handle_input`.
     pub fn handle_input(&mut self, input: D::Input) -> Result<DaStep<Self>, D::Error> {
         self.apply(|algo| algo.handle_input(input))
     }
 
+    /// Handles a message received from `sender_id`.
+    ///
+    /// This must be called with every message we receive from another node.
     pub fn handle_message(
         &mut self,
         sender_id: &D::NodeId,
@@ -263,6 +272,7 @@ where
     D::NodeId: NodeIdT,
     D::Output: SenderQueueableOutput<D::NodeId, D::Message>,
 {
+    /// Creates a new builder, with an empty outgoing queue and the specified known peers.
     pub fn new<I>(algo: D, peer_ids: I) -> Self
     where
         I: Iterator<Item = D::NodeId>,
@@ -274,16 +284,19 @@ where
         }
     }
 
+    /// Sets the outgoing queue, if pending messages are already known in advance.
     pub fn outgoing_queue(mut self, outgoing_queue: OutgoingQueue<D>) -> Self {
         self.outgoing_queue = outgoing_queue;
         self
     }
 
+    /// Sets the peer epochs that are already known in advance.
     pub fn peer_epochs(mut self, peer_epochs: BTreeMap<D::NodeId, D::Epoch>) -> Self {
         self.peer_epochs = peer_epochs;
         self
     }
 
+    /// Creates a new sender queue and returns the `Step` with the initial message.
     pub fn build(self, our_id: D::NodeId) -> (SenderQueue<D>, DaStep<SenderQueue<D>>) {
         let epoch = self.algo.epoch();
         let sq = SenderQueue {

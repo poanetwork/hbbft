@@ -3,9 +3,12 @@ use serde_derive::{Deserialize, Serialize};
 
 use super::SenderQueueableMessage;
 
+/// A `SenderQueue` message.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub enum Message<M: SenderQueueableMessage> {
+    /// The announcement that this node has reached the given epoch.
     EpochStarted(M::Epoch),
+    /// A message of the wrapped algorithm.
     Algo(M),
 }
 

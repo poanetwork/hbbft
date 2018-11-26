@@ -22,13 +22,12 @@
 //! entries, any two nodes will likely make almost disjoint contributions instead of proposing
 //! the same transaction multiple times.
 
-use std::fmt::{self, Display};
 use std::marker::PhantomData;
 use std::{cmp, iter};
 
 use crypto::PublicKey;
 use derivative::Derivative;
-use failure::{Backtrace, Context, Fail};
+use failure::Fail;
 use rand::{Rand, Rng};
 use serde::{de::DeserializeOwned, Serialize};
 
@@ -40,57 +39,19 @@ pub use dynamic_honey_badger::{Change, ChangeState, Input};
 
 /// Queueing honey badger error variants.
 #[derive(Debug, Fail)]
-pub enum ErrorKind {
+pub enum Error {
+    /// Failed to handle input.
     #[fail(display = "Input error: {}", _0)]
     Input(dynamic_honey_badger::Error),
+    /// Failed to handle a message.
     #[fail(display = "Handle message error: {}", _0)]
     HandleMessage(dynamic_honey_badger::Error),
+    /// Failed to propose a contribution.
     #[fail(display = "Propose error: {}", _0)]
     Propose(dynamic_honey_badger::Error),
 }
 
-/// A queueing honey badger error.
-#[derive(Debug)]
-pub struct Error {
-    inner: Context<ErrorKind>,
-}
-
-impl Fail for Error {
-    fn cause(&self) -> Option<&Fail> {
-        self.inner.cause()
-    }
-
-    fn backtrace(&self) -> Option<&Backtrace> {
-        self.inner.backtrace()
-    }
-}
-
-impl Error {
-    pub fn kind(&self) -> &ErrorKind {
-        self.inner.get_context()
-    }
-}
-
-impl From<ErrorKind> for Error {
-    fn from(kind: ErrorKind) -> Error {
-        Error {
-            inner: Context::new(kind),
-        }
-    }
-}
-
-impl From<Context<ErrorKind>> for Error {
-    fn from(inner: Context<ErrorKind>) -> Error {
-        Error { inner }
-    }
-}
-
-impl Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        Display::fmt(&self.inner, f)
-    }
-}
-
+/// The result of `QueueingHoneyBadger` handling an input or message.
 pub type Result<T> = ::std::result::Result<T, Error>;
 
 /// A Queueing Honey Badger builder, to configure the parameters and create new instances of
@@ -105,7 +66,7 @@ pub struct QueueingHoneyBadgerBuilder<T, N: Rand + Ord, Q> {
     _phantom: PhantomData<T>,
 }
 
-pub type QueueingHoneyBadgerWithStep<T, N, Q> = (QueueingHoneyBadger<T, N, Q>, Step<T, N>);
+type QueueingHoneyBadgerWithStep<T, N, Q> = (QueueingHoneyBadger<T, N, Q>, Step<T, N>);
 
 impl<T, N, Q> QueueingHoneyBadgerBuilder<T, N, Q>
 where
@@ -187,6 +148,7 @@ pub struct QueueingHoneyBadger<T, N: Rand + Ord, Q> {
     rng: Box<dyn Rng + Send + Sync>,
 }
 
+/// A `QueueingHoneyBadger` step, possibly containing multiple outputs.
 pub type Step<T, N> = ::Step<Message<N>, Batch<T, N>, N>;
 
 impl<T, N, Q> DistAlgorithm for QueueingHoneyBadger<T, N, Q>
@@ -294,7 +256,7 @@ where
     where
         F: FnOnce(&mut DynamicHoneyBadger<Vec<T>, N>) -> dynamic_honey_badger::Result<Step<T, N>>,
     {
-        let step = f(&mut self.dyn_hb).map_err(ErrorKind::Input)?;
+        let step = f(&mut self.dyn_hb).map_err(Error::Input)?;
         self.queue
             .remove_multiple(step.output.iter().flat_map(Batch::iter));
         Ok(step.join(self.propose()?))
@@ -324,11 +286,12 @@ where
             step.extend(
                 self.dyn_hb
                     .handle_input(Input::User(proposal))
-                    .map_err(ErrorKind::Propose)?,
+                    .map_err(Error::Propose)?,
             );
         }
         Ok(step)
     }
 }
 
+/// A batch containing a list of transactions from at least two thirds of the validators.
 pub type Batch<T, N> = DhbBatch<Vec<T>, N>;

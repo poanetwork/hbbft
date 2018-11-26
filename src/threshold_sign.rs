@@ -31,14 +31,22 @@ use {DistAlgorithm, NetworkInfo, NodeIdT, Target};
 /// A threshold signing error.
 #[derive(Clone, Eq, PartialEq, Debug, Fail)]
 pub enum Error {
+    /// Redundant input provided.
     #[fail(display = "Redundant input provided")]
     MultipleMessagesToSign,
-    #[fail(display = "CombineAndVerifySigCrypto error: {}", _0)]
+    /// Error combining and verifying signature shares.
+    #[fail(
+        display = "Error combining and verifying signature shares: {}",
+        _0
+    )]
     CombineAndVerifySigCrypto(crypto::error::Error),
+    /// Unknown sender
     #[fail(display = "Unknown sender")]
     UnknownSender,
+    /// Signature verification failed.
     #[fail(display = "Signature verification failed")]
     VerificationFailed,
+    /// Document hash is not set, cannot sign or verify signatures.
     #[fail(display = "Document hash is not set, cannot sign or verify signatures")]
     DocumentHashIsNone,
 }
@@ -46,18 +54,9 @@ pub enum Error {
 /// A threshold signing result.
 pub type Result<T> = ::std::result::Result<T, Error>;
 
+/// A threshold signing message, containing a signature share.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Rand)]
-pub struct Message(SignatureShare);
-
-impl Message {
-    pub fn new(sig: SignatureShare) -> Self {
-        Message(sig)
-    }
-
-    pub fn to_sig(&self) -> &SignatureShare {
-        &self.0
-    }
-}
+pub struct Message(pub SignatureShare);
 
 /// A threshold signing algorithm instance. On input, broadcasts our threshold signature share. Upon
 /// receiving at least `num_faulty + 1` shares, attempts to combine them into a signature. If that
@@ -75,6 +74,7 @@ pub struct ThresholdSign<N> {
     terminated: bool,
 }
 
+/// A step returned from `ThresholdSign`. It contains at most one output.
 pub type Step<N> = ::DaStep<ThresholdSign<N>>;
 
 impl<N: NodeIdT> DistAlgorithm for ThresholdSign<N> {

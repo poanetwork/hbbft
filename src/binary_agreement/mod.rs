@@ -83,28 +83,31 @@ pub use self::sbv_broadcast::Message as SbvMessage;
 /// An Binary Agreement error.
 #[derive(Clone, Eq, PartialEq, Debug, Fail)]
 pub enum Error {
-    #[fail(display = "Error handling threshold sign message: {}", _0)]
+    /// Error handling a `ThresholdSign` message.
+    #[fail(display = "Error handling ThresholdSign message: {}", _0)]
     HandleThresholdSign(threshold_sign::Error),
+    /// Error invoking the common coin.
     #[fail(display = "Error invoking the common coin: {}", _0)]
     InvokeCoin(threshold_sign::Error),
-    // Strings because `io` and `bincode` errors lack `Eq` and `Clone`.
-    #[fail(display = "Error writing epoch for nonce: {}", _0)]
-    Io(String),
-    #[fail(display = "Error serializing session ID for nonce: {}", _0)]
+    // String because `io` and `bincode` errors lack `Eq` and `Clone`.
+    /// Error serializing the session ID for the common coin.
+    #[fail(display = "Error serializing session ID for coin: {}", _0)]
     Serialize(String),
 }
 
 impl From<bincode::Error> for Error {
     fn from(err: bincode::Error) -> Error {
-        Error::Io(format!("{:?}", err))
+        Error::Serialize(format!("{:?}", err))
     }
 }
 
 /// An Binary Agreement result.
 pub type Result<T> = ::std::result::Result<T, Error>;
 
+/// A `BinaryAgreement` step, containing at most one output.
 pub type Step<N> = ::Step<Message, bool, N>;
 
+/// The content of a message belonging to a particular `BinaryAgreement` epoch.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub enum MessageContent {
     /// Synchronized Binary Value Broadcast message.
@@ -138,7 +141,9 @@ impl MessageContent {
 /// Messages sent during the Binary Agreement stage.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Rand)]
 pub struct Message {
+    /// The `BinaryAgreement` epoch this message belongs to.
     pub epoch: u64,
+    /// The message content for the `epoch`.
     pub content: MessageContent,
 }
 

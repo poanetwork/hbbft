@@ -1,18 +1,18 @@
 /// Message sent by a given source.
 #[derive(Clone, Debug)]
 pub struct SourcedMessage<M, N> {
+    /// The ID of the sender.
     pub source: N,
+    /// The message's content.
     pub message: M,
 }
 
-/// Message destination can be either of the two:
-///
-/// 1) `All`: all remote nodes.
-///
-/// 2) `Node(id)`: remote node `id`.
+/// The destination of a message.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Target<N> {
+    /// The message must be sent to all remote nodes.
     All,
+    /// The message must be sent to the node with the given ID.
     Node(N),
 }
 
@@ -29,7 +29,9 @@ impl<N> Target<N> {
 /// Message with a designated target.
 #[derive(Clone, Debug, PartialEq)]
 pub struct TargetedMessage<M, N> {
+    /// The node or nodes that this message must be delivered to.
     pub target: Target<N>,
+    /// The content of the message that must be serialized and sent to the target.
     pub message: M,
 }
 

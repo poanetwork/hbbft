@@ -87,8 +87,9 @@ pub use self::batch::Batch;
 pub use self::builder::DynamicHoneyBadgerBuilder;
 pub use self::change::{Change, ChangeState};
 pub use self::dynamic_honey_badger::DynamicHoneyBadger;
-pub use self::error::{Error, ErrorKind, Result};
+pub use self::error::{Error, Result};
 
+/// A `DynamicHoneyBadger` step, possibly containing multiple outputs.
 pub type Step<C, N> = ::DaStep<DynamicHoneyBadger<C, N>>;
 
 /// The user input for `DynamicHoneyBadger`.

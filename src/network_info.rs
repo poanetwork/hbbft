@@ -22,6 +22,11 @@ pub struct NetworkInfo<N> {
 }
 
 impl<N: NodeIdT> NetworkInfo<N> {
+    /// Creates a new `NetworkInfo` with the given ID and keys.
+    ///
+    /// All nodes in the network must share the same public information. Validators' IDs must be
+    /// keys in the `public_keys` map, and their secret key share must match their share in the
+    /// `public_key_set`.
     pub fn new(
         our_id: N,
         secret_key_share: SecretKeyShare,

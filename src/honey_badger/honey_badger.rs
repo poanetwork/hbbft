@@ -8,7 +8,7 @@ use serde::{de::DeserializeOwned, Serialize};
 use serde_derive::{Deserialize, Serialize};
 
 use super::epoch_state::EpochState;
-use super::{Batch, Error, ErrorKind, HoneyBadgerBuilder, Message, Result};
+use super::{Batch, Error, HoneyBadgerBuilder, Message, Result};
 use {util, Contribution, DistAlgorithm, Fault, FaultKind, NetworkInfo, NodeIdT};
 
 use super::Params;
@@ -36,6 +36,7 @@ pub struct HoneyBadger<C, N: Rand> {
     pub(super) rng: Box<dyn Rng + Send + Sync>,
 }
 
+/// A `HoneyBadger` step, possibly containing multiple outputs.
 pub type Step<C, N> = ::DaStep<HoneyBadger<C, N>>;
 
 impl<C, N> DistAlgorithm for HoneyBadger<C, N>
@@ -107,7 +108,7 @@ where
     /// This must be called with every message we receive from another node.
     pub fn handle_message(&mut self, sender_id: &N, message: Message<N>) -> Result<Step<C, N>> {
         if !self.netinfo.is_node_validator(sender_id) {
-            return Err(ErrorKind::UnknownSender.into());
+            return Err(Error::UnknownSender);
         }
         let Message { epoch, content } = message;
         if epoch > self.epoch + self.params.max_future_epochs {
@@ -200,14 +201,19 @@ where
 /// How frequently Threshold Encryption should be used.
 #[derive(Clone, Copy, Eq, PartialEq, Serialize, Deserialize, Hash, Debug)]
 pub enum EncryptionSchedule {
+    /// Always encrypt. All contributions are encrypted in every epoch.
     Always,
+    /// Never encrypt. All contributions are plaintext in every epoch.
     Never,
+    /// Every _n_-th epoch uses encryption. In all other epochs, contributions are plaintext.
     EveryNthEpoch(u32),
-    /// How many with encryption, followed by how many without encryption.
+    /// With `TickTock(n, m)`, `n` epochs use encryption, followed by `m` epochs that don't.
+    /// `m` out of `n + m` epochs will use plaintext contributions.
     TickTock(u32, u32),
 }
 
 impl EncryptionSchedule {
+    /// Returns `true` if the contributions in the `epoch` should be encrypted.
     pub fn use_on_epoch(self, epoch: u64) -> bool {
         match self {
             EncryptionSchedule::Always => true,
