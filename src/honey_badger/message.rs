@@ -12,14 +12,17 @@ use threshold_decrypt;
 pub enum MessageContent<N: Rand> {
     /// A message belonging to the subset algorithm in the given epoch.
     Subset(subset::Message<N>),
-    /// A decrypted share of the output of `proposer_id`.
+    /// A decryption share of the output of `proposer_id`.
     DecryptionShare {
+        /// The ID of the node that proposed the contribution that is being decrypted.
         proposer_id: N,
+        /// The decryption share: _f + 1_ of these are required to decrypt the contribution.
         share: threshold_decrypt::Message,
     },
 }
 
 impl<N: Rand> MessageContent<N> {
+    /// Wraps this content in a `Message` with the given epoch.
     pub fn with_epoch(self, epoch: u64) -> Message<N> {
         Message {
             epoch,

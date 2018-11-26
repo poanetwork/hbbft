@@ -10,6 +10,7 @@ use rand;
 
 /// Workaround trait for creating new random number generators
 pub trait SubRng {
+    /// Returns a new random number generator in a `Box`.
     fn sub_rng(&mut self) -> Box<dyn rand::Rng + Send + Sync>;
 }
 

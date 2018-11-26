@@ -6,34 +6,42 @@
 //!
 //! ## Consensus
 //!
+//! A consensus algorithm is a protocol that helps a number of nodes agree on some data value.
+//! Byzantine fault tolerant systems can tolerate a number of faulty nodes _f_ (broken, or even
+//! controlled by an attacker), as long as the total number _N_ of nodes is greater than _3 f_.
+//! Asynchronous protocols do not make assumptions about timing: Even if an adversary controls
+//! network scheduling and can delay message delivery, consensus will still be reached as long as
+//! all messages are _eventually_ delivered.
+//!
+//! The Honey Badger consensus algorithm is both Byzantine fault tolerant and asynchronous. It is
+//! also modular, and the subalgorithms it is composed of are exposed in this crate as well, and
+//! usable separately.
+//!
 //! Consensus algorithms are fundamental to resilient, distributed systems such as decentralized
-//! databases and blockchains. Byzantine fault tolerant systems can reach consensus with a number
-//! of faulty nodes _f_ (including complete takeover by an attacker), as long as the total number
-//! _N_ of nodes is greater than _3 f_.
-//!
-//! The Honey Badger consensus algorithm is both Byzantine fault tolerant and asynchronous. It does
-//! not make timing assumptions about message delivery. An adversary can control network scheduling
-//! and delay messages without impacting consensus, and progress can be made in adverse networking
-//! conditions.
+//! databases and blockchains.
 //!
 //!
-//! ## Crate Implementation
+//! ## Usage
 //!
-//! This protocol does not function in a standalone context, it must be instantiated in an
-//! application that handles networking.
+//! This crate is meant to be used as a component in a distributed application where the consensus
+//! problem arises. The application will usually run on different nodes, connected to each other
+//! via a network. The nodes give an input to the algorithm, exchange several messages, and
+//! eventually the algorithm returns an output, which is guaranteed to be the same in each correct
+//! node.
 //!
-//! * The network must contain a number of nodes that are known to each other by some unique
-//! identifiers (IDs) and are able to exchange authenticated (cryptographically signed) messages.
+//! However, the `hbbft` crate only implements the abstract protocols, not the networking. It is
+//! the application's responsibility to serialize, sign and send the messages to the other nodes.
+//! That is why in addition to methods for giving input, the algorithms also have a
+//! `handle_message` method. The application is required to call this for every (validly signed,
+//! deserialized) message that was received from a peer.
+//! The methods return a [Step](struct.Step.html) which may contain messages, fault logs and outputs.
+//! Messages are tagged with a peer they need to be sent to. A fault log is produced if a peer
+//! didn't follow the protocol, and therefore is now known to be faulty. The output is the result
+//! of the agreement, and guaranteed to be the same in all nodes.
 //!
-//! * The user must define a type of _input_ - the _transactions_ - to the system and nodes must
-//! handle system networking.
-//!
-//! * Messages received from other nodes must be passed into the instance, and messages produced by
-//! the instance sent to corresponding nodes.
-//!
-//! The algorithm outputs _batches_ of transactions. The order and content of these batches is
-//! guaranteed to be the same for all correct nodes, assuming enough nodes (_N > 3 f_) are
-//! functional and correct.
+//! The network must contain a number of nodes that are known to each other by some unique
+//! identifiers (IDs), which is a generic type argument to the algorithms. Where applicable, the
+//! type of the input and output is also generic.
 //!
 //!
 //! ## Algorithms
@@ -114,6 +122,7 @@
 
 // We put algorithm structs in `src/algorithm/algorithm.rs`.
 #![cfg_attr(feature = "cargo-clippy", allow(module_inception))]
+#![warn(missing_docs)]
 
 extern crate bincode;
 extern crate byteorder;

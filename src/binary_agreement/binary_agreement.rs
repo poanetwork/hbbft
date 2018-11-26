@@ -98,7 +98,7 @@ impl ReceivedMessages {
             }
             MessageContent::Coin(msg) => {
                 if self.coin.is_none() {
-                    self.coin = Some(msg.to_sig().clone());
+                    self.coin = Some(msg.0);
                 } else {
                     return Some(FaultKind::AgreementEpoch);
                 }
@@ -130,7 +130,7 @@ impl ReceivedMessages {
             messages.push(MessageContent::Term(b));
         }
         if let Some(ss) = coin {
-            messages.push(MessageContent::Coin(Box::new(TsMessage::new(ss))));
+            messages.push(MessageContent::Coin(Box::new(TsMessage(ss))));
         }
         messages
     }

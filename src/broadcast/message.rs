@@ -10,8 +10,11 @@ use super::merkle::{Digest, MerkleTree, Proof};
 /// consensus algorithm.
 #[derive(Serialize, Deserialize, Clone, PartialEq)]
 pub enum Message {
+    /// A share of the value, sent from the sender to another validator.
     Value(Proof<Vec<u8>>),
+    /// A copy of the value received from the sender, multicast by a validator.
     Echo(Proof<Vec<u8>>),
+    /// Indicates that the sender knows that every node will eventually be able to decode.
     Ready(Digest),
 }
 

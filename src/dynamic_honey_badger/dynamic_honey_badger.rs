@@ -11,8 +11,8 @@ use serde::{de::DeserializeOwned, Serialize};
 
 use super::votes::{SignedVote, VoteCounter};
 use super::{
-    Batch, Change, ChangeState, DynamicHoneyBadgerBuilder, EncryptionSchedule, Error, ErrorKind,
-    Input, InternalContrib, JoinPlan, KeyGenMessage, KeyGenState, Message, Params, Result,
+    Batch, Change, ChangeState, DynamicHoneyBadgerBuilder, EncryptionSchedule, Error, Input,
+    InternalContrib, JoinPlan, KeyGenMessage, KeyGenState, Message, Params, Result,
     SignedKeyGenMsg, Step,
 };
 use fault_log::{Fault, FaultKind, FaultLog};
@@ -150,11 +150,11 @@ where
             .collect();
         let step = self
             .honey_badger
-            .handle_input(InternalContrib {
+            .propose(&InternalContrib {
                 contrib,
                 key_gen_messages,
                 votes: self.vote_counter.pending_votes().cloned().collect(),
-            }).map_err(ErrorKind::ProposeHoneyBadger)?;
+            }).map_err(Error::ProposeHoneyBadger)?;
         self.process_output(step)
     }
 
@@ -254,13 +254,13 @@ where
         message: HbMessage<N>,
     ) -> Result<Step<C, N>> {
         if !self.netinfo.is_node_validator(sender_id) {
-            return Err(ErrorKind::UnknownSender.into());
+            return Err(Error::UnknownSender);
         }
         // Handle the message.
         let step = self
             .honey_badger
             .handle_message(sender_id, message)
-            .map_err(ErrorKind::HandleHoneyBadgerMessageHoneyBadger)?;
+            .map_err(Error::HandleHoneyBadgerMessage)?;
         self.process_output(step)
     }
 
@@ -337,7 +337,7 @@ where
             let change = if let Some(kgs) = self.take_ready_key_gen() {
                 // If DKG completed, apply the change, restart Honey Badger, and inform the user.
                 debug!("{}: DKG for complete for: {:?}", self, kgs.public_keys());
-                self.netinfo = kgs.key_gen.into_network_info()?;
+                self.netinfo = kgs.key_gen.into_network_info().map_err(Error::SyncKeyGen)?;
                 let params = self.honey_badger.params().clone();
                 self.restart_honey_badger(batch_epoch + 1, params);
                 ChangeState::Complete(Change::NodeChange(self.netinfo.public_key_map().clone()))
@@ -396,7 +396,8 @@ where
         let sk = self.netinfo.secret_key().clone();
         let our_id = self.our_id().clone();
         let (key_gen, part) =
-            SyncKeyGen::new(&mut self.rng, our_id, sk, pub_keys.clone(), threshold)?;
+            SyncKeyGen::new(&mut self.rng, our_id, sk, pub_keys.clone(), threshold)
+                .map_err(Error::SyncKeyGen)?;
         self.key_gen_state = Some(KeyGenState::new(key_gen));
         if let Some(part) = part {
             self.send_transaction(KeyGenMessage::Part(part))
@@ -423,7 +424,7 @@ where
         let outcome = if let Some(kgs) = self.key_gen_state.as_mut() {
             kgs.key_gen
                 .handle_part(&mut self.rng, &sender_id, part)
-                .map_err(ErrorKind::SyncKeyGen)?
+                .map_err(Error::SyncKeyGen)?
         } else {
             // No key generation ongoing.
             let fault_kind = FaultKind::UnexpectedKeyGenPart;
@@ -445,7 +446,7 @@ where
         let outcome = if let Some(kgs) = self.key_gen_state.as_mut() {
             kgs.key_gen
                 .handle_ack(sender_id, ack)
-                .map_err(ErrorKind::SyncKeyGen)?
+                .map_err(Error::SyncKeyGen)?
         } else {
             // No key generation ongoing.
             let fault_kind = FaultKind::UnexpectedKeyGenAck;
@@ -463,8 +464,7 @@ where
 
     /// Signs and sends a `KeyGenMessage` and also tries to commit it.
     fn send_transaction(&mut self, kg_msg: KeyGenMessage) -> Result<Step<C, N>> {
-        let ser =
-            bincode::serialize(&kg_msg).map_err(|err| ErrorKind::SendTransactionBincode(*err))?;
+        let ser = bincode::serialize(&kg_msg).map_err(|err| Error::SerializeKeyGen(*err))?;
         let sig = Box::new(self.netinfo.secret_key().sign(ser));
         if self.netinfo.is_validator() {
             let our_id = self.our_id().clone();
@@ -502,8 +502,7 @@ where
         sig: &Signature,
         kg_msg: &KeyGenMessage,
     ) -> Result<bool> {
-        let ser =
-            bincode::serialize(kg_msg).map_err(|err| ErrorKind::VerifySignatureBincode(*err))?;
+        let ser = bincode::serialize(kg_msg).map_err(|err| Error::SerializeKeyGen(*err))?;
         let verify = |opt_pk: Option<&PublicKey>| opt_pk.map_or(false, |pk| pk.verify(&sig, &ser));
         let kgs = self.key_gen_state.as_ref();
         let current_key = self.netinfo.public_key(node_id);

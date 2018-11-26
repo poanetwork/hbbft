@@ -57,8 +57,14 @@ impl<E> EpochT for E where E: Copy + Message + Default + Eq + Ord + Serialize + 
 #[must_use = "The algorithm step result must be used."]
 #[derive(Debug)]
 pub struct Step<M, O, N> {
+    /// The algorithm's output, after consensus has been reached. This is guaranteed to be the same
+    /// in all nodes.
     pub output: Vec<O>,
+    /// A list of nodes that are not following consensus, together with information about the
+    /// detected misbehavior.
     pub fault_log: FaultLog<N>,
+    /// A list of messages that must be sent to other nodes. Each entry contains a message and a
+    /// `Target`.
     pub messages: Vec<TargetedMessage<M, N>>,
 }
 

@@ -37,6 +37,7 @@ pub struct Broadcast<N> {
     readys: BTreeMap<N, Vec<u8>>,
 }
 
+/// A `Broadcast` step, containing at most one output.
 pub type Step<N> = ::DaStep<Broadcast<N>>;
 
 impl<N: NodeIdT> DistAlgorithm for Broadcast<N> {

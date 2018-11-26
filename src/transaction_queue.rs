@@ -1,3 +1,5 @@
+//! An interface for a transaction queue
+
 use std::collections::HashSet;
 use std::{cmp, fmt};
 

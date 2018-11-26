@@ -25,15 +25,20 @@ use {DistAlgorithm, NetworkInfo, NodeIdT, Target};
 /// A threshold decryption error.
 #[derive(Clone, Eq, PartialEq, Debug, Fail)]
 pub enum Error {
+    /// Redundant input provided.
     #[fail(display = "Redundant input provided: {:?}", _0)]
     MultipleInputs(Box<Ciphertext>),
+    /// Invalid ciphertext
     #[fail(display = "Invalid ciphertext: {:?}", _0)]
     InvalidCiphertext(Box<Ciphertext>),
+    /// Unknown sender
     #[fail(display = "Unknown sender")]
     UnknownSender,
+    /// Decryption failed
     #[fail(display = "Decryption failed: {:?}", _0)]
     Decryption(crypto::error::Error),
-    #[fail(display = "Start decryption called before setting ciphertext")]
+    /// Tried to decrypt before setting a cipherext.
+    #[fail(display = "Tried to decrypt before setting ciphertext")]
     CiphertextIsNone,
 }
 
@@ -59,6 +64,7 @@ pub struct ThresholdDecrypt<N> {
     terminated: bool,
 }
 
+/// A `ThresholdDecrypt` step. It will contain at most one output.
 pub type Step<N> = ::DaStep<ThresholdDecrypt<N>>;
 
 impl<N: NodeIdT> DistAlgorithm for ThresholdDecrypt<N> {

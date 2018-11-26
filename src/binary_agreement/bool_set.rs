@@ -1,3 +1,5 @@
+//! A single-byte representation of a set of boolean values.
+
 use rand_derive::Rand;
 use serde_derive::{Deserialize, Serialize};
 
