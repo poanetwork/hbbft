@@ -2,7 +2,7 @@ use rand::Rand;
 use serde::{de::DeserializeOwned, Serialize};
 
 use super::{
-    NewNodes, SenderQueueableDistAlgorithm, SenderQueueableMessage, SenderQueueableOutput,
+    NewValidators, SenderQueueableDistAlgorithm, SenderQueueableMessage, SenderQueueableOutput,
 };
 use crate::honey_badger::{Batch, HoneyBadger, Message};
 use crate::{Contribution, Epoched, NodeIdT};
@@ -12,8 +12,8 @@ where
     C: Contribution,
     N: NodeIdT + Rand,
 {
-    fn new_nodes(&self) -> NewNodes<N> {
-        NewNodes::None
+    fn new_validators(&self) -> NewValidators<N> {
+        NewValidators::None
     }
 
     fn output_epoch(&self) -> u64 {

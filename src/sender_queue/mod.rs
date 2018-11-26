@@ -39,24 +39,19 @@ pub trait SenderQueueableMessage {
     fn first_epoch(&self) -> Self::Epoch;
 }
 
-/// Change in the set of sender queue nodes.
-///
-/// This is inferred from the output of the managed algorithm.
-pub enum NewNodes<N>
+pub enum NewValidators<N>
 where
     N: Ord,
 {
-    /// Keep the current set of nodes.
+    /// Keep the current set of validators.
     None,
-    /// Register the new nodes to send broadcast messages from now on.
+    /// Register the new validators to send broadcast messages from now on.
     StartedKeyGen(Vec<N>),
-    /// Set the new set of nodes. Start removing old nodes, that is, those current validators that
-    /// do not appear among new nodes.
+    /// Set the new set of validators. Start removing old validators, that is, those current
+    /// validators that do not appear among new validators.
     CompletedKeyGen {
-        /// New sender queue nodes.
-        new_nodes: Vec<N>,
-        /// Current (old) sender queue nodes.
-        current_nodes: Vec<N>,
+        new_validators: Vec<N>,
+        current_validators: Vec<N>,
     },
 }
 
@@ -65,11 +60,11 @@ pub trait SenderQueueableOutput<N, E>
 where
     N: NodeIdT,
 {
-    /// The new set of nodes for which this batch is starting or completing key generation, possibly
-    /// including current nodes. New nodes in that set should be added to the set of all nodes for
-    /// tracking their epochs. An old node not appearing in the set of new nodes should be removed
-    /// from the set of all nodes.
-    fn new_nodes(&self) -> NewNodes<N>;
+    /// Returns the new set of validators for which this batch is starting or completing key
+    /// generation, possibly including current validators. New nodes in that set should be added to
+    /// the set of all nodes for tracking their epochs. Old validator not appearing in the set of
+    /// new validators should be removed from the set of all nodes.
+    fn new_validators(&self) -> NewValidators<N>;
 
     /// The epoch in which the output was produced.
     fn output_epoch(&self) -> E;
@@ -110,8 +105,8 @@ where
     peer_epochs: BTreeMap<D::NodeId, D::Epoch>,
     /// The set of previously validating nodes now removed from the network. Each node is marked
     /// with an epoch after which it left. The node is a member of this set from when it was voted
-    /// to be removed from the list of nodes and until all messages have been delivered to it for
-    /// all epochs in which it was still a validator.
+    /// to be removed from the list of validators and until all messages have been delivered to it
+    /// for all epochs in which it was still a validator.
     last_epochs: BTreeMap<D::NodeId, D::Epoch>,
 }
 
@@ -265,21 +260,24 @@ where
         }
         // Look up `DynamicHoneyBadger` epoch updates and collect any added peers.
         for batch in &step.output {
-            match batch.new_nodes() {
-                NewNodes::None => {}
-                NewNodes::StartedKeyGen(nodes) => {
-                    for id in nodes {
+            match batch.new_validators() {
+                NewValidators::None => {}
+                NewValidators::StartedKeyGen(validators) => {
+                    for id in validators {
                         if &id != self.our_id() {
                             self.peer_epochs.entry(id).or_default();
                         }
                     }
                 }
-                NewNodes::CompletedKeyGen {
-                    new_nodes,
-                    current_nodes,
+                NewValidators::CompletedKeyGen {
+                    new_validators,
+                    current_validators,
                 } => {
-                    // Remove obsolete nodes.
-                    for id in current_nodes.iter().filter(|v| !new_nodes.contains(v)) {
+                    // Remove obsolete validators.
+                    for id in current_validators
+                        .iter()
+                        .filter(|v| !new_validators.contains(v))
+                    {
                         // Begin the node removal process.
                         *self.last_epochs.entry(id.clone()).or_default() = batch.output_epoch();
                     }

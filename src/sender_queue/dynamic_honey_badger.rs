@@ -7,7 +7,7 @@ use rand::{Rand, Rng};
 use serde::{de::DeserializeOwned, Serialize};
 
 use super::{
-    NewNodes, SenderQueue, SenderQueueableDistAlgorithm, SenderQueueableMessage,
+    NewValidators, SenderQueue, SenderQueueableDistAlgorithm, SenderQueueableMessage,
     SenderQueueableOutput,
 };
 use crate::{Contribution, DaStep, NodeIdT};
@@ -21,19 +21,19 @@ where
     C: Contribution,
     N: NodeIdT + Rand,
 {
-    fn new_nodes(&self) -> NewNodes<N> {
+    fn new_validators(&self) -> NewValidators<N> {
         if let ChangeState::InProgress(Change::NodeChange(pub_keys)) = self.change() {
-            NewNodes::StartedKeyGen(pub_keys.keys().cloned().collect())
+            NewValidators::StartedKeyGen(pub_keys.keys().cloned().collect())
         } else if let ChangeState::Complete(Change::NodeChange(pub_keys)) = self.change() {
-            let current_nodes = self
+            let current_validators = self
                 .join_plan()
                 .map_or_else(Vec::new, |p| p.all_ids().cloned().collect());
-            NewNodes::CompletedKeyGen {
-                new_nodes: pub_keys.keys().cloned().collect(),
-                current_nodes,
+            NewValidators::CompletedKeyGen {
+                new_validators: pub_keys.keys().cloned().collect(),
+                current_validators,
             }
         } else {
-            NewNodes::None
+            NewValidators::None
         }
     }
 
