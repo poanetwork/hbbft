@@ -40,13 +40,20 @@ pub trait SenderQueueableMessage {
 }
 
 /// The new set of validators.
-pub enum NewValidators<N> {
+pub enum NewValidators<N>
+where
+    N: Ord,
+{
     /// Keep the current set of validators.
     None,
     /// Register the new validators to send broadcast messages from now on.
     StartedKeyGen(Vec<N>),
-    /// Set the new set of validators. Start removing old validators.
-    CompletedKeyGen(Vec<N>),
+    /// Set the new set of validators. Start removing old validators, that is, those current
+    /// validators that do not appear among new validators.
+    CompletedKeyGen {
+        new_validators: Vec<N>,
+        current_validators: Vec<N>,
+    },
 }
 
 /// An output type that is suitable for use with a sender queue.
@@ -263,10 +270,17 @@ where
                         }
                     }
                 }
-                NewValidators::CompletedKeyGen(validators) => {
-                    for id in validators {
+                NewValidators::CompletedKeyGen {
+                    new_validators,
+                    current_validators,
+                } => {
+                    // Remove obsolete validators.
+                    for id in current_validators
+                        .iter()
+                        .filter(|v| !new_validators.contains(v))
+                    {
                         // Begin the node removal process.
-                        *self.last_epochs.entry(id).or_default() = batch.output_epoch();
+                        *self.last_epochs.entry(id.clone()).or_default() = batch.output_epoch();
                     }
                 }
             }

@@ -155,6 +155,11 @@ impl<N: Ord> JoinPlan<N> {
     pub fn next_epoch(&self) -> u64 {
         self.era
     }
+
+    /// IDs of all nodes in the network.
+    pub fn all_ids(&self) -> impl Iterator<Item = &N> {
+        self.pub_keys.keys()
+    }
 }
 
 /// The ongoing key generation, together with information about the validator change.

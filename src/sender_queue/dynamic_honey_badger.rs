@@ -25,7 +25,13 @@ where
         if let ChangeState::InProgress(Change::NodeChange(pub_keys)) = self.change() {
             NewValidators::StartedKeyGen(pub_keys.keys().cloned().collect())
         } else if let ChangeState::Complete(Change::NodeChange(pub_keys)) = self.change() {
-            NewValidators::CompletedKeyGen(pub_keys.keys().cloned().collect())
+            let current_validators = self
+                .join_plan()
+                .map_or_else(Vec::new, |p| p.all_ids().cloned().collect());
+            NewValidators::CompletedKeyGen {
+                new_validators: pub_keys.keys().cloned().collect(),
+                current_validators,
+            }
         } else {
             NewValidators::None
         }
