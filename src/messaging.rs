@@ -3,11 +3,11 @@
 pub struct SourcedMessage<M, N> {
     /// The ID of the sender.
     pub source: N,
-    /// The message's content.
+    /// The content of a message.
     pub message: M,
 }
 
-/// The destination of a message.
+/// The intended recipient(s) of a message.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Target<N> {
     /// The message must be sent to all remote nodes.

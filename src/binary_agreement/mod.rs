@@ -80,7 +80,7 @@ use threshold_sign;
 pub use self::binary_agreement::BinaryAgreement;
 pub use self::sbv_broadcast::Message as SbvMessage;
 
-/// An Binary Agreement error.
+/// A `BinaryAgreement` error.
 #[derive(Clone, Eq, PartialEq, Debug, Fail)]
 pub enum Error {
     /// Error handling a `ThresholdSign` message.
@@ -101,7 +101,7 @@ impl From<bincode::Error> for Error {
     }
 }
 
-/// An Binary Agreement result.
+/// A `BinaryAgreement` result.
 pub type Result<T> = ::std::result::Result<T, Error>;
 
 /// A `BinaryAgreement` step, containing at most one output.

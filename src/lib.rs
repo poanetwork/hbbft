@@ -8,7 +8,7 @@
 //!
 //! A consensus algorithm is a protocol that helps a number of nodes agree on some data value.
 //! Byzantine fault tolerant systems can tolerate a number of faulty nodes _f_ (broken, or even
-//! controlled by an attacker), as long as the total number _N_ of nodes is greater than _3 f_.
+//! controlled by an attacker), as long as the total number of nodes _N_ is greater than _3 f_.
 //! Asynchronous protocols do not make assumptions about timing: Even if an adversary controls
 //! network scheduling and can delay message delivery, consensus will still be reached as long as
 //! all messages are _eventually_ delivered.
@@ -23,21 +23,15 @@
 //!
 //! ## Usage
 //!
-//! This crate is meant to be used as a component in a distributed application where the consensus
-//! problem arises. The application will usually run on different nodes, connected to each other
-//! via a network. The nodes give an input to the algorithm, exchange several messages, and
-//! eventually the algorithm returns an output, which is guaranteed to be the same in each correct
-//! node.
+//! `hbbft` is meant to solve the consensus problem in a distributed application. Participating
+//! nodes provide input to the algorithm and are guaranteed to eventually produce the same output,
+//! after passing several messages back and forth.
 //!
-//! However, the `hbbft` crate only implements the abstract protocols, not the networking. It is
-//! the application's responsibility to serialize, sign and send the messages to the other nodes.
-//! That is why in addition to methods for giving input, the algorithms also have a
-//! `handle_message` method. The application is required to call this for every (validly signed,
-//! deserialized) message that was received from a peer.
-//! The methods return a [Step](struct.Step.html) which may contain messages, fault logs and outputs.
-//! Messages are tagged with a peer they need to be sent to. A fault log is produced if a peer
-//! didn't follow the protocol, and therefore is now known to be faulty. The output is the result
-//! of the agreement, and guaranteed to be the same in all nodes.
+//! The crate only implements the abstract protocols, it is the application's responsibility to
+//! serialize, sign and send the messages. The application is required to call `handle_message` for
+//! every correctly signed message from a peer. Methods return a [Step](struct.Step.html) data
+//! structure, which contain messages that need to be sent, fault logs indicating misbehaving
+//! peers, and outputs.
 //!
 //! The network must contain a number of nodes that are known to each other by some unique
 //! identifiers (IDs), which is a generic type argument to the algorithms. Where applicable, the
