@@ -196,7 +196,7 @@ pub enum Error {
     /// Error generating keys.
     #[fail(display = "Error generating keys: {}", _0)]
     Generation(CryptoError),
-    /// Unknown sender
+    /// Unknown sender.
     #[fail(display = "Unknown sender")]
     UnknownSender,
     /// Failed to serialize message.

@@ -28,13 +28,13 @@ pub enum Error {
     /// Redundant input provided.
     #[fail(display = "Redundant input provided: {:?}", _0)]
     MultipleInputs(Box<Ciphertext>),
-    /// Invalid ciphertext
+    /// Invalid ciphertext.
     #[fail(display = "Invalid ciphertext: {:?}", _0)]
     InvalidCiphertext(Box<Ciphertext>),
-    /// Unknown sender
+    /// Unknown sender.
     #[fail(display = "Unknown sender")]
     UnknownSender,
-    /// Decryption failed
+    /// Decryption failed.
     #[fail(display = "Decryption failed: {:?}", _0)]
     Decryption(crypto::error::Error),
     /// Tried to decrypt before setting a cipherext.

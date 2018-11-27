@@ -29,7 +29,7 @@ pub enum Error {
     /// Failed to construct a Merkle tree proof.
     #[fail(display = "Proof construction failed")]
     ProofConstructionFailed,
-    /// Unknown sender
+    /// Unknown sender.
     #[fail(display = "Unknown sender")]
     UnknownSender,
 }
