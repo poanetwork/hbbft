@@ -62,7 +62,7 @@ where
 {
     /// Returns the new set of validators for which this batch is starting or completing key
     /// generation, possibly including current validators. New nodes in that set should be added to
-    /// the set of all nodes for tracking their epochs. Old validator not appearing in the set of
+    /// the set of all nodes for tracking their epochs. Old validators not appearing in the set of
     /// new validators should be removed from the set of all nodes.
     fn new_validators(&self) -> NewValidators<N>;
 
@@ -218,9 +218,12 @@ where
                 if *e < epoch {
                     *e = epoch;
                 }
-            })
-            .or_insert(epoch);
-        self.process_new_epoch(sender_id, epoch)
+            }).or_insert(epoch);
+        if !self.remove_validator_if_old(sender_id) {
+            self.process_new_epoch(sender_id, epoch)
+        } else {
+            DaStep::<Self>::default()
+        }
     }
 
     /// Processes an announcement of a new epoch update received from a remote node.
@@ -275,15 +278,16 @@ where
                 } => {
                     // Remove obsolete validators.
                     for id in current_validators
-                        .iter()
+                        .into_iter()
                         .filter(|v| !new_validators.contains(v))
                     {
                         // Begin the node removal process.
-                        *self.last_epochs.entry(id.clone()).or_default() = batch.output_epoch();
+                        self.last_epochs.insert(id, batch.output_epoch());
                     }
                 }
             }
         }
+        self.remove_old_validators();
         // Announce the new epoch.
         Target::All
             .message(Message::EpochStarted(self.algo.epoch()))
@@ -305,6 +309,13 @@ where
                 .or_default()
                 .push(message);
         }
+    }
+
+    /// Removes old validators that have become superseded by validators from a newer set.
+    fn remove_old_validators(&mut self) {
+        if self.last_epochs.is_empty() {
+            return;
+        }
         let mut removed_ids = Vec::new();
         for (id, last_epoch) in &self.last_epochs {
             if let Some(peer_epoch) = self.peer_epochs.get(id) {
@@ -318,7 +329,29 @@ where
         for id in removed_ids {
             self.peer_epochs.remove(&id);
             self.last_epochs.remove(&id);
+            self.outgoing_queue.remove(&id);
         }
+    }
+
+    /// Removes a given old validator if it has become superseded by a new set of validators of
+    /// which it is not a member. Returns `true` if the validator has been removed and `false`
+    /// otherwise.
+    fn remove_validator_if_old(&mut self, id: &D::NodeId) -> bool {
+        let remove = if let Some(last_epoch) = self.last_epochs.get(id) {
+            if let Some(peer_epoch) = self.peer_epochs.get(id) {
+                last_epoch <= peer_epoch
+            } else {
+                true
+            }
+        } else {
+            false
+        };
+        if remove {
+            self.peer_epochs.remove(&id);
+            self.last_epochs.remove(&id);
+            self.outgoing_queue.remove(&id);
+        }
+        remove
     }
 
     /// Returns a reference to the managed algorithm.
@@ -334,9 +367,7 @@ where
     D: SenderQueueableDistAlgorithm,
 {
     algo: D,
-    outgoing_queue: OutgoingQueue<D>,
     peer_epochs: BTreeMap<D::NodeId, D::Epoch>,
-    last_epochs: BTreeMap<D::NodeId, D::Epoch>,
 }
 
 impl<D> SenderQueueBuilder<D>
@@ -353,27 +384,13 @@ where
     {
         SenderQueueBuilder {
             algo,
-            outgoing_queue: BTreeMap::default(),
             peer_epochs: peer_ids.map(|id| (id, D::Epoch::default())).collect(),
-            last_epochs: BTreeMap::new(),
         }
     }
 
-    /// Sets the outgoing queue, if pending messages are already known in advance.
-    pub fn outgoing_queue(mut self, outgoing_queue: OutgoingQueue<D>) -> Self {
-        self.outgoing_queue = outgoing_queue;
-        self
-    }
-
-    /// Sets the peer epochs that are already known in advance.
+    /// Sets the peer epochs.
     pub fn peer_epochs(mut self, peer_epochs: BTreeMap<D::NodeId, D::Epoch>) -> Self {
         self.peer_epochs = peer_epochs;
-        self
-    }
-
-    /// Sets the last epochs of the peers scheduled for removal.
-    pub fn last_epochs(mut self, last_epochs: BTreeMap<D::NodeId, D::Epoch>) -> Self {
-        self.last_epochs = last_epochs;
         self
     }
 
@@ -383,9 +400,9 @@ where
         let sq = SenderQueue {
             algo: self.algo,
             our_id,
-            outgoing_queue: self.outgoing_queue,
+            outgoing_queue: BTreeMap::new(),
             peer_epochs: self.peer_epochs,
-            last_epochs: self.last_epochs,
+            last_epochs: BTreeMap::new(),
         };
         let step = Target::All.message(Message::EpochStarted(epoch)).into();
         (sq, step)
