@@ -11,7 +11,7 @@ mod message;
 mod queueing_honey_badger;
 
 use rand::Rng;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Debug;
 
 use crate::traits::EpochT;
@@ -39,32 +39,19 @@ pub trait SenderQueueableMessage {
     fn first_epoch(&self) -> Self::Epoch;
 }
 
-pub enum NewValidators<N>
-where
-    N: Ord,
-{
-    /// Keep the current set of validators.
-    None,
-    /// Register the new validators to send broadcast messages from now on.
-    StartedKeyGen(Vec<N>),
-    /// Set the new set of validators. Start removing old validators, that is, those current
-    /// validators that do not appear among new validators.
-    CompletedKeyGen {
-        new_validators: Vec<N>,
-        current_validators: Vec<N>,
-    },
-}
-
-/// An output type that is suitable for use with a sender queue.
 pub trait SenderQueueableOutput<N, E>
 where
     N: NodeIdT,
 {
-    /// Returns the new set of validators for which this batch is starting or completing key
-    /// generation, possibly including current validators. New nodes in that set should be added to
-    /// the set of all nodes for tracking their epochs. Old validators not appearing in the set of
-    /// new validators should be removed from the set of all nodes.
-    fn new_validators(&self) -> NewValidators<N>;
+    /// Returns a pair of sets: one contatining the current participants - candidates and validators
+    /// - and another contatining the participants in the next epoch. New participants should be
+    /// added to the set of peers for tracking their epochs. Old participants - ones that appear
+    /// only among current participants - should be scheduled for removal from the set of peers in
+    /// an orderly manner making sure all messages those participants are entitled to are delivered
+    /// to them.
+    ///
+    /// The common case of no change in the set of participants is denoted by `None`.
+    fn participant_transition(&self) -> Option<(BTreeSet<N>, BTreeSet<N>)>;
 
     /// The epoch in which the output was produced.
     fn output_epoch(&self) -> E;
@@ -103,10 +90,10 @@ where
     /// The set of all remote nodes on the network including validator as well as non-validator
     /// (observer) nodes together with their epochs as of the last communication.
     peer_epochs: BTreeMap<D::NodeId, D::Epoch>,
-    /// The set of previously validating nodes now removed from the network. Each node is marked
-    /// with an epoch after which it left. The node is a member of this set from when it was voted
-    /// to be removed from the list of validators and until all messages have been delivered to it
-    /// for all epochs in which it was still a validator.
+    /// The set of previously participating nodes now removed from the network. Each node is marked
+    /// with an epoch after which it left. The node is a member of this set from the epoch when it
+    /// was voted to be removed and until all messages have been delivered to it for all epochs in
+    /// which it was still a participant.
     last_epochs: BTreeMap<D::NodeId, D::Epoch>,
 }
 
@@ -219,10 +206,10 @@ where
                     *e = epoch;
                 }
             }).or_insert(epoch);
-        if !self.remove_validator_if_old(sender_id) {
+        if !self.remove_participant_if_old(sender_id) {
             self.process_new_epoch(sender_id, epoch)
         } else {
-            DaStep::<Self>::default()
+            Step::<D>::default()
         }
     }
 
@@ -263,31 +250,21 @@ where
         }
         // Look up `DynamicHoneyBadger` epoch updates and collect any added peers.
         for batch in &step.output {
-            match batch.new_validators() {
-                NewValidators::None => {}
-                NewValidators::StartedKeyGen(validators) => {
-                    for id in validators {
-                        if &id != self.our_id() {
-                            self.peer_epochs.entry(id).or_default();
-                        }
+            if let Some((current_participants, next_participants)) = batch.participant_transition()
+            {
+                // Insert candidates.
+                for id in &next_participants {
+                    if id != self.our_id() {
+                        self.peer_epochs.entry(id.clone()).or_default();
                     }
                 }
-                NewValidators::CompletedKeyGen {
-                    new_validators,
-                    current_validators,
-                } => {
-                    // Remove obsolete validators.
-                    for id in current_validators
-                        .into_iter()
-                        .filter(|v| !new_validators.contains(v))
-                    {
-                        // Begin the node removal process.
-                        self.last_epochs.insert(id, batch.output_epoch());
-                    }
+                // Remove obsolete participants.
+                for id in current_participants.difference(&next_participants) {
+                    // Begin the peer removal process.
+                    self.remove_participant_after(&id, &batch.output_epoch());
                 }
             }
         }
-        self.remove_old_validators();
         // Announce the new epoch.
         Target::All
             .message(Message::EpochStarted(self.algo.epoch()))
@@ -311,40 +288,31 @@ where
         }
     }
 
-    /// Removes old validators that have become superseded by validators from a newer set.
-    fn remove_old_validators(&mut self) {
-        if self.last_epochs.is_empty() {
-            return;
-        }
-        let mut removed_ids = Vec::new();
-        for (id, last_epoch) in &self.last_epochs {
-            if let Some(peer_epoch) = self.peer_epochs.get(id) {
-                if last_epoch <= peer_epoch {
-                    removed_ids.push(id.clone());
-                }
-            } else {
-                removed_ids.push(id.clone());
-            }
-        }
-        for id in removed_ids {
-            self.peer_epochs.remove(&id);
-            self.last_epochs.remove(&id);
-            self.outgoing_queue.remove(&id);
-        }
+    /// Removes a given old participant if it has been scheduled for removal as a result of being
+    /// superseded by a new set of participants of which it is not a member. Returns `true` if the
+    /// participant has been removed and `false` otherwise.
+    fn remove_participant_if_old(&mut self, id: &D::NodeId) -> bool {
+        self.last_epochs
+            .get(id)
+            .cloned()
+            .map_or(false, |last_epoch| self.remove_participant(id, &last_epoch))
     }
 
-    /// Removes a given old validator if it has become superseded by a new set of validators of
-    /// which it is not a member. Returns `true` if the validator has been removed and `false`
-    /// otherwise.
-    fn remove_validator_if_old(&mut self, id: &D::NodeId) -> bool {
-        let remove = if let Some(last_epoch) = self.last_epochs.get(id) {
-            if let Some(peer_epoch) = self.peer_epochs.get(id) {
-                last_epoch <= peer_epoch
-            } else {
-                true
-            }
+    /// Removes a given old participant after a specified epoch if that participant has become
+    /// superseded by a new set of participants of which it is not a member. Returns `true` if the
+    /// participant has been removed and `false` otherwise.
+    fn remove_participant_after(&mut self, id: &D::NodeId, last_epoch: &D::Epoch) -> bool {
+        self.last_epochs.insert(id.clone(), last_epoch.clone());
+        self.remove_participant(id, last_epoch)
+    }
+
+    /// Removes a participant after a specified epoch. Returns `true` if the participant has been
+    /// removed and `false` otherwise.
+    fn remove_participant(&mut self, id: &D::NodeId, last_epoch: &D::Epoch) -> bool {
+        let remove = if let Some(peer_epoch) = self.peer_epochs.get(id) {
+            last_epoch < peer_epoch
         } else {
-            false
+            true
         };
         if remove {
             self.peer_epochs.remove(&id);

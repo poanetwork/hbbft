@@ -1,9 +1,9 @@
+use std::collections::BTreeSet;
+
 use rand::Rand;
 use serde::{de::DeserializeOwned, Serialize};
 
-use super::{
-    NewValidators, SenderQueueableDistAlgorithm, SenderQueueableMessage, SenderQueueableOutput,
-};
+use super::{SenderQueueableDistAlgorithm, SenderQueueableMessage, SenderQueueableOutput};
 use crate::honey_badger::{Batch, HoneyBadger, Message};
 use crate::{Contribution, Epoched, NodeIdT};
 
@@ -12,8 +12,8 @@ where
     C: Contribution,
     N: NodeIdT + Rand,
 {
-    fn new_validators(&self) -> NewValidators<N> {
-        NewValidators::None
+    fn participant_transition(&self) -> Option<(BTreeSet<N>, BTreeSet<N>)> {
+        None
     }
 
     fn output_epoch(&self) -> u64 {

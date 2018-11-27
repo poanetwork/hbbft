@@ -1,5 +1,6 @@
 //! Convenience methods for a `SenderQueue` wrapping a `DynamicHoneyBadger`.
 
+use std::collections::BTreeSet;
 use std::result;
 
 use crate::crypto::PublicKey;
@@ -7,8 +8,7 @@ use rand::{Rand, Rng};
 use serde::{de::DeserializeOwned, Serialize};
 
 use super::{
-    NewValidators, SenderQueue, SenderQueueableDistAlgorithm, SenderQueueableMessage,
-    SenderQueueableOutput,
+    SenderQueue, SenderQueueableDistAlgorithm, SenderQueueableMessage, SenderQueueableOutput,
 };
 use crate::{Contribution, DaStep, NodeIdT};
 
@@ -21,19 +21,26 @@ where
     C: Contribution,
     N: NodeIdT + Rand,
 {
-    fn new_validators(&self) -> NewValidators<N> {
+    fn participant_transition(&self) -> Option<(BTreeSet<N>, BTreeSet<N>)> {
         if let ChangeState::InProgress(Change::NodeChange(pub_keys)) = self.change() {
-            NewValidators::StartedKeyGen(pub_keys.keys().cloned().collect())
+            let candidates = pub_keys.keys().cloned().collect();
+            let current_validators = self
+                .join_plan()
+                .map_or_else(BTreeSet::new, |p| p.all_ids().cloned().collect());
+            let participants = current_validators.union(&candidates).cloned().collect();
+            Some((current_validators, participants))
         } else if let ChangeState::Complete(Change::NodeChange(pub_keys)) = self.change() {
             let current_validators = self
                 .join_plan()
-                .map_or_else(Vec::new, |p| p.all_ids().cloned().collect());
-            NewValidators::CompletedKeyGen {
-                new_validators: pub_keys.keys().cloned().collect(),
-                current_validators,
-            }
+                .map_or_else(BTreeSet::new, |p| p.all_ids().cloned().collect());
+            let next_validators = pub_keys.keys().cloned().collect();
+            let participants = current_validators
+                .union(&next_validators)
+                .cloned()
+                .collect();
+            Some((participants, next_validators))
         } else {
-            NewValidators::None
+            None
         }
     }
 
