@@ -39,6 +39,7 @@ pub trait SenderQueueableMessage {
     fn first_epoch(&self) -> Self::Epoch;
 }
 
+/// An output type compatible with the sender queue.
 pub trait SenderQueueableOutput<N, E>
 where
     N: NodeIdT,
