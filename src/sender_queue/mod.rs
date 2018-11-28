@@ -321,8 +321,8 @@ where
                 || (*last_epoch < self.algo.epoch() && self.outgoing_queue.get(id).map_or(
                     false,
                     |q| {
-                        q.iter()
-                            .take_while(|(epoch, _)| *epoch <= last_epoch)
+                        q.keys()
+                            .take_while(|epoch| *epoch <= last_epoch)
                             .next()
                             .is_none()
                     },

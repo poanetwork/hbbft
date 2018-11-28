@@ -144,7 +144,8 @@ pub struct JoinPlan<N: Ord> {
     change: ChangeState<N>,
     /// The current public key set for threshold cryptography.
     pub_key_set: PublicKeySet,
-    /// The public keys of the nodes taking part in key generation.
+    /// The public keys of the nodes taking part in key generation. Those nodes are the current
+    /// validators.
     pub_keys: BTreeMap<N, PublicKey>,
     /// Parameters controlling Honey Badger's behavior and performance.
     params: Params,
@@ -154,11 +155,6 @@ impl<N: Ord> JoinPlan<N> {
     /// The epoch of the first batch the new node will observe.
     pub fn next_epoch(&self) -> u64 {
         self.era
-    }
-
-    /// IDs of all nodes in the network.
-    pub fn all_ids(&self) -> impl Iterator<Item = &N> {
-        self.pub_keys.keys()
     }
 }
 
