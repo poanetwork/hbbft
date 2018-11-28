@@ -307,11 +307,26 @@ where
         self.remove_participant(id, last_epoch)
     }
 
-    /// Removes a participant after a specified epoch. Returns `true` if the participant has been
-    /// removed and `false` otherwise.
+    /// Removes a participant after a specified last epoch. The participant is removed if
+    ///
+    /// 1. its epoch is newer than its last epoch, or
+    ///
+    /// 2. the epoch of the managed algorithm instance is newer than the last epoch and the sender
+    /// queue has sent all messages for all epochs up to the last epoch to the participant.
+    ///
+    /// Returns `true` if the participant has been removed and `false` otherwise.
     fn remove_participant(&mut self, id: &D::NodeId, last_epoch: &D::Epoch) -> bool {
         let remove = if let Some(peer_epoch) = self.peer_epochs.get(id) {
             last_epoch < peer_epoch
+                || (*last_epoch < self.algo.epoch() && self.outgoing_queue.get(id).map_or(
+                    false,
+                    |q| {
+                        q.iter()
+                            .take_while(|(epoch, _)| *epoch <= last_epoch)
+                            .next()
+                            .is_none()
+                    },
+                ))
         } else {
             true
         };
