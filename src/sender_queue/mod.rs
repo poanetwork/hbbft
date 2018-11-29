@@ -14,6 +14,8 @@ use rand::Rng;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Debug;
 
+use log::debug;
+
 use crate::traits::EpochT;
 use crate::{DaStep, DistAlgorithm, Epoched, NodeIdT, Target};
 
@@ -44,15 +46,14 @@ pub trait SenderQueueableOutput<N, E>
 where
     N: NodeIdT,
 {
-    /// Returns a pair of sets: one contatining the current participants - candidates and validators
-    /// - and another contatining the participants in the next epoch. New participants should be
-    /// added to the set of peers for tracking their epochs. Old participants - ones that appear
-    /// only among current participants - should be scheduled for removal from the set of peers in
-    /// an orderly manner making sure all messages those participants are entitled to are delivered
-    /// to them.
+    /// Returns the set of participants in the next epoch. New participants should be added to the
+    /// set of peers for tracking their epochs. Old participants - ones that appear only among
+    /// current participants - should be scheduled for removal from the set of peers in an orderly
+    /// manner making sure that all messages those participants are entitled to are delivered to
+    /// them.
     ///
     /// The common case of no change in the set of participants is denoted by `None`.
-    fn participant_transition(&self) -> Option<(BTreeSet<N>, BTreeSet<N>)>;
+    fn participant_change(&self) -> Option<BTreeSet<N>>;
 
     /// The epoch in which the output was produced.
     fn output_epoch(&self) -> E;
@@ -96,6 +97,12 @@ where
     /// was voted to be removed and until all messages have been delivered to it for all epochs in
     /// which it was still a participant.
     last_epochs: BTreeMap<D::NodeId, D::Epoch>,
+    /// Participants of the managed algorithm after the latest change of the participant set. If the
+    /// set of participants never changes, this set remains empty and unused. If the algorithm
+    /// initiates a ballot to change the validators, the sender queue has to remember the new set of
+    /// participants (validators both current and proposed) in order to roll the ballot back if it
+    /// fails to progress.
+    participants_after_change: BTreeSet<D::NodeId>,
 }
 
 /// A `SenderQueue` step. The output corresponds to the wrapped algorithm.
@@ -251,19 +258,28 @@ where
         }
         // Look up `DynamicHoneyBadger` epoch updates and collect any added peers.
         for batch in &step.output {
-            if let Some((current_participants, next_participants)) = batch.participant_transition()
-            {
+            if let Some(next_participants) = batch.participant_change() {
                 // Insert candidates.
                 for id in &next_participants {
                     if id != self.our_id() {
                         self.peer_epochs.entry(id.clone()).or_default();
                     }
                 }
+                debug!(
+                    "Participants after the last change: {:?}",
+                    self.participants_after_change
+                );
+                debug!("Next participants: {:?}", next_participants);
                 // Remove obsolete participants.
-                for id in current_participants.difference(&next_participants) {
+                for id in self
+                    .participants_after_change
+                    .clone()
+                    .difference(&next_participants)
+                {
                     // Begin the peer removal process.
                     self.remove_participant_after(&id, &batch.output_epoch());
                 }
+                self.participants_after_change = next_participants;
             }
         }
         // Announce the new epoch.
@@ -342,6 +358,11 @@ where
     pub fn algo(&self) -> &D {
         &self.algo
     }
+
+    /// Returns a mutable reference to the managed algorithm.
+    pub fn algo_mut(&mut self) -> &mut D {
+        &mut self.algo
+    }
 }
 
 /// A builder of a Honey Badger with a sender queue. It configures the parameters and creates a new
@@ -387,6 +408,7 @@ where
             outgoing_queue: BTreeMap::new(),
             peer_epochs: self.peer_epochs,
             last_epochs: BTreeMap::new(),
+            participants_after_change: BTreeSet::new(),
         };
         let step = Target::All.message(Message::EpochStarted(epoch)).into();
         (sq, step)

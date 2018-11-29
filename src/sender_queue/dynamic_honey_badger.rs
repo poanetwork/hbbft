@@ -21,7 +21,7 @@ where
     C: Contribution,
     N: NodeIdT + Rand,
 {
-    fn participant_transition(&self) -> Option<(BTreeSet<N>, BTreeSet<N>)> {
+    fn participant_change(&self) -> Option<BTreeSet<N>> {
         if let ChangeState::InProgress(Change::NodeChange(pub_keys)) = self.change() {
             let candidates = pub_keys.keys().cloned().collect();
             let current_validators: BTreeSet<N> = self
@@ -31,20 +31,10 @@ where
                 .cloned()
                 .collect();
             let participants = current_validators.union(&candidates).cloned().collect();
-            Some((current_validators, participants))
+            Some(participants)
         } else if let ChangeState::Complete(Change::NodeChange(pub_keys)) = self.change() {
-            let current_validators: BTreeSet<N> = self
-                .network_info()
-                .public_key_map()
-                .keys()
-                .cloned()
-                .collect();
             let next_validators = pub_keys.keys().cloned().collect();
-            let participants = current_validators
-                .union(&next_validators)
-                .cloned()
-                .collect();
-            Some((participants, next_validators))
+            Some(next_validators)
         } else {
             None
         }

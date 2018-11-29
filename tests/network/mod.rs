@@ -59,8 +59,13 @@ impl<D: DistAlgorithm> TestNode<D> {
         &self.algo
     }
 
+    /// Returns the internal algorithm's mutable instance.
+    #[allow(unused)] // Not used in all tests.
+    pub fn instance_mut(&mut self) -> &mut D {
+        &mut self.algo
+    }
     /// Creates a new test node with the given broadcast instance.
-    fn new((algo, step): (D, DaStep<D>)) -> TestNode<D> {
+    pub fn new((algo, step): (D, DaStep<D>)) -> TestNode<D> {
         TestNode {
             id: algo.our_id().clone(),
             algo,
@@ -459,7 +464,7 @@ where
     }
 
     /// Pushes the messages into the queues of the corresponding recipients.
-    fn dispatch_messages<Q>(&mut self, sender_id: NodeId, msgs: Q)
+    pub fn dispatch_messages<Q>(&mut self, sender_id: NodeId, msgs: Q)
     where
         Q: IntoIterator<Item = TargetedMessage<D::Message, NodeId>> + Debug,
     {

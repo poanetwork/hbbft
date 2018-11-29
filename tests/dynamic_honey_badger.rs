@@ -11,7 +11,9 @@ use itertools::Itertools;
 use log::info;
 use rand::{Isaac64Rng, Rng};
 
-use hbbft::dynamic_honey_badger::{Batch, Change, ChangeState, DynamicHoneyBadger, Input};
+use hbbft::dynamic_honey_badger::{
+    Batch, Change, ChangeState, DynamicHoneyBadger, Input, JoinPlan,
+};
 use hbbft::sender_queue::{SenderQueue, Step};
 use hbbft::transaction_queue::TransactionQueue;
 use hbbft::{util, NetworkInfo};
@@ -62,6 +64,7 @@ where
 
     let mut rng = rand::thread_rng();
     let mut input_add = false; // Whether the vote to add node 0 has already been input.
+    let mut rejoined_node0 = false; // Whether node 0 was rejoined as a validator.
 
     // Handle messages in random order until all nodes have output all transactions.
     while network.nodes.values().any(node_busy) {
@@ -91,9 +94,63 @@ where
         if !input_add && network.nodes.values().all(has_remove) {
             network.input_all(Input::Change(Change::NodeChange(pub_keys_add.clone())));
             input_add = true;
+        } else if !rejoined_node0 {
+            if let Some(join_plan) = network
+                .nodes
+                .values()
+                .flat_map(|node| node.outputs())
+                .filter_map(|batch| match batch.change() {
+                    ChangeState::Complete(Change::NodeChange(pub_keys))
+                        if pub_keys == &pub_keys_add =>
+                    {
+                        Some(
+                            batch
+                                .join_plan()
+                                .expect("failed to get the join plan of the batch"),
+                        )
+                    }
+                    _ => None,
+                }).next()
+                .clone()
+            {
+                let step = restart_node_0_for_add(&mut network, join_plan);
+                network.dispatch_messages(NodeId(0), step.messages);
+            }
+            rejoined_node0 = true;
         }
     }
     network.verify_batches();
+}
+
+/// Restarts node 0 on the test network for adding in back as a validator.
+fn restart_node_0_for_add<A>(
+    network: &mut TestNetwork<A, UsizeDhb>,
+    join_plan: JoinPlan<NodeId>,
+) -> Step<DynamicHoneyBadger<Vec<usize>, NodeId>>
+where
+    A: Adversary<UsizeDhb>,
+{
+    let our_id = NodeId(0);
+    let peer_ids: Vec<NodeId> = network
+        .nodes
+        .keys()
+        .cloned()
+        .filter(|id| *id != NodeId(0))
+        .collect();
+    let node0 = network
+        .nodes
+        .get_mut(&our_id)
+        .expect("failed to get node 0");
+    let secret_key = node0.instance().algo().netinfo().secret_key().clone();
+    let (dhb, _) = DynamicHoneyBadger::new_joining(
+        NodeId(0),
+        secret_key,
+        join_plan,
+        rand::thread_rng().gen::<Isaac64Rng>(),
+    ).expect("failed to reconstruct node 0");
+    let (sq, step) = SenderQueue::builder(dhb, peer_ids.into_iter()).build(our_id);
+    *node0.instance_mut() = sq;
+    step
 }
 
 // Allow passing `netinfo` by value. `TestNetwork` expects this function signature.

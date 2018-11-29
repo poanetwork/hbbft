@@ -12,7 +12,7 @@ where
     C: Contribution,
     N: NodeIdT + Rand,
 {
-    fn participant_transition(&self) -> Option<(BTreeSet<N>, BTreeSet<N>)> {
+    fn participant_change(&self) -> Option<BTreeSet<N>> {
         None
     }
 
