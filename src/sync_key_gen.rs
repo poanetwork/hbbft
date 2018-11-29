@@ -43,9 +43,15 @@
 //! `SyncKeyGen::is_node_ready` can be used to check whether a particluar node's `Part` is
 //! complete.
 //!
-//! Finally, observer nodes can also use `SyncKeyGen`. For observers, no `Part` and `Ack`
+//! The `Part` and `Ack` messages alone contain all the information needed for anyone to compute
+//! the public key set, and for anyone owning one of the participating secret keys to compute
+//! their own secret key share. In particular:
+//! * Observer nodes can also use `SyncKeyGen`. For observers, no `Part` and `Ack`
 //! messages will be created and they do not need to send anything. On completion, they will only
 //! receive the public key set, but no secret key share.
+//! * If a participant crashed and lost its `SyncKeyGen` instance, but still has its original
+//! key pair, and if the key generation messages were committed to some public ledger, it can
+//! create a new `SyncKeyGen`, handle all the messages in order, and compute its secret key share.
 //!
 //! ## Example
 //!
@@ -183,8 +189,6 @@ use rand;
 use serde_derive::{Deserialize, Serialize};
 
 use {NetworkInfo, NodeIdT};
-
-// TODO: No need to send our own row and value to ourselves.
 
 /// A local error while handling an `Ack` or `Part` message, that was not caused by that message
 /// being invalid.
