@@ -606,21 +606,49 @@ where
     D: DistAlgorithm<Output = Batch<C, NodeId>, NodeId = NodeId>,
     C: Contribution + Clone,
 {
-    /// Verifies that all nodes' outputs agree.
+    /// Verifies that all nodes' outputs agree, noting that node 0 was removed - hence could have
+    /// missed some batches - and then rejoined the network.
     #[allow(unused)] // Not used in all tests.
     pub fn verify_batches(&self) {
-        let expected = self.nodes[&NodeId(0)].outputs().to_vec();
+        let expected = self.nodes[&NodeId(1)].outputs().to_vec();
         assert!(!expected.is_empty());
         let pub_eq = |(b0, b1): (&Batch<C, _>, &Batch<C, _>)| b0.public_eq(b1);
-        for node in self.nodes.values() {
-            assert_eq!(expected.len(), node.outputs().len());
-            assert!(
-                expected.iter().zip(node.outputs()).all(pub_eq),
-                "Outputs of nodes 0 and {} differ: {:?} != {:?}",
-                node.instance().our_id().0,
-                expected,
-                node.outputs()
-            );
+        let pub_eq_ref = |(b0, b1): &(&Batch<C, _>, &Batch<C, _>)| b0.public_eq(b1);
+        for node in self.nodes.values().filter(|node| node.id != NodeId(1)) {
+            if node.id == NodeId(0) {
+                assert!(expected.len() >= node.outputs().len());
+                assert!(
+                    expected
+                        .iter()
+                        .zip(node.outputs())
+                        .take_while(pub_eq_ref)
+                        .next()
+                        .is_some(),
+                    "Outputs of nodes 0 and 1 don't start the same",
+                );
+                let mut expected_rev = expected.clone();
+                expected_rev.reverse();
+                let mut outputs_rev = node.outputs().to_vec();
+                outputs_rev.reverse();
+                assert!(
+                    expected_rev
+                        .iter()
+                        .zip(outputs_rev.iter())
+                        .take_while(pub_eq_ref)
+                        .next()
+                        .is_some(),
+                    "Outputs of nodes 0 and 1 don't end the same",
+                );
+            } else {
+                assert_eq!(expected.len(), node.outputs().len());
+                assert!(
+                    expected.iter().zip(node.outputs()).all(pub_eq),
+                    "Outputs of nodes 1 and {} differ: {:?} != {:?}",
+                    node.instance().our_id().0,
+                    expected,
+                    node.outputs()
+                );
+            }
         }
     }
 }
