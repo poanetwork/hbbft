@@ -14,7 +14,7 @@ use rand::{Isaac64Rng, Rng};
 use hbbft::dynamic_honey_badger::{
     Batch, Change, ChangeState, DynamicHoneyBadger, Input, JoinPlan,
 };
-use hbbft::sender_queue::{SenderQueue, Step};
+use hbbft::sender_queue::{Message, SenderQueue, Step};
 use hbbft::transaction_queue::TransactionQueue;
 use hbbft::{util, NetworkInfo};
 
@@ -99,8 +99,8 @@ where
                 .nodes
                 .values()
                 .flat_map(|node| node.outputs())
-                .filter_map(|batch| match batch.change() {
-                    ChangeState::Complete(Change::NodeChange(pub_keys))
+                .find_map(|batch| match batch.change() {
+                    ChangeState::InProgress(Change::NodeChange(pub_keys))
                         if pub_keys == &pub_keys_add =>
                     {
                         Some(
@@ -110,13 +110,11 @@ where
                         )
                     }
                     _ => None,
-                }).next()
-                .clone()
-            {
+                }) {
                 let step = restart_node_0_for_add(&mut network, join_plan);
                 network.dispatch_messages(NodeId(0), step.messages);
+                rejoined_node0 = true;
             }
-            rejoined_node0 = true;
         }
     }
     network.verify_batches();
@@ -130,6 +128,7 @@ fn restart_node_0_for_add<A>(
 where
     A: Adversary<UsizeDhb>,
 {
+    info!("Restarting node 0 with {:?}", join_plan);
     let our_id = NodeId(0);
     let peer_ids: Vec<NodeId> = network
         .nodes
@@ -142,15 +141,16 @@ where
         .get_mut(&our_id)
         .expect("failed to get node 0");
     let secret_key = node0.instance().algo().netinfo().secret_key().clone();
-    let (dhb, _) = DynamicHoneyBadger::new_joining(
+    let (dhb, dhb_step) = DynamicHoneyBadger::new_joining(
         NodeId(0),
         secret_key,
         join_plan,
         rand::thread_rng().gen::<Isaac64Rng>(),
     ).expect("failed to reconstruct node 0");
-    let (sq, step) = SenderQueue::builder(dhb, peer_ids.into_iter()).build(our_id);
+    let (sq, mut sq_step) = SenderQueue::builder(dhb, peer_ids.into_iter()).build(our_id);
     *node0.instance_mut() = sq;
-    step
+    sq_step.extend(dhb_step.map(|output| output, Message::from));
+    sq_step
 }
 
 // Allow passing `netinfo` by value. `TestNetwork` expects this function signature.
