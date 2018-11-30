@@ -120,7 +120,7 @@ where
     network.verify_batches();
 }
 
-/// Restarts node 0 on the test network for adding in back as a validator.
+/// Restarts node 0 on the test network for adding it back as a validator.
 fn restart_node_0_for_add<A>(
     network: &mut TestNetwork<A, UsizeDhb>,
     join_plan: JoinPlan<NodeId>,

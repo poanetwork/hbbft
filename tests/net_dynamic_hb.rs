@@ -2,13 +2,14 @@ pub mod net;
 
 use std::{collections, time};
 
-use crate::net::adversary::ReorderingAdversary;
-use crate::net::proptest::{gen_seed, NetworkDimension, TestRng, TestRngSeed};
-use crate::net::{NetBuilder, NewNodeInfo};
-use hbbft::dynamic_honey_badger::{Change, ChangeState, DynamicHoneyBadger, Input};
-use hbbft::sender_queue::SenderQueue;
+use hbbft::dynamic_honey_badger::{Change, ChangeState, DynamicHoneyBadger, Input, JoinPlan};
+use hbbft::sender_queue::{Message, SenderQueue, Step};
 use proptest::{prelude::ProptestConfig, prop_compose, proptest, proptest_helper};
 use rand::SeedableRng;
+
+use crate::net::adversary::ReorderingAdversary;
+use crate::net::proptest::{gen_seed, NetworkDimension, TestRng, TestRngSeed};
+use crate::net::{NetBuilder, NewNodeInfo, VirtualNet};
 
 /// Choose a node's contribution for an epoch.
 ///
@@ -61,7 +62,7 @@ prop_compose! {
                   contribution_size in 1..10usize,
                   seed in gen_seed())
                  -> TestConfig {
-        TestConfig{
+        TestConfig {
             dimension, total_txs, batch_size, contribution_size, seed
         }
     }
@@ -160,6 +161,7 @@ fn do_drop_and_readd(cfg: TestConfig) {
         .map(|n| (*n.id(), (0..10).collect()))
         .collect();
     let mut received_batches: collections::BTreeMap<u64, _> = collections::BTreeMap::new();
+    let mut rejoined_node0 = false; // Whether node 0 was rejoined as a validator.
 
     // Run the network:
     loop {
@@ -273,6 +275,21 @@ fn do_drop_and_readd(cfg: TestConfig) {
                         .remove(tx);
                 }
             }
+            // If this is the first batch with a vote to add node 0 back, take its join plan and
+            // use that to restart node 0.
+            if !rejoined_node0 {
+                if let ChangeState::InProgress(Change::NodeChange(pub_keys)) = batch.change() {
+                    if *pub_keys == pub_keys_add {
+                        let join_plan = batch
+                            .join_plan()
+                            .expect("failed to get the join plan of the batch");
+                        let step =
+                            restart_node_0_for_add(&mut net, join_plan, rng.gen::<TestRng>());
+                        net.process_step(0, &step);
+                        rejoined_node0 = true;
+                    }
+                }
+            }
         }
 
         // Check if we are done.
@@ -296,8 +313,34 @@ fn do_drop_and_readd(cfg: TestConfig) {
         }
     }
 
-    // As a final step, we verify that all nodes have arrived at the same conclusion.
+    // As a final step, we verify that all nodes have arrived at the same conclusion. Node 0 can
+    // miss some batches while it was removed.
     let out = net.verify_batches();
 
     println!("End result: {:?}", out);
+}
+
+/// Restarts node 0 on the test network for adding it back as a validator.
+fn restart_node_0_for_add<R>(
+    net: &mut VirtualNet<SenderQueue<DynamicHoneyBadger<Vec<usize>, usize>>>,
+    join_plan: JoinPlan<usize>,
+    rng: R,
+) -> Step<DynamicHoneyBadger<Vec<usize>, usize>>
+where
+    R: 'static + Rng + Send + Sync,
+{
+    println!("Restarting node 0 with {:?}", join_plan);
+    let our_id = 0;
+    let peer_ids: Vec<usize> = net.correct_nodes().skip(1).map(|node| *node.id()).collect();
+    let node0 = net
+        .correct_nodes_mut()
+        .nth(0)
+        .expect("failed to get node 0");
+    let secret_key = node0.algorithm().algo().netinfo().secret_key().clone();
+    let (dhb, dhb_step) = DynamicHoneyBadger::new_joining(0, secret_key, join_plan, rng)
+        .expect("failed to reconstruct node 0");
+    let (sq, mut sq_step) = SenderQueue::builder(dhb, peer_ids.into_iter()).build(our_id);
+    *node0.algorithm_mut() = sq;
+    sq_step.extend(dhb_step.map(|output| output, Message::from));
+    sq_step
 }

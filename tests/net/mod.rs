@@ -838,15 +838,20 @@ where
             .algorithm
             .handle_input(input, rng)
             .map_err(CrankError::HandleInput)?;
+        self.process_step(id, &step);
+        Ok(step)
+    }
 
+    /// Processes a step of a given node. The results of the processing are stored internally in the
+    /// test network.
+    pub fn process_step(&mut self, id: D::NodeId, step: &DaStep<D>) {
         self.message_count = self.message_count.saturating_add(process_step(
             &mut self.nodes,
             id,
-            &step,
+            step,
             &mut self.messages,
             self.error_on_fault,
         )?);
-
         Ok(step)
     }
 
@@ -1021,20 +1026,59 @@ where
     C: Contribution + Clone,
     N: NodeIdT,
 {
-    /// Verifies that all nodes' outputs agree, and returns the output.
+    /// Verifies that all nodes' outputs agree, and returns the output of node 1. Requirements
+    /// towards the output from node 0 are weaker compared to other nodes: it can be removed - hence
+    /// could miss some batches - but then it should rejoin the network.
+    ///
+    /// There must be at least nodes 0 and 1 in the network for this verification function to
+    /// complete.
     pub fn verify_batches(&self) -> &[Batch<C, N>] {
-        let first = self.correct_nodes().nth(0).unwrap().outputs();
+        const EXPECTED_ID: usize = 1;
+        let expected = self.correct_nodes().nth(EXPECTED_ID).unwrap().outputs();
         let pub_eq = |(b0, b1): (&Batch<C, _>, &Batch<C, _>)| b0.public_eq(b1);
-        for (i, node) in self.correct_nodes().enumerate().skip(0) {
-            assert!(
-                first.iter().zip(node.outputs()).all(pub_eq),
-                "Outputs of nodes 0 and {} differ: {:?} != {:?}",
-                i,
-                first,
-                node.outputs()
-            );
+        let pub_eq_ref = |(b0, b1): &(&Batch<C, _>, &Batch<C, _>)| b0.public_eq(b1);
+        for (i, node) in self
+            .correct_nodes()
+            .enumerate()
+            .filter(|(i, _)| *i != EXPECTED_ID)
+        {
+            if i == 0 {
+                assert!(expected.len() >= node.outputs().len());
+                assert!(
+                    expected
+                        .iter()
+                        .zip(node.outputs())
+                        .take_while(pub_eq_ref)
+                        .next()
+                        .is_some(),
+                    "Outputs of nodes 0 and {} don't start the same",
+                    EXPECTED_ID,
+                );
+                let mut expected_rev = expected.to_vec();
+                expected_rev.reverse();
+                let mut outputs_rev = node.outputs().to_vec();
+                outputs_rev.reverse();
+                assert!(
+                    expected_rev
+                        .iter()
+                        .zip(outputs_rev.iter())
+                        .take_while(pub_eq_ref)
+                        .next()
+                        .is_some(),
+                    "Outputs of nodes 0 and 1 don't end the same",
+                );
+            } else {
+                assert!(
+                    expected.iter().zip(node.outputs()).all(pub_eq),
+                    "Outputs of nodes {} and {} differ: {:?} != {:?}",
+                    EXPECTED_ID,
+                    i,
+                    expected,
+                    node.outputs()
+                );
+            }
         }
-        first
+        expected
     }
 }
 
