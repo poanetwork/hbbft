@@ -25,13 +25,13 @@
 use std::marker::PhantomData;
 use std::{cmp, iter};
 
-use crate::crypto::PublicKey;
 use derivative::Derivative;
 use failure::Fail;
 use rand::{Rand, Rng};
 use serde::{de::DeserializeOwned, Serialize};
 
-use crate::dynamic_honey_badger::{self, Batch as DhbBatch, DynamicHoneyBadger, Message};
+use crate::crypto::{PublicKey, SecretKey};
+use crate::dynamic_honey_badger::{self, Batch as DhbBatch, DynamicHoneyBadger, JoinPlan, Message};
 use crate::transaction_queue::TransactionQueue;
 use crate::{Contribution, DistAlgorithm, NetworkInfo, NodeIdT};
 
@@ -49,6 +49,9 @@ pub enum Error {
     /// Failed to propose a contribution.
     #[fail(display = "Propose error: {}", _0)]
     Propose(dynamic_honey_badger::Error),
+    /// Failed to create a Dynamic Honey Badger instance according to a join plan.
+    #[fail(display = "New joining error: {}", _0)]
+    NewJoining(dynamic_honey_badger::Error),
 }
 
 /// The result of `QueueingHoneyBadger` handling an input or message.
@@ -76,8 +79,6 @@ where
 {
     /// Returns a new `QueueingHoneyBadgerBuilder` configured to use the node IDs and cryptographic
     /// keys specified by `netinfo`.
-    // TODO: Make it easier to build a `QueueingHoneyBadger` with a `JoinPlan`. Handle `Step`
-    // conversion internally.
     pub fn new(dyn_hb: DynamicHoneyBadger<Vec<T>, N>) -> Self {
         // TODO: Use the defaults from `HoneyBadgerBuilder`.
         QueueingHoneyBadgerBuilder {
@@ -196,6 +197,26 @@ where
         QueueingHoneyBadgerBuilder::new(dyn_hb)
     }
 
+    /// Creates a new `QueueingHoneyBadger` ready to join the network specified in the `JoinPlan`.
+    pub fn new_joining<TI, R: Rand + Rng + Send + Sync + 'static>(
+        our_id: N,
+        secret_key: SecretKey,
+        join_plan: JoinPlan<N>,
+        txs: TI,
+        mut rng: R,
+    ) -> Result<QueueingHoneyBadgerWithStep<T, N, Q>>
+    where
+        TI: IntoIterator<Item = T>,
+    {
+        let (dhb, dhb_step) =
+            DynamicHoneyBadger::new_joining(our_id, secret_key, join_plan, rng.gen::<R>())
+                .map_err(Error::NewJoining)?;
+        let (qhb, mut qhb_step) =
+            QueueingHoneyBadger::builder(dhb).build_with_transactions(txs, rng)?;
+        qhb_step.extend_with(dhb_step, Message::from);
+        Ok((qhb, qhb_step))
+    }
+
     /// Adds a transaction to the queue.
     ///
     /// This can be called at any time to append to the transaction queue. The new transaction will
@@ -261,6 +282,11 @@ where
     /// Returns the information about the node IDs in the network, and the cryptographic keys.
     pub fn netinfo(&self) -> &NetworkInfo<N> {
         self.dyn_hb.netinfo()
+    }
+
+    /// Returns the current queue of the `QueueingHoneyBadger`.
+    pub fn queue(&self) -> &Q {
+        &self.queue
     }
 
     /// Applies a function `f` to the `DynamicHoneyBadger` instance and processes the step.

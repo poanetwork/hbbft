@@ -1054,18 +1054,12 @@ where
                     "Outputs of nodes 0 and {} don't start the same",
                     EXPECTED_ID,
                 );
-                let mut expected_rev = expected.to_vec();
-                expected_rev.reverse();
-                let mut outputs_rev = node.outputs().to_vec();
-                outputs_rev.reverse();
                 assert!(
-                    expected_rev
+                    node.outputs()
                         .iter()
-                        .zip(outputs_rev.iter())
-                        .take_while(pub_eq_ref)
-                        .next()
-                        .is_some(),
-                    "Outputs of nodes 0 and 1 don't end the same",
+                        .find(|&b| !expected.iter().any(|c| b.public_eq(c)))
+                        .is_none(),
+                    "Node 0 has unexpected output"
                 );
             } else {
                 assert!(
