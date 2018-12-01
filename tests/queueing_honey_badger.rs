@@ -70,12 +70,14 @@ where
     // Handle messages in random order until all nodes have output all transactions.
     while network.nodes.values_mut().any(node_busy) {
         network.step();
-        if !input_add && network.nodes.values().all(has_remove) {
-            for tx in (num_txs / 2)..num_txs {
-                network.input_all(Input::User(tx));
+        if !input_add {
+            if network.nodes.values().all(has_remove) {
+                for tx in (num_txs / 2)..num_txs {
+                    network.input_all(Input::User(tx));
+                }
+                network.input_all(Input::Change(Change::NodeChange(pub_keys_add.clone())));
+                input_add = true;
             }
-            network.input_all(Input::Change(Change::NodeChange(pub_keys_add.clone())));
-            input_add = true;
         } else if !rejoined_node0 {
             if let Some(join_plan) = network
                 .nodes

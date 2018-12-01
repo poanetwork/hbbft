@@ -197,7 +197,11 @@ where
         QueueingHoneyBadgerBuilder::new(dyn_hb)
     }
 
-    /// Creates a new `QueueingHoneyBadger` ready to join the network specified in the `JoinPlan`.
+    /// Creates a new `QueueingHoneyBadger` ready to join the network specified in the `JoinPlan`
+    /// and with given pending transactions.
+    ///
+    /// Returns the new `QueueingHoneyBadger` instance together with its first step, or an error if
+    /// creation of the managed `DynamicHoneyBadger` instance has failed.
     pub fn new_joining<TI, R: Rand + Rng + Send + Sync + 'static>(
         our_id: N,
         secret_key: SecretKey,

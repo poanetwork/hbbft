@@ -91,9 +91,11 @@ where
         }
         network.step();
         // Once all nodes have processed the removal of node 0, add it again.
-        if !input_add && network.nodes.values().all(has_remove) {
-            network.input_all(Input::Change(Change::NodeChange(pub_keys_add.clone())));
-            input_add = true;
+        if !input_add {
+            if network.nodes.values().all(has_remove) {
+                network.input_all(Input::Change(Change::NodeChange(pub_keys_add.clone())));
+                input_add = true;
+            }
         } else if !rejoined_node0 {
             if let Some(join_plan) = network
                 .nodes
