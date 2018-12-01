@@ -31,7 +31,9 @@ use rand::{Rand, Rng};
 use serde::{de::DeserializeOwned, Serialize};
 
 use crate::crypto::{PublicKey, SecretKey};
-use crate::dynamic_honey_badger::{self, Batch as DhbBatch, DynamicHoneyBadger, JoinPlan, Message};
+use crate::dynamic_honey_badger::{
+    self, Batch as DhbBatch, DynamicHoneyBadger, JoinPlan, Message, Step as DhbStep,
+};
 use crate::transaction_queue::TransactionQueue;
 use crate::{Contribution, DistAlgorithm, NetworkInfo, NodeIdT};
 
@@ -59,13 +61,19 @@ pub type Result<T> = ::std::result::Result<T, Error>;
 
 /// A Queueing Honey Badger builder, to configure the parameters and create new instances of
 /// `QueueingHoneyBadger`.
-pub struct QueueingHoneyBadgerBuilder<T, N: Rand + Ord, Q> {
+pub struct QueueingHoneyBadgerBuilder<T, N, Q>
+where
+    T: Contribution + Serialize + DeserializeOwned + Clone,
+    N: NodeIdT + Serialize + DeserializeOwned + Rand,
+{
     /// Shared network data.
     dyn_hb: DynamicHoneyBadger<Vec<T>, N>,
     /// The target number of transactions to be included in each batch.
     batch_size: usize,
     /// The queue of pending transactions that haven't been output in a batch yet.
     queue: Q,
+    /// The inintial step of the managed `DynamicHoneyBadger` instance.
+    step: Option<DhbStep<Vec<T>, N>>,
     _phantom: PhantomData<T>,
 }
 
@@ -77,16 +85,23 @@ where
     N: NodeIdT + Serialize + DeserializeOwned + Rand,
     Q: TransactionQueue<T>,
 {
-    /// Returns a new `QueueingHoneyBadgerBuilder` configured to use the node IDs and cryptographic
-    /// keys specified by `netinfo`.
+    /// Returns a new `QueueingHoneyBadgerBuilder` wrapping the given instance of
+    /// `DynamicHoneyBadger`.
     pub fn new(dyn_hb: DynamicHoneyBadger<Vec<T>, N>) -> Self {
         // TODO: Use the defaults from `HoneyBadgerBuilder`.
         QueueingHoneyBadgerBuilder {
             dyn_hb,
             batch_size: 100,
             queue: Default::default(),
+            step: None,
             _phantom: PhantomData,
         }
+    }
+
+    /// Sets the initial step of the `DynamicHoneyBadger` instance.
+    pub fn step(mut self, step: DhbStep<Vec<T>, N>) -> Self {
+        self.step = Some(step);
+        self
     }
 
     /// Sets the target number of transactions per batch.
@@ -125,6 +140,9 @@ where
             queue: self.queue,
         };
         let step = qhb.propose(rng)?;
+        if let Some(dhb_step) = self.step {
+            step.extend_with(dhb_step, Message::from);
+        }
         Ok((qhb, step))
     }
 }
@@ -197,28 +215,20 @@ where
         QueueingHoneyBadgerBuilder::new(dyn_hb)
     }
 
-    /// Creates a new `QueueingHoneyBadger` ready to join the network specified in the `JoinPlan`
-    /// and with given pending transactions.
+    /// Creates a new `QueueingHoneyBadgerBuilder` for joining the network specified in the
+    /// `JoinPlan`.
     ///
-    /// Returns the new `QueueingHoneyBadger` instance together with its first step, or an error if
-    /// creation of the managed `DynamicHoneyBadger` instance has failed.
-    pub fn new_joining<TI, R: Rand + Rng + Send + Sync + 'static>(
+    /// Returns a `QueueingHoneyBadgerBuilder` or an error if creation of the managed
+    /// `DynamicHoneyBadger` instance has failed.
+    pub fn builder_joining<R: Rng + Send + Sync + 'static>(
         our_id: N,
         secret_key: SecretKey,
         join_plan: JoinPlan<N>,
-        txs: TI,
-        mut rng: R,
-    ) -> Result<QueueingHoneyBadgerWithStep<T, N, Q>>
-    where
-        TI: IntoIterator<Item = T>,
-    {
-        let (dhb, dhb_step) =
-            DynamicHoneyBadger::new_joining(our_id, secret_key, join_plan, rng.gen::<R>())
-                .map_err(Error::NewJoining)?;
-        let (qhb, mut qhb_step) =
-            QueueingHoneyBadger::builder(dhb).build_with_transactions(txs, rng)?;
-        qhb_step.extend_with(dhb_step, Message::from);
-        Ok((qhb, qhb_step))
+        rng: R,
+    ) -> Result<QueueingHoneyBadgerBuilder<T, N, Q>> {
+        let (dhb, step) = DynamicHoneyBadger::new_joining(our_id, secret_key, join_plan, rng)
+            .map_err(Error::NewJoining)?;
+        Ok(QueueingHoneyBadgerBuilder::new(dhb).step(step))
     }
 
     /// Adds a transaction to the queue.

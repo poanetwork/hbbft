@@ -126,16 +126,18 @@ where
         .expect("failed to get node 0");
     let secret_key = node0.instance().algo().netinfo().secret_key().clone();
     let queue = node0.instance().algo().queue().clone();
-    let (dhb, dhb_step) = QueueingHoneyBadger::new_joining(
+    let (qhb, qhb_step) = QueueingHoneyBadger::builder_joining(
         NodeId(0),
         secret_key,
         join_plan,
-        queue,
         rand::thread_rng().gen::<Isaac64Rng>(),
-    ).expect("failed to reconstruct node 0");
-    let (sq, mut sq_step) = SenderQueue::builder(dhb, peer_ids.into_iter()).build(our_id);
+    ).expect("failed to rebuild node 0 with a join plan")
+    .batch_size(3)
+    .build_with_transactions(queue, rand::thread_rng().gen::<Isaac64Rng>())
+    .expect("failed to rebuild node 0 with transactions");
+    let (sq, mut sq_step) = SenderQueue::builder(qhb, peer_ids.into_iter()).build(our_id);
     *node0.instance_mut() = sq;
-    sq_step.extend(dhb_step.map(|output| output, Message::from));
+    sq_step.extend(qhb_step.map(|output| output, Message::from));
     sq_step
 }
 
