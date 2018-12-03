@@ -1033,11 +1033,7 @@ where
         let expected = &full_node.outputs;
         for node in self.correct_nodes().filter(|n| n.id() != full_node.id()) {
             for batch in expected {
-                if batch
-                    .contributions()
-                    .find(|(id, _)| *id == node.id())
-                    .is_some()
-                {
+                if batch.contributions().any(|(id, _)| id == node.id()) {
                     if let Some(b) = node.outputs.iter().find(|b| b.epoch() == batch.epoch()) {
                         assert!(
                             b.public_eq(batch),
