@@ -142,7 +142,13 @@ where
 
     /// Returns the number of validators from which we have already received a proposal for the
     /// current epoch.
-    pub(crate) fn received_proposals(&self) -> usize {
+    ///
+    /// This can be used to find out whether our node is stalling progress. Depending on the
+    /// application logic, nodes may e.g. only propose when they have any pending transactions. In
+    /// that case, they should repeatedly call this method: if it returns _f + 1_ or more, that
+    /// means at least one correct node has proposed a contribution. In that case, we might want to
+    /// propose one, too, even if it's empty, to avoid unnecessarily delaying the next batch.
+    pub fn received_proposals(&self) -> usize {
         self.epochs
             .get(&self.epoch)
             .map_or(0, EpochState::received_proposals)
