@@ -161,7 +161,7 @@ fn do_drop_and_readd(cfg: TestConfig) {
         .map(|n| (*n.id(), (0..10).collect()))
         .collect();
     let mut received_batches: collections::BTreeMap<u64, _> = collections::BTreeMap::new();
-    let mut rejoined_node0 = false; // Whether node 0 was rejoined as a validator.
+    let mut rejoined_pivot_node = false; // Whether node 0 was rejoined as a validator.
 
     // Run the network:
     loop {
@@ -277,7 +277,7 @@ fn do_drop_and_readd(cfg: TestConfig) {
             }
             // If this is the first batch from a correct node with a vote to add node 0 back, take
             // the join plan of the batch and use it to restart node 0.
-            if !net[node_id].is_faulty() && !rejoined_node0 {
+            if !net[node_id].is_faulty() && !rejoined_pivot_node {
                 if let ChangeState::InProgress(Change::NodeChange(pub_keys)) = batch.change() {
                     if *pub_keys == pub_keys_add {
                         let join_plan = batch
@@ -290,7 +290,7 @@ fn do_drop_and_readd(cfg: TestConfig) {
                             rng.gen::<TestRng>(),
                         );
                         net.process_step(0, &step);
-                        rejoined_node0 = true;
+                        rejoined_pivot_node = true;
                     }
                 }
             }
