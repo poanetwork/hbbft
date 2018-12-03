@@ -317,11 +317,14 @@ fn do_drop_and_readd(cfg: TestConfig) {
         }
     }
 
-    // As a final step, we verify that all nodes have arrived at the same conclusion. Node 0 can
-    // miss some batches while it was removed.
-    let out = net.verify_batches();
-
-    println!("End result: {:?}", out);
+    // As a final step, we verify that all nodes have arrived at the same conclusion. The pivot node
+    // can miss some batches while it was removed.
+    let full_node = net
+        .correct_nodes()
+        .find(|node| *node.id() != pivot_node_id)
+        .expect("Could not find a full node");
+    net.verify_batches(&full_node);
+    println!("End result: {:?}", full_node.outputs());
 }
 
 /// Restarts node 0 on the test network for adding it back as a validator.

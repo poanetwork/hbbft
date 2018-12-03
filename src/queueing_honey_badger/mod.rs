@@ -139,7 +139,7 @@ where
             batch_size: self.batch_size,
             queue: self.queue,
         };
-        let step = qhb.propose(rng)?;
+        let mut step = qhb.propose(rng)?;
         if let Some(dhb_step) = self.step {
             step.extend_with(dhb_step, Message::from);
         }
@@ -220,11 +220,11 @@ where
     ///
     /// Returns a `QueueingHoneyBadgerBuilder` or an error if creation of the managed
     /// `DynamicHoneyBadger` instance has failed.
-    pub fn builder_joining<R: Rng + Send + Sync + 'static>(
+    pub fn builder_joining<R: Rng>(
         our_id: N,
         secret_key: SecretKey,
         join_plan: JoinPlan<N>,
-        rng: R,
+        rng: &mut R,
     ) -> Result<QueueingHoneyBadgerBuilder<T, N, Q>> {
         let (dhb, step) = DynamicHoneyBadger::new_joining(our_id, secret_key, join_plan, rng)
             .map_err(Error::NewJoining)?;

@@ -1020,59 +1020,42 @@ where
 
 impl<C, D, N, A> VirtualNet<D, A>
 where
-    D: DistAlgorithm<Output = Batch<C, N>>,
+    D: DistAlgorithm<NodeId = N, Output = Batch<C, N>>,
     D::Message: Clone,
     A: Adversary<D>,
     C: Contribution + Clone,
     N: NodeIdT,
 {
-    /// Verifies that all nodes' outputs agree, and returns the output of node 1. Requirements
-    /// towards the output from node 0 are weaker compared to other nodes: it can be removed - hence
-    /// could miss some batches - but then it should rejoin the network.
-    ///
-    /// There must be at least nodes 0 and 1 in the network for this verification function to
-    /// complete.
-    pub fn verify_batches(&self) -> &[Batch<C, N>] {
-        const EXPECTED_ID: usize = 1;
-        let expected = self.correct_nodes().nth(EXPECTED_ID).unwrap().outputs();
-        let pub_eq = |(b0, b1): (&Batch<C, _>, &Batch<C, _>)| b0.public_eq(b1);
-        let pub_eq_ref = |(b0, b1): &(&Batch<C, _>, &Batch<C, _>)| b0.public_eq(b1);
-        for (i, node) in self
-            .correct_nodes()
-            .enumerate()
-            .filter(|(i, _)| *i != EXPECTED_ID)
-        {
-            if i == 0 {
-                assert!(expected.len() >= node.outputs().len());
-                assert!(
-                    expected
-                        .iter()
-                        .zip(node.outputs())
-                        .take_while(pub_eq_ref)
-                        .next()
-                        .is_some(),
-                    "Outputs of nodes 0 and {} don't start the same",
-                    EXPECTED_ID,
-                );
-                assert!(
-                    node.outputs()
-                        .iter()
-                        .find(|&b| !expected.iter().any(|c| b.public_eq(c)))
-                        .is_none(),
-                    "Node 0 has unexpected output"
-                );
-            } else {
-                assert!(
-                    expected.iter().zip(node.outputs()).all(pub_eq),
-                    "Outputs of nodes {} and {} differ: {:?} != {:?}",
-                    EXPECTED_ID,
-                    i,
-                    expected,
-                    node.outputs()
-                );
+    /// Verifies that all nodes' outputs agree, given a correct "full" node that received all
+    /// batches. Validity of other nodes' output is judged on the grounds of their contributions
+    /// being present or absent in a given epoch in the output of the full node.
+    pub fn verify_batches(&self, full_node: &Node<D>) {
+        let expected = &full_node.outputs;
+        for node in self.correct_nodes().filter(|n| n.id() != full_node.id()) {
+            for batch in expected {
+                if batch
+                    .contributions()
+                    .find(|(id, _)| *id == node.id())
+                    .is_some()
+                {
+                    if let Some(b) = node.outputs.iter().find(|b| b.epoch() == batch.epoch()) {
+                        assert!(
+                            b.public_eq(batch),
+                            "Node {:?} output an incorrect batch in epoch {}: {:?}",
+                            node.id(),
+                            batch.epoch(),
+                            batch
+                        );
+                    } else {
+                        panic!(
+                            "Node {:?} is missing a batch for epoch {}",
+                            node.id(),
+                            batch.epoch()
+                        );
+                    }
+                }
             }
         }
-        expected
     }
 }
 
