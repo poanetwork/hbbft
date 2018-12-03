@@ -349,8 +349,9 @@ where
         .find(|node| *node.id() == pivot_node_id)
         .expect("failed to get the pivot node");
     let secret_key = pivot_node.algorithm().algo().netinfo().secret_key().clone();
-    let (dhb, dhb_step) = DynamicHoneyBadger::new_joining(0, secret_key, join_plan, rng)
-        .expect("failed to reconstruct node 0");
+    let (dhb, dhb_step) =
+        DynamicHoneyBadger::new_joining(pivot_node_id, secret_key, join_plan, rng)
+            .expect("failed to reconstruct the pivot node");
     let (sq, mut sq_step) = SenderQueue::builder(dhb, peer_ids.into_iter()).build(pivot_node_id);
     *pivot_node.algorithm_mut() = sq;
     sq_step.extend(dhb_step.map(|output| output, Message::from));
