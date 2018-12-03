@@ -289,7 +289,7 @@ fn do_drop_and_readd(cfg: TestConfig) {
                             join_plan,
                             rng.gen::<TestRng>(),
                         );
-                        net.process_step(0, &step);
+                        net.process_step(pivot_node_id, &step);
                         rejoined_pivot_node = true;
                     }
                 }
@@ -346,7 +346,7 @@ where
     println!("Peer IDs: {:?}", peer_ids);
     let pivot_node = net
         .correct_nodes_mut()
-        .nth(0)
+        .find(|node| *node.id() == pivot_node_id)
         .expect("failed to get the pivot node");
     let secret_key = pivot_node.algorithm().algo().netinfo().secret_key().clone();
     let (dhb, dhb_step) = DynamicHoneyBadger::new_joining(0, secret_key, join_plan, rng)
