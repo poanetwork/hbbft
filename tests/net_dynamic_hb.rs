@@ -169,7 +169,27 @@ fn do_drop_and_readd(cfg: TestConfig) {
     // Run the network:
     loop {
         let (node_id, step) = net.crank_expect();
-
+        if !net[node_id].is_faulty() {
+            // Verify that contributions from all participants of the batch are present.
+            for batch in &step.output {
+                let expected_participants: Vec<_> = if awaiting_removal.contains(&node_id) {
+                    // The node hasn't removed the pivot node yet.
+                    pub_keys_add.keys()
+                } else if awaiting_addition.contains(&node_id) {
+                    // The node has removed the pivot node but hasn't added it back yet.
+                    pub_keys_rm.keys()
+                } else {
+                    // The node has added the pivot node back.
+                    pub_keys_add.keys()
+                }.collect();
+                let batch_participants: Vec<_> = batch.contributions().map(|(id, _)| id).collect();
+                assert_eq!(
+                    batch_participants, expected_participants,
+                    "Batch participants do not match expected ones for node {}: {:?}",
+                    node_id, batch
+                );
+            }
+        }
         for change in step.output.iter().map(|output| output.change()) {
             match change {
                 ChangeState::Complete(Change::NodeChange(ref pub_keys))
