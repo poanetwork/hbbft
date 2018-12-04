@@ -182,6 +182,14 @@ fn do_drop_and_readd(cfg: TestConfig) {
                     // The node has added the pivot node back.
                     pub_keys_add.keys()
                 }.collect();
+                // FIXME: Update the validators in VirtualNet when a validator is removed or added.
+                let correct_validator_num = expected_participants.len() * 2 / 3;
+                assert!(
+                    batch.contributions().count() >= correct_validator_num,
+                    "The batch contains less contributions than {}, the number of correct validators: {:?}",
+                    correct_validator_num,
+                    batch
+                );
                 let batch_participants: Vec<_> = batch.contributions().map(|(id, _)| id).collect();
                 assert!(
                     batch_participants
