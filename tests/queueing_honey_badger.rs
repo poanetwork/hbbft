@@ -56,12 +56,8 @@ where
         if !has_remove(node) || !has_add(node) {
             return true;
         }
-        if node.id != NodeId(0)
+        node.id != NodeId(0)
             && node.outputs().iter().flat_map(Batch::iter).unique().count() < num_txs
-        {
-            return true;
-        }
-        false
     };
 
     let mut input_add = false;
