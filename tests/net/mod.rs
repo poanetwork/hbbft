@@ -72,7 +72,7 @@ pub struct Node<D: DistAlgorithm> {
     is_faulty: bool,
     /// Captured algorithm outputs, in order.
     outputs: Vec<D::Output>,
-    /// Collected fault log.
+    /// Collected fault log, in order.
     faults: Vec<Fault<D::NodeId>>,
 }
 
@@ -785,8 +785,8 @@ where
         R: rand::Rng,
     {
         // Generate a new set of cryptographic keys for threshold cryptography.
-        let net_infos =
-            NetworkInfo::generate_map(node_ids, &mut rng).map_err(CrankError::Crypto)?;
+        let net_infos = NetworkInfo::generate_map(node_ids, &mut rng)
+            .map_err(CrankError::InitialKeyGeneration)?;
 
         assert!(
             faulty * 3 < net_infos.len(),
@@ -885,7 +885,7 @@ where
             .expect("cannot handle input on non-existing node")
             .algorithm
             .handle_input(input)
-            .map_err(CrankError::Algorithm)?;
+            .map_err(CrankError::HandleInput)?;
 
         self.message_count = self.message_count.saturating_add(process_step(
             &mut self.nodes,
@@ -979,16 +979,16 @@ where
 
         // All messages are expanded and added to the queue. We opt for copying them, so we can
         // return unaltered step later on for inspection.
-        match process_step(
+        self.message_count = self.message_count.saturating_add(match process_step(
             &mut self.nodes,
             receiver.clone(),
             &step,
             &mut self.messages,
             self.error_on_fault,
         ) {
-            Ok(n) => self.message_count = self.message_count.saturating_add(n),
+            Ok(n) => n,
             Err(e) => return Some(Err(e)),
-        }
+        });
 
         // Increase the crank count.
         self.crank_count += 1;
@@ -1040,7 +1040,7 @@ where
                     node.id().clone(),
                     node.algorithm
                         .handle_input(input.clone())
-                        .map_err(CrankError::Algorithm)?,
+                        .map_err(CrankError::HandleInputAll)?,
                 ))
             }).collect::<Result<_, _>>()?;
 

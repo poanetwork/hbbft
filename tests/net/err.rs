@@ -17,8 +17,11 @@ pub enum CrankError<D>
 where
     D: DistAlgorithm,
 {
-    /// The algorithm run by the node produced a `DistAlgorithm::Error`.
-    Algorithm(D::Error),
+    /// The algorithm run by the node produced a `DistAlgorithm::Error` while processing input.
+    HandleInput(D::Error),
+    /// The algorithm run by the node produced a `DistAlgorithm::Error` while processing input to
+    /// all nodes.
+    HandleInputAll(D::Error),
     /// The algorithm run by the node produced a `DistAlgorithm::Error` while processing a message.
     HandleMessage {
         /// Network message that triggered the error.
@@ -34,10 +37,10 @@ where
     MessageLimitExceeded(usize),
     /// The execution time limit has been reached or exceeded.
     TimeLimitHit(time::Duration),
-    /// Fault encountered.
+    /// A `Fault` is encountered in a step of a `DistAlgorithm`.
     Fault(Fault<D::NodeId>),
-    /// Threshold cryptography error.
-    Crypto(crypto::error::Error),
+    /// An error occurred while generating initial keys for threshold cryptography.
+    InitialKeyGeneration(crypto::error::Error),
 }
 
 // Note: Deriving [Debug](std::fmt::Debug), [Fail](failure::Fail) and through that,
@@ -55,9 +58,14 @@ where
 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            CrankError::Algorithm(err) => {
-                write!(f, "The algorithm encountered an error: {:?}", err)
+            CrankError::HandleInput(err) => {
+                write!(f, "The algorithm could not process input: {:?}", err)
             }
+            CrankError::HandleInputAll(err) => write!(
+                f,
+                "The algorithm could not process input to all nodes: {:?}",
+                err
+            ),
             CrankError::HandleMessage { msg, err } => write!(
                 f,
                 "The algorithm could not process network message {:?}. Error: {:?}",
@@ -80,7 +88,11 @@ where
             CrankError::Fault(fault) => {
                 write!(f, "Node {:?} is faulty: {:?}.", fault.node_id, fault.kind)
             }
-            CrankError::Crypto(err) => write!(f, "Threshold cryptography error {:?}.", err),
+            CrankError::InitialKeyGeneration(err) => write!(
+                f,
+                "An error occurred while generating initial keys for threshold cryptography: {:?}.",
+                err
+            ),
         }
     }
 }
@@ -91,7 +103,12 @@ where
 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            CrankError::Algorithm(err) => f.debug_struct("Algorithm").field("err", err).finish(),
+            CrankError::HandleInput(err) => {
+                f.debug_struct("HandleInput").field("err", err).finish()
+            }
+            CrankError::HandleInputAll(err) => {
+                f.debug_struct("HandleInputAll").field("err", err).finish()
+            }
             CrankError::HandleMessage { msg, err } => f
                 .debug_struct("HandleMessage")
                 .field("msg", msg)
@@ -106,7 +123,9 @@ where
             }
             CrankError::TimeLimitHit(lim) => f.debug_tuple("TimeLimitHit").field(lim).finish(),
             CrankError::Fault(fault) => f.debug_tuple("Fault").field(fault).finish(),
-            CrankError::Crypto(err) => f.debug_tuple("Crypto").field(err).finish(),
+            CrankError::InitialKeyGeneration(err) => {
+                f.debug_tuple("InitialKeyGeneration").field(err).finish()
+            }
         }
     }
 }
@@ -117,9 +136,9 @@ where
 {
     fn cause(&self) -> Option<&failure::Fail> {
         match self {
-            CrankError::Algorithm(err) => Some(err),
+            CrankError::HandleInput(err) | CrankError::HandleInputAll(err) => Some(err),
             CrankError::HandleMessage { err, .. } => Some(err),
-            CrankError::Crypto(err) => Some(err),
+            CrankError::InitialKeyGeneration(err) => Some(err),
             _ => None,
         }
     }
