@@ -165,13 +165,22 @@ fn do_drop_and_readd(cfg: TestConfig) {
         .correct_nodes()
         .map(|n| (*n.id(), (0..10).collect()))
         .collect();
+    let mut received_batches: collections::BTreeMap<u64, _> = collections::BTreeMap::new();
 
     // Run the network:
     loop {
         let (node_id, step) = net.crank_expect();
         if !net[node_id].is_faulty() {
-            // Verify that only contributions from expected participants can be present in the batch.
             for batch in &step.output {
+                // Check that correct nodes don't output different batches for the same epoch.
+                if let Some(b) = received_batches.insert(batch.epoch(), batch.clone()) {
+                    assert!(
+                        batch.public_eq(&b),
+                        "A batch of node {} doesn't match a previous batch for the same epoch {}",
+                        node_id,
+                        batch.epoch()
+                    );
+                }
                 let expected_participants: Vec<_> = if awaiting_removal.contains(&node_id) {
                     // The node hasn't removed the pivot node yet.
                     pub_keys_add.keys()
@@ -187,6 +196,8 @@ fn do_drop_and_readd(cfg: TestConfig) {
                     "The batch contains less contributions than there are correct validators: {:?}",
                     batch
                 );
+                // Verify that only contributions from expected participants can be present in the
+                // batch.
                 let batch_participants: Vec<_> = batch.contributions().map(|(id, _)| id).collect();
                 assert!(
                     batch_participants
