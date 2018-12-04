@@ -183,11 +183,9 @@ fn do_drop_and_readd(cfg: TestConfig) {
                     pub_keys_add.keys()
                 }.collect();
                 // FIXME: Update the validators in VirtualNet when a validator is removed or added.
-                let correct_validator_num = expected_participants.len() * 2 / 3;
                 assert!(
-                    batch.contributions().count() >= correct_validator_num,
-                    "The batch contains less contributions than {}, the number of correct validators: {:?}",
-                    correct_validator_num,
+                    batch.contributions().count() * 3 > expected_participants.len() * 2,
+                    "The batch contains less contributions than there are correct validators: {:?}",
                     batch
                 );
                 let batch_participants: Vec<_> = batch.contributions().map(|(id, _)| id).collect();
