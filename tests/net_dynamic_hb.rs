@@ -170,7 +170,7 @@ fn do_drop_and_readd(cfg: TestConfig) {
     loop {
         let (node_id, step) = net.crank_expect();
         if !net[node_id].is_faulty() {
-            // Verify that contributions from all participants of the batch are present.
+            // Verify that contributions from all correct participants of the batch are present.
             for batch in &step.output {
                 let expected_participants: Vec<_> = if awaiting_removal.contains(&node_id) {
                     // The node hasn't removed the pivot node yet.
@@ -181,10 +181,10 @@ fn do_drop_and_readd(cfg: TestConfig) {
                 } else {
                     // The node has added the pivot node back.
                     pub_keys_add.keys()
-                }.collect();
+                }.filter(|&&id| !net[id].is_faulty())
+                .collect();
                 let batch_participants: Vec<_> = batch.contributions().map(|(id, _)| id).collect();
-                assert_eq!(
-                    batch_participants, expected_participants,
+                assert!(expected_participants.iter().all(|id| batch_participants.contains(id))
                     "Batch participants do not match expected ones for node {}: {:?}",
                     node_id, batch
                 );
