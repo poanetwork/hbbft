@@ -6,7 +6,7 @@ use crate::crypto::{PublicKey, SecretKey, Signature};
 use bincode;
 use derivative::Derivative;
 use log::debug;
-use rand::{self, Rand, Rng};
+use rand::{Rand, Rng};
 use serde::{de::DeserializeOwned, Serialize};
 
 use super::votes::{SignedVote, VoteCounter};
@@ -53,21 +53,22 @@ where
     type Message = Message<N>;
     type Error = Error;
 
-    fn handle_input(&mut self, input: Self::Input) -> Result<Step<C, N>> {
+    fn handle_input<R: Rng>(&mut self, rng: &mut R, input: Self::Input) -> Result<Step<C, N>> {
         // User contributions are forwarded to `HoneyBadger` right away. Votes are signed and
         // broadcast.
-        let mut rng: ::rand::OsRng = unimplemented!();
         match input {
-            // FIXME: Make trait support passing in RNGs.
-            Input::User(contrib) => self.propose(&mut rng, contrib),
+            Input::User(contrib) => self.propose(rng, contrib),
             Input::Change(change) => self.vote_for(change),
         }
     }
 
-    fn handle_message(&mut self, sender_id: &N, message: Self::Message) -> Result<Step<C, N>> {
-        // FIXME: Obtain proper RNG.
-        let mut rng: rand::OsRng = unimplemented!();
-        self.handle_message(&mut rng, sender_id, message)
+    fn handle_message<R: Rng>(
+        &mut self,
+        rng: &mut R,
+        sender_id: &Self::NodeId,
+        msg: Self::Message,
+    ) -> Result<Step<C, N>> {
+        self.handle_message(rng, sender_id, msg)
     }
 
     fn terminated(&self) -> bool {

@@ -5,6 +5,7 @@ use std::{fmt, result};
 use byteorder::{BigEndian, ByteOrder};
 use hex_fmt::{HexFmt, HexList};
 use log::{debug, warn};
+use rand::Rng;
 use reed_solomon_erasure as rse;
 use reed_solomon_erasure::ReedSolomon;
 
@@ -47,11 +48,16 @@ impl<N: NodeIdT> DistAlgorithm for Broadcast<N> {
     type Message = Message;
     type Error = Error;
 
-    fn handle_input(&mut self, input: Self::Input) -> Result<Step<N>> {
+    fn handle_input<R: Rng>(&mut self, _rng: &mut R, input: Self::Input) -> Result<Step<N>> {
         self.broadcast(input)
     }
 
-    fn handle_message(&mut self, sender_id: &N, message: Self::Message) -> Result<Step<N>> {
+    fn handle_message<R: Rng>(
+        &mut self,
+        _rng: &mut R,
+        sender_id: &Self::NodeId,
+        message: Message,
+    ) -> Result<Step<N>> {
         self.handle_message(sender_id, message)
     }
 

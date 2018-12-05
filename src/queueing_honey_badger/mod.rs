@@ -156,21 +156,23 @@ where
     type Message = Message<N>;
     type Error = Error;
 
-    fn handle_input(&mut self, input: Self::Input) -> Result<Step<T, N>> {
+    fn handle_input<R: Rng>(&mut self, rng: &mut R, input: Self::Input) -> Result<Step<T, N>> {
         // User transactions are forwarded to `HoneyBadger` right away. Internal messages are
         // in addition signed and broadcast.
 
-        // FIXME: Update trait to make this unnecessary.
-        let mut rng: rand::OsRng = unimplemented!();
         match input {
-            Input::User(tx) => self.push_transaction(&mut rng, tx),
-            Input::Change(change) => self.vote_for(&mut rng, change),
+            Input::User(tx) => self.push_transaction(rng, tx),
+            Input::Change(change) => self.vote_for(rng, change),
         }
     }
 
-    fn handle_message(&mut self, sender_id: &N, message: Self::Message) -> Result<Step<T, N>> {
-        let mut rng: rand::OsRng = unimplemented!();
-        self.handle_message(&mut rng, sender_id, message)
+    fn handle_message<R: Rng>(
+        &mut self,
+        rng: &mut R,
+        sender_id: &N,
+        message: Self::Message,
+    ) -> Result<Step<T, N>> {
+        self.handle_message(rng, sender_id, message)
     }
 
     fn terminated(&self) -> bool {
@@ -296,7 +298,7 @@ where
             let proposal = self.queue.choose(rng, amount, self.batch_size);
             step.extend(
                 self.dyn_hb
-                    .handle_input(Input::User(proposal))
+                    .handle_input(rng, Input::User(proposal))
                     .map_err(Error::Propose)?,
             );
         }

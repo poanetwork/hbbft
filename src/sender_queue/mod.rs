@@ -10,6 +10,7 @@ mod honey_badger;
 mod message;
 mod queueing_honey_badger;
 
+use rand::Rng;
 use std::collections::BTreeMap;
 use std::fmt::Debug;
 
@@ -99,16 +100,21 @@ where
     type Message = Message<D::Message>;
     type Error = D::Error;
 
-    fn handle_input(&mut self, input: Self::Input) -> Result<DaStep<Self>, D::Error> {
-        self.handle_input(input)
+    fn handle_input<R: Rng>(
+        &mut self,
+        rng: &mut R,
+        input: Self::Input,
+    ) -> Result<DaStep<Self>, D::Error> {
+        self.handle_input(rng, input)
     }
 
-    fn handle_message(
+    fn handle_message<R: Rng>(
         &mut self,
+        rng: &mut R,
         sender_id: &D::NodeId,
         message: Self::Message,
     ) -> Result<DaStep<Self>, D::Error> {
-        self.handle_message(sender_id, message)
+        self.handle_message(rng, sender_id, message)
     }
 
     fn terminated(&self) -> bool {
@@ -137,21 +143,26 @@ where
     }
 
     /// Handles an input. This will call the wrapped algorithm's `handle_input`.
-    pub fn handle_input(&mut self, input: D::Input) -> Result<DaStep<Self>, D::Error> {
-        self.apply(|algo| algo.handle_input(input))
+    pub fn handle_input<R: Rng>(
+        &mut self,
+        rng: &mut R,
+        input: D::Input,
+    ) -> Result<DaStep<Self>, D::Error> {
+        self.apply(|algo| algo.handle_input(rng, input))
     }
 
     /// Handles a message received from `sender_id`.
     ///
     /// This must be called with every message we receive from another node.
-    pub fn handle_message(
+    pub fn handle_message<R: Rng>(
         &mut self,
+        rng: &mut R,
         sender_id: &D::NodeId,
         message: Message<D::Message>,
     ) -> Result<DaStep<Self>, D::Error> {
         match message {
             Message::EpochStarted(epoch) => Ok(self.handle_epoch_started(sender_id, epoch)),
-            Message::Algo(msg) => self.handle_message_content(sender_id, msg),
+            Message::Algo(msg) => self.handle_message_content(rng, sender_id, msg),
         }
     }
 
@@ -207,12 +218,13 @@ where
     }
 
     /// Handles a Honey Badger algorithm message in a given epoch.
-    fn handle_message_content(
+    fn handle_message_content<R: Rng>(
         &mut self,
+        rng: &mut R,
         sender_id: &D::NodeId,
         content: D::Message,
     ) -> Result<DaStep<Self>, D::Error> {
-        self.apply(|algo| algo.handle_message(sender_id, content))
+        self.apply(|algo| algo.handle_message(rng, sender_id, content))
     }
 
     /// Updates the current Honey Badger epoch.

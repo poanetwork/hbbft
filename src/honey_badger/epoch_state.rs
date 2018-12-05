@@ -17,7 +17,7 @@ use super::{Batch, Error, MessageContent, Result, Step};
 use crate::fault_log::{Fault, FaultKind, FaultLog};
 use crate::subset::{self as cs, Subset, SubsetOutput};
 use crate::threshold_decrypt::{self as td, ThresholdDecrypt};
-use crate::{Contribution, DistAlgorithm, NetworkInfo, NodeIdT};
+use crate::{Contribution, NetworkInfo, NodeIdT};
 
 type CsStep<N> = cs::Step<N>;
 
@@ -75,7 +75,7 @@ where
     /// Provides input to the Subset instance, unless it has already completed.
     fn handle_input(&mut self, proposal: Vec<u8>) -> Result<CsStep<N>> {
         match self {
-            SubsetState::Ongoing(ref mut cs) => cs.handle_input(proposal),
+            SubsetState::Ongoing(ref mut cs) => cs.propose(proposal),
             SubsetState::Complete(_) => return Ok(cs::Step::default()),
         }
         .map_err(Error::InputSubset)

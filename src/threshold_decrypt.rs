@@ -16,6 +16,7 @@ use std::sync::Arc;
 
 use crate::crypto::{self, Ciphertext, DecryptionShare};
 use failure::Fail;
+use rand::Rng;
 use rand_derive::Rand;
 use serde_derive::{Deserialize, Serialize};
 
@@ -74,11 +75,16 @@ impl<N: NodeIdT> DistAlgorithm for ThresholdDecrypt<N> {
     type Message = Message;
     type Error = Error;
 
-    fn handle_input(&mut self, _input: ()) -> Result<Step<N>> {
+    fn handle_input<R: Rng>(&mut self, _rng: &mut R, _input: ()) -> Result<Step<N>> {
         self.start_decryption()
     }
 
-    fn handle_message(&mut self, sender_id: &N, message: Message) -> Result<Step<N>> {
+    fn handle_message<R: Rng>(
+        &mut self,
+        _rng: &mut R,
+        sender_id: &Self::NodeId,
+        message: Message,
+    ) -> Result<Step<N>> {
         self.handle_message(sender_id, message)
     }
 

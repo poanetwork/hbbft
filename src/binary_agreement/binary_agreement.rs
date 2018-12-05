@@ -5,6 +5,7 @@ use std::{fmt, result};
 use crate::crypto::SignatureShare;
 use bincode;
 use log::debug;
+use rand::Rng;
 
 use super::bool_multimap::BoolMultimap;
 use super::bool_set::{self, BoolSet};
@@ -177,13 +178,18 @@ impl<N: NodeIdT, S: SessionIdT> DistAlgorithm for BinaryAgreement<N, S> {
     type Message = Message;
     type Error = Error;
 
-    fn handle_input(&mut self, input: Self::Input) -> Result<Step<N>> {
+    fn handle_input<R: Rng>(&mut self, _rng: &mut R, input: Self::Input) -> Result<Step<N>> {
         self.propose(input)
     }
 
     /// Receive input from a remote node.
-    fn handle_message(&mut self, sender_id: &Self::NodeId, msg: Message) -> Result<Step<N>> {
-        self.handle_message(sender_id, msg)
+    fn handle_message<R: Rng>(
+        &mut self,
+        _rng: &mut R,
+        sender_id: &Self::NodeId,
+        message: Message,
+    ) -> Result<Step<N>> {
+        self.handle_message(sender_id, message)
     }
 
     /// Whether the algorithm has terminated.

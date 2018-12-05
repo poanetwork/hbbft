@@ -46,13 +46,16 @@ where
     type Message = Message<N>;
     type Error = Error;
 
-    fn handle_input(&mut self, input: Self::Input) -> Result<Step<C, N>> {
-        // FIXME: Instantiate proper RNG.
-        let mut rng: rand::OsRng = unimplemented!();
-        self.propose(&mut rng, &input)
+    fn handle_input<R: Rng>(&mut self, rng: &mut R, input: Self::Input) -> Result<Step<C, N>> {
+        self.propose(rng, &input)
     }
 
-    fn handle_message(&mut self, sender_id: &N, message: Self::Message) -> Result<Step<C, N>> {
+    fn handle_message<R: Rng>(
+        &mut self,
+        _rng: &mut R,
+        sender_id: &Self::NodeId,
+        message: Self::Message,
+    ) -> Result<Step<C, N>> {
         self.handle_message(sender_id, message)
     }
 
