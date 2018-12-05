@@ -19,13 +19,15 @@ pub mod err;
 pub mod proptest;
 pub mod util;
 
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::io::Write;
-use std::{cmp, collections, env, fmt, fs, io, ops, process, time};
+use std::{cmp, env, fmt, fs, io, ops, process, time};
 
 use rand;
 use rand::{Rand, Rng};
 
 use hbbft::dynamic_honey_badger::Batch;
+use hbbft::sender_queue::SenderQueueableOutput;
 use hbbft::{self, Contribution, DaStep, DistAlgorithm, Fault, NetworkInfo, NodeIdT, Step};
 
 use crate::try_some;
@@ -194,7 +196,7 @@ impl<M, N> NetworkMessage<M, N> {
 }
 
 /// Mapping from node IDs to actual node instances.
-pub type NodeMap<D> = collections::BTreeMap<<D as DistAlgorithm>::NodeId, Node<D>>;
+pub type NodeMap<D> = BTreeMap<<D as DistAlgorithm>::NodeId, Node<D>>;
 
 /// A virtual network message tied to a distributed algorithm.
 pub type NetMessage<D> =
@@ -215,10 +217,10 @@ pub type NetMessage<D> =
 // borrow-checker restrictions.
 #[allow(clippy::needless_pass_by_value)]
 fn process_step<'a, D>(
-    nodes: &'a mut collections::BTreeMap<D::NodeId, Node<D>>,
+    nodes: &'a mut BTreeMap<D::NodeId, Node<D>>,
     sender: D::NodeId,
     step: &DaStep<D>,
-    dest: &mut collections::VecDeque<NetMessage<D>>,
+    dest: &mut VecDeque<NetMessage<D>>,
     error_on_fault: bool,
 ) -> Result<usize, CrankError<D>>
 where
@@ -566,7 +568,7 @@ where
     /// Maps node IDs to actual node instances.
     nodes: NodeMap<D>,
     /// A collection of all network messages queued up for delivery.
-    messages: collections::VecDeque<NetMessage<D>>,
+    messages: VecDeque<NetMessage<D>>,
     /// An optional `Adversary` that controls the network delivery schedule and all faulty nodes.
     adversary: Option<A>,
     /// Trace output; if active, writes out a log of all messages.
@@ -740,8 +742,8 @@ where
             "Too many faulty nodes requested, `f` must satisfy `3f < total_nodes`."
         );
 
-        let mut steps = collections::BTreeMap::new();
-        let mut messages = collections::VecDeque::new();
+        let mut steps = BTreeMap::new();
+        let mut messages = VecDeque::new();
 
         let mut nodes = net_infos
             .into_iter()
@@ -1026,31 +1028,37 @@ where
     C: Contribution + Clone,
     N: NodeIdT,
 {
-    /// Verifies that all nodes' outputs agree, given a correct "full" node that received all
-    /// batches. Validity of other nodes' output is judged on the grounds of their contributions
-    /// being present or absent in a given epoch in the output of the full node.
-    pub fn verify_batches(&self, full_node: &Node<D>) {
-        let expected = &full_node.outputs;
-        for node in self.correct_nodes().filter(|n| n.id() != full_node.id()) {
-            for batch in expected {
-                if batch.contributions().any(|(id, _)| id == node.id()) {
-                    if let Some(b) = node.outputs.iter().find(|b| b.epoch() == batch.epoch()) {
-                        assert!(
-                            b.public_eq(batch),
-                            "Node {:?} output an incorrect batch in epoch {}: {:?}",
-                            node.id(),
-                            batch.epoch(),
-                            batch
-                        );
-                    } else {
-                        panic!(
-                            "Node {:?} is missing a batch for epoch {}",
-                            node.id(),
-                            batch.epoch()
-                        );
-                    }
-                }
+    /// Verifies that all nodes' outputs agree, given a correct "full" node that output all
+    /// batches in a total order and with no gaps.
+    ///
+    /// The output of the full node is used to derive in expected output of other nodes in every
+    /// epoch. After that the check ensures that correct nodes output the same batches in epochs
+    /// when those nodes were participants (either validators or candidates).
+    pub fn verify_batches<E>(&self, full_node: &Node<D>)
+    where
+        Batch<C, N>: SenderQueueableOutput<N, E>,
+    {
+        let mut participants: BTreeSet<N> = self.nodes().map(Node::id).cloned().collect();
+        let mut expected: BTreeMap<N, Vec<_>> = BTreeMap::new();
+        for batch in &full_node.outputs {
+            for id in &participants {
+                expected.entry(id.clone()).or_default().push(batch);
             }
+            if let Some(new_participants) = batch.participant_change() {
+                participants = new_participants;
+            }
+        }
+        for node in self.correct_nodes().filter(|n| n.id() != full_node.id()) {
+            assert_eq!(node.outputs.len(), expected[node.id()].len());
+            assert!(node
+                .outputs
+                .iter()
+                .zip(
+                    expected
+                        .get(node.id())
+                        .expect("outputs don't match the expectation")
+                )
+                .all(|(a, b)| a.public_eq(b)));
         }
     }
 }
