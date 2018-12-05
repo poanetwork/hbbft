@@ -32,7 +32,7 @@ where
     fn default() -> Self {
         DynamicHoneyBadgerBuilder {
             era: 0,
-            rng: Box::new(rand::thread_rng()),
+            rng: Box::new(rand::OsRng::new()),
             params: Params::default(),
             _phantom: PhantomData,
         }

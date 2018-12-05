@@ -61,8 +61,8 @@
 //! use threshold_crypto::{PublicKey, SecretKey, SignatureShare};
 //! use hbbft::sync_key_gen::{AckOutcome, PartOutcome, SyncKeyGen};
 //!
-//! // Use a default random number generator for any randomness:
-//! let mut rng = rand::thread_rng();
+//! // Use the os random number generator for any randomness:
+//! let mut rng = rand::OsRng::new();
 //!
 //! // Two out of four shares will suffice to sign or encrypt something.
 //! let (threshold, node_num) = (1, 4);

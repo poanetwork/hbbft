@@ -37,7 +37,7 @@ where
             netinfo,
             session_id: 0,
             epoch: 0,
-            rng: Box::new(rand::thread_rng()),
+            rng: Box::new(rand::OsRng::new()),
             params: Params::default(),
             _phantom: PhantomData,
         }
