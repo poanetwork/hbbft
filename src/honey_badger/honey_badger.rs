@@ -9,7 +9,7 @@ use serde_derive::{Deserialize, Serialize};
 
 use super::epoch_state::EpochState;
 use super::{Batch, Error, HoneyBadgerBuilder, Message, Result};
-use crate::{util, Contribution, DistAlgorithm, Fault, FaultKind, NetworkInfo, NodeIdT};
+use crate::{Contribution, DistAlgorithm, Fault, FaultKind, NetworkInfo, NodeIdT};
 
 use super::Params;
 
@@ -30,10 +30,6 @@ pub struct HoneyBadger<C, N: Rand> {
     pub(super) epochs: BTreeMap<u64, EpochState<C, N>>,
     /// Parameters controlling Honey Badger's behavior and performance.
     pub(super) params: Params,
-    /// A random number generator used for secret key generation.
-    // Boxed to avoid overloading the algorithm's type with more generics.
-    #[derivative(Debug(format_with = "util::fmt_rng"))]
-    pub(super) rng: Box<dyn Rng + Send + Sync>,
 }
 
 /// A `HoneyBadger` step, possibly containing multiple outputs.
@@ -51,7 +47,9 @@ where
     type Error = Error;
 
     fn handle_input(&mut self, input: Self::Input) -> Result<Step<C, N>> {
-        self.propose(&input)
+        // FIXME: Instantiate proper RNG.
+        let mut rng: rand::OsRng = unimplemented!();
+        self.propose(&mut rng, &input)
     }
 
     fn handle_message(&mut self, sender_id: &N, message: Self::Message) -> Result<Step<C, N>> {
@@ -84,7 +82,7 @@ where
     ///
     /// If we are the only validator, this will immediately output a batch, containing our
     /// proposal.
-    pub fn propose(&mut self, proposal: &C) -> Result<Step<C, N>> {
+    pub fn propose<R: Rng>(&mut self, rng: &mut R, proposal: &C) -> Result<Step<C, N>> {
         if !self.netinfo.is_validator() {
             return Ok(Step::default());
         }
@@ -97,7 +95,6 @@ where
                     "We created the epoch_state in `self.epoch_state_mut(...)` just a moment ago.",
                 )
             };
-            let rng = &mut self.rng;
             epoch_state.propose(proposal, rng)?
         };
         Ok(step.join(self.try_output_batches()?))

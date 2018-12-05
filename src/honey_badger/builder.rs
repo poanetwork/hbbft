@@ -2,11 +2,10 @@ use std::collections::BTreeMap;
 use std::marker::PhantomData;
 use std::sync::Arc;
 
-use rand::{self, Rand, Rng};
+use rand::Rand;
 use serde::{de::DeserializeOwned, Serialize};
 
 use super::{EncryptionSchedule, HoneyBadger, Params, SubsetHandlingStrategy};
-use crate::util::SubRng;
 use crate::{Contribution, NetworkInfo, NodeIdT};
 
 /// A Honey Badger builder, to configure the parameters and create new instances of `HoneyBadger`.
@@ -18,8 +17,6 @@ pub struct HoneyBadgerBuilder<C, N> {
     session_id: u64,
     /// Start in this epoch.
     epoch: u64,
-    /// Random number generator passed on to algorithm instance for signing and encrypting.
-    rng: Box<dyn Rng>,
     /// Parameters controlling Honey Badger's behavior and performance.
     params: Params,
     _phantom: PhantomData<C>,
@@ -37,16 +34,9 @@ where
             netinfo,
             session_id: 0,
             epoch: 0,
-            rng: Box::new(rand::OsRng::new()),
             params: Params::default(),
             _phantom: PhantomData,
         }
-    }
-
-    /// Sets the random number generator for the public key cryptography.
-    pub fn rng<R: Rng + 'static>(&mut self, rng: R) -> &mut Self {
-        self.rng = Box::new(rng);
-        self
     }
 
     /// Sets the session identifier.
@@ -100,7 +90,6 @@ where
             has_input: false,
             epochs: BTreeMap::new(),
             params: self.params.clone(),
-            rng: Box::new(self.rng.sub_rng()),
         }
     }
 }
