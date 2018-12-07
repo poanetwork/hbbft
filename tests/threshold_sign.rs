@@ -18,10 +18,10 @@ use rand::Rng;
 use rand_derive::Rand;
 use serde_derive::{Deserialize, Serialize};
 
-use crypto::Signature;
+use crate::crypto::Signature;
 use hbbft::{threshold_sign::ThresholdSign, util};
 
-use network::{Adversary, MessageScheduler, NodeId, SilentAdversary, TestNetwork, TestNode};
+use crate::network::{Adversary, MessageScheduler, NodeId, SilentAdversary, TestNetwork, TestNode};
 
 /// Tests a network of threshold signing instances with an optional expected value. Outputs the
 /// computed signature if the test is successful.

@@ -26,7 +26,7 @@ use hbbft::sender_queue::{self, SenderQueue, Step};
 use hbbft::transaction_queue::TransactionQueue;
 use hbbft::{threshold_decrypt, util, DistAlgorithm, NetworkInfo, Target, TargetedMessage};
 
-use network::{
+use crate::network::{
     Adversary, MessageScheduler, MessageWithSender, NodeId, RandomAdversary, SilentAdversary,
     TestNetwork, TestNode,
 };

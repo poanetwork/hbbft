@@ -1,8 +1,8 @@
 use bincode;
 use failure::Fail;
 
-use honey_badger;
-use sync_key_gen;
+use crate::honey_badger;
+use crate::sync_key_gen;
 
 /// Dynamic honey badger error variants.
 #[derive(Debug, Fail)]

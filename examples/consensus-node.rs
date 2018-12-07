@@ -18,7 +18,7 @@ use std::vec::Vec;
 
 use docopt::Docopt;
 
-use network::node::Node;
+use crate::network::node::Node;
 
 const VERSION: &str = "0.1.0";
 const USAGE: &str = "

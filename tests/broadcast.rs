@@ -20,7 +20,7 @@ use rand::Rng;
 
 use hbbft::broadcast::{Broadcast, Message};
 use hbbft::{util, DistAlgorithm, NetworkInfo, Target, TargetedMessage};
-use network::{
+use crate::network::{
     Adversary, MessageScheduler, MessageWithSender, NodeId, RandomAdversary, SilentAdversary,
     TestNetwork, TestNode,
 };

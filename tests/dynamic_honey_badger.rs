@@ -25,7 +25,7 @@ use hbbft::sender_queue::{SenderQueue, Step};
 use hbbft::transaction_queue::TransactionQueue;
 use hbbft::{util, NetworkInfo};
 
-use network::{Adversary, MessageScheduler, NodeId, SilentAdversary, TestNetwork, TestNode};
+use crate::network::{Adversary, MessageScheduler, NodeId, SilentAdversary, TestNetwork, TestNode};
 
 type UsizeDhb = SenderQueue<DynamicHoneyBadger<Vec<usize>, NodeId>>;
 

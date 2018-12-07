@@ -19,14 +19,14 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::{fmt, result};
 
-use crypto::{self, hash_g2, Signature, SignatureShare, G2};
+use crate::crypto::{self, hash_g2, Signature, SignatureShare, G2};
 use failure::Fail;
 use log::debug;
 use rand_derive::Rand;
 use serde_derive::{Deserialize, Serialize};
 
-use fault_log::{Fault, FaultKind, FaultLog};
-use {DistAlgorithm, NetworkInfo, NodeIdT, Target};
+use crate::fault_log::{Fault, FaultKind, FaultLog};
+use crate::{DistAlgorithm, NetworkInfo, NodeIdT, Target};
 
 /// A threshold signing error.
 #[derive(Clone, Eq, PartialEq, Debug, Fail)]
@@ -75,7 +75,7 @@ pub struct ThresholdSign<N> {
 }
 
 /// A step returned from `ThresholdSign`. It contains at most one output.
-pub type Step<N> = ::DaStep<ThresholdSign<N>>;
+pub type Step<N> = crate::DaStep<ThresholdSign<N>>;
 
 impl<N: NodeIdT> DistAlgorithm for ThresholdSign<N> {
     type NodeId = N;

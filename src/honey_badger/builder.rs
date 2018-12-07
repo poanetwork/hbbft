@@ -6,8 +6,8 @@ use rand::{self, Rand, Rng};
 use serde::{de::DeserializeOwned, Serialize};
 
 use super::{EncryptionSchedule, HoneyBadger, Params, SubsetHandlingStrategy};
-use util::SubRng;
-use {Contribution, NetworkInfo, NodeIdT};
+use crate::util::SubRng;
+use crate::{Contribution, NetworkInfo, NodeIdT};
 
 /// A Honey Badger builder, to configure the parameters and create new instances of `HoneyBadger`.
 pub struct HoneyBadgerBuilder<C, N> {

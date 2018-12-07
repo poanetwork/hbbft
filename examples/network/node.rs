@@ -42,14 +42,14 @@ use std::sync::Arc;
 use std::{iter, process, thread, time};
 
 use crossbeam;
-use crypto::poly::Poly;
-use crypto::{SecretKey, SecretKeySet};
+use crate::crypto::poly::Poly;
+use crate::crypto::{SecretKey, SecretKeySet};
 use log::{debug, error};
 
 use hbbft::broadcast::{Broadcast, Message};
 use hbbft::{DistAlgorithm, NetworkInfo, SourcedMessage};
-use network::messaging::Messaging;
-use network::{commst, connection};
+use crate::network::messaging::Messaging;
+use crate::network::{commst, connection};
 
 /// This is a structure to start a consensus node.
 pub struct Node<T> {

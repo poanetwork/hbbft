@@ -13,7 +13,7 @@ use proptest::strategy::{Strategy, ValueTree};
 use proptest::{prelude::RngCore, proptest, proptest_helper};
 use rand::{Rng as Rng4, SeedableRng as SeedableRng4};
 
-use net::proptest::{max_sum, NetworkDimension, NetworkDimensionTree};
+use crate::net::proptest::{max_sum, NetworkDimension, NetworkDimensionTree};
 
 struct RngAdapter4To5<T>(pub T);
 

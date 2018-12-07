@@ -8,7 +8,7 @@ extern crate threshold_crypto as crypto;
 
 use std::collections::BTreeMap;
 
-use crypto::{PublicKey, SecretKey};
+use crate::crypto::{PublicKey, SecretKey};
 
 use hbbft::sync_key_gen::{PartOutcome, SyncKeyGen};
 use hbbft::util;

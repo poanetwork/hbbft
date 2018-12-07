@@ -10,10 +10,10 @@ use serde_derive::Serialize;
 use super::proposal_state::{ProposalState, Step as ProposalStep};
 use super::{Error, Message, MessageContent, Result};
 use rand::Rand;
-use {util, DistAlgorithm, NetworkInfo, NodeIdT, SessionIdT};
+use crate::{util, DistAlgorithm, NetworkInfo, NodeIdT, SessionIdT};
 
 /// A `Subset` step, possibly containing several outputs.
-pub type Step<N> = ::Step<Message<N>, SubsetOutput<N>, N>;
+pub type Step<N> = crate::Step<Message<N>, SubsetOutput<N>, N>;
 
 /// An output with an accepted contribution or the end of the set.
 #[derive(Derivative, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]

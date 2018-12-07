@@ -15,6 +15,7 @@ license = "MIT/Apache-2.0"
 readme = "README.md"
 repository = "https://github.com/poanetwork/hbbft"
 description = "The Honey Badger of Byzantine Fault Tolerant Consensus Protocols"
+edition = "2018"
 
 [badges]
 travis-ci = { repository = "poanetwork/hbbft" }

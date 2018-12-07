@@ -2,8 +2,8 @@ use failure::Fail;
 
 use std::result;
 
-use binary_agreement;
-use broadcast;
+use crate::binary_agreement;
+use crate::broadcast;
 
 /// A subset error.
 #[derive(Clone, PartialEq, Debug, Fail)]

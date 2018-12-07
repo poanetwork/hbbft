@@ -40,7 +40,7 @@ use rand::Rng;
 
 use hbbft::{DaStep, DistAlgorithm};
 
-use net::{CrankError, NetMessage, Node, VirtualNet};
+use crate::net::{CrankError, NetMessage, Node, VirtualNet};
 
 /// Immutable network handle.
 ///

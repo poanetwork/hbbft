@@ -5,7 +5,7 @@
 //! calling algorithm via `DistAlgorihm`'s `.handle_input()` and
 //! `.handle_message()` trait methods.
 
-pub use sync_key_gen::{AckFault, PartFault};
+pub use crate::sync_key_gen::{AckFault, PartFault};
 
 /// Represents each reason why a node could be considered faulty.
 #[derive(Clone, Copy, Debug, PartialEq)]

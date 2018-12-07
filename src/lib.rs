@@ -152,10 +152,10 @@ pub mod threshold_sign;
 pub mod transaction_queue;
 pub mod util;
 
-pub use crypto::pairing;
-pub use fault_log::{Fault, FaultKind, FaultLog};
-pub use messaging::{SourcedMessage, Target, TargetedMessage};
-pub use network_info::NetworkInfo;
-pub use traits::{
+pub use crate::crypto::pairing;
+pub use crate::fault_log::{Fault, FaultKind, FaultLog};
+pub use crate::messaging::{SourcedMessage, Target, TargetedMessage};
+pub use crate::network_info::NetworkInfo;
+pub use crate::traits::{
     Contribution, DaStep, DistAlgorithm, Epoched, Message, NodeIdT, SessionIdT, Step,
 };

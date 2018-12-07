@@ -2,8 +2,8 @@ use rand::Rand;
 use rand_derive::Rand;
 use serde_derive::{Deserialize, Serialize};
 
-use subset;
-use threshold_decrypt;
+use crate::subset;
+use crate::threshold_decrypt;
 
 /// The content of a `HoneyBadger` message. It should be further annotated with an epoch.
 #[derive(Clone, Debug, Deserialize, Rand, Serialize)]

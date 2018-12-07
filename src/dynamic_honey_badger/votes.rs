@@ -2,13 +2,13 @@ use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
 use bincode;
-use crypto::Signature;
+use crate::crypto::Signature;
 use serde::Serialize;
 use serde_derive::{Deserialize, Serialize};
 
 use super::{Change, Error, Result};
-use fault_log::{FaultKind, FaultLog};
-use {NetworkInfo, NodeIdT};
+use crate::fault_log::{FaultKind, FaultLog};
+use crate::{NetworkInfo, NodeIdT};
 
 /// A buffer and counter collecting pending and committed votes for validator set changes.
 ///
@@ -190,9 +190,9 @@ mod tests {
     use std::sync::Arc;
 
     use super::{Change, SignedVote, VoteCounter};
-    use fault_log::{FaultKind, FaultLog};
+    use crate::fault_log::{FaultKind, FaultLog};
     use rand;
-    use NetworkInfo;
+    use crate::NetworkInfo;
 
     /// Returns a vector of `node_num` `VoteCounter`s, and some signed example votes.
     ///

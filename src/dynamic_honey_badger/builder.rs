@@ -3,14 +3,14 @@ use std::iter::once;
 use std::marker::PhantomData;
 use std::sync::Arc;
 
-use crypto::{SecretKey, SecretKeySet};
+use crate::crypto::{SecretKey, SecretKeySet};
 use rand::{self, Rand, Rng};
 use serde::{de::DeserializeOwned, Serialize};
 
 use super::{DynamicHoneyBadger, EncryptionSchedule, JoinPlan, Result, Step, VoteCounter};
-use honey_badger::{HoneyBadger, Params, SubsetHandlingStrategy};
-use util::SubRng;
-use {Contribution, NetworkInfo, NodeIdT};
+use crate::honey_badger::{HoneyBadger, Params, SubsetHandlingStrategy};
+use crate::util::SubRng;
+use crate::{Contribution, NetworkInfo, NodeIdT};
 
 /// A Dynamic Honey Badger builder, to configure the parameters and create new instances of
 /// `DynamicHoneyBadger`.

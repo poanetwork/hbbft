@@ -25,7 +25,7 @@ use hbbft::queueing_honey_badger::{Batch, Change, ChangeState, Input, QueueingHo
 use hbbft::sender_queue::{Message, SenderQueue, Step};
 use hbbft::{util, NetworkInfo};
 
-use network::{Adversary, MessageScheduler, NodeId, SilentAdversary, TestNetwork, TestNode};
+use crate::network::{Adversary, MessageScheduler, NodeId, SilentAdversary, TestNetwork, TestNode};
 
 type QHB = SenderQueue<QueueingHoneyBadger<usize, NodeId, Vec<usize>>>;
 

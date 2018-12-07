@@ -2,14 +2,14 @@
 
 use std::result;
 
-use crypto::PublicKey;
+use crate::crypto::PublicKey;
 use rand::Rand;
 use serde::{de::DeserializeOwned, Serialize};
 
 use super::{SenderQueue, SenderQueueableDistAlgorithm};
-use queueing_honey_badger::{Change, Error as QhbError, QueueingHoneyBadger};
-use transaction_queue::TransactionQueue;
-use {Contribution, DaStep, Epoched, NodeIdT};
+use crate::queueing_honey_badger::{Change, Error as QhbError, QueueingHoneyBadger};
+use crate::transaction_queue::TransactionQueue;
+use crate::{Contribution, DaStep, Epoched, NodeIdT};
 
 impl<T, N, Q> Epoched for QueueingHoneyBadger<T, N, Q>
 where

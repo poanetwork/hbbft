@@ -33,9 +33,9 @@ use rand::{Rng, SeedableRng};
 use hbbft::binary_agreement::BinaryAgreement;
 use hbbft::DistAlgorithm;
 
-use net::adversary::ReorderingAdversary;
-use net::proptest::{gen_seed, NetworkDimension, TestRng, TestRngSeed};
-use net::{NetBuilder, NewNodeInfo, VirtualNet};
+use crate::net::adversary::ReorderingAdversary;
+use crate::net::proptest::{gen_seed, NetworkDimension, TestRng, TestRngSeed};
+use crate::net::{NetBuilder, NewNodeInfo, VirtualNet};
 
 /// Test configuration for Binary Agreement tests.
 #[derive(Debug)]

@@ -1,9 +1,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use crypto::{self, PublicKey, PublicKeySet, PublicKeyShare, SecretKey, SecretKeyShare};
+use crate::crypto::{self, PublicKey, PublicKeySet, PublicKeyShare, SecretKey, SecretKeyShare};
 use rand;
 
-use {util, NodeIdT};
+use crate::{util, NodeIdT};
 
 /// Common data shared between algorithms: the nodes' IDs and key shares.
 #[derive(Debug, Clone)]
@@ -162,7 +162,7 @@ impl<N: NodeIdT> NetworkInfo<N> {
         I: IntoIterator<Item = N>,
         R: rand::Rng,
     {
-        use crypto::SecretKeySet;
+        use crate::crypto::SecretKeySet;
 
         let all_ids: BTreeSet<N> = ids.into_iter().collect();
         let num_faulty = util::max_faulty(all_ids.len());

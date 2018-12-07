@@ -5,7 +5,7 @@ use std::{cmp, fmt};
 
 use rand::{self, Rng};
 
-use Contribution;
+use crate::Contribution;
 
 /// An interface to the transaction queue. A transaction queue is a structural part of
 /// `QueueingHoneyBadger` that manages enqueueing of transactions for a future batch and dequeueing

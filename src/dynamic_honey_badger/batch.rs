@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use super::{ChangeState, JoinPlan, Params};
-use {NetworkInfo, NodeIdT};
+use crate::{NetworkInfo, NodeIdT};
 
 /// A batch of transactions the algorithm has output.
 #[derive(Clone, Debug)]

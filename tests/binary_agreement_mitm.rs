@@ -18,9 +18,9 @@ use hbbft::binary_agreement::{BinaryAgreement, MessageContent, SbvMessage};
 use hbbft::threshold_sign::ThresholdSign;
 use hbbft::{DaStep, DistAlgorithm, NetworkInfo};
 
-use net::adversary::{NetMutHandle, QueuePosition};
-use net::err::CrankError;
-use net::{Adversary, NetBuilder, NetMessage};
+use crate::net::adversary::{NetMutHandle, QueuePosition};
+use crate::net::err::CrankError;
+use crate::net::{Adversary, NetBuilder, NetMessage};
 
 type NodeId = usize;
 type SessionId = u8;

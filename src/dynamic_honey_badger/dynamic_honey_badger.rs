@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::{fmt, result};
 
 use bincode;
-use crypto::{PublicKey, SecretKey, Signature};
+use crate::crypto::{PublicKey, SecretKey, Signature};
 use derivative::Derivative;
 use log::debug;
 use rand::{self, Rand, Rng};
@@ -15,12 +15,12 @@ use super::{
     InternalContrib, JoinPlan, KeyGenMessage, KeyGenState, Message, Params, Result,
     SignedKeyGenMsg, Step,
 };
-use fault_log::{Fault, FaultKind, FaultLog};
-use honey_badger::{self, HoneyBadger, Message as HbMessage};
+use crate::fault_log::{Fault, FaultKind, FaultLog};
+use crate::honey_badger::{self, HoneyBadger, Message as HbMessage};
 
-use sync_key_gen::{Ack, AckOutcome, Part, PartOutcome, SyncKeyGen};
-use util::{self, SubRng};
-use {Contribution, DistAlgorithm, Epoched, NetworkInfo, NodeIdT, Target};
+use crate::sync_key_gen::{Ack, AckOutcome, Part, PartOutcome, SyncKeyGen};
+use crate::util::{self, SubRng};
+use crate::{Contribution, DistAlgorithm, Epoched, NetworkInfo, NodeIdT, Target};
 
 /// A Honey Badger instance that can handle adding and removing nodes.
 #[derive(Derivative)]

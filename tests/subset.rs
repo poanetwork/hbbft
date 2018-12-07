@@ -18,7 +18,7 @@ use std::sync::Arc;
 use hbbft::subset::{Subset, SubsetOutput};
 use hbbft::NetworkInfo;
 
-use network::{Adversary, MessageScheduler, NodeId, SilentAdversary, TestNetwork, TestNode};
+use crate::network::{Adversary, MessageScheduler, NodeId, SilentAdversary, TestNetwork, TestNode};
 
 type ProposedValue = Vec<u8>;
 

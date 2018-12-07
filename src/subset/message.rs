@@ -2,8 +2,8 @@ use rand::Rand;
 use rand_derive::Rand;
 use serde_derive::{Deserialize, Serialize};
 
-use binary_agreement;
-use broadcast;
+use crate::binary_agreement;
+use crate::broadcast;
 
 /// Message from Subset to remote nodes.
 #[derive(Serialize, Deserialize, Clone, Debug, Rand)]

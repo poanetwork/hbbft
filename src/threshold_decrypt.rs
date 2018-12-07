@@ -14,13 +14,13 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use crypto::{self, Ciphertext, DecryptionShare};
+use crate::crypto::{self, Ciphertext, DecryptionShare};
 use failure::Fail;
 use rand_derive::Rand;
 use serde_derive::{Deserialize, Serialize};
 
-use fault_log::{Fault, FaultKind, FaultLog};
-use {DistAlgorithm, NetworkInfo, NodeIdT, Target};
+use crate::fault_log::{Fault, FaultKind, FaultLog};
+use crate::{DistAlgorithm, NetworkInfo, NodeIdT, Target};
 
 /// A threshold decryption error.
 #[derive(Clone, Eq, PartialEq, Debug, Fail)]
@@ -65,7 +65,7 @@ pub struct ThresholdDecrypt<N> {
 }
 
 /// A `ThresholdDecrypt` step. It will contain at most one output.
-pub type Step<N> = ::DaStep<ThresholdDecrypt<N>>;
+pub type Step<N> = crate::DaStep<ThresholdDecrypt<N>>;
 
 impl<N: NodeIdT> DistAlgorithm for ThresholdDecrypt<N> {
     type NodeId = N;

@@ -3,16 +3,16 @@ use std::sync::Arc;
 
 use super::subset::BaSessionId;
 use super::{Error, MessageContent, Result};
-use binary_agreement;
-use broadcast::{self, Broadcast};
+use crate::binary_agreement;
+use crate::broadcast::{self, Broadcast};
 use rand::Rand;
-use {NetworkInfo, NodeIdT, SessionIdT};
+use crate::{NetworkInfo, NodeIdT, SessionIdT};
 
 type BaInstance<N, S> = binary_agreement::BinaryAgreement<N, BaSessionId<S>>;
 type ValueAndStep<N> = (Option<Vec<u8>>, Step<N>);
 type BaResult<N> = binary_agreement::Result<binary_agreement::Step<N>>;
 
-pub type Step<N> = ::Step<MessageContent, Vec<u8>, N>;
+pub type Step<N> = crate::Step<MessageContent, Vec<u8>, N>;
 
 /// The state of a proposal's broadcast and agreement process.
 #[derive(Debug)]

@@ -27,7 +27,7 @@ use hbbft::dynamic_honey_badger::Batch;
 use hbbft::util::SubRng;
 use hbbft::{self, Contribution, DaStep, DistAlgorithm, Fault, NetworkInfo, NodeIdT, Step};
 
-use try_some;
+use crate::try_some;
 
 pub use self::adversary::Adversary;
 pub use self::err::CrankError;

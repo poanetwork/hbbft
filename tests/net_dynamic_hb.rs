@@ -11,9 +11,9 @@ use std::{collections, time};
 
 use hbbft::dynamic_honey_badger::{Change, ChangeState, DynamicHoneyBadger, Input};
 use hbbft::sender_queue::SenderQueue;
-use net::adversary::ReorderingAdversary;
-use net::proptest::{gen_seed, NetworkDimension, TestRng, TestRngSeed};
-use net::{NetBuilder, NewNodeInfo};
+use crate::net::adversary::ReorderingAdversary;
+use crate::net::proptest::{gen_seed, NetworkDimension, TestRng, TestRngSeed};
+use crate::net::{NetBuilder, NewNodeInfo};
 use proptest::{prelude::ProptestConfig, prop_compose, proptest, proptest_helper};
 use rand::{Rng, SeedableRng};
 

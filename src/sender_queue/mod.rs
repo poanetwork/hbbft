@@ -13,8 +13,8 @@ mod queueing_honey_badger;
 use std::collections::BTreeMap;
 use std::fmt::Debug;
 
-use traits::EpochT;
-use {DaStep, DistAlgorithm, Epoched, NodeIdT, Target};
+use crate::traits::EpochT;
+use crate::{DaStep, DistAlgorithm, Epoched, NodeIdT, Target};
 
 pub use self::message::Message;
 
@@ -84,7 +84,7 @@ where
 }
 
 /// A `SenderQueue` step. The output corresponds to the wrapped algorithm.
-pub type Step<D> = ::DaStep<SenderQueue<D>>;
+pub type Step<D> = crate::DaStep<SenderQueue<D>>;
 
 impl<D> DistAlgorithm for SenderQueue<D>
 where
