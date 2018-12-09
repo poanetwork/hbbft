@@ -140,8 +140,7 @@ impl<N: NodeIdT> ThresholdSign<N> {
         self.had_input = true;
         let mut step = Step::default();
         step.fault_log.extend(self.remove_invalid_shares());
-        // TODO: Remove `cloned()` once non-lexical lifetimes are stable.
-        let msg = match self.netinfo.secret_key_share().cloned() {
+        let msg = match self.netinfo.secret_key_share() {
             Some(sks) => Message(sks.sign_g2(hash)),
             None => return Ok(step.join(self.try_output()?)), // Not a validator.
         };
