@@ -201,7 +201,7 @@ mod tests {
     /// the vote by node `i` for making `j` the only validator. Each node signed this for nodes
     /// `0`, `1`, ... in order.
     fn setup(node_num: usize, era: u64) -> (Vec<VoteCounter<usize>>, Vec<Vec<SignedVote<usize>>>) {
-        let mut rng = rand::OsRng::new();
+        let mut rng = rand::OsRng::new().expect("could not initialize OsRng");
         // Create keys for threshold cryptography.
         let netinfos = NetworkInfo::generate_map(0..node_num, &mut rng)
             .expect("Failed to generate `NetworkInfo` map");

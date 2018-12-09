@@ -48,6 +48,7 @@ impl Adversary<Broadcast<NodeId>> for ProposeAdversary {
     }
 
     fn step(&mut self) -> Vec<MessageWithSender<Broadcast<NodeId>>> {
+        let mut rng = rand::thread_rng();
         if self.has_sent {
             return vec![];
         }
@@ -57,7 +58,7 @@ impl Adversary<Broadcast<NodeId>> for ProposeAdversary {
             .flat_map(|(&id, netinfo)| {
                 Broadcast::new(netinfo.clone(), id)
                     .expect("broadcast instance")
-                    .handle_input(b"Fake news".to_vec())
+                    .handle_input(b"Fake news".to_vec(), &mut rng)
                     .expect("propose")
                     .messages
                     .into_iter()

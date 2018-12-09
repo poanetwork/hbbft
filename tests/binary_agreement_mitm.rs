@@ -245,6 +245,8 @@ impl AbaCommonCoinAdversary {
         epoch: u64,
         a_estimated: bool,
     ) -> Self {
+        let mut rng = rand::thread_rng();
+
         AbaCommonCoinAdversary {
             stage: 0,
             stage_progress: 0,
@@ -265,7 +267,7 @@ impl AbaCommonCoinAdversary {
                     let mut coin = ThresholdSign::new_with_document(netinfo, coin_id)
                         .expect("Failed to set the coin's ID");
                     let _ = coin
-                        .handle_input(())
+                        .handle_input((), &mut rng)
                         .expect("Calling handle_input on Coin failed");
                     CoinState::InProgress(Box::new(coin))
                 }
@@ -430,6 +432,8 @@ impl Adversary<Algo> for AbaCommonCoinAdversary {
 #[test]
 fn reordering_attack() {
     let _ = env_logger::try_init();
+    // FIXME: DO WE REALLY WANT THREAD_RNG HERE?
+    let mut rng = rand::thread_rng();
     let ids: Vec<NodeId> = (0..NUM_NODES).collect();
     let adversary_netinfo: Arc<Mutex<Option<Arc<NetworkInfo<NodeId>>>>> = Default::default();
     let (mut net, _) = NetBuilder::new(ids.iter().cloned())
@@ -451,15 +455,15 @@ fn reordering_attack() {
             // This is the faulty node.
         } else if id < (1 + NODES_PER_GROUP * 2) {
             // Group A
-            let _ = net.send_input(id, false).unwrap();
+            let _ = net.send_input(id, false, &mut rng).unwrap();
         } else {
             // Group B
-            let _ = net.send_input(id, true).unwrap();
+            let _ = net.send_input(id, true, &mut rng).unwrap();
         }
     }
 
     while !net.nodes().skip(1).all(|n| n.algorithm().terminated()) {
-        net.crank_expect();
+        net.crank_expect(&mut rng);
     }
 
     // Verify that all instances output the same value.

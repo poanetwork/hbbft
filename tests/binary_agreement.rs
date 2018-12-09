@@ -79,12 +79,12 @@ impl VirtualNet<BinaryAgreement<NodeId, u8>> {
     {
         let ids: Vec<NodeId> = self.nodes().map(|n| *n.id()).collect();
         for id in ids {
-            let _ = self.send_input(id, input.unwrap_or_else(|| rng.gen::<bool>()));
+            let _ = self.send_input(id, input.unwrap_or_else(|| rng.gen::<bool>()), &mut rng);
         }
 
         // Handle messages in random order until all nodes have output the proposed value.
         while !self.nodes().all(|node| node.algorithm().terminated()) {
-            let _ = self.crank_expect();
+            let _ = self.crank_expect(&mut rng);
         }
         // Verify that all instances output the same value.
         let mut expected = input;

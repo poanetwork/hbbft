@@ -23,7 +23,7 @@ fn test_sync_key_gen_with(threshold: usize, node_num: usize) {
         .enumerate()
         .map(|(id, sk)| {
             let (sync_key_gen, proposal) =
-                SyncKeyGen::new(&mut rand::thread_rng(), id, sk, pub_keys.clone(), threshold)
+                SyncKeyGen::new(id, sk, pub_keys.clone(), threshold, &mut rand::thread_rng())
                     .unwrap_or_else(|_err| {
                         panic!("Failed to create `SyncKeyGen` instance #{}", id)
                     });
@@ -38,7 +38,7 @@ fn test_sync_key_gen_with(threshold: usize, node_num: usize) {
         for (node_id, node) in nodes.iter_mut().enumerate() {
             let proposal = proposal.clone().expect("proposal");
             let ack = match node
-                .handle_part(&mut rand::thread_rng(), &sender_id, proposal)
+                .handle_part(&sender_id, proposal, &mut rand::thread_rng())
                 .expect("failed to handle part")
             {
                 PartOutcome::Valid(Some(ack)) => ack,

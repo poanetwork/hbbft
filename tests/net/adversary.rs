@@ -143,8 +143,12 @@ where
     }
 
     /// Normally dispatch a message
-    pub fn dispatch_message(&mut self, msg: NetMessage<D>) -> Result<DaStep<D>, CrankError<D>> {
-        self.0.dispatch_message(msg)
+    pub fn dispatch_message<R: Rng>(
+        &mut self,
+        msg: NetMessage<D>,
+        rng: &mut R,
+    ) -> Result<DaStep<D>, CrankError<D>> {
+        self.0.dispatch_message(msg, rng)
     }
 
     /// Injects a message into the network.
@@ -337,7 +341,9 @@ where
         mut net: NetMutHandle<D>,
         msg: NetMessage<D>,
     ) -> Result<DaStep<D>, CrankError<D>> {
-        net.dispatch_message(msg)
+        // FIXME: RETHINK INTERFACE TO AVOID GENERIC TYPE PARAMETERS!
+        let mut rng = rand::thread_rng();
+        net.dispatch_message(msg, &mut rng)
     }
 }
 

@@ -46,8 +46,8 @@ impl<D: DistAlgorithm> TestNode<D> {
     }
 
     /// Inputs a value into the instance.
-    pub fn handle_input(&mut self, input: D::Input) {
-        let step = self.algo.handle_input(input).expect("input");
+    pub fn handle_input<R: Rng>(&mut self, input: D::Input, rng: &mut R) {
+        let step = self.algo.handle_input(input, rng).expect("input");
         self.outputs.extend(step.output);
         self.messages.extend(step.messages);
         self.faults.extend(step.fault_log.0);
@@ -73,11 +73,13 @@ impl<D: DistAlgorithm> TestNode<D> {
 
     /// Handles the first message in the node's queue.
     fn handle_message(&mut self) {
+        let mut rng = rand::thread_rng();
+
         let (from_id, msg) = self.queue.pop_front().expect("message not found");
         debug!("Handling {:?} -> {:?}: {:?}", from_id, self.id, msg);
         let step = self
             .algo
-            .handle_message(&from_id, msg)
+            .handle_message(&from_id, msg, &mut rng)
             .expect("handling message");
         self.outputs.extend(step.output);
         self.messages.extend(step.messages);
@@ -558,9 +560,11 @@ where
 
     /// Inputs a value in node `id`.
     pub fn input(&mut self, id: NodeId, value: D::Input) {
+        let mut rng = rand::thread_rng();
+
         let (msgs, faults): (Vec<_>, Vec<_>) = {
             let node = self.nodes.get_mut(&id).expect("input instance");
-            node.handle_input(value);
+            node.handle_input(value, &mut rng);
             (
                 node.messages.drain(..).collect(),
                 node.faults.drain(..).collect(),
