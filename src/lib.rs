@@ -119,20 +119,6 @@
 #![allow(clippy::module_inception, clippy::new_ret_no_self)]
 #![warn(missing_docs)]
 
-extern crate bincode;
-extern crate byteorder;
-extern crate derivative;
-extern crate failure;
-extern crate hex_fmt;
-extern crate init_with;
-extern crate log;
-extern crate rand;
-extern crate rand_derive;
-extern crate reed_solomon_erasure;
-extern crate serde;
-extern crate serde_derive;
-extern crate tiny_keccak;
-
 pub extern crate threshold_crypto as crypto;
 
 mod fault_log;

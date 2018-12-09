@@ -13,13 +13,6 @@
 //! - Validity: If any correct node outputs `b`, then at least one correct node received `b` as
 //! input.
 
-extern crate failure;
-extern crate hbbft;
-extern crate integer_sqrt;
-extern crate proptest;
-extern crate rand;
-extern crate threshold_crypto;
-
 pub mod net;
 
 use std::iter::once;

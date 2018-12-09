@@ -1,14 +1,6 @@
 #![deny(unused_must_use)]
 //! Integration test of the reliable broadcast protocol.
 
-extern crate env_logger;
-extern crate hbbft;
-extern crate log;
-extern crate rand;
-extern crate rand_derive;
-extern crate serde_derive;
-extern crate threshold_crypto as crypto;
-
 mod network;
 
 use std::collections::BTreeMap;

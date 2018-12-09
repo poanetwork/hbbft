@@ -1,14 +1,6 @@
 #![deny(unused_must_use)]
 //! Integration tests of the Subset protocol.
 
-extern crate env_logger;
-extern crate hbbft;
-extern crate log;
-extern crate rand;
-extern crate rand_derive;
-extern crate serde_derive;
-extern crate threshold_crypto as crypto;
-
 mod network;
 
 use std::collections::{BTreeMap, BTreeSet};

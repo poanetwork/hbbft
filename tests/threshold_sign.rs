@@ -1,14 +1,6 @@
 #![deny(unused_must_use)]
 //! Threshold signing tests
 
-extern crate env_logger;
-extern crate hbbft;
-extern crate log;
-extern crate rand;
-extern crate rand_derive;
-extern crate serde_derive;
-extern crate threshold_crypto as crypto;
-
 mod network;
 
 use std::iter::once;
@@ -16,8 +8,7 @@ use std::iter::once;
 use log::info;
 use rand::Rng;
 
-use crate::crypto::Signature;
-use hbbft::{threshold_sign::ThresholdSign, util};
+use hbbft::{crypto::Signature, threshold_sign::ThresholdSign, util};
 
 use crate::network::{Adversary, MessageScheduler, NodeId, SilentAdversary, TestNetwork, TestNode};
 

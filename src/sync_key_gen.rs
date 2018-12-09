@@ -56,10 +56,6 @@
 //! ## Example
 //!
 //! ```
-//! extern crate rand;
-//! extern crate hbbft;
-//! extern crate threshold_crypto;
-//!
 //! use std::collections::BTreeMap;
 //!
 //! use threshold_crypto::{PublicKey, SecretKey, SignatureShare};

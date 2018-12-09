@@ -1,14 +1,6 @@
 #![deny(unused_must_use)]
 //! Tests the BinaryAgreement protocol with a MTIM adversary.
 
-extern crate env_logger;
-extern crate failure;
-extern crate hbbft;
-extern crate integer_sqrt;
-extern crate proptest;
-extern crate rand;
-extern crate threshold_crypto;
-
 pub mod net;
 
 use std::iter;

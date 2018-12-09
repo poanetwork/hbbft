@@ -1,16 +1,6 @@
 #![deny(unused_must_use)]
 //! Network tests for Honey Badger.
 
-extern crate bincode;
-extern crate env_logger;
-extern crate hbbft;
-extern crate itertools;
-extern crate log;
-extern crate rand;
-extern crate rand_derive;
-extern crate serde_derive;
-extern crate threshold_crypto as crypto;
-
 mod network;
 
 use std::collections::BTreeMap;

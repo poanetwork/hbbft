@@ -1,15 +1,9 @@
 #![deny(unused_must_use)]
 //! Tests for synchronous distributed key generation.
 
-extern crate env_logger;
-extern crate hbbft;
-extern crate rand;
-extern crate threshold_crypto as crypto;
-
 use std::collections::BTreeMap;
 
-use crate::crypto::{PublicKey, SecretKey};
-
+use hbbft::crypto::{PublicKey, SecretKey};
 use hbbft::sync_key_gen::{PartOutcome, SyncKeyGen};
 use hbbft::util;
 

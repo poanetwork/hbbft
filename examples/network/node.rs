@@ -5,8 +5,6 @@
 //! The following code could be run on host 192.168.1.1:
 //!
 //! ```ignore
-//! extern crate hbbft;
-//!
 //! use hbbft::node::Node;
 //! use std::net::SocketAddr;
 //! use std::vec::Vec;
@@ -41,14 +39,13 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::{iter, process, thread, time};
 
-use crate::crypto::poly::Poly;
-use crate::crypto::{SecretKey, SecretKeySet};
 use crossbeam;
 use log::{debug, error};
 
 use crate::network::messaging::Messaging;
 use crate::network::{commst, connection};
 use hbbft::broadcast::{Broadcast, Message};
+use hbbft::crypto::{poly::Poly, SecretKey, SecretKeySet};
 use hbbft::{DistAlgorithm, NetworkInfo, SourcedMessage};
 
 /// This is a structure to start a consensus node.
