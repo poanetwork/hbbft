@@ -48,15 +48,15 @@ impl<N: NodeIdT + Rand, S: SessionIdT> DistAlgorithm for Subset<N, S> {
     type Message = Message<N>;
     type Error = Error;
 
-    fn handle_input<R: Rng>(&mut self, _rng: &mut R, input: Self::Input) -> Result<Step<N>> {
+    fn handle_input<R: Rng>(&mut self, input: Self::Input, _rng: &mut R) -> Result<Step<N>> {
         self.propose(input)
     }
 
     fn handle_message<R: Rng>(
         &mut self,
-        _rng: &mut R,
         sender_id: &N,
         message: Message<N>,
+        _rng: &mut R,
     ) -> Result<Step<N>> {
         self.handle_message(sender_id, message)
     }

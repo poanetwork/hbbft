@@ -102,7 +102,7 @@ where
 
     /// Creates a new Queueing Honey Badger instance with an empty buffer.
     pub fn build<R: Rng>(self, rng: &mut R) -> QueueingHoneyBadgerWithStep<T, N, Q> {
-        self.build_with_transactions(rng, None)
+        self.build_with_transactions(None, rng)
             .expect("building without transactions cannot fail")
     }
 
@@ -110,8 +110,8 @@ where
     /// buffer.
     pub fn build_with_transactions<TI, R>(
         mut self,
-        rng: &mut R,
         txs: TI,
+        rng: &mut R,
     ) -> Result<QueueingHoneyBadgerWithStep<T, N, Q>>
     where
         TI: IntoIterator<Item = T>,
@@ -156,23 +156,23 @@ where
     type Message = Message<N>;
     type Error = Error;
 
-    fn handle_input<R: Rng>(&mut self, rng: &mut R, input: Self::Input) -> Result<Step<T, N>> {
+    fn handle_input<R: Rng>(&mut self, input: Self::Input, rng: &mut R) -> Result<Step<T, N>> {
         // User transactions are forwarded to `HoneyBadger` right away. Internal messages are
         // in addition signed and broadcast.
 
         match input {
-            Input::User(tx) => self.push_transaction(rng, tx),
-            Input::Change(change) => self.vote_for(rng, change),
+            Input::User(tx) => self.push_transaction(tx, rng),
+            Input::Change(change) => self.vote_for(change, rng),
         }
     }
 
     fn handle_message<R: Rng>(
         &mut self,
-        rng: &mut R,
         sender_id: &N,
         message: Self::Message,
+        rng: &mut R,
     ) -> Result<Step<T, N>> {
-        self.handle_message(rng, sender_id, message)
+        self.handle_message(sender_id, message, rng)
     }
 
     fn terminated(&self) -> bool {
@@ -204,7 +204,7 @@ where
     /// If no proposal has yet been made for the current epoch, this may trigger one. In this case,
     /// a nonempty step will returned, with the corresponding messages. (Or, if we are the only
     /// validator, even with the completed batch as an output.)
-    pub fn push_transaction<R: Rng>(&mut self, rng: &mut R, tx: T) -> Result<Step<T, N>> {
+    pub fn push_transaction<R: Rng>(&mut self, tx: T, rng: &mut R) -> Result<Step<T, N>> {
         self.queue.extend(iter::once(tx));
         self.propose(rng)
     }
@@ -213,8 +213,8 @@ where
     ///
     /// This stores a pending vote for the change. It will be included in some future batch, and
     /// once enough validators have been voted for the same change, it will take effect.
-    pub fn vote_for<R: Rng>(&mut self, rng: &mut R, change: Change<N>) -> Result<Step<T, N>> {
-        self.apply(rng, |_, dyn_hb| dyn_hb.vote_for(change))
+    pub fn vote_for<R: Rng>(&mut self, change: Change<N>, rng: &mut R) -> Result<Step<T, N>> {
+        self.apply(|dyn_hb, _| dyn_hb.vote_for(change), rng)
     }
 
     /// Casts a vote to add a node as a validator.
@@ -223,19 +223,19 @@ where
     /// once enough validators have been voted for the same change, it will take effect.
     pub fn vote_to_add<R: Rng>(
         &mut self,
-        rng: &mut R,
         node_id: N,
         pub_key: PublicKey,
+        rng: &mut R,
     ) -> Result<Step<T, N>> {
-        self.apply(rng, |_, dyn_hb| dyn_hb.vote_to_add(node_id, pub_key))
+        self.apply(|dyn_hb, _| dyn_hb.vote_to_add(node_id, pub_key), rng)
     }
 
     /// Casts a vote to demote a validator to observer.
     ///
     /// This stores a pending vote for the change. It will be included in some future batch, and
     /// once enough validators have been voted for the same change, it will take effect.
-    pub fn vote_to_remove<R: Rng>(&mut self, rng: &mut R, node_id: &N) -> Result<Step<T, N>> {
-        self.apply(rng, |_, dyn_hb| dyn_hb.vote_to_remove(node_id))
+    pub fn vote_to_remove<R: Rng>(&mut self, node_id: &N, rng: &mut R) -> Result<Step<T, N>> {
+        self.apply(|dyn_hb, _| dyn_hb.vote_to_remove(node_id), rng)
     }
 
     /// Handles a message received from `sender_id`.
@@ -243,13 +243,14 @@ where
     /// This must be called with every message we receive from another node.
     pub fn handle_message<R: Rng>(
         &mut self,
-        rng: &mut R,
         sender_id: &N,
         message: Message<N>,
+        rng: &mut R,
     ) -> Result<Step<T, N>> {
-        self.apply(rng, |rng, dyn_hb| {
-            dyn_hb.handle_message(rng, sender_id, message)
-        })
+        self.apply(
+            |dyn_hb, rng| dyn_hb.handle_message(sender_id, message, rng),
+            rng,
+        )
     }
 
     /// Returns a reference to the internal managed `DynamicHoneyBadger` instance.
@@ -263,13 +264,15 @@ where
     }
 
     /// Applies a function `f` to the `DynamicHoneyBadger` instance and processes the step.
-    fn apply<R, F>(&mut self, rng: &mut R, f: F) -> Result<Step<T, N>>
+    fn apply<R, F>(&mut self, f: F, rng: &mut R) -> Result<Step<T, N>>
     where
-        F: FnOnce(&mut R, &mut DynamicHoneyBadger<Vec<T>, N>)
-            -> dynamic_honey_badger::Result<Step<T, N>>,
+        F: FnOnce(
+            &mut DynamicHoneyBadger<Vec<T>, N>,
+            &mut R,
+        ) -> dynamic_honey_badger::Result<Step<T, N>>,
         R: Rng,
     {
-        let step = f(rng, &mut self.dyn_hb).map_err(Error::Input)?;
+        let step = f(&mut self.dyn_hb, rng).map_err(Error::Input)?;
         self.queue
             .remove_multiple(step.output.iter().flat_map(Batch::iter));
         Ok(step.join(self.propose(rng)?))
@@ -298,7 +301,7 @@ where
             let proposal = self.queue.choose(rng, amount, self.batch_size);
             step.extend(
                 self.dyn_hb
-                    .handle_input(rng, Input::User(proposal))
+                    .handle_input(Input::User(proposal), rng)
                     .map_err(Error::Propose)?,
             );
         }

@@ -269,8 +269,8 @@ pub trait DistAlgorithm: Send + Sync {
     /// Handles an input provided by the user, and returns
     fn handle_input<R: Rng>(
         &mut self,
-        rng: &mut R,
         input: Self::Input,
+        rng: &mut R,
     ) -> Result<DaStep<Self>, Self::Error>
     where
         Self: Sized;
@@ -278,9 +278,9 @@ pub trait DistAlgorithm: Send + Sync {
     /// Handles a message received from node `sender_id`.
     fn handle_message<R: Rng>(
         &mut self,
-        rng: &mut R,
         sender_id: &Self::NodeId,
         message: Self::Message,
+        rng: &mut R,
     ) -> Result<DaStep<Self>, Self::Error>
     where
         Self: Sized;

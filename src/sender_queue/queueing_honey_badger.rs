@@ -51,16 +51,16 @@ where
     /// If no proposal has yet been made for the current epoch, this may trigger one. In this case,
     /// a nonempty step will returned, with the corresponding messages. (Or, if we are the only
     /// validator, even with the completed batch as an output.)
-    pub fn push_transaction<R: Rng>(&mut self, rng: &mut R, tx: T) -> Result<T, N, Q> {
-        self.apply(|algo| algo.push_transaction(rng, tx))
+    pub fn push_transaction<R: Rng>(&mut self, tx: T, rng: &mut R) -> Result<T, N, Q> {
+        self.apply(|algo| algo.push_transaction(tx, rng))
     }
 
     /// Casts a vote to change the set of validators or parameters.
     ///
     /// This stores a pending vote for the change. It will be included in some future batch, and
     /// once enough validators have been voted for the same change, it will take effect.
-    pub fn vote_for<R: Rng>(&mut self, rng: &mut R, change: Change<N>) -> Result<T, N, Q> {
-        self.apply(|algo| algo.vote_for(rng, change))
+    pub fn vote_for<R: Rng>(&mut self, change: Change<N>, rng: &mut R) -> Result<T, N, Q> {
+        self.apply(|algo| algo.vote_for(change, rng))
     }
 
     /// Casts a vote to add a node as a validator.
@@ -69,18 +69,18 @@ where
     /// once enough validators have been voted for the same change, it will take effect.
     pub fn vote_to_add<R: Rng>(
         &mut self,
-        rng: &mut R,
         node_id: N,
         pub_key: PublicKey,
+        rng: &mut R,
     ) -> Result<T, N, Q> {
-        self.apply(|algo| algo.vote_to_add(rng, node_id, pub_key))
+        self.apply(|algo| algo.vote_to_add(node_id, pub_key, rng))
     }
 
     /// Casts a vote to demote a validator to observer.
     ///
     /// This stores a pending vote for the change. It will be included in some future batch, and
     /// once enough validators have been voted for the same change, it will take effect.
-    pub fn vote_to_remove<R: Rng>(&mut self, rng: &mut R, node_id: &N) -> Result<T, N, Q> {
-        self.apply(|algo| algo.vote_to_remove(rng, node_id))
+    pub fn vote_to_remove<R: Rng>(&mut self, node_id: &N, rng: &mut R) -> Result<T, N, Q> {
+        self.apply(|algo| algo.vote_to_remove(node_id, rng))
     }
 }

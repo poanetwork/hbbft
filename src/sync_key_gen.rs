@@ -316,11 +316,11 @@ impl<N: NodeIdT> SyncKeyGen<N> {
     /// If we are not a validator but only an observer, no `Part` message is produced and no
     /// messages need to be sent.
     pub fn new<R: rand::Rng>(
-        rng: &mut R,
         our_id: N,
         sec_key: SecretKey,
         pub_keys: BTreeMap<N, PublicKey>,
         threshold: usize,
+        rng: &mut R,
     ) -> Result<(SyncKeyGen<N>, Option<Part>), Error> {
         let our_idx = pub_keys
             .keys()
@@ -366,9 +366,9 @@ impl<N: NodeIdT> SyncKeyGen<N> {
     /// Note that `handle_part` also needs to explicitly be called with this instance's own `Part`.
     pub fn handle_part<R: rand::Rng>(
         &mut self,
-        rng: &mut R,
         sender_id: &N,
         part: Part,
+        rng: &mut R,
     ) -> Result<PartOutcome, Error> {
         let sender_idx = self.node_index(sender_id).ok_or(Error::UnknownSender)?;
         let row = match self.handle_part_or_fault(sender_idx, part) {

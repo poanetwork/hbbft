@@ -106,8 +106,8 @@ where
     /// Creates a new `DynamicHoneyBadger` configured to start a new network as a single validator.
     pub fn build_first_node<R: rand::Rng>(
         &mut self,
-        rng: &mut R,
         our_id: N,
+        rng: &mut R,
     ) -> Result<DynamicHoneyBadger<C, N>> {
         let sk_set = SecretKeySet::random(0, rng);
         let pk_set = sk_set.public_keys();
@@ -125,11 +125,11 @@ where
     #[deprecated]
     pub fn build_joining<R: rand::Rng>(
         &mut self,
-        rng: &mut R,
         our_id: N,
         secret_key: SecretKey,
         join_plan: JoinPlan<N>,
+        rng: &mut R,
     ) -> Result<(DynamicHoneyBadger<C, N>, Step<C, N>)> {
-        DynamicHoneyBadger::new_joining(rng, our_id, secret_key, join_plan)
+        DynamicHoneyBadger::new_joining(our_id, secret_key, join_plan, rng)
     }
 }

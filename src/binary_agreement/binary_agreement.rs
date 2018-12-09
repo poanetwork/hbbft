@@ -178,16 +178,16 @@ impl<N: NodeIdT, S: SessionIdT> DistAlgorithm for BinaryAgreement<N, S> {
     type Message = Message;
     type Error = Error;
 
-    fn handle_input<R: Rng>(&mut self, _rng: &mut R, input: Self::Input) -> Result<Step<N>> {
+    fn handle_input<R: Rng>(&mut self, input: Self::Input, _rng: &mut R) -> Result<Step<N>> {
         self.propose(input)
     }
 
     /// Receive input from a remote node.
     fn handle_message<R: Rng>(
         &mut self,
-        _rng: &mut R,
         sender_id: &Self::NodeId,
         message: Message,
+        _rng: &mut R,
     ) -> Result<Step<N>> {
         self.handle_message(sender_id, message)
     }

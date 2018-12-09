@@ -89,7 +89,7 @@ where
     /// If we are the only validator, this will immediately output a batch, containing our
     /// proposal.
     pub fn propose<R: Rng>(&mut self, rng: &mut R, contrib: C) -> Result<C, N> {
-        self.apply(|algo| algo.propose(rng, contrib))
+        self.apply(|algo| algo.propose(contrib, rng))
     }
 
     /// Casts a vote to change the set of validators or parameters.

@@ -75,15 +75,15 @@ impl<N: NodeIdT> DistAlgorithm for ThresholdDecrypt<N> {
     type Message = Message;
     type Error = Error;
 
-    fn handle_input<R: Rng>(&mut self, _rng: &mut R, _input: ()) -> Result<Step<N>> {
+    fn handle_input<R: Rng>(&mut self, _input: (), _rng: &mut R) -> Result<Step<N>> {
         self.start_decryption()
     }
 
     fn handle_message<R: Rng>(
         &mut self,
-        _rng: &mut R,
         sender_id: &Self::NodeId,
         message: Message,
+        _rng: &mut R,
     ) -> Result<Step<N>> {
         self.handle_message(sender_id, message)
     }

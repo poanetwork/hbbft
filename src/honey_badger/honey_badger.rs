@@ -46,15 +46,15 @@ where
     type Message = Message<N>;
     type Error = Error;
 
-    fn handle_input<R: Rng>(&mut self, rng: &mut R, input: Self::Input) -> Result<Step<C, N>> {
-        self.propose(rng, &input)
+    fn handle_input<R: Rng>(&mut self, input: Self::Input, rng: &mut R) -> Result<Step<C, N>> {
+        self.propose(&input, rng)
     }
 
     fn handle_message<R: Rng>(
         &mut self,
-        _rng: &mut R,
         sender_id: &Self::NodeId,
         message: Self::Message,
+        _rng: &mut R,
     ) -> Result<Step<C, N>> {
         self.handle_message(sender_id, message)
     }
@@ -85,7 +85,7 @@ where
     ///
     /// If we are the only validator, this will immediately output a batch, containing our
     /// proposal.
-    pub fn propose<R: Rng>(&mut self, rng: &mut R, proposal: &C) -> Result<Step<C, N>> {
+    pub fn propose<R: Rng>(&mut self, proposal: &C, rng: &mut R) -> Result<Step<C, N>> {
         if !self.netinfo.is_validator() {
             return Ok(Step::default());
         }
