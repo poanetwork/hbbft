@@ -14,10 +14,7 @@ pub enum Error {
     #[fail(display = "Error serializing a vote: {}", _0)]
     SerializeVote(bincode::ErrorKind),
     /// Failed to propose a contribution in `HoneyBadger`.
-    #[fail(
-        display = "Error proposing a contribution in HoneyBadger: {}",
-        _0
-    )]
+    #[fail(display = "Error proposing a contribution in HoneyBadger: {}", _0)]
     ProposeHoneyBadger(honey_badger::Error),
     /// Failed to handle a `HoneyBadger` message.
     #[fail(display = "Error handling a HoneyBadger message: {}", _0)]

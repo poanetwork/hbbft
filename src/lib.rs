@@ -115,7 +115,8 @@
 //! types.
 
 // We put algorithm structs in `src/algorithm/algorithm.rs`.
-#![cfg_attr(feature = "cargo-clippy", allow(module_inception))]
+// Some of our constructors return results.
+#![allow(clippy::module_inception, clippy::new_ret_no_self)]
 #![warn(missing_docs)]
 
 extern crate bincode;

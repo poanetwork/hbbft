@@ -339,7 +339,8 @@ impl AbaCommonCoinAdversary {
             .map(|x| {
                 (x.msg_type == MessageType::Coin && self.coin_state.value().is_some())
                     || self.stage_progress >= x.msg_count
-            }).unwrap_or(false);
+            })
+            .unwrap_or(false);
         if stage_finished {
             self.stage += 1;
             self.stage_progress = 0;
@@ -448,7 +449,8 @@ fn reordering_attack() {
                 *adversary_netinfo.lock().unwrap() = Some(netinfo.clone());
             }
             BinaryAgreement::new(netinfo, 0).expect("failed to create BinaryAgreement instance")
-        }).num_faulty(1)
+        })
+        .num_faulty(1)
         .build()
         .unwrap();
 

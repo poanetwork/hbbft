@@ -41,15 +41,15 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::{iter, process, thread, time};
 
-use crossbeam;
 use crate::crypto::poly::Poly;
 use crate::crypto::{SecretKey, SecretKeySet};
+use crossbeam;
 use log::{debug, error};
 
-use hbbft::broadcast::{Broadcast, Message};
-use hbbft::{DistAlgorithm, NetworkInfo, SourcedMessage};
 use crate::network::messaging::Messaging;
 use crate::network::{commst, connection};
+use hbbft::broadcast::{Broadcast, Message};
+use hbbft::{DistAlgorithm, NetworkInfo, SourcedMessage};
 
 /// This is a structure to start a consensus node.
 pub struct Node<T> {
@@ -172,7 +172,8 @@ impl<T: Clone + Debug + AsRef<[u8]> + PartialEq + Send + Sync + From<Vec<u8>> + 
                         // FIXME: handle error
                         c.stream.try_clone().unwrap(),
                         node_index,
-                    ).run()
+                    )
+                    .run()
                     {
                         Ok(_) => debug!("Comms task {} succeeded", node_index),
                         Err(e) => error!("Comms task {}: {:?}", node_index, e),
@@ -192,7 +193,8 @@ impl<T: Clone + Debug + AsRef<[u8]> + PartialEq + Send + Sync + From<Vec<u8>> + 
                 .send(())
                 .map_err(|e| {
                     error!("{}", e);
-                }).unwrap();
+                })
+                .unwrap();
 
             process::exit(0);
         }) // end of thread scope

@@ -112,7 +112,8 @@ impl Adversary<UsizeHoneyBadger> for FaultyShareAdversary {
                                 MessageContent::DecryptionShare {
                                     proposer_id: NodeId(proposer_id),
                                     share: threshold_decrypt::Message(share.clone()),
-                                }.with_epoch(*epoch),
+                                }
+                                .with_epoch(*epoch),
                             )),
                         ))
                     }

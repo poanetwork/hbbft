@@ -117,7 +117,8 @@ impl MessageScheduler {
             rand::thread_rng().choose(&ids).cloned()
         } else {
             ids.next()
-        }.expect("no more messages in queue")
+        }
+        .expect("no more messages in queue")
     }
 }
 
@@ -533,7 +534,7 @@ where
 
         // The node handles the incoming message and creates new outgoing ones to be dispatched.
         let (msgs, faults): (Vec<_>, Vec<_>) = {
-            let mut node = self.nodes.get_mut(&id).unwrap();
+            let node = self.nodes.get_mut(&id).unwrap();
 
             // Ensure the adversary is playing fair by selecting a node that will result in actual
             // progress being made, otherwise `TestNode::handle_message()` will panic on `expect()`
@@ -558,7 +559,7 @@ where
     /// Inputs a value in node `id`.
     pub fn input(&mut self, id: NodeId, value: D::Input) {
         let (msgs, faults): (Vec<_>, Vec<_>) = {
-            let mut node = self.nodes.get_mut(&id).expect("input instance");
+            let node = self.nodes.get_mut(&id).expect("input instance");
             node.handle_input(value);
             (
                 node.messages.drain(..).collect(),

@@ -87,7 +87,7 @@ where
 }
 
 // Allow passing `netinfo` by value. `TestNetwork` expects this function signature.
-#[cfg_attr(feature = "cargo-clippy", allow(needless_pass_by_value))]
+#[allow(clippy::needless_pass_by_value)]
 fn new_queueing_hb(
     netinfo: Arc<NetworkInfo<NodeId>>,
 ) -> (QHB, Step<QueueingHoneyBadger<usize, NodeId, Vec<usize>>>) {

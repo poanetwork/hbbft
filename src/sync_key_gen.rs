@@ -176,15 +176,15 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::{self, Debug, Formatter};
 
-use bincode;
 use crate::crypto::{
     error::Error as CryptoError,
     poly::{BivarCommitment, BivarPoly, Poly},
     serde_impl::field_vec::FieldWrap,
     Ciphertext, Fr, G1Affine, PublicKey, PublicKeySet, SecretKey, SecretKeyShare,
 };
-use failure::Fail;
 use crate::pairing::{CurveAffine, Field};
+use bincode;
+use failure::Fail;
 use rand;
 use serde_derive::{Deserialize, Serialize};
 

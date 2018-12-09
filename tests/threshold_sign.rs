@@ -15,8 +15,6 @@ use std::iter::once;
 
 use log::info;
 use rand::Rng;
-use rand_derive::Rand;
-use serde_derive::{Deserialize, Serialize};
 
 use crate::crypto::Signature;
 use hbbft::{threshold_sign::ThresholdSign, util};

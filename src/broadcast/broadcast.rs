@@ -327,7 +327,8 @@ impl<N: NodeIdT> Broadcast<N> {
                         None
                     }
                 })
-            }).collect();
+            })
+            .collect();
         if let Some(value) = self.decode_from_shards(&mut leaf_values, hash) {
             self.decided = true;
             Ok(Step::default().with_output(value))

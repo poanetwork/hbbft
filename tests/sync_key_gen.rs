@@ -35,7 +35,8 @@ fn test_sync_key_gen_with(threshold: usize, node_num: usize) {
                     });
             nodes.push(sync_key_gen);
             proposal
-        }).collect();
+        })
+        .collect();
 
     // Handle the first `threshold + 1` proposals. Those should suffice for key generation.
     let mut acks = Vec::new();
@@ -88,7 +89,8 @@ fn test_sync_key_gen_with(threshold: usize, node_num: usize) {
             let sig = sk.sign(msg);
             assert!(pks.public_key_share(idx).verify(&sig, msg));
             (idx, sig)
-        }).collect();
+        })
+        .collect();
     let sig = pub_key_set
         .combine_signatures(sig_shares.iter().take(threshold + 1))
         .expect("signature shares match");

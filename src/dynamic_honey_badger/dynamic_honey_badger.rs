@@ -2,8 +2,8 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::{fmt, result};
 
-use bincode;
 use crate::crypto::{PublicKey, SecretKey, Signature};
+use bincode;
 use derivative::Derivative;
 use log::debug;
 use rand::{self, Rand, Rng};
@@ -154,7 +154,8 @@ where
                 contrib,
                 key_gen_messages,
                 votes: self.vote_counter.pending_votes().cloned().collect(),
-            }).map_err(Error::ProposeHoneyBadger)?;
+            })
+            .map_err(Error::ProposeHoneyBadger)?;
         self.process_output(step)
     }
 

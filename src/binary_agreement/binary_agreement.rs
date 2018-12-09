@@ -2,8 +2,8 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::{fmt, result};
 
-use bincode;
 use crate::crypto::SignatureShare;
+use bincode;
 use log::debug;
 
 use super::bool_multimap::BoolMultimap;

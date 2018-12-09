@@ -9,11 +9,11 @@ pub mod net;
 
 use std::{collections, time};
 
-use hbbft::dynamic_honey_badger::{Change, ChangeState, DynamicHoneyBadger, Input};
-use hbbft::sender_queue::SenderQueue;
 use crate::net::adversary::ReorderingAdversary;
 use crate::net::proptest::{gen_seed, NetworkDimension, TestRng, TestRngSeed};
 use crate::net::{NetBuilder, NewNodeInfo};
+use hbbft::dynamic_honey_badger::{Change, ChangeState, DynamicHoneyBadger, Input};
+use hbbft::sender_queue::SenderQueue;
 use proptest::{prelude::ProptestConfig, prop_compose, proptest, proptest_helper};
 use rand::{Rng, SeedableRng};
 
@@ -75,12 +75,12 @@ prop_compose! {
 }
 
 /// Proptest wrapper for `do_drop_and_readd`.
-proptest!{
+proptest! {
     #![proptest_config(ProptestConfig {
         cases: 1, .. ProptestConfig::default()
     })]
     #[test]
-    #[cfg_attr(feature = "cargo-clippy", allow(unnecessary_operation))]
+    #[allow(clippy::unnecessary_operation)]
     fn drop_and_readd(cfg in arb_config()) {
         do_drop_and_readd(cfg)
     }
@@ -88,7 +88,7 @@ proptest!{
 
 /// Dynamic honey badger: Drop a validator node, demoting it to observer, then re-add it, all while
 /// running a regular honey badger network.
-#[cfg_attr(feature = "cargo-clippy", allow(needless_pass_by_value))]
+#[allow(clippy::needless_pass_by_value)]
 fn do_drop_and_readd(cfg: TestConfig) {
     let mut rng: TestRng = TestRng::from_seed(cfg.seed);
 
@@ -111,8 +111,10 @@ fn do_drop_and_readd(cfg: TestConfig) {
             SenderQueue::builder(
                 dhb,
                 node.netinfo.all_ids().filter(|&&them| them != id).cloned(),
-            ).build(node.id)
-        }).build()
+            )
+            .build(node.id)
+        })
+        .build()
         .expect("could not construct test network");
 
     // We will use the first correct node as the node we will remove from and re-add to the network.
@@ -190,7 +192,8 @@ fn do_drop_and_readd(cfg: TestConfig) {
                 } else {
                     // The node has added the pivot node back.
                     pub_keys_add.keys()
-                }.collect();
+                }
+                .collect();
                 assert!(
                     batch.contributions().count() * 3 > expected_participants.len() * 2,
                     "The batch contains less than N - f contributions: {:?}",
@@ -223,7 +226,8 @@ fn do_drop_and_readd(cfg: TestConfig) {
                         .send_input(
                             node_id,
                             Input::Change(Change::NodeChange(pub_keys_add.clone())),
-                        ).expect("failed to send `Add` input");
+                        )
+                        .expect("failed to send `Add` input");
                 }
 
                 ChangeState::Complete(Change::NodeChange(ref pub_keys))

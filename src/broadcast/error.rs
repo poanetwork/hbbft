@@ -15,10 +15,7 @@ pub enum Error {
     CodingReconstructShardsReedSolomon(#[cause] rse::Error),
     /// Failed to reconstruct the value.
     // TODO: This should be unreachable.
-    #[fail(
-        display = "CodingReconstructShardsTrivialReedSolomon error: {}",
-        _0
-    )]
+    #[fail(display = "CodingReconstructShardsTrivialReedSolomon error: {}", _0)]
     CodingReconstructShardsTrivialReedSolomon(#[cause] rse::Error),
     /// Observers cannot propose a value.
     #[fail(display = "Instance cannot propose")]

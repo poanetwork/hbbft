@@ -361,7 +361,8 @@ where
     D: DistAlgorithm,
     D::Message: Clone,
     D::Output: Clone,
-{}
+{
+}
 
 /// Ascending node id message order adversary.
 ///

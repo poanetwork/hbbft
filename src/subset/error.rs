@@ -18,10 +18,7 @@ pub enum Error {
     #[fail(display = "Error handling Broadcast input/message: {}", _0)]
     HandleBroadcast(broadcast::Error),
     /// Error handling a `BinaryAgreement` input or message.
-    #[fail(
-        display = "Error handling BinaryAgreement input/message: {}",
-        _0
-    )]
+    #[fail(display = "Error handling BinaryAgreement input/message: {}", _0)]
     HandleAgreement(binary_agreement::Error),
     /// Unknown proposer.
     #[fail(display = "Unknown proposer ID")]

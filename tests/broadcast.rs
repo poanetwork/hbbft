@@ -18,12 +18,12 @@ use std::sync::Arc;
 use log::info;
 use rand::Rng;
 
-use hbbft::broadcast::{Broadcast, Message};
-use hbbft::{util, DistAlgorithm, NetworkInfo, Target, TargetedMessage};
 use crate::network::{
     Adversary, MessageScheduler, MessageWithSender, NodeId, RandomAdversary, SilentAdversary,
     TestNetwork, TestNode,
 };
+use hbbft::broadcast::{Broadcast, Message};
+use hbbft::{util, DistAlgorithm, NetworkInfo, Target, TargetedMessage};
 
 /// An adversary that inputs an alternate value.
 struct ProposeAdversary {
@@ -70,7 +70,8 @@ impl Adversary<Broadcast<NodeId>> for ProposeAdversary {
                     .messages
                     .into_iter()
                     .map(move |msg| MessageWithSender::new(id, msg))
-            }).collect()
+            })
+            .collect()
     }
 }
 

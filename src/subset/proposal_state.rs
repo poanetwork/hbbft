@@ -5,8 +5,8 @@ use super::subset::BaSessionId;
 use super::{Error, MessageContent, Result};
 use crate::binary_agreement;
 use crate::broadcast::{self, Broadcast};
-use rand::Rand;
 use crate::{NetworkInfo, NodeIdT, SessionIdT};
+use rand::Rand;
 
 type BaInstance<N, S> = binary_agreement::BinaryAgreement<N, BaSessionId<S>>;
 type ValueAndStep<N> = (Option<Vec<u8>>, Step<N>);

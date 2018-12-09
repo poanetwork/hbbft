@@ -1,8 +1,8 @@
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
-use bincode;
 use crate::crypto::Signature;
+use bincode;
 use serde::Serialize;
 use serde_derive::{Deserialize, Serialize};
 
@@ -65,10 +65,11 @@ where
         sender_id: &N,
         signed_vote: SignedVote<N>,
     ) -> Result<FaultLog<N>> {
-        if signed_vote.vote.era != self.era || self
-            .pending
-            .get(&signed_vote.voter)
-            .map_or(false, |sv| sv.vote.num >= signed_vote.vote.num)
+        if signed_vote.vote.era != self.era
+            || self
+                .pending
+                .get(&signed_vote.voter)
+                .map_or(false, |sv| sv.vote.num >= signed_vote.vote.num)
         {
             return Ok(FaultLog::new()); // The vote is obsolete or already exists.
         }
@@ -191,8 +192,8 @@ mod tests {
 
     use super::{Change, SignedVote, VoteCounter};
     use crate::fault_log::{FaultKind, FaultLog};
-    use rand;
     use crate::NetworkInfo;
+    use rand;
 
     /// Returns a vector of `node_num` `VoteCounter`s, and some signed example votes.
     ///

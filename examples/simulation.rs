@@ -156,7 +156,8 @@ where
                     target: msg.target,
                     message: ser_msg,
                 }
-            }).collect();
+            })
+            .collect();
         let outputs = step
             .output
             .into_iter()
@@ -203,7 +204,8 @@ where
             .map(|msg| {
                 let ser_msg = bincode::serialize(&msg.message).expect("serialize");
                 (msg.target, ser_msg)
-            }).collect();
+            })
+            .collect();
         self.time += start.elapsed() * self.hw_quality.cpu_factor / 100;
         let time = self.time;
         self.outputs

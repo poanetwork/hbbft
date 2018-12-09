@@ -9,8 +9,8 @@ use serde_derive::Serialize;
 
 use super::proposal_state::{ProposalState, Step as ProposalStep};
 use super::{Error, Message, MessageContent, Result};
-use rand::Rand;
 use crate::{util, DistAlgorithm, NetworkInfo, NodeIdT, SessionIdT};
+use rand::Rand;
 
 /// A `Subset` step, possibly containing several outputs.
 pub type Step<N> = crate::Step<Message<N>, SubsetOutput<N>, N>;

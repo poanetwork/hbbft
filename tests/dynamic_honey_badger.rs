@@ -87,7 +87,8 @@ where
                     // If there's only one node, it will immediately output on input. Make sure we
                     // first process all incoming messages before providing input again.
                     && (network.nodes.len() > 2 || node.queue.is_empty())
-            }).map(|(id, _)| *id)
+            })
+            .map(|(id, _)| *id)
             .collect();
         if let Some(id) = rng.choose(&input_ids) {
             let queue = queues.get_mut(id).unwrap();
@@ -105,7 +106,7 @@ where
 }
 
 // Allow passing `netinfo` by value. `TestNetwork` expects this function signature.
-#[cfg_attr(feature = "cargo-clippy", allow(needless_pass_by_value))]
+#[allow(clippy::needless_pass_by_value)]
 fn new_dynamic_hb(
     netinfo: Arc<NetworkInfo<NodeId>>,
 ) -> (UsizeDhb, Step<DynamicHoneyBadger<Vec<usize>, NodeId>>) {
@@ -119,7 +120,8 @@ fn new_dynamic_hb(
     SenderQueue::builder(
         DynamicHoneyBadger::builder().build((*netinfo).clone()),
         peer_ids,
-    ).build(our_id)
+    )
+    .build(our_id)
 }
 
 fn test_dynamic_honey_badger_different_sizes<A, F>(new_adversary: F, num_txs: usize)

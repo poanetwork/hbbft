@@ -181,7 +181,8 @@ where
                 if *e < epoch {
                     *e = epoch;
                 }
-            }).or_insert(epoch);
+            })
+            .or_insert(epoch);
         self.process_new_epoch(sender_id, epoch)
     }
 

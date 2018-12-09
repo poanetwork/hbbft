@@ -7,10 +7,12 @@
 //! delivered to a node.
 
 // We need to allow writes with newlines, resulting from `net_trace!` calls.
-#![cfg_attr(feature = "cargo-clippy", allow(write_with_newline))]
+#![allow(clippy::write_with_newline)]
 // Almost all of our types are fairly readable, but trigger the type complexity checks, probably
 // due to associated types.
-#![cfg_attr(feature = "cargo-clippy", allow(type_complexity))]
+#![allow(clippy::type_complexity)]
+// Some of our constructors return results.
+#![allow(clippy::new_ret_no_self)]
 
 pub mod adversary;
 pub mod err;
@@ -212,7 +214,7 @@ pub type NetMessage<D> =
 /// The function will panic if the `sender` ID is not a valid node ID in `nodes`.
 // This function is defined outside `VirtualNet` and takes arguments "piecewise" to work around
 // borrow-checker restrictions.
-#[cfg_attr(feature = "cargo-clippy", allow(needless_pass_by_value))]
+#[allow(clippy::needless_pass_by_value)]
 fn process_step<'a, D>(
     nodes: &'a mut collections::BTreeMap<D::NodeId, Node<D>>,
     sender: D::NodeId,
@@ -552,7 +554,7 @@ where
             .expect("cannot build network without a constructor function for the nodes");
 
         // Note: Closure is not redundant, won't compile without it.
-        #[cfg_attr(feature = "cargo-clippy", allow(redundant_closure))]
+        #[allow(clippy::redundant_closure)]
         let (mut net, steps) = VirtualNet::new(
             self.node_ids,
             self.num_faulty as usize,
@@ -690,7 +692,7 @@ where
     ///
     /// Returns `None` if the node ID is not part of the network.
     #[inline]
-    #[cfg_attr(feature = "cargo-clippy", allow(needless_pass_by_value))]
+    #[allow(clippy::needless_pass_by_value)]
     pub fn get<'a>(&'a self, id: D::NodeId) -> Option<&'a Node<D>> {
         self.nodes.get(&id)
     }
@@ -699,7 +701,7 @@ where
     ///
     /// Returns `None` if the node ID is not part of the network.
     #[inline]
-    #[cfg_attr(feature = "cargo-clippy", allow(needless_pass_by_value))]
+    #[allow(clippy::needless_pass_by_value)]
     pub fn get_mut<'a>(&'a mut self, id: D::NodeId) -> Option<&'a mut Node<D>> {
         self.nodes.get_mut(&id)
     }
@@ -810,7 +812,8 @@ where
                 });
                 steps.insert(id.clone(), step);
                 (id, Node::new(algorithm, is_faulty))
-            }).collect();
+            })
+            .collect();
 
         let mut message_count: usize = 0;
         // For every recorded step, apply it.
@@ -951,11 +954,11 @@ where
         // Unfortunately, we have to re-borrow the target node further down to make the borrow
         // checker happy. First, we check if the receiving node is faulty, so we can dispatch
         // through the adversary if it is.
-        let is_faulty = try_some!(
-            self.nodes
-                .get(&msg.to)
-                .ok_or_else(|| CrankError::NodeDisappeared(msg.to.clone()))
-        ).is_faulty();
+        let is_faulty = try_some!(self
+            .nodes
+            .get(&msg.to)
+            .ok_or_else(|| CrankError::NodeDisappeared(msg.to.clone())))
+        .is_faulty();
 
         let step: Step<_, _, _> = if is_faulty {
             // The swap-dance is painful here, as we are creating an `opt_step` just to avoid
@@ -979,16 +982,18 @@ where
 
         // All messages are expanded and added to the queue. We opt for copying them, so we can
         // return unaltered step later on for inspection.
-        self.message_count = self.message_count.saturating_add(match process_step(
-            &mut self.nodes,
-            receiver.clone(),
-            &step,
-            &mut self.messages,
-            self.error_on_fault,
-        ) {
-            Ok(n) => n,
-            Err(e) => return Some(Err(e)),
-        });
+        self.message_count = self.message_count.saturating_add(
+            match process_step(
+                &mut self.nodes,
+                receiver.clone(),
+                &step,
+                &mut self.messages,
+                self.error_on_fault,
+            ) {
+                Ok(n) => n,
+                Err(e) => return Some(Err(e)),
+            },
+        );
 
         // Increase the crank count.
         self.crank_count += 1;
@@ -1042,7 +1047,8 @@ where
                         .handle_input(input.clone())
                         .map_err(CrankError::HandleInputAll)?,
                 ))
-            }).collect::<Result<_, _>>()?;
+            })
+            .collect::<Result<_, _>>()?;
 
         // Process all messages from all steps in the queue.
         for (id, step) in &steps {

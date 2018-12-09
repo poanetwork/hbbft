@@ -42,7 +42,7 @@ fn test_subset<A: Adversary<Subset<NodeId, u8>>>(
     // Verify that all instances output the same set.
     let observer: BTreeSet<_> = network.observer.outputs().iter().cloned().collect();
     for node in network.nodes.values() {
-        let mut outputs = node.outputs();
+        let outputs = node.outputs();
         let mut actual = BTreeMap::default();
 
         let mut has_seen_done = false;

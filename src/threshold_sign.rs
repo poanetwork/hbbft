@@ -35,10 +35,7 @@ pub enum Error {
     #[fail(display = "Redundant input provided")]
     MultipleMessagesToSign,
     /// Error combining and verifying signature shares.
-    #[fail(
-        display = "Error combining and verifying signature shares: {}",
-        _0
-    )]
+    #[fail(display = "Error combining and verifying signature shares: {}", _0)]
     CombineAndVerifySigCrypto(crypto::error::Error),
     /// Unknown sender
     #[fail(display = "Unknown sender")]
