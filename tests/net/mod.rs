@@ -489,7 +489,7 @@ where
     /// Property to cause an error if a `Fault` is output from a correct node. By default,
     /// encountering a fault leads to an error.
     ///
-    /// The deault setting `true` can be changed using this function.
+    /// The default setting `true` can be changed using this function.
     #[inline]
     pub fn error_on_fault(mut self, error_on_fault: bool) -> Self {
         self.error_on_fault = error_on_fault;
