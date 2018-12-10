@@ -193,7 +193,7 @@ fn do_drop_and_readd(cfg: TestConfig) {
                 }.collect();
                 assert!(
                     batch.contributions().count() * 3 > expected_participants.len() * 2,
-                    "The batch contains less contributions than there are correct validators: {:?}",
+                    "The batch contains less than N - f contributions: {:?}",
                     batch
                 );
                 // Verify that only contributions from expected participants can be present in the
