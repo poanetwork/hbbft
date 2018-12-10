@@ -100,11 +100,6 @@ impl<M: Send> Messaging<M> {
         let stop_rx = self.stop_rx.to_owned();
         let mut stop = false;
 
-        // TODO: `select!` seems to really confuse Clippy.
-        #[cfg_attr(
-            feature = "cargo-clippy",
-            allow(never_loop, if_let_redundant_pattern_matching, deref_addrof)
-        )]
         scope.spawn(move |_| {
             let mut result = Ok(());
             // This loop forwards messages according to their metadata.
