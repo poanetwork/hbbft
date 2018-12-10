@@ -39,7 +39,7 @@ use std::fmt::Debug;
 use std::marker::{Send, Sync};
 use std::net::SocketAddr;
 use std::sync::Arc;
-use std::{io, iter, process, thread, time};
+use std::{iter, process, thread, time};
 
 use crossbeam;
 use crypto::poly::Poly;
@@ -50,24 +50,6 @@ use hbbft::broadcast::{Broadcast, Message};
 use hbbft::{DistAlgorithm, NetworkInfo, SourcedMessage};
 use network::messaging::Messaging;
 use network::{commst, connection};
-
-#[derive(Debug)]
-pub enum Error {
-    IoError(io::Error),
-    CommsError(commst::Error),
-}
-
-impl From<io::Error> for Error {
-    fn from(err: io::Error) -> Error {
-        Error::IoError(err)
-    }
-}
-
-impl From<commst::Error> for Error {
-    fn from(err: commst::Error) -> Error {
-        Error::CommsError(err)
-    }
-}
 
 /// This is a structure to start a consensus node.
 pub struct Node<T> {
@@ -92,7 +74,7 @@ impl<T: Clone + Debug + AsRef<[u8]> + PartialEq + Send + Sync + From<Vec<u8>> + 
     }
 
     /// Consensus node procedure implementing HoneyBadgerBFT.
-    pub fn run(&self) -> Result<T, Error> {
+    pub fn run(&self) -> Result<T, Box<(dyn std::any::Any + Send + 'static)>> {
         let value = &self.value;
         let (our_str, connections) = connection::make(&self.addr, &self.remotes);
         let mut node_strs: Vec<String> = iter::once(our_str.clone())
@@ -138,7 +120,7 @@ impl<T: Clone + Debug + AsRef<[u8]> + PartialEq + Send + Sync + From<Vec<u8>> + 
             // broadcast the proposed value. There is no remote node
             // corresponding to this instance, and no dedicated comms task. The
             // node index is 0.
-            let broadcast_handle = scope.spawn(move || {
+            let broadcast_handle = scope.spawn(move |_| {
                 let mut broadcast =
                     Broadcast::new(Arc::new(netinfo), 0).expect("failed to instantiate broadcast");
 
@@ -183,7 +165,7 @@ impl<T: Clone + Debug + AsRef<[u8]> + PartialEq + Send + Sync + From<Vec<u8>> + 
                 let node_index = if c.node_str < our_str { i } else { i + 1 };
                 let rx_to_comms = &rxs_to_comms[node_index];
 
-                scope.spawn(move || {
+                scope.spawn(move |_| {
                     match commst::CommsTask::<Message>::new(
                         tx_from_comms,
                         rx_to_comms,
@@ -200,7 +182,7 @@ impl<T: Clone + Debug + AsRef<[u8]> + PartialEq + Send + Sync + From<Vec<u8>> + 
 
             // Wait for the broadcast instances to finish before stopping the
             // messaging task.
-            broadcast_handle.join();
+            let _ = broadcast_handle.join();
 
             // Wait another second so that pending messages get sent out.
             thread::sleep(time::Duration::from_secs(1));
