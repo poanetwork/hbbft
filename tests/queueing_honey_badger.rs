@@ -3,7 +3,7 @@
 
 mod network;
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::iter;
 use std::sync::Arc;
 
@@ -60,79 +60,106 @@ where
             && node.outputs().iter().flat_map(Batch::iter).unique().count() < num_txs
     };
 
-    let mut input_add = false;
-    let mut rejoined_node0 = false; // Whether node 0 was rejoined as a validator.
+    let mut awaiting_removal: BTreeSet<_> = network.nodes.iter().map(|(id, _)| *id).collect();
+    let mut awaiting_addition: BTreeSet<_> = network.nodes.iter().map(|(id, _)| *id).collect();
+    // Whether node 0 was rejoined as a validator.
+    let mut rejoined_node0 = false;
+    // The removed node 0 which is to be restarted as soon as all remaining validators agree to add
+    // it back.
+    let mut saved_node0 = None;
 
     // Handle messages in random order until all nodes have output all transactions.
     while network.nodes.values_mut().any(node_busy) {
-        network.step();
-        if !input_add {
-            if network.nodes.values().all(has_remove) {
-                for tx in (num_txs / 2)..num_txs {
-                    network.input_all(Input::User(tx));
-                }
-                network.input_all(Input::Change(Change::NodeChange(pub_keys_add.clone())));
-                input_add = true;
+        let stepped_id = network.step();
+        if awaiting_removal.contains(&stepped_id) && has_remove(&network.nodes[&stepped_id]) {
+            awaiting_removal.remove(&stepped_id);
+            info!(
+                "{:?} has finished waiting for node removal; still waiting: {:?}",
+                stepped_id, awaiting_removal
+            );
+            if awaiting_removal.is_empty() {
+                info!("Removing node 0 from the test network");
+                saved_node0 = network.nodes.remove(&NodeId(0));
             }
-        } else if !rejoined_node0 {
-            if let Some(join_plan) = network
-                .nodes
-                .values()
-                .flat_map(|node| node.outputs())
-                .find_map(|batch| match batch.change() {
-                    ChangeState::InProgress(Change::NodeChange(pub_keys))
-                        if pub_keys == &pub_keys_add =>
-                    {
-                        Some(
-                            batch
-                                .join_plan()
-                                .expect("failed to get the join plan of the batch"),
-                        )
+            // Vote to add node 0 back.
+            if stepped_id != NodeId(0) {
+                network.input(
+                    stepped_id,
+                    Input::Change(Change::NodeChange(pub_keys_add.clone())),
+                );
+                info!(
+                    "Input the vote to add node 0 into {:?} with netinfo {:?}",
+                    stepped_id,
+                    network.nodes[&stepped_id].instance().algo().netinfo()
+                );
+            }
+        }
+        if awaiting_addition.contains(&stepped_id) && has_add(&network.nodes[&stepped_id]) {
+            awaiting_addition.remove(&stepped_id);
+            info!(
+                "{:?} has finished waiting for node addition; still waiting: {:?}",
+                stepped_id, awaiting_addition
+            );
+            if awaiting_addition.is_empty() && !rejoined_node0 {
+                if let Some(join_plan) =
+                    network.nodes[&stepped_id]
+                        .outputs()
+                        .iter()
+                        .find_map(|batch| match batch.change() {
+                            ChangeState::InProgress(Change::NodeChange(pub_keys))
+                                if pub_keys == &pub_keys_add =>
+                            {
+                                Some(
+                                    batch
+                                        .join_plan()
+                                        .expect("failed to get the join plan of the batch"),
+                                )
+                            }
+                            _ => None,
+                        }) {
+                    if let Some(node) = saved_node0.take() {
+                        let step = restart_node_for_add(&mut network, node, join_plan);
+                        network.dispatch_messages(NodeId(0), step.messages);
+                        rejoined_node0 = true;
                     }
-                    _ => None,
-                }) {
-                let step = restart_node_0_for_add(&mut network, join_plan);
-                network.dispatch_messages(NodeId(0), step.messages);
-                rejoined_node0 = true;
+                }
             }
         }
     }
-    network.verify_batches();
+    let node1 = network.nodes.get(&NodeId(1)).expect("node 1 is missing");
+    network.verify_batches(&node1);
 }
 
 /// Restarts node 0 on the test network for adding it back as a validator.
-fn restart_node_0_for_add<A>(
+fn restart_node_for_add<A>(
     network: &mut TestNetwork<A, QHB>,
+    mut node: TestNode<QHB>,
     join_plan: JoinPlan<NodeId>,
 ) -> Step<QueueingHoneyBadger<usize, NodeId, Vec<usize>>>
 where
     A: Adversary<QHB>,
 {
-    info!("Restarting node 0 with {:?}", join_plan);
-    let our_id = NodeId(0);
+    let our_id = node.id;
+    info!("Restarting {:?} with {:?}", our_id, join_plan);
     let peer_ids: Vec<NodeId> = network
         .nodes
         .keys()
         .cloned()
-        .filter(|id| *id != NodeId(0))
+        .filter(|id| *id != our_id)
         .collect();
-    let node0 = network
-        .nodes
-        .get_mut(&our_id)
-        .expect("failed to get node 0");
-    let secret_key = node0.instance().algo().netinfo().secret_key().clone();
-    let queue = node0.instance().algo().queue().clone();
+    let secret_key = node.instance().algo().netinfo().secret_key().clone();
+    let queue = node.instance().algo().queue().clone();
     let (qhb, qhb_step) = QueueingHoneyBadger::builder_joining(
-        NodeId(0),
+        our_id,
         secret_key,
         join_plan,
         rand::thread_rng().gen::<Isaac64Rng>(),
-    ).expect("failed to rebuild node 0 with a join plan")
+    ).expect("failed to rebuild the node with a join plan")
     .batch_size(3)
     .build_with_transactions(queue, rand::thread_rng().gen::<Isaac64Rng>())
-    .expect("failed to rebuild node 0 with transactions");
+    .expect("failed to rebuild the node with transactions");
     let (sq, mut sq_step) = SenderQueue::builder(qhb, peer_ids.into_iter()).build(our_id);
-    *node0.instance_mut() = sq;
+    *node.instance_mut() = sq;
     sq_step.extend(qhb_step.map(|output| output, Message::from));
     sq_step
 }
@@ -155,7 +182,7 @@ fn new_queueing_hb(
         .batch_size(3)
         .build(&mut rng);
     let (sq, mut step) = SenderQueue::builder(qhb, peer_ids).build(our_id);
-    step.extend_with(qhb_step, Message::from);
+    step.extend(qhb_step.map(|output| output, Message::from));
     (sq, step)
 }
 

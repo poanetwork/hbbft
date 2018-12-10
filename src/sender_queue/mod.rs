@@ -332,26 +332,23 @@ where
     ///
     /// Returns `true` if the participant has been removed and `false` otherwise.
     fn remove_participant(&mut self, id: &D::NodeId, last_epoch: &D::Epoch) -> bool {
-        let remove = if let Some(peer_epoch) = self.peer_epochs.get(id) {
-            last_epoch < peer_epoch
-                || (*last_epoch < self.algo.epoch() && self.outgoing_queue.get(id).map_or(
-                    false,
-                    |q| {
-                        q.keys()
-                            .take_while(|epoch| *epoch <= last_epoch)
-                            .next()
-                            .is_none()
-                    },
-                ))
-        } else {
-            true
-        };
-        if remove {
-            self.peer_epochs.remove(&id);
-            self.last_epochs.remove(&id);
-            self.outgoing_queue.remove(&id);
+        if *last_epoch >= self.algo.epoch() {
+            return false;
         }
-        remove
+        if let Some(peer_epoch) = self.peer_epochs.get(id) {
+            if last_epoch >= peer_epoch {
+                return false;
+            }
+            if let Some(q) = self.outgoing_queue.get(id) {
+                if q.keys().any(|epoch| epoch <= last_epoch) {
+                    return false;
+                }
+            }
+        }
+        self.peer_epochs.remove(&id);
+        self.last_epochs.remove(&id);
+        self.outgoing_queue.remove(&id);
+        true
     }
 
     /// Returns a reference to the managed algorithm.

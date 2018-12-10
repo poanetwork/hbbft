@@ -1049,7 +1049,12 @@ where
             }
         }
         for node in self.correct_nodes().filter(|n| n.id() != full_node.id()) {
-            assert_eq!(node.outputs.len(), expected[node.id()].len());
+            assert_eq!(
+                node.outputs.len(),
+                expected[node.id()].len(),
+                "The output length of node {:?} is incorrect",
+                node.id()
+            );
             assert!(node
                 .outputs
                 .iter()

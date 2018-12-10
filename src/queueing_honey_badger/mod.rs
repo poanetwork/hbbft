@@ -72,7 +72,7 @@ where
     batch_size: usize,
     /// The queue of pending transactions that haven't been output in a batch yet.
     queue: Q,
-    /// The inintial step of the managed `DynamicHoneyBadger` instance.
+    /// The initial step of the managed `DynamicHoneyBadger` instance.
     step: Option<DhbStep<Vec<T>, N>>,
     _phantom: PhantomData<T>,
 }
@@ -141,7 +141,7 @@ where
         };
         let mut step = qhb.propose(rng)?;
         if let Some(dhb_step) = self.step {
-            step.extend_with(dhb_step, Message::from);
+            step.extend(dhb_step);
         }
         Ok((qhb, step))
     }

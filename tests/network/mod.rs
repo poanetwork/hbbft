@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fmt::{self, Debug};
 use std::mem;
 use std::sync::Arc;
@@ -9,6 +9,7 @@ use rand_derive::Rand;
 use serde_derive::{Deserialize, Serialize};
 
 use hbbft::dynamic_honey_badger::Batch;
+use hbbft::sender_queue::SenderQueueableOutput;
 use hbbft::{
     Contribution, DaStep, DistAlgorithm, Fault, NetworkInfo, Step, Target, TargetedMessage,
 };
@@ -64,8 +65,9 @@ impl<D: DistAlgorithm> TestNode<D> {
     pub fn instance_mut(&mut self) -> &mut D {
         &mut self.algo
     }
+
     /// Creates a new test node with the given broadcast instance.
-    pub fn new((algo, step): (D, DaStep<D>)) -> TestNode<D> {
+    fn new((algo, step): (D, DaStep<D>)) -> TestNode<D> {
         TestNode {
             id: algo.our_id().clone(),
             algo,
@@ -606,43 +608,50 @@ where
     D: DistAlgorithm<Output = Batch<C, NodeId>, NodeId = NodeId>,
     C: Contribution + Clone,
 {
-    /// Verifies that all nodes' outputs agree, noting that node 0 was removed - hence could have
-    /// missed some batches - and then rejoined the network.
+    /// Verifies that all nodes' outputs agree, given a correct "full" node that output all
+    /// batches in a total order and with no gaps.
+    ///
+    /// The output of the full node is used to derive in expected output of other nodes in every
+    /// epoch. After that the check ensures that correct nodes output the same batches in epochs
+    /// when those nodes were participants (either validators or candidates).
     #[allow(unused)] // Not used in all tests.
-    pub fn verify_batches(&self) {
-        let expected = self.nodes[&NodeId(1)].outputs().to_vec();
-        assert!(!expected.is_empty());
-        let pub_eq = |(b0, b1): (&Batch<C, _>, &Batch<C, _>)| b0.public_eq(b1);
-        let pub_eq_ref = |(b0, b1): &(&Batch<C, _>, &Batch<C, _>)| b0.public_eq(b1);
-        for node in self.nodes.values().filter(|node| node.id != NodeId(1)) {
-            if node.id == NodeId(0) {
-                assert!(expected.len() >= node.outputs().len());
-                assert!(
-                    expected
-                        .iter()
-                        .zip(node.outputs())
-                        .take_while(pub_eq_ref)
-                        .next()
-                        .is_some(),
-                    "Outputs of nodes 0 and 1 don't start the same",
-                );
-                assert!(
-                    node.outputs()
-                        .iter()
-                        .find(|&b| !expected.iter().any(|c| b.public_eq(c)))
-                        .is_none(),
-                    "Node 0 has unexpected output"
-                );
-            } else {
-                assert_eq!(expected.len(), node.outputs().len());
-                assert!(
-                    expected.iter().zip(node.outputs()).all(pub_eq),
-                    "Outputs of nodes 1 and {} differ: {:?} != {:?}",
-                    node.instance().our_id().0,
-                    expected,
-                    node.outputs()
-                );
+    pub fn verify_batches<E>(&self, full_node: &TestNode<D>)
+    where
+        Batch<C, NodeId>: SenderQueueableOutput<NodeId, E>,
+    {
+        // Participants of epoch 0 are all validators in the test network.
+        let mut participants: BTreeSet<NodeId> = self
+            .nodes
+            .keys()
+            .cloned()
+            .chain(self.adv_nodes.keys().cloned())
+            .collect();
+        let mut expected: BTreeMap<NodeId, Vec<_>> = BTreeMap::new();
+        for batch in &full_node.outputs {
+            for id in &participants {
+                expected.entry(id.clone()).or_default().push(batch);
             }
+            if let Some(new_participants) = batch.participant_change() {
+                participants = new_participants;
+            }
+        }
+        for (id, node) in self.nodes.iter().filter(|(&id, _)| id != full_node.id) {
+            assert_eq!(
+                node.outputs.len(),
+                expected[id].len(),
+                "The output length of {:?} is incorrect: {:?}",
+                id,
+                node.outputs
+            );
+            assert!(
+                node.outputs
+                    .iter()
+                    .zip(
+                        expected
+                            .get(id)
+                            .expect("outputs don't match the expectation")
+                    ).all(|(a, b)| a.public_eq(b))
+            );
         }
     }
 }

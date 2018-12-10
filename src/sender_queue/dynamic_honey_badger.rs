@@ -23,14 +23,10 @@ where
 {
     fn participant_change(&self) -> Option<BTreeSet<N>> {
         if let ChangeState::InProgress(Change::NodeChange(pub_keys)) = self.change() {
-            let candidates = pub_keys.keys().cloned().collect();
-            let current_validators: BTreeSet<N> = self
-                .network_info()
-                .public_key_map()
-                .keys()
-                .cloned()
-                .collect();
-            let participants = current_validators.union(&candidates).cloned().collect();
+            let candidates = pub_keys.keys();
+            let current_validators: BTreeSet<&N> =
+                self.network_info().public_key_map().keys().collect();
+            let participants = candidates.chain(current_validators).cloned().collect();
             Some(participants)
         } else if let ChangeState::Complete(Change::NodeChange(pub_keys)) = self.change() {
             let next_validators = pub_keys.keys().cloned().collect();
