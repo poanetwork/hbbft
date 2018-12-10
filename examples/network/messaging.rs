@@ -1,6 +1,6 @@
 //! The local message delivery system.
-use crossbeam::{Scope, ScopedJoinHandle};
-use crossbeam_channel::{self, bounded, select_loop, unbounded, Receiver, Sender};
+use crossbeam::thread::{Scope, ScopedJoinHandle};
+use crossbeam_channel::{self, bounded, select, unbounded, Receiver, Sender};
 use hbbft::{SourcedMessage, Target, TargetedMessage};
 
 /// The queue functionality for messages sent between algorithm instances.
@@ -85,9 +85,12 @@ impl<M: Send> Messaging<M> {
     }
 
     /// Spawns the message delivery thread in a given thread scope.
-    pub fn spawn<'a>(&self, scope: &Scope<'a>) -> ScopedJoinHandle<Result<(), Error>>
+    pub fn spawn<'a, 'scope>(
+        &self,
+        scope: &'scope Scope<'a>,
+    ) -> ScopedJoinHandle<'scope, Result<(), Error>>
     where
-        M: Clone + 'a,
+        M: 'a + Clone,
     {
         let txs_to_comms = self.txs_to_comms.to_owned();
         let rx_from_comms = self.rx_from_comms.to_owned();
@@ -97,46 +100,45 @@ impl<M: Send> Messaging<M> {
         let stop_rx = self.stop_rx.to_owned();
         let mut stop = false;
 
-        // TODO: `select_loop!` seems to really confuse Clippy.
-        #[cfg_attr(
-            feature = "cargo-clippy",
-            allow(never_loop, if_let_redundant_pattern_matching, deref_addrof)
-        )]
-        scope.spawn(move || {
+        scope.spawn(move |_| {
             let mut result = Ok(());
             // This loop forwards messages according to their metadata.
             while !stop && result.is_ok() {
-                select_loop! {
-                    recv(rx_from_algo, tm) => {
-                        match tm.target {
-                            Target::All => {
-                                // Send the message to all remote nodes, stopping at
-                                // the first error.
-                                result = txs_to_comms.iter()
-                                    .fold(Ok(()), |result, tx| {
-                                        if result.is_ok() {
-                                            tx.send(tm.message.clone())
-                                        } else {
-                                            result
-                                        }
-                                    }).map_err(Error::from);
-                            },
-                            Target::Node(i) => {
-                                result = if i < txs_to_comms.len() {
-                                    txs_to_comms[i].send(tm.message)
-                                        .map_err(Error::from)
-                                } else {
-                                    Err(Error::NoSuchTarget)
-                                };
+                select! {
+                    recv(rx_from_algo) -> tm => {
+                        if let Ok(tm) = tm {
+                            match tm.target {
+                                Target::All => {
+                                    // Send the message to all remote nodes, stopping at the first
+                                    // error.
+                                    result = txs_to_comms.iter()
+                                        .fold(Ok(()), |result, tx| {
+                                            if result.is_ok() {
+                                                tx.send(tm.message.clone())
+                                            } else {
+                                                result
+                                            }
+                                        }).map_err(Error::from);
+                                },
+                                Target::Node(i) => {
+                                    result = if i < txs_to_comms.len() {
+                                        txs_to_comms[i].send(tm.message)
+                                            .map_err(Error::from)
+                                    } else {
+                                        Err(Error::NoSuchTarget)
+                                    };
+                                }
                             }
                         }
                     },
-                    recv(rx_from_comms, message) => {
-                        // Send the message to all algorithm instances, stopping at
-                        // the first error.
-                        result = tx_to_algo.send(message.clone()).map_err(Error::from)
+                    recv(rx_from_comms) -> message => {
+                        if let Ok(message) = message {
+                            // Send the message to all algorithm instances, stopping at the first
+                            // error.
+                            result = tx_to_algo.send(message.clone()).map_err(Error::from)
+                        }
                     },
-                    recv(stop_rx, _) => {
+                    recv(stop_rx) -> _ => {
                         // Flag the thread ready to exit.
                         stop = true;
                     }
@@ -150,11 +152,11 @@ impl<M: Send> Messaging<M> {
 #[derive(Clone, Debug)]
 pub enum Error {
     NoSuchTarget,
-    SendError,
+    Send,
 }
 
 impl<T> From<crossbeam_channel::SendError<T>> for Error {
     fn from(_: crossbeam_channel::SendError<T>) -> Error {
-        Error::SendError
+        Error::Send
     }
 }

@@ -12,17 +12,6 @@ use serde::{de::DeserializeOwned, Serialize};
 
 use hbbft::SourcedMessage;
 
-#[derive(Debug)]
-pub enum Error {
-    IoError(io::Error),
-}
-
-impl From<io::Error> for Error {
-    fn from(err: io::Error) -> Error {
-        Error::IoError(err)
-    }
-}
-
 /// A communication task connects a remote node to the thread that manages the
 /// consensus algorithm.
 pub struct CommsTask<'a, M: 'a> {
@@ -59,16 +48,19 @@ impl<'a, M: Serialize + DeserializeOwned + Send + 'a> CommsTask<'a, M> {
 
     /// The main socket IO loop and an asynchronous thread responding to manager
     /// thread requests.
-    pub fn run(mut self) -> Result<(), Error> {
+    pub fn run(mut self) -> Result<(), Box<dyn std::any::Any + Send + 'static>> {
         // Borrow parts of `self` before entering the thread binding scope.
         let tx = self.tx;
         let rx = self.rx;
-        let mut stream1 = self.stream.try_clone()?;
+        let mut stream1 = match self.stream.try_clone() {
+            Ok(stream) => stream,
+            Err(e) => return Err(Box::new(e)),
+        };
         let node_index = self.node_index;
 
         crossbeam::scope(move |scope| {
             // Local comms receive loop thread.
-            scope.spawn(move || {
+            scope.spawn(move |_| {
                 loop {
                     // Receive a multicast message from the manager thread.
                     let message = rx.recv().unwrap();
@@ -99,7 +91,6 @@ impl<'a, M: Serialize + DeserializeOwned + Send + 'a> CommsTask<'a, M> {
                     }
                 }
             }
-        });
-        Ok(())
+        })
     }
 }
