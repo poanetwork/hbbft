@@ -90,16 +90,7 @@ where
             return Ok(Step::default());
         }
         self.has_input = true;
-        let epoch = self.epoch;
-        let step = {
-            let epoch_state = {
-                self.epoch_state_mut(epoch)?;
-                self.epochs.get_mut(&epoch).expect(
-                    "We created the epoch_state in `self.epoch_state_mut(...)` just a moment ago.",
-                )
-            };
-            epoch_state.propose(proposal, rng)?
-        };
+        let step = self.epoch_state_mut(self.epoch)?.propose(proposal, rng)?;
         Ok(step.join(self.try_output_batches()?))
     }
 

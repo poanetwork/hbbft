@@ -64,8 +64,8 @@ pub struct ThresholdSign<N> {
     netinfo: Arc<NetworkInfo<N>>,
     /// The hash of the document to be signed.
     doc_hash: Option<G2>,
-    /// All received threshold signature shares.
-    received_shares: BTreeMap<N, SignatureShare>,
+    /// All received threshold signature shares, together with the node index.
+    received_shares: BTreeMap<N, (usize, SignatureShare)>,
     /// Whether we already sent our shares.
     had_input: bool,
     /// Termination flag.
@@ -167,14 +167,15 @@ impl<N: NodeIdT> ThresholdSign<N> {
         }
         let Message(share) = message;
         // Before checking the share, ensure the sender is a known validator
-        self.netinfo
-            .public_key_share(sender_id)
+        let idx = self
+            .netinfo
+            .node_index(sender_id)
             .ok_or(Error::UnknownSender)?;
         if !self.is_share_valid(sender_id, &share) {
             let fault_kind = FaultKind::UnverifiedSignatureShareSender;
             return Ok(Fault::new(sender_id.clone(), fault_kind).into());
         }
-        self.received_shares.insert(sender_id.clone(), share);
+        self.received_shares.insert(sender_id.clone(), (idx, share));
         self.try_output()
     }
 
@@ -183,7 +184,7 @@ impl<N: NodeIdT> ThresholdSign<N> {
         let faulty_senders: Vec<N> = self
             .received_shares
             .iter()
-            .filter(|(id, share)| !self.is_share_valid(id, share))
+            .filter(|(id, (_, ref share))| !self.is_share_valid(id, share))
             .map(|(id, _)| id.clone())
             .collect();
         let mut fault_log = FaultLog::default();
@@ -230,12 +231,14 @@ impl<N: NodeIdT> ThresholdSign<N> {
 
     fn combine_and_verify_sig(&self, hash: G2) -> Result<Signature> {
         // Pass the indices of sender nodes to `combine_signatures`.
-        let to_idx = |(id, share)| (self.netinfo.node_index(id).unwrap(), share);
-        let shares = self.received_shares.iter().map(to_idx);
+        let shares_itr = self
+            .received_shares
+            .values()
+            .map(|&(ref idx, ref share)| (idx, share));
         let sig = self
             .netinfo
             .public_key_set()
-            .combine_signatures(shares)
+            .combine_signatures(shares_itr)
             .map_err(Error::CombineAndVerifySigCrypto)?;
         if !self
             .netinfo
