@@ -55,8 +55,8 @@ where
             voter: voter.clone(),
             sig: self.netinfo.secret_key().sign(ser_vote),
         };
-        self.pending.insert(voter.clone(), signed_vote);
-        Ok(self.pending.get(&voter).expect("entry was just inserted"))
+        self.pending.remove(&voter);
+        Ok(self.pending.entry(voter).or_insert(signed_vote))
     }
 
     /// Inserts a pending vote into the buffer, if it has a higher number than the existing one.

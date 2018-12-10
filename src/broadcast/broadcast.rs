@@ -157,9 +157,7 @@ impl<N: NodeIdT> Broadcast<N> {
         let mut shards: Vec<&mut [u8]> = shards_iter.collect();
 
         // Construct the parity chunks/shards
-        self.coding
-            .encode(&mut shards)
-            .expect("incorrect shard size or number");
+        self.coding.encode(&mut shards)?;
 
         debug!(
             "{}: Value: {} bytes, {} per shard. Shards: {:0.10}",
