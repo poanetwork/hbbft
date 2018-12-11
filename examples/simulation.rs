@@ -5,7 +5,7 @@ use std::{cmp, u64};
 use colored::*;
 use docopt::Docopt;
 use itertools::Itertools;
-use rand::{Isaac64Rng, Rng};
+use rand::Rng;
 use rand_derive::Rand;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
@@ -177,7 +177,7 @@ where
         let msg = bincode::deserialize::<D::Message>(&ts_msg.message).expect("deserialize");
         let step = self
             .algo
-            .handle_message(&ts_msg.sender_id, msg)
+            .handle_message(&ts_msg.sender_id, msg, &mut rand::thread_rng())
             .expect("handling message");
         self.time += start.elapsed() * self.hw_quality.cpu_factor / 100;
         self.send_output_and_msgs(step)
@@ -436,7 +436,7 @@ fn main() {
         let dhb = DynamicHoneyBadger::builder().build(netinfo);
         let (qhb, qhb_step) = QueueingHoneyBadger::builder(dhb)
             .batch_size(args.flag_b)
-            .build_with_transactions(txs.clone(), rand::thread_rng().gen::<Isaac64Rng>())
+            .build_with_transactions(txs.clone(), &mut rand::thread_rng())
             .expect("instantiate QueueingHoneyBadger");
         let (sq, mut step) = SenderQueue::builder(qhb, peer_ids.into_iter()).build(our_id);
         step.extend_with(qhb_step, Message::from);

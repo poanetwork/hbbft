@@ -124,7 +124,7 @@ impl<T: Clone + Debug + AsRef<[u8]> + PartialEq + Send + Sync + From<Vec<u8>> + 
                 if let Some(v) = value {
                     // FIXME: Use the output.
                     let step = broadcast
-                        .handle_input(v.clone().into())
+                        .handle_input(v.clone().into(), &mut rand::thread_rng())
                         .expect("propose value");
                     for msg in step.messages {
                         tx_from_algo.send(msg).expect("send from algo");

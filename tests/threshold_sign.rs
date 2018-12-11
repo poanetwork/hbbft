@@ -7,7 +7,6 @@ use std::iter::once;
 
 use log::info;
 use rand::Rng;
-use rand_derive::Rand;
 
 use hbbft::{crypto::Signature, threshold_sign::ThresholdSign, util};
 

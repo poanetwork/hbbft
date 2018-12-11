@@ -102,7 +102,7 @@
 //!     const NUM_NODES: u64 = 7;
 //!     const PROPOSER_ID: u64 = 3;
 //!
-//!     let mut rng = OsRng::new();
+//!     let mut rng = OsRng::new().expect("Could not initialize OS random number generator.");
 //!
 //!     // Create a random set of keys for testing.
 //!     let netinfos = NetworkInfo::generate_map(0..NUM_NODES, &mut rng)
