@@ -439,7 +439,7 @@ fn main() {
             .build_with_transactions(txs.clone(), rng)
             .expect("instantiate QueueingHoneyBadger");
         let (sq, mut step) = SenderQueue::builder(qhb, peer_ids.into_iter()).build(our_id);
-        step.extend_with(qhb_step, Message::from);
+        assert!(step.extend_with(qhb_step, Message::from).is_empty());
         (sq, step)
     };
 

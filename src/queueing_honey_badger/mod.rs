@@ -117,10 +117,7 @@ where
     }
 
     /// Creates a new Queueing Honey Badger instance with an empty buffer.
-    pub fn build<R: Rng>(self, rng: &mut R) -> Result<QueueingHoneyBadgerWithStep<T, N, Q>>
-    where
-        R: 'static + Rng + Send + Sync,
-    {
+    pub fn build<R: Rng>(self, rng: &mut R) -> Result<QueueingHoneyBadgerWithStep<T, N, Q>> {
         self.build_with_transactions(None, rng)
     }
 
