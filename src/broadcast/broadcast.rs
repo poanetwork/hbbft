@@ -11,8 +11,8 @@ use reed_solomon_erasure::ReedSolomon;
 use super::merkle::{Digest, MerkleTree, Proof};
 use super::message::HexProof;
 use super::{Error, Message, Result};
-use fault_log::{Fault, FaultKind};
-use {DistAlgorithm, NetworkInfo, NodeIdT, Target};
+use crate::fault_log::{Fault, FaultKind};
+use crate::{DistAlgorithm, NetworkInfo, NodeIdT, Target};
 
 /// Broadcast algorithm instance.
 #[derive(Debug)]
@@ -38,7 +38,7 @@ pub struct Broadcast<N> {
 }
 
 /// A `Broadcast` step, containing at most one output.
-pub type Step<N> = ::DaStep<Broadcast<N>>;
+pub type Step<N> = crate::DaStep<Broadcast<N>>;
 
 impl<N: NodeIdT> DistAlgorithm for Broadcast<N> {
     type NodeId = N;
@@ -327,7 +327,8 @@ impl<N: NodeIdT> Broadcast<N> {
                         None
                     }
                 })
-            }).collect();
+            })
+            .collect();
         if let Some(value) = self.decode_from_shards(&mut leaf_values, hash) {
             self.decided = true;
             Ok(Step::default().with_output(value))

@@ -1,15 +1,6 @@
 #![deny(unused_must_use)]
 //! Network tests for Queueing Honey Badger.
 
-extern crate env_logger;
-extern crate hbbft;
-extern crate itertools;
-extern crate log;
-extern crate rand;
-extern crate rand_derive;
-extern crate serde_derive;
-extern crate threshold_crypto as crypto;
-
 mod network;
 
 use std::collections::BTreeMap;
@@ -25,7 +16,7 @@ use hbbft::queueing_honey_badger::{Batch, Change, ChangeState, Input, QueueingHo
 use hbbft::sender_queue::{Message, SenderQueue, Step};
 use hbbft::{util, NetworkInfo};
 
-use network::{Adversary, MessageScheduler, NodeId, SilentAdversary, TestNetwork, TestNode};
+use crate::network::{Adversary, MessageScheduler, NodeId, SilentAdversary, TestNetwork, TestNode};
 
 type QHB = SenderQueue<QueueingHoneyBadger<usize, NodeId, Vec<usize>>>;
 
@@ -87,7 +78,7 @@ where
 }
 
 // Allow passing `netinfo` by value. `TestNetwork` expects this function signature.
-#[cfg_attr(feature = "cargo-clippy", allow(needless_pass_by_value))]
+#[allow(clippy::needless_pass_by_value)]
 fn new_queueing_hb(
     netinfo: Arc<NetworkInfo<NodeId>>,
 ) -> (QHB, Step<QueueingHoneyBadger<usize, NodeId, Vec<usize>>>) {

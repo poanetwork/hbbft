@@ -1,14 +1,6 @@
 #![deny(unused_must_use)]
 //! Integration test of the reliable broadcast protocol.
 
-extern crate env_logger;
-extern crate hbbft;
-extern crate log;
-extern crate rand;
-extern crate rand_derive;
-extern crate serde_derive;
-extern crate threshold_crypto as crypto;
-
 mod network;
 
 use std::collections::BTreeMap;
@@ -18,12 +10,12 @@ use std::sync::Arc;
 use log::info;
 use rand::Rng;
 
-use hbbft::broadcast::{Broadcast, Message};
-use hbbft::{util, DistAlgorithm, NetworkInfo, Target, TargetedMessage};
-use network::{
+use crate::network::{
     Adversary, MessageScheduler, MessageWithSender, NodeId, RandomAdversary, SilentAdversary,
     TestNetwork, TestNode,
 };
+use hbbft::broadcast::{Broadcast, Message};
+use hbbft::{util, DistAlgorithm, NetworkInfo, Target, TargetedMessage};
 
 /// An adversary that inputs an alternate value.
 struct ProposeAdversary {
@@ -70,7 +62,8 @@ impl Adversary<Broadcast<NodeId>> for ProposeAdversary {
                     .messages
                     .into_iter()
                     .map(move |msg| MessageWithSender::new(id, msg))
-            }).collect()
+            })
+            .collect()
     }
 }
 

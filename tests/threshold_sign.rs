@@ -1,27 +1,16 @@
 #![deny(unused_must_use)]
 //! Threshold signing tests
 
-extern crate env_logger;
-extern crate hbbft;
-extern crate log;
-extern crate rand;
-extern crate rand_derive;
-extern crate serde_derive;
-extern crate threshold_crypto as crypto;
-
 mod network;
 
 use std::iter::once;
 
 use log::info;
 use rand::Rng;
-use rand_derive::Rand;
-use serde_derive::{Deserialize, Serialize};
 
-use crypto::Signature;
-use hbbft::{threshold_sign::ThresholdSign, util};
+use hbbft::{crypto::Signature, threshold_sign::ThresholdSign, util};
 
-use network::{Adversary, MessageScheduler, NodeId, SilentAdversary, TestNetwork, TestNode};
+use crate::network::{Adversary, MessageScheduler, NodeId, SilentAdversary, TestNetwork, TestNode};
 
 /// Tests a network of threshold signing instances with an optional expected value. Outputs the
 /// computed signature if the test is successful.

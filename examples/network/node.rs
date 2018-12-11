@@ -5,8 +5,6 @@
 //! The following code could be run on host 192.168.1.1:
 //!
 //! ```ignore
-//! extern crate hbbft;
-//!
 //! use hbbft::node::Node;
 //! use std::net::SocketAddr;
 //! use std::vec::Vec;
@@ -42,14 +40,13 @@ use std::sync::Arc;
 use std::{iter, process, thread, time};
 
 use crossbeam;
-use crypto::poly::Poly;
-use crypto::{SecretKey, SecretKeySet};
 use log::{debug, error};
 
+use crate::network::messaging::Messaging;
+use crate::network::{commst, connection};
 use hbbft::broadcast::{Broadcast, Message};
+use hbbft::crypto::{poly::Poly, SecretKey, SecretKeySet};
 use hbbft::{DistAlgorithm, NetworkInfo, SourcedMessage};
-use network::messaging::Messaging;
-use network::{commst, connection};
 
 /// This is a structure to start a consensus node.
 pub struct Node<T> {
@@ -172,7 +169,8 @@ impl<T: Clone + Debug + AsRef<[u8]> + PartialEq + Send + Sync + From<Vec<u8>> + 
                         // FIXME: handle error
                         c.stream.try_clone().unwrap(),
                         node_index,
-                    ).run()
+                    )
+                    .run()
                     {
                         Ok(_) => debug!("Comms task {} succeeded", node_index),
                         Err(e) => error!("Comms task {}: {:?}", node_index, e),
@@ -192,7 +190,8 @@ impl<T: Clone + Debug + AsRef<[u8]> + PartialEq + Send + Sync + From<Vec<u8>> + 
                 .send(())
                 .map_err(|e| {
                     error!("{}", e);
-                }).unwrap();
+                })
+                .unwrap();
 
             process::exit(0);
         }) // end of thread scope

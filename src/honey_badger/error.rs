@@ -1,8 +1,8 @@
 use bincode;
 use failure::Fail;
 
-use subset;
-use threshold_decrypt;
+use crate::subset;
+use crate::threshold_decrypt;
 
 /// Honey badger error variants.
 #[derive(Debug, Fail)]

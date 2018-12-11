@@ -2,16 +2,16 @@
 
 use std::result;
 
-use crypto::PublicKey;
+use crate::crypto::PublicKey;
 use rand::Rand;
 use serde::{de::DeserializeOwned, Serialize};
 
 use super::{
     SenderQueue, SenderQueueableDistAlgorithm, SenderQueueableMessage, SenderQueueableOutput,
 };
-use {Contribution, DaStep, NodeIdT};
+use crate::{Contribution, DaStep, NodeIdT};
 
-use dynamic_honey_badger::{
+use crate::dynamic_honey_badger::{
     Batch, Change, ChangeState, DynamicHoneyBadger, Error as DhbError, Message,
 };
 

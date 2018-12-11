@@ -78,7 +78,8 @@ impl<'a, M: Serialize + DeserializeOwned + Send + 'a> CommsTask<'a, M> {
                         tx.send(SourcedMessage {
                             source: node_index,
                             message,
-                        }).unwrap();
+                        })
+                        .unwrap();
                     }
                     Err(err) => {
                         if let bincode::ErrorKind::Io(ref io_err) = *err {

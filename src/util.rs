@@ -40,6 +40,6 @@ pub fn fmt_hex<T: AsRef<[u8]>>(bytes: T, f: &mut fmt::Formatter) -> fmt::Result 
 /// Given a number of nodes, returns the maximum number of faulty nodes that can be tolerated: the
 /// greatest number less than one third of `n`.
 #[inline]
-pub fn max_faulty(n: usize) -> usize {
+pub const fn max_faulty(n: usize) -> usize {
     (n - 1) / 3
 }

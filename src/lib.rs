@@ -115,22 +115,9 @@
 //! types.
 
 // We put algorithm structs in `src/algorithm/algorithm.rs`.
-#![cfg_attr(feature = "cargo-clippy", allow(module_inception))]
+// Some of our constructors return results.
+#![allow(clippy::module_inception, clippy::new_ret_no_self)]
 #![warn(missing_docs)]
-
-extern crate bincode;
-extern crate byteorder;
-extern crate derivative;
-extern crate failure;
-extern crate hex_fmt;
-extern crate init_with;
-extern crate log;
-extern crate rand;
-extern crate rand_derive;
-extern crate reed_solomon_erasure;
-extern crate serde;
-extern crate serde_derive;
-extern crate tiny_keccak;
 
 pub extern crate threshold_crypto as crypto;
 
@@ -152,10 +139,10 @@ pub mod threshold_sign;
 pub mod transaction_queue;
 pub mod util;
 
-pub use crypto::pairing;
-pub use fault_log::{Fault, FaultKind, FaultLog};
-pub use messaging::{SourcedMessage, Target, TargetedMessage};
-pub use network_info::NetworkInfo;
-pub use traits::{
+pub use crate::crypto::pairing;
+pub use crate::fault_log::{Fault, FaultKind, FaultLog};
+pub use crate::messaging::{SourcedMessage, Target, TargetedMessage};
+pub use crate::network_info::NetworkInfo;
+pub use crate::traits::{
     Contribution, DaStep, DistAlgorithm, Epoched, Message, NodeIdT, SessionIdT, Step,
 };

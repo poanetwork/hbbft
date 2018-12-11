@@ -1,14 +1,6 @@
 #![deny(unused_must_use)]
 //! Integration tests of the Subset protocol.
 
-extern crate env_logger;
-extern crate hbbft;
-extern crate log;
-extern crate rand;
-extern crate rand_derive;
-extern crate serde_derive;
-extern crate threshold_crypto as crypto;
-
 mod network;
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -18,7 +10,7 @@ use std::sync::Arc;
 use hbbft::subset::{Subset, SubsetOutput};
 use hbbft::NetworkInfo;
 
-use network::{Adversary, MessageScheduler, NodeId, SilentAdversary, TestNetwork, TestNode};
+use crate::network::{Adversary, MessageScheduler, NodeId, SilentAdversary, TestNetwork, TestNode};
 
 type ProposedValue = Vec<u8>;
 
@@ -42,7 +34,7 @@ fn test_subset<A: Adversary<Subset<NodeId, u8>>>(
     // Verify that all instances output the same set.
     let observer: BTreeSet<_> = network.observer.outputs().iter().cloned().collect();
     for node in network.nodes.values() {
-        let mut outputs = node.outputs();
+        let outputs = node.outputs();
         let mut actual = BTreeMap::default();
 
         let mut has_seen_done = false;

@@ -90,9 +90,6 @@
 //! node, and that it did so exactly once.
 //!
 //! ```
-//! extern crate hbbft;
-//! extern crate rand;
-//!
 //! use hbbft::broadcast::{Broadcast, Error, Step};
 //! use hbbft::{NetworkInfo, SourcedMessage, Target, TargetedMessage};
 //! use rand::{thread_rng, Rng};

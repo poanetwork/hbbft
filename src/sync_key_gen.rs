@@ -56,10 +56,6 @@
 //! ## Example
 //!
 //! ```
-//! extern crate rand;
-//! extern crate hbbft;
-//! extern crate threshold_crypto;
-//!
 //! use std::collections::BTreeMap;
 //!
 //! use threshold_crypto::{PublicKey, SecretKey, SignatureShare};
@@ -176,19 +172,19 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::{self, Debug, Formatter};
 
-use bincode;
-use crypto::{
+use crate::crypto::{
     error::Error as CryptoError,
     poly::{BivarCommitment, BivarPoly, Poly},
     serde_impl::field_vec::FieldWrap,
     Ciphertext, Fr, G1Affine, PublicKey, PublicKeySet, SecretKey, SecretKeyShare,
 };
+use crate::pairing::{CurveAffine, Field};
+use bincode;
 use failure::Fail;
-use pairing::{CurveAffine, Field};
 use rand;
 use serde_derive::{Deserialize, Serialize};
 
-use {NetworkInfo, NodeIdT};
+use crate::{NetworkInfo, NodeIdT};
 
 /// A local error while handling an `Ack` or `Part` message, that was not caused by that message
 /// being invalid.

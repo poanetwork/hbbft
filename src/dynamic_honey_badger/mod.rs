@@ -74,14 +74,14 @@ mod votes;
 
 use std::collections::BTreeMap;
 
-use crypto::{PublicKey, PublicKeySet, Signature};
+use crate::crypto::{PublicKey, PublicKeySet, Signature};
 use rand::Rand;
 use serde_derive::{Deserialize, Serialize};
 
 use self::votes::{SignedVote, VoteCounter};
-use honey_badger::{EncryptionSchedule, Message as HbMessage, Params};
-use sync_key_gen::{Ack, Part, SyncKeyGen};
-use NodeIdT;
+use crate::honey_badger::{EncryptionSchedule, Message as HbMessage, Params};
+use crate::sync_key_gen::{Ack, Part, SyncKeyGen};
+use crate::NodeIdT;
 
 pub use self::batch::Batch;
 pub use self::builder::DynamicHoneyBadgerBuilder;
@@ -90,7 +90,7 @@ pub use self::dynamic_honey_badger::DynamicHoneyBadger;
 pub use self::error::{Error, Result};
 
 /// A `DynamicHoneyBadger` step, possibly containing multiple outputs.
-pub type Step<C, N> = ::DaStep<DynamicHoneyBadger<C, N>>;
+pub type Step<C, N> = crate::DaStep<DynamicHoneyBadger<C, N>>;
 
 /// The user input for `DynamicHoneyBadger`.
 #[derive(Clone, Debug)]

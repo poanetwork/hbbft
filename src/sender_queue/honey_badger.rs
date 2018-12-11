@@ -2,8 +2,8 @@ use rand::Rand;
 use serde::{de::DeserializeOwned, Serialize};
 
 use super::{SenderQueueableDistAlgorithm, SenderQueueableMessage, SenderQueueableOutput};
-use honey_badger::{Batch, HoneyBadger, Message};
-use {Contribution, Epoched, NodeIdT};
+use crate::honey_badger::{Batch, HoneyBadger, Message};
+use crate::{Contribution, Epoched, NodeIdT};
 
 impl<C, N> SenderQueueableOutput<N, Message<N>> for Batch<C, N>
 where

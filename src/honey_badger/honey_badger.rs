@@ -9,7 +9,7 @@ use serde_derive::{Deserialize, Serialize};
 
 use super::epoch_state::EpochState;
 use super::{Batch, Error, HoneyBadgerBuilder, Message, Result};
-use {util, Contribution, DistAlgorithm, Fault, FaultKind, NetworkInfo, NodeIdT};
+use crate::{util, Contribution, DistAlgorithm, Fault, FaultKind, NetworkInfo, NodeIdT};
 
 use super::Params;
 
@@ -37,7 +37,7 @@ pub struct HoneyBadger<C, N: Rand> {
 }
 
 /// A `HoneyBadger` step, possibly containing multiple outputs.
-pub type Step<C, N> = ::DaStep<HoneyBadger<C, N>>;
+pub type Step<C, N> = crate::DaStep<HoneyBadger<C, N>>;
 
 impl<C, N> DistAlgorithm for HoneyBadger<C, N>
 where

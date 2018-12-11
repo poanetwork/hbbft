@@ -1,14 +1,6 @@
 #![deny(unused_must_use)]
 //! Tests the BinaryAgreement protocol with a MTIM adversary.
 
-extern crate env_logger;
-extern crate failure;
-extern crate hbbft;
-extern crate integer_sqrt;
-extern crate proptest;
-extern crate rand;
-extern crate threshold_crypto;
-
 pub mod net;
 
 use std::iter;
@@ -18,9 +10,9 @@ use hbbft::binary_agreement::{BinaryAgreement, MessageContent, SbvMessage};
 use hbbft::threshold_sign::ThresholdSign;
 use hbbft::{DaStep, DistAlgorithm, NetworkInfo};
 
-use net::adversary::{NetMutHandle, QueuePosition};
-use net::err::CrankError;
-use net::{Adversary, NetBuilder, NetMessage};
+use crate::net::adversary::{NetMutHandle, QueuePosition};
+use crate::net::err::CrankError;
+use crate::net::{Adversary, NetBuilder, NetMessage};
 
 type NodeId = usize;
 type SessionId = u8;
@@ -339,7 +331,8 @@ impl AbaCommonCoinAdversary {
             .map(|x| {
                 (x.msg_type == MessageType::Coin && self.coin_state.value().is_some())
                     || self.stage_progress >= x.msg_count
-            }).unwrap_or(false);
+            })
+            .unwrap_or(false);
         if stage_finished {
             self.stage += 1;
             self.stage_progress = 0;
@@ -448,7 +441,8 @@ fn reordering_attack() {
                 *adversary_netinfo.lock().unwrap() = Some(netinfo.clone());
             }
             BinaryAgreement::new(netinfo, 0).expect("failed to create BinaryAgreement instance")
-        }).num_faulty(1)
+        })
+        .num_faulty(1)
         .build()
         .unwrap();
 

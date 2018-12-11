@@ -8,9 +8,9 @@ use std::iter::once;
 use failure::Fail;
 use serde::{de::DeserializeOwned, Serialize};
 
-use fault_log::{Fault, FaultLog};
-use sender_queue::SenderQueueableMessage;
-use {Target, TargetedMessage};
+use crate::fault_log::{Fault, FaultLog};
+use crate::sender_queue::SenderQueueableMessage;
+use crate::{Target, TargetedMessage};
 
 /// A transaction, user message, or other user data.
 pub trait Contribution: Eq + Debug + Hash + Send + Sync {}

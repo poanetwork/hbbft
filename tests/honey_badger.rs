@@ -1,16 +1,6 @@
 #![deny(unused_must_use)]
 //! Network tests for Honey Badger.
 
-extern crate bincode;
-extern crate env_logger;
-extern crate hbbft;
-extern crate itertools;
-extern crate log;
-extern crate rand;
-extern crate rand_derive;
-extern crate serde_derive;
-extern crate threshold_crypto as crypto;
-
 mod network;
 
 use std::collections::BTreeMap;
@@ -26,7 +16,7 @@ use hbbft::sender_queue::{self, SenderQueue, Step};
 use hbbft::transaction_queue::TransactionQueue;
 use hbbft::{threshold_decrypt, util, DistAlgorithm, NetworkInfo, Target, TargetedMessage};
 
-use network::{
+use crate::network::{
     Adversary, MessageScheduler, MessageWithSender, NodeId, RandomAdversary, SilentAdversary,
     TestNetwork, TestNode,
 };
@@ -112,7 +102,8 @@ impl Adversary<UsizeHoneyBadger> for FaultyShareAdversary {
                                 MessageContent::DecryptionShare {
                                     proposer_id: NodeId(proposer_id),
                                     share: threshold_decrypt::Message(share.clone()),
-                                }.with_epoch(*epoch),
+                                }
+                                .with_epoch(*epoch),
                             )),
                         ))
                     }

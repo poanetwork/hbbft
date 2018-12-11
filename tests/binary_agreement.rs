@@ -13,13 +13,6 @@
 //! - Validity: If any correct node outputs `b`, then at least one correct node received `b` as
 //! input.
 
-extern crate failure;
-extern crate hbbft;
-extern crate integer_sqrt;
-extern crate proptest;
-extern crate rand;
-extern crate threshold_crypto;
-
 pub mod net;
 
 use std::iter::once;
@@ -33,9 +26,9 @@ use rand::{Rng, SeedableRng};
 use hbbft::binary_agreement::BinaryAgreement;
 use hbbft::DistAlgorithm;
 
-use net::adversary::ReorderingAdversary;
-use net::proptest::{gen_seed, NetworkDimension, TestRng, TestRngSeed};
-use net::{NetBuilder, NewNodeInfo, VirtualNet};
+use crate::net::adversary::ReorderingAdversary;
+use crate::net::proptest::{gen_seed, NetworkDimension, TestRng, TestRngSeed};
+use crate::net::{NetBuilder, NewNodeInfo, VirtualNet};
 
 /// Test configuration for Binary Agreement tests.
 #[derive(Debug)]
@@ -66,12 +59,12 @@ prop_compose! {
 }
 
 /// Proptest wrapper for `binary_agreement` that runs the test function on generated configurations.
-proptest!{
+proptest! {
     #![proptest_config(ProptestConfig {
         cases: 1, .. ProptestConfig::default()
     })]
     #[test]
-    #[cfg_attr(feature = "cargo-clippy", allow(unnecessary_operation))]
+    #[allow(clippy::unnecessary_operation)]
     fn run_binary_agreement(cfg in arb_config()) {
         binary_agreement(cfg)
     }
@@ -109,7 +102,7 @@ impl VirtualNet<BinaryAgreement<NodeId, u8>> {
 }
 
 /// Tests Binary Agreement on a given configuration.
-#[cfg_attr(feature = "cargo-clippy", allow(needless_pass_by_value))]
+#[allow(clippy::needless_pass_by_value)]
 fn binary_agreement(cfg: TestConfig) {
     let mut rng: TestRng = TestRng::from_seed(cfg.seed);
     let size = cfg.dimension.size();
@@ -129,7 +122,8 @@ fn binary_agreement(cfg: TestConfig) {
         .using(move |node_info: NewNodeInfo<_>| {
             BinaryAgreement::new(Arc::new(node_info.netinfo), 0)
                 .expect("Failed to create a BinaryAgreement instance.")
-        }).build()
+        })
+        .build()
         .expect("Could not construct test network.");
     net.test_binary_agreement(cfg.input, rng.gen::<TestRng>());
     println!(

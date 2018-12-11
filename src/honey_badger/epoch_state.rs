@@ -6,18 +6,18 @@ use std::mem::replace;
 use std::result;
 use std::sync::Arc;
 
+use crate::crypto::Ciphertext;
 use bincode;
-use crypto::Ciphertext;
 use log::error;
 use rand::{Rand, Rng};
 use serde::{de::DeserializeOwned, Serialize};
 use serde_derive::{Deserialize, Serialize};
 
 use super::{Batch, Error, MessageContent, Result, Step};
-use fault_log::{Fault, FaultKind, FaultLog};
-use subset::{self as cs, Subset, SubsetOutput};
-use threshold_decrypt::{self as td, ThresholdDecrypt};
-use {Contribution, DistAlgorithm, NetworkInfo, NodeIdT};
+use crate::fault_log::{Fault, FaultKind, FaultLog};
+use crate::subset::{self as cs, Subset, SubsetOutput};
+use crate::threshold_decrypt::{self as td, ThresholdDecrypt};
+use crate::{Contribution, DistAlgorithm, NetworkInfo, NodeIdT};
 
 type CsStep<N> = cs::Step<N>;
 
@@ -77,7 +77,8 @@ where
         match self {
             SubsetState::Ongoing(ref mut cs) => cs.handle_input(proposal),
             SubsetState::Complete(_) => return Ok(cs::Step::default()),
-        }.map_err(Error::InputSubset)
+        }
+        .map_err(Error::InputSubset)
     }
 
     /// Handles a message in the Subset instance, unless it has already completed.
@@ -85,7 +86,8 @@ where
         match self {
             SubsetState::Ongoing(ref mut cs) => cs.handle_message(sender_id, msg),
             SubsetState::Complete(_) => return Ok(cs::Step::default()),
-        }.map_err(Error::HandleSubsetMessage)
+        }
+        .map_err(Error::HandleSubsetMessage)
     }
 
     /// Returns the number of contributions that we have already received or, after completion, how
@@ -269,7 +271,8 @@ where
                     Entry::Vacant(entry) => {
                         entry.insert(DecryptionState::new(self.netinfo.clone()))
                     }
-                }.handle_message(sender_id, share)
+                }
+                .handle_message(sender_id, share)
                 .map_err(Error::ThresholdDecrypt)?;
                 self.process_decryption(proposer_id, td_step)
             }
@@ -364,7 +367,8 @@ where
             MessageContent::DecryptionShare {
                 proposer_id: proposer_id.clone(),
                 share,
-            }.with_epoch(self.epoch)
+            }
+            .with_epoch(self.epoch)
         });
         if let Some(output) = opt_output.into_iter().next() {
             self.decryption
@@ -385,7 +389,8 @@ where
         let td_result = match self.decryption.entry(proposer_id.clone()) {
             Entry::Occupied(entry) => entry.into_mut(),
             Entry::Vacant(entry) => entry.insert(DecryptionState::new(self.netinfo.clone())),
-        }.set_ciphertext(ciphertext);
+        }
+        .set_ciphertext(ciphertext);
         match td_result {
             Ok(td_step) => self.process_decryption(proposer_id, td_step),
             Err(td::Error::InvalidCiphertext(_)) => {

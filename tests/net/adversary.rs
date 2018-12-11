@@ -40,7 +40,7 @@ use rand::Rng;
 
 use hbbft::{DaStep, DistAlgorithm};
 
-use net::{CrankError, NetMessage, Node, VirtualNet};
+use crate::net::{CrankError, NetMessage, Node, VirtualNet};
 
 /// Immutable network handle.
 ///
@@ -361,7 +361,8 @@ where
     D: DistAlgorithm,
     D::Message: Clone,
     D::Output: Clone,
-{}
+{
+}
 
 /// Ascending node id message order adversary.
 ///

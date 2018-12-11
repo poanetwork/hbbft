@@ -75,7 +75,7 @@ use rand_derive::Rand;
 use serde_derive::{Deserialize, Serialize};
 
 use self::bool_set::BoolSet;
-use threshold_sign;
+use crate::threshold_sign;
 
 pub use self::binary_agreement::BinaryAgreement;
 pub use self::sbv_broadcast::Message as SbvMessage;
@@ -105,7 +105,7 @@ impl From<bincode::Error> for Error {
 pub type Result<T> = ::std::result::Result<T, Error>;
 
 /// A `BinaryAgreement` step, containing at most one output.
-pub type Step<N> = ::Step<Message, bool, N>;
+pub type Step<N> = crate::Step<Message, bool, N>;
 
 /// The content of a message belonging to a particular `BinaryAgreement` epoch.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]

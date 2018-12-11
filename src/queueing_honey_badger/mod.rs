@@ -25,17 +25,17 @@
 use std::marker::PhantomData;
 use std::{cmp, iter};
 
-use crypto::PublicKey;
+use crate::crypto::PublicKey;
 use derivative::Derivative;
 use failure::Fail;
 use rand::{Rand, Rng};
 use serde::{de::DeserializeOwned, Serialize};
 
-use dynamic_honey_badger::{self, Batch as DhbBatch, DynamicHoneyBadger, Message};
-use transaction_queue::TransactionQueue;
-use {util, Contribution, DistAlgorithm, NetworkInfo, NodeIdT};
+use crate::dynamic_honey_badger::{self, Batch as DhbBatch, DynamicHoneyBadger, Message};
+use crate::transaction_queue::TransactionQueue;
+use crate::{util, Contribution, DistAlgorithm, NetworkInfo, NodeIdT};
 
-pub use dynamic_honey_badger::{Change, ChangeState, Input};
+pub use crate::dynamic_honey_badger::{Change, ChangeState, Input};
 
 /// Queueing honey badger error variants.
 #[derive(Debug, Fail)]
@@ -149,7 +149,7 @@ pub struct QueueingHoneyBadger<T, N: Rand + Ord, Q> {
 }
 
 /// A `QueueingHoneyBadger` step, possibly containing multiple outputs.
-pub type Step<T, N> = ::Step<Message<N>, Batch<T, N>, N>;
+pub type Step<T, N> = crate::Step<Message<N>, Batch<T, N>, N>;
 
 impl<T, N, Q> DistAlgorithm for QueueingHoneyBadger<T, N, Q>
 where

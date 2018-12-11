@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use NodeIdT;
+use crate::NodeIdT;
 
 /// A batch of contributions the algorithm has output.
 #[derive(Clone, Debug)]

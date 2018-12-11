@@ -19,14 +19,14 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::{fmt, result};
 
-use crypto::{self, hash_g2, Signature, SignatureShare, G2};
+use crate::crypto::{self, hash_g2, Signature, SignatureShare, G2};
 use failure::Fail;
 use log::debug;
 use rand_derive::Rand;
 use serde_derive::{Deserialize, Serialize};
 
-use fault_log::{Fault, FaultKind, FaultLog};
-use {DistAlgorithm, NetworkInfo, NodeIdT, Target};
+use crate::fault_log::{Fault, FaultKind, FaultLog};
+use crate::{DistAlgorithm, NetworkInfo, NodeIdT, Target};
 
 /// A threshold signing error.
 #[derive(Clone, Eq, PartialEq, Debug, Fail)]
@@ -35,10 +35,7 @@ pub enum Error {
     #[fail(display = "Redundant input provided")]
     MultipleMessagesToSign,
     /// Error combining and verifying signature shares.
-    #[fail(
-        display = "Error combining and verifying signature shares: {}",
-        _0
-    )]
+    #[fail(display = "Error combining and verifying signature shares: {}", _0)]
     CombineAndVerifySigCrypto(crypto::error::Error),
     /// Unknown sender
     #[fail(display = "Unknown sender")]
@@ -75,7 +72,7 @@ pub struct ThresholdSign<N> {
 }
 
 /// A step returned from `ThresholdSign`. It contains at most one output.
-pub type Step<N> = ::DaStep<ThresholdSign<N>>;
+pub type Step<N> = crate::DaStep<ThresholdSign<N>>;
 
 impl<N: NodeIdT> DistAlgorithm for ThresholdSign<N> {
     type NodeId = N;
@@ -143,8 +140,7 @@ impl<N: NodeIdT> ThresholdSign<N> {
         self.had_input = true;
         let mut step = Step::default();
         step.fault_log.extend(self.remove_invalid_shares());
-        // TODO: Remove `cloned()` once non-lexical lifetimes are stable.
-        let msg = match self.netinfo.secret_key_share().cloned() {
+        let msg = match self.netinfo.secret_key_share() {
             Some(sks) => Message(sks.sign_g2(hash)),
             None => return Ok(step.join(self.try_output()?)), // Not a validator.
         };

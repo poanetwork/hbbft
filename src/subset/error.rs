@@ -2,8 +2,8 @@ use failure::Fail;
 
 use std::result;
 
-use binary_agreement;
-use broadcast;
+use crate::binary_agreement;
+use crate::broadcast;
 
 /// A subset error.
 #[derive(Clone, PartialEq, Debug, Fail)]
@@ -18,10 +18,7 @@ pub enum Error {
     #[fail(display = "Error handling Broadcast input/message: {}", _0)]
     HandleBroadcast(broadcast::Error),
     /// Error handling a `BinaryAgreement` input or message.
-    #[fail(
-        display = "Error handling BinaryAgreement input/message: {}",
-        _0
-    )]
+    #[fail(display = "Error handling BinaryAgreement input/message: {}", _0)]
     HandleAgreement(binary_agreement::Error),
     /// Unknown proposer.
     #[fail(display = "Unknown proposer ID")]

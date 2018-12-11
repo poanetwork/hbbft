@@ -1,11 +1,3 @@
-extern crate failure;
-extern crate hbbft;
-extern crate integer_sqrt;
-extern crate proptest;
-extern crate rand;
-extern crate rand_core;
-extern crate threshold_crypto;
-
 pub mod net;
 
 use proptest::arbitrary::any;
@@ -13,7 +5,7 @@ use proptest::strategy::{Strategy, ValueTree};
 use proptest::{prelude::RngCore, proptest, proptest_helper};
 use rand::{Rng as Rng4, SeedableRng as SeedableRng4};
 
-use net::proptest::{max_sum, NetworkDimension, NetworkDimensionTree};
+use crate::net::proptest::{max_sum, NetworkDimension, NetworkDimensionTree};
 
 struct RngAdapter4To5<T>(pub T);
 
@@ -53,7 +45,7 @@ where
     }
 }
 
-proptest!{
+proptest! {
     /// Ensures all generated network dimensions are actually sane.
     #[test]
     fn generated_network_dimensions_are_sane(_nt in NetworkDimension::range(1, 400)) {
@@ -71,7 +63,7 @@ fn any_op() -> impl Strategy<Value = Op> {
     any::<bool>().prop_map(|v| if v { Op::Simplify } else { Op::Complicate })
 }
 
-proptest!{
+proptest! {
     /// Verifies generated network dimensions can be grown and shrunk multiple times.
     #[test]
     fn network_dimensions_shrink_and_grow(
@@ -180,7 +172,7 @@ fn network_to_u32_is_correct() {
 }
 
 #[test]
-#[cfg_attr(feature = "cargo-clippy", allow(cyclomatic_complexity))]
+#[allow(clippy::cyclomatic_complexity)]
 fn network_from_u32_is_correct() {
     assert_eq!(NetworkDimension::new(1, 0), NetworkDimension::from(0u32));
     assert_eq!(NetworkDimension::new(2, 0), NetworkDimension::from(1u32));
