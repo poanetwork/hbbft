@@ -114,6 +114,7 @@ impl<M, O, N> Step<M, O, N> {
     }
 
     /// Extends `self` with `other`s messages and fault logs, and returns `other.output`.
+    #[must_use]
     pub fn extend_with<M2, O2, FM>(&mut self, other: Step<M2, O2, N>, f_msg: FM) -> Vec<O2>
     where
         FM: Fn(M2) -> M,

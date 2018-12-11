@@ -164,9 +164,8 @@ where
     let mut rng = rand::thread_rng().gen::<Isaac64Rng>();
     let (qhb, qhb_step) =
         QueueingHoneyBadger::builder_joining(our_id, secret_key, join_plan, &mut rng)
-            .expect("failed to rebuild the node with a join plan")
-            .batch_size(3)
-            .build(&mut rng);
+            .and_then(|builder| builder.batch_size(3).build(&mut rng))
+            .expect("failed to rebuild the node with a join plan");
     let (sq, mut sq_step) = SenderQueue::builder(qhb, peer_ids.into_iter()).build(our_id);
     *node.instance_mut() = sq;
     sq_step.extend(qhb_step.map(|output| output, Message::from));
@@ -193,7 +192,7 @@ fn new_queueing_hb(
         .build(&mut rng)
         .expect("failed to build QueueingHoneyBadger");
     let (sq, mut step) = SenderQueue::builder(qhb, peer_ids).build(our_id);
-    step.extend(qhb_step.map(|output| output, Message::from));
+    assert!(step.extend_with(qhb_step, Message::from).is_empty());
     (sq, step)
 }
 
