@@ -47,6 +47,13 @@ where
         })
     };
 
+    let has_add_in_progress = |node: &TestNode<UsizeDhb>| {
+        node.outputs().iter().any(|batch| match batch.change() {
+            ChangeState::InProgress(Change::NodeChange(pub_keys)) => pub_keys == &pub_keys_add,
+            _ => false,
+        })
+    };
+
     let has_add = |node: &TestNode<UsizeDhb>| {
         node.outputs().iter().any(|batch| match batch.change() {
             ChangeState::Complete(Change::NodeChange(pub_keys)) => pub_keys == &pub_keys_add,
@@ -64,7 +71,12 @@ where
 
     let mut rng = rand::thread_rng();
     let mut awaiting_removal: BTreeSet<_> = network.nodes.iter().map(|(id, _)| *id).collect();
-    let mut awaiting_addition: BTreeSet<_> = network.nodes.iter().map(|(id, _)| *id).collect();
+    let mut awaiting_addition: BTreeSet<_> = network
+        .nodes
+        .iter()
+        .map(|(id, _)| *id)
+        .filter(|id| *id != NodeId(0))
+        .collect();
     // Whether node 0 was rejoined as a validator.
     let mut rejoined_node0 = false;
     // The removed node 0 which is to be restarted as soon as all remaining validators agree to add
@@ -83,7 +95,7 @@ where
                     && node.instance().algo().netinfo().is_validator()
                     // If there's only one node, it will immediately output on input. Make sure we
                     // first process all incoming messages before providing input again.
-                    && (network.nodes.len() > 1 || node.queue.is_empty())
+                    && (/*network.nodes.len() > 1 || */ node.queue.is_empty())
             }).map(|(id, _)| *id)
             .collect();
         if let Some(id) = rng.choose(&input_ids) {
@@ -116,7 +128,10 @@ where
                 );
             }
         }
-        if awaiting_addition.contains(&stepped_id) && has_add(&network.nodes[&stepped_id]) {
+        if awaiting_removal.is_empty()
+            && awaiting_addition.contains(&stepped_id)
+            && has_add_in_progress(&network.nodes[&stepped_id])
+        {
             awaiting_addition.remove(&stepped_id);
             info!(
                 "{:?} has finished waiting for node addition; still waiting: {:?}",
