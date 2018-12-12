@@ -16,6 +16,8 @@ use crate::{Contribution, NetworkInfo, NodeIdT};
 pub struct DynamicHoneyBadgerBuilder<C, N> {
     /// Start in this era.
     era: u64,
+    /// Start in this epoch.
+    epoch: u64,
     /// Parameters controlling Honey Badger's behavior and performance.
     params: Params,
     _phantom: PhantomData<(C, N)>,
@@ -28,6 +30,7 @@ where
     fn default() -> Self {
         DynamicHoneyBadgerBuilder {
             era: 0,
+            epoch: 0,
             params: Params::default(),
             _phantom: PhantomData,
         }
@@ -48,6 +51,12 @@ where
     /// Sets the starting era to the given value.
     pub fn era(&mut self, era: u64) -> &mut Self {
         self.era = era;
+        self
+    }
+
+    /// Sets the starting era to the given value.
+    pub fn epoch(&mut self, epoch: u64) -> &mut Self {
+        self.epoch = epoch;
         self
     }
 
@@ -82,6 +91,7 @@ where
     pub fn build(&mut self, netinfo: NetworkInfo<N>) -> DynamicHoneyBadger<C, N> {
         let DynamicHoneyBadgerBuilder {
             era,
+            epoch,
             params,
             _phantom,
         } = self;
@@ -89,6 +99,7 @@ where
 
         let honey_badger = HoneyBadger::builder(arc_netinfo.clone())
             .session_id(*era)
+            .epoch(*epoch)
             .params(params.clone())
             .build();
 
