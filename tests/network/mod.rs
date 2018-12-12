@@ -609,7 +609,7 @@ where
     C: Contribution + Clone,
 {
     /// Verifies that all nodes' outputs agree, given a correct "full" node that output all
-    /// batches in a total order and with no gaps.
+    /// batches with no gaps.
     ///
     /// The output of the full node is used to derive in expected output of other nodes in every
     /// epoch. After that the check ensures that correct nodes output the same batches in epochs
@@ -636,12 +636,14 @@ where
             }
         }
         for (id, node) in self.nodes.iter().filter(|(&id, _)| id != full_node.id) {
+            let actual_epochs: BTreeSet<_> =
+                node.outputs.iter().map(|batch| batch.epoch()).collect();
+            let expected_epochs: BTreeSet<_> =
+                expected[id].iter().map(|batch| batch.epoch()).collect();
             assert_eq!(
-                node.outputs.len(),
-                expected[id].len(),
-                "The output length of {:?} is incorrect: {:?}",
-                id,
-                node.outputs
+                expected_epochs, actual_epochs,
+                "Output epochs of {:?} don't match the expectation. Expected: {:?} but got {:?}",
+                id, expected_epochs, actual_epochs,
             );
             assert!(
                 node.outputs

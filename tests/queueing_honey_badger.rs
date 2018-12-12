@@ -7,12 +7,11 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::iter;
 use std::sync::Arc;
 
-use itertools::Itertools;
 use log::info;
 use rand::{Isaac64Rng, Rng};
 
 use hbbft::dynamic_honey_badger::{DynamicHoneyBadger, JoinPlan};
-use hbbft::queueing_honey_badger::{Batch, Change, ChangeState, Input, QueueingHoneyBadger};
+use hbbft::queueing_honey_badger::{Change, ChangeState, Input, QueueingHoneyBadger};
 use hbbft::sender_queue::{Message, SenderQueue, Step};
 use hbbft::{util, NetworkInfo};
 
@@ -31,25 +30,28 @@ where
     pub_keys_rm.remove(&NodeId(0));
     network.input_all(Input::Change(Change::NodeChange(pub_keys_rm.clone())));
 
-    // The second half of the transactions will be input only after a node has been removed.
+    // The second half of the transactions will be input only after a node has been removed and
+    // readded.
     for tx in 0..(num_txs / 2) {
         network.input_all(Input::User(tx));
     }
-
+    let input_second_half = |network: &mut TestNetwork<_, _>, id: NodeId| {
+        for tx in (num_txs / 2)..num_txs {
+            network.input(id, Input::User(tx));
+        }
+    };
     let has_remove = |node: &TestNode<QHB>| {
         node.outputs().iter().any(|batch| match batch.change() {
             ChangeState::Complete(Change::NodeChange(pub_keys)) => pub_keys == &pub_keys_rm,
             _ => false,
         })
     };
-
     let has_add_in_progress = |node: &TestNode<QHB>| {
         node.outputs().iter().any(|batch| match batch.change() {
             ChangeState::InProgress(Change::NodeChange(pub_keys)) => pub_keys == &pub_keys_add,
             _ => false,
         })
     };
-
     let has_add = |node: &TestNode<QHB>| {
         node.outputs().iter().any(|batch| match batch.change() {
             ChangeState::Complete(Change::NodeChange(pub_keys)) => pub_keys == &pub_keys_add,
@@ -60,11 +62,7 @@ where
     // Returns `true` if the node has not output all transactions yet.
     // If it has, and has advanced another epoch, it clears all messages for later epochs.
     let node_busy = |node: &mut TestNode<QHB>| {
-        if !has_remove(node) || !has_add(node) {
-            return true;
-        }
-        node.id != NodeId(0)
-            && node.outputs().iter().flat_map(Batch::iter).unique().count() < num_txs
+        !has_remove(node) || !has_add(node) || !node.instance().algo().queue().is_empty()
     };
 
     let mut awaiting_removal: BTreeSet<_> = network.nodes.iter().map(|(id, _)| *id).collect();
@@ -74,11 +72,13 @@ where
         .map(|(id, _)| *id)
         .filter(|id| *id != NodeId(0))
         .collect();
+    // The set of nodes awaiting the second half of user transactions.
+    let mut awaiting_second_half: BTreeSet<_> = awaiting_removal.clone();
     // Whether node 0 was rejoined as a validator.
     let mut rejoined_node0 = false;
     // The removed node 0 which is to be restarted as soon as all remaining validators agree to add
     // it back.
-    let mut saved_node0 = None;
+    let mut saved_node0: Option<TestNode<QHB>> = None;
 
     // Handle messages in random order until all nodes have output all transactions.
     while network.nodes.values_mut().any(node_busy) {
@@ -140,6 +140,11 @@ where
                 }
             }
         }
+        if rejoined_node0 && awaiting_second_half.contains(&stepped_id) {
+            // Input the second half of user transactions into the stepped node.
+            input_second_half(&mut network, stepped_id);
+            awaiting_second_half.remove(&stepped_id);
+        }
     }
     let node1 = network.nodes.get(&NodeId(1)).expect("node 1 is missing");
     network.verify_batches(&node1);
@@ -163,7 +168,6 @@ where
         .filter(|id| *id != our_id)
         .collect();
     let secret_key = node.instance().algo().netinfo().secret_key().clone();
-    let queue = node.instance().algo().queue().clone();
     let (qhb, qhb_step) = QueueingHoneyBadger::builder_joining(
         our_id,
         secret_key,
@@ -171,11 +175,11 @@ where
         rand::thread_rng().gen::<Isaac64Rng>(),
     ).expect("failed to rebuild the node with a join plan")
     .batch_size(3)
-    .build_with_transactions(queue, rand::thread_rng().gen::<Isaac64Rng>())
-    .expect("failed to rebuild the node with transactions");
+    .build(rand::thread_rng().gen::<Isaac64Rng>());
     let (sq, mut sq_step) = SenderQueue::builder(qhb, peer_ids.into_iter()).build(our_id);
     *node.instance_mut() = sq;
     sq_step.extend(qhb_step.map(|output| output, Message::from));
+    network.nodes.insert(our_id, node);
     sq_step
 }
 
