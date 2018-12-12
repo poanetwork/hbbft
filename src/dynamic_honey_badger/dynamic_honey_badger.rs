@@ -19,7 +19,7 @@ use crate::fault_log::{Fault, FaultKind, FaultLog};
 use crate::honey_badger::{self, HoneyBadger, Message as HbMessage};
 
 use crate::sync_key_gen::{Ack, AckOutcome, Part, PartOutcome, SyncKeyGen};
-use crate::util::self;
+use crate::util;
 use crate::{Contribution, DistAlgorithm, Epoched, NetworkInfo, NodeIdT, Target};
 
 /// A Honey Badger instance that can handle adding and removing nodes.
