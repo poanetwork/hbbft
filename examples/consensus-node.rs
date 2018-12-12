@@ -5,6 +5,7 @@ mod network;
 
 use std::collections::HashSet;
 use std::net::SocketAddr;
+use std::process;
 use std::vec::Vec;
 
 use docopt::Docopt;
@@ -17,7 +18,7 @@ Consensus node example
 
 Usage:
   consensus-node --bind-address=<host:port> [--value=VALUE] [--remote-address=<host:port>]...
-  consensus-node (--help | -h)
+  consensus-node --help | -h
   consensus-node --version
 ";
 
@@ -34,6 +35,10 @@ fn parse_args() -> Args {
         .version(Some(VERSION.to_owned()))
         .parse()
         .unwrap_or_else(|e| e.exit());
+    if args.get_count("-h") > 0 || args.get_count("--help") > 0 {
+        print!("{}", USAGE);
+        process::exit(0);
+    }
     Args {
         value: if args.get_count("--value") > 0 {
             Some(args.get_str("--value").as_bytes().to_vec())
