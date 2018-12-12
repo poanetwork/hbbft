@@ -1024,17 +1024,11 @@ where
     ///
     /// If an error occurs, the first error is returned and broadcasting aborted.
     #[inline]
+    pub fn broadcast_input<'a, R: Rng>(
         &'a mut self,
         input: &'a D::Input,
         rng: &mut R,
     ) -> Result<Vec<(D::NodeId, DaStep<D>)>, CrankError<D>> {
-        // Note: The tricky lifetime annotation basically says that the input value given must
-        //       live as long as the iterator returned lives (because it is cloned on every step,
-        //       with steps only evaluated each time `next()` is called. For the same reason the
-        //       network should not go away ealier either.
-
-        // Note: It's unfortunately not possible to loop and call `send_input`,
-
         let steps: Vec<_> = self
             .nodes
             .values_mut()
