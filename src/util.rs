@@ -39,7 +39,12 @@ pub fn fmt_hex<T: AsRef<[u8]>>(bytes: T, f: &mut fmt::Formatter) -> fmt::Result 
 
 /// Given a number of nodes, returns the maximum number of faulty nodes that can be tolerated: the
 /// greatest number less than one third of `n`.
+///
+/// # Panics
+///
+/// Panics if `n == 0`.
 #[inline]
-pub const fn max_faulty(n: usize) -> usize {
+pub fn max_faulty(n: usize) -> usize {
+    assert!(n > 0, "A valid network requires at least one node.");
     (n - 1) / 3
 }

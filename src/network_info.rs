@@ -8,15 +8,25 @@ use crate::{util, NodeIdT};
 /// Common data shared between algorithms: the nodes' IDs and key shares.
 #[derive(Debug, Clone)]
 pub struct NetworkInfo<N> {
+    /// This node's ID.
     our_id: N,
+    /// The number _N_ of nodes in the network. Equal to the size of `public_keys`.
     num_nodes: usize,
+    /// The number _f_ of faulty nodes that can be tolerated. Less than a third of _N_.
     num_faulty: usize,
+    /// Whether this node is a validator. This is true if `public_keys` contains our own ID.
     is_validator: bool,
+    /// This node's secret key share. Only validators have one.
     secret_key_share: Option<SecretKeyShare>,
+    /// This node's secret key.
     secret_key: SecretKey,
+    /// The public key set for threshold cryptography. Each validator has a secret key share.
     public_key_set: PublicKeySet,
+    /// The validators' public key shares, computed from `public_key_set`.
     public_key_shares: BTreeMap<N, PublicKeyShare>,
+    /// The validators' public keys.
     public_keys: BTreeMap<N, PublicKey>,
+    /// The indices in the list of sorted validator IDs.
     node_indices: BTreeMap<N, usize>,
 }
 
@@ -26,6 +36,10 @@ impl<N: NodeIdT> NetworkInfo<N> {
     /// All nodes in the network must share the same public information. Validators' IDs must be
     /// keys in the `public_keys` map, and their secret key share must match their share in the
     /// `public_key_set`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `public_keys` is empty.
     pub fn new<SKS: Into<Option<SecretKeyShare>>>(
         our_id: N,
         secret_key_share: SKS,
@@ -34,6 +48,8 @@ impl<N: NodeIdT> NetworkInfo<N> {
         public_keys: BTreeMap<N, PublicKey>,
     ) -> Self {
         let num_nodes = public_keys.len();
+        let num_faulty = util::max_faulty(num_nodes);
+        assert!(3 * num_faulty < num_nodes, " 3 f >= N. This is a bug!");
         let is_validator = public_keys.contains_key(&our_id);
         let node_indices: BTreeMap<N, usize> = public_keys
             .keys()
@@ -47,7 +63,7 @@ impl<N: NodeIdT> NetworkInfo<N> {
         NetworkInfo {
             our_id,
             num_nodes,
-            num_faulty: util::max_faulty(num_nodes),
+            num_faulty,
             is_validator,
             secret_key_share: secret_key_share.into(),
             secret_key,
@@ -87,6 +103,7 @@ impl<N: NodeIdT> NetworkInfo<N> {
     /// correct.
     #[inline]
     pub fn num_correct(&self) -> usize {
+        // As asserted in `new`, `num_faulty` is never greater than `num_nodes`.
         self.num_nodes - self.num_faulty
     }
 
