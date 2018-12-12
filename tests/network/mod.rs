@@ -645,15 +645,15 @@ where
                 "Output epochs of {:?} don't match the expectation. Expected: {:?} but got {:?}",
                 id, expected_epochs, actual_epochs,
             );
-            assert!(
-                node.outputs
-                    .iter()
-                    .zip(
-                        expected
-                            .get(id)
-                            .expect("outputs don't match the expectation")
-                    ).all(|(a, b)| a.public_eq(b))
-            );
+            assert!(node
+                .outputs
+                .iter()
+                .zip(
+                    expected
+                        .get(id)
+                        .expect("outputs don't match the expectation")
+                )
+                .all(|(a, b)| a.public_eq(b)));
         }
     }
 }

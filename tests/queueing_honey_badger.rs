@@ -131,7 +131,8 @@ where
                                 )
                             }
                             _ => None,
-                        }) {
+                        })
+                {
                     if let Some(node) = saved_node0.take() {
                         let step = restart_node_for_add(&mut network, node, join_plan);
                         network.dispatch_messages(NodeId(0), step.messages);
@@ -173,7 +174,8 @@ where
         secret_key,
         join_plan,
         rand::thread_rng().gen::<Isaac64Rng>(),
-    ).expect("failed to rebuild the node with a join plan")
+    )
+    .expect("failed to rebuild the node with a join plan")
     .batch_size(3)
     .build(rand::thread_rng().gen::<Isaac64Rng>());
     let (sq, mut sq_step) = SenderQueue::builder(qhb, peer_ids.into_iter()).build(our_id);

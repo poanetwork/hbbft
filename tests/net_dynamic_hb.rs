@@ -7,7 +7,7 @@ use hbbft::sender_queue::{Message, SenderQueue, Step};
 use proptest::{prelude::ProptestConfig, prop_compose, proptest, proptest_helper};
 use rand::SeedableRng;
 
-use crate::net::adversary::ReorderingAdversary;
+use crate::net::adversary::{Adversary, ReorderingAdversary};
 use crate::net::proptest::{gen_seed, NetworkDimension, TestRng, TestRngSeed};
 use crate::net::{NetBuilder, NewNodeInfo, VirtualNet};
 
@@ -287,9 +287,10 @@ fn do_drop_and_readd(cfg: TestConfig) {
                             &mut net,
                             pivot_node_id,
                             join_plan,
-                            rng.gen::<TestRng>(),
+                            &mut rng,
                         );
-                        net.process_step(pivot_node_id, &step);
+                        net.process_step(pivot_node_id, &step)
+                            .expect("processing a step failed");
                         rejoined_pivot_node = true;
                     }
                 }
@@ -328,14 +329,15 @@ fn do_drop_and_readd(cfg: TestConfig) {
 }
 
 /// Restarts node 0 on the test network for adding it back as a validator.
-fn restart_pivot_node_for_add<R>(
-    net: &mut VirtualNet<SenderQueue<DynamicHoneyBadger<Vec<usize>, usize>>>,
+fn restart_pivot_node_for_add<R, A>(
+    net: &mut VirtualNet<SenderQueue<DynamicHoneyBadger<Vec<usize>, usize>>, A>,
     pivot_node_id: usize,
     join_plan: JoinPlan<usize>,
-    rng: R,
+    rng: &mut R,
 ) -> Step<DynamicHoneyBadger<Vec<usize>, usize>>
 where
-    R: 'static + Rng + Send + Sync,
+    R: rand::Rng,
+    A: Adversary<SenderQueue<DynamicHoneyBadger<Vec<usize>, usize>>>,
 {
     println!("Restarting node {} with {:?}", pivot_node_id, join_plan);
     let peer_ids: Vec<usize> = net

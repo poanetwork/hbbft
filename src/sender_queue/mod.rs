@@ -213,7 +213,8 @@ where
                 if *e < epoch {
                     *e = epoch;
                 }
-            }).or_insert(epoch);
+            })
+            .or_insert(epoch);
         if !self.remove_participant_if_old(sender_id) {
             self.process_new_epoch(sender_id, epoch)
         } else {

@@ -96,7 +96,8 @@ where
                     // If there's only one node, it will immediately output on input. Make sure we
                     // first process all incoming messages before providing input again.
                     && (/*network.nodes.len() > 1 || */ node.queue.is_empty())
-            }).map(|(id, _)| *id)
+            })
+            .map(|(id, _)| *id)
             .collect();
         if let Some(id) = rng.choose(&input_ids) {
             let queue = queues.get_mut(id).unwrap();
@@ -153,7 +154,8 @@ where
                                 )
                             }
                             _ => None,
-                        }) {
+                        })
+                {
                     if let Some(node) = saved_node0.take() {
                         let step = restart_node_for_add(&mut network, node, join_plan);
                         network.dispatch_messages(NodeId(0), step.messages);
@@ -191,7 +193,8 @@ where
         secret_key,
         join_plan,
         rand::thread_rng().gen::<Isaac64Rng>(),
-    ).expect("failed to reconstruct the node");
+    )
+    .expect("failed to reconstruct the node");
     let (sq, mut sq_step) = SenderQueue::builder(dhb, peer_ids.into_iter()).build(our_id);
     *node.instance_mut() = sq;
     sq_step.extend(dhb_step.map(|output| output, Message::from));
@@ -214,7 +217,8 @@ fn new_dynamic_hb(
     SenderQueue::builder(
         DynamicHoneyBadger::builder().build((*netinfo).clone()),
         peer_ids,
-    ).build(our_id)
+    )
+    .build(our_id)
 }
 
 fn test_dynamic_honey_badger_different_sizes<A, F>(new_adversary: F, num_txs: usize)
