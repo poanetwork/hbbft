@@ -154,8 +154,11 @@ fn do_drop_and_readd(cfg: TestConfig) {
     // We are tracking (correct) nodes' state through the process by ticking them off individually.
     let mut awaiting_removal: collections::BTreeSet<_> =
         net.correct_nodes().map(|n| *n.id()).collect();
-    let mut awaiting_addition: collections::BTreeSet<_> =
-        net.correct_nodes().map(|n| *n.id()).collect();
+    let mut awaiting_addition: collections::BTreeSet<_> = net
+        .correct_nodes()
+        .map(|n| *n.id())
+        .filter(|id| *id != pivot_node_id)
+        .collect();
     let mut expected_outputs: collections::BTreeMap<_, collections::BTreeSet<_>> = net
         .correct_nodes()
         .map(|n| (*n.id(), (0..10).collect()))
@@ -301,18 +304,17 @@ fn do_drop_and_readd(cfg: TestConfig) {
             }
             // If this is the first batch from a correct node with a vote to add node 0 back, take
             // the join plan of the batch and use it to restart node 0.
-            if !net[node_id].is_faulty() && !rejoined_pivot_node {
+            if awaiting_addition.is_empty() && !net[node_id].is_faulty() && !rejoined_pivot_node {
                 if let ChangeState::InProgress(Change::NodeChange(pub_keys)) = batch.change() {
                     if *pub_keys == pub_keys_add {
                         let join_plan = batch
                             .join_plan()
                             .expect("failed to get the join plan of the batch");
-                        if let Some(node) = saved_node.take() {
-                            let step = restart_node_for_add(&mut net, node, join_plan, &mut rng);
-                            net.process_step(pivot_node_id, &step)
-                                .expect("processing a step failed");
-                            rejoined_pivot_node = true;
-                        }
+                        let node = saved_node.take().expect("the pivot node wasn't saved");
+                        let step = restart_node_for_add(&mut net, node, join_plan, &mut rng);
+                        net.process_step(pivot_node_id, &step)
+                            .expect("processing a step failed");
+                        rejoined_pivot_node = true;
                     }
                 }
             }
