@@ -9,10 +9,12 @@ use std::sync::{Arc, Mutex};
 use hbbft::binary_agreement::{BinaryAgreement, MessageContent, SbvMessage};
 use hbbft::threshold_sign::ThresholdSign;
 use hbbft::{DaStep, DistAlgorithm, NetworkInfo};
-use rand::Rng;
+use proptest::{proptest, proptest_helper};
+use rand::{Rng, SeedableRng};
 
 use crate::net::adversary::{NetMutHandle, QueuePosition};
 use crate::net::err::CrankError;
+use crate::net::proptest::{gen_seed, TestRng, TestRngSeed};
 use crate::net::{Adversary, NetBuilder, NetMessage};
 
 type NodeId = usize;
@@ -434,10 +436,17 @@ impl Adversary<Algo> for AbaCommonCoinAdversary {
     }
 }
 
-#[test]
-fn reordering_attack() {
+proptest! {
+    #[test]
+    #[allow(clippy::unnecessary_operation)]
+    fn reordering_attack(seed in gen_seed()) {
+        do_reordering_attack(seed)
+    }
+}
+
+fn do_reordering_attack(seed: TestRngSeed) {
     let _ = env_logger::try_init();
-    let mut rng = rand::OsRng::new().unwrap();
+    let mut rng: TestRng = TestRng::from_seed(seed);
     let ids: Vec<NodeId> = (0..NUM_NODES).collect();
     let adversary_netinfo: Arc<Mutex<Option<Arc<NetworkInfo<NodeId>>>>> = Default::default();
     let (mut net, _) = NetBuilder::new(ids.iter().cloned())
