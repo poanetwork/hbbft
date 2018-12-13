@@ -449,7 +449,7 @@ fn reordering_attack() {
             BinaryAgreement::new(netinfo, 0).expect("failed to create BinaryAgreement instance")
         })
         .num_faulty(1)
-        .build()
+        .build(&mut rng)
         .unwrap();
 
     for id in ids {

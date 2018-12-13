@@ -92,8 +92,6 @@ fn do_drop_and_readd(cfg: TestConfig) {
         .message_limit(15_000 * cfg.dimension.size() as usize)
         // 30 secs per node.
         .time_limit(time::Duration::from_secs(30 * cfg.dimension.size() as u64))
-        // Ensure runs are reproducible.
-        .rng(rng.gen::<TestRng>())
         .adversary(ReorderingAdversary::new(rng.gen::<TestRng>()))
         .using_step(move |node: NewNodeInfo<SenderQueue<_>>| {
             let id = node.id;
@@ -105,7 +103,7 @@ fn do_drop_and_readd(cfg: TestConfig) {
             )
             .build(node.id)
         })
-        .build()
+        .build(&mut rng)
         .expect("could not construct test network");
 
     // We will use the first correct node as the node we will remove from and re-add to the network.

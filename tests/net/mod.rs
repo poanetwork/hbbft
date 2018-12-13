@@ -339,8 +339,6 @@ where
     /// Property to cause an error if a `Fault` is output from a correct node. By default,
     /// encountering a fault leads to an error.
     error_on_fault: bool,
-    /// Random number generator used to generate keys.
-    rng: Option<Box<dyn Rng>>,
 }
 
 impl<D, I, A> fmt::Debug for NetBuilder<D, I, A>
@@ -359,7 +357,6 @@ where
             .field("message_limit", &self.message_limit)
             .field("time_limit", &self.time_limit)
             .field("error_on_fault", &self.error_on_fault)
-            .field("rng", &"<RNG>")
             .finish()
     }
 }
@@ -392,7 +389,6 @@ where
             message_limit: None,
             time_limit: DEFAULT_TIME_LIMIT,
             error_on_fault: true,
-            rng: None,
         }
     }
 
@@ -442,20 +438,6 @@ where
     #[inline]
     pub fn num_faulty(mut self, num_faulty: usize) -> Self {
         self.num_faulty = num_faulty;
-        self
-    }
-
-    /// Random number generator.
-    ///
-    /// Overrides the random number generator used. If not specified, a `thread_rng` will be
-    /// used on construction.
-    ///
-    /// The passed in generator is used for key generation.
-    pub fn rng<R>(mut self, rng: R) -> Self
-    where
-        R: Rng + 'static,
-    {
-        self.rng = Some(Box::new(rng));
         self
     }
 
@@ -521,9 +503,10 @@ where
     ///
     /// If the total number of nodes is not `> 3 * num_faulty`, construction will panic.
     #[inline]
-    pub fn build(self) -> Result<(VirtualNet<D, A>, Vec<(D::NodeId, DaStep<D>)>), CrankError<D>> {
-        let rng: Box<dyn Rng> = self.rng.unwrap_or_else(|| Box::new(rand::thread_rng()));
-
+    pub fn build<R: Rng>(
+        self,
+        rng: &mut R,
+    ) -> Result<(VirtualNet<D, A>, Vec<(D::NodeId, DaStep<D>)>), CrankError<D>> {
         // The time limit can be overriden through environment variables:
         let override_time_limit = env::var("HBBFT_NO_TIME_LIMIT")
             // We fail early, to avoid tricking the user into thinking that they have set the time
