@@ -237,17 +237,19 @@ const NODES_PER_GROUP: usize = 2;
 const NUM_NODES: usize = (NODES_PER_GROUP * 3 + 1);
 
 impl AbaCommonCoinAdversary {
-    fn new(netinfo_mutex: Arc<Mutex<Option<Arc<NetworkInfo<NodeId>>>>>) -> Self {
-        Self::new_with_epoch(netinfo_mutex, 0, false)
+    fn new<R: Rng>(
+        netinfo_mutex: Arc<Mutex<Option<Arc<NetworkInfo<NodeId>>>>>,
+        rng: &mut R,
+    ) -> Self {
+        Self::new_with_epoch(netinfo_mutex, 0, false, rng)
     }
 
-    fn new_with_epoch(
+    fn new_with_epoch<R: Rng>(
         netinfo_mutex: Arc<Mutex<Option<Arc<NetworkInfo<NodeId>>>>>,
         epoch: u64,
         a_estimated: bool,
+        rng: &mut R,
     ) -> Self {
-        let mut rng = rand::thread_rng();
-
         AbaCommonCoinAdversary {
             stage: 0,
             stage_progress: 0,
@@ -268,7 +270,7 @@ impl AbaCommonCoinAdversary {
                     let mut coin = ThresholdSign::new_with_document(netinfo, coin_id)
                         .expect("Failed to set the coin's ID");
                     let _ = coin
-                        .handle_input((), &mut rng)
+                        .handle_input((), rng)
                         .expect("Calling handle_input on Coin failed");
                     CoinState::InProgress(Box::new(coin))
                 }
@@ -398,6 +400,7 @@ impl Adversary<Algo> for AbaCommonCoinAdversary {
                     self.coin_state
                         .value()
                         .expect("Coin value not known at end of epoch"),
+                    rng,
                 );
                 redo_crank = true;
             }
@@ -434,12 +437,14 @@ impl Adversary<Algo> for AbaCommonCoinAdversary {
 #[test]
 fn reordering_attack() {
     let _ = env_logger::try_init();
-    // FIXME: DO WE REALLY WANT THREAD_RNG HERE?
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::OsRng::new().unwrap();
     let ids: Vec<NodeId> = (0..NUM_NODES).collect();
     let adversary_netinfo: Arc<Mutex<Option<Arc<NetworkInfo<NodeId>>>>> = Default::default();
     let (mut net, _) = NetBuilder::new(ids.iter().cloned())
-        .adversary(AbaCommonCoinAdversary::new(adversary_netinfo.clone()))
+        .adversary(AbaCommonCoinAdversary::new(
+            adversary_netinfo.clone(),
+            &mut rng,
+        ))
         .crank_limit(10000)
         .using(move |info| {
             let netinfo = Arc::new(info.netinfo);
