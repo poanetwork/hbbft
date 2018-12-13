@@ -26,7 +26,7 @@ use rand::{Rng, SeedableRng};
 use hbbft::binary_agreement::BinaryAgreement;
 use hbbft::DistAlgorithm;
 
-use crate::net::adversary::ReorderingAdversary;
+use crate::net::adversary::{Adversary, ReorderingAdversary};
 use crate::net::proptest::{gen_seed, NetworkDimension, TestRng, TestRngSeed};
 use crate::net::{NetBuilder, NewNodeInfo, VirtualNet};
 
@@ -72,7 +72,10 @@ proptest! {
 
 type NodeId = u16;
 
-impl VirtualNet<BinaryAgreement<NodeId, u8>> {
+impl<A> VirtualNet<BinaryAgreement<NodeId, u8>, A>
+where
+    A: Adversary<BinaryAgreement<NodeId, u8>>,
+{
     fn test_binary_agreement<R>(&mut self, input: Option<bool>, mut rng: R)
     where
         R: Rng + 'static,

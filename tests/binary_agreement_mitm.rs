@@ -9,6 +9,7 @@ use std::sync::{Arc, Mutex};
 use hbbft::binary_agreement::{BinaryAgreement, MessageContent, SbvMessage};
 use hbbft::threshold_sign::ThresholdSign;
 use hbbft::{DaStep, DistAlgorithm, NetworkInfo};
+use rand::Rng;
 
 use crate::net::adversary::{NetMutHandle, QueuePosition};
 use crate::net::err::CrankError;
@@ -290,7 +291,7 @@ impl AbaCommonCoinAdversary {
         }
     }
 
-    fn inject_stage_messages(&mut self, net: &mut NetMutHandle<Algo>) {
+    fn inject_stage_messages(&mut self, net: &mut NetMutHandle<Algo, Self>) {
         if self.sent_stage_messages {
             return;
         }
@@ -373,7 +374,7 @@ impl AbaCommonCoinAdversary {
 }
 
 impl Adversary<Algo> for AbaCommonCoinAdversary {
-    fn pre_crank(&mut self, mut net: NetMutHandle<Algo>) {
+    fn pre_crank<R: Rng>(&mut self, mut net: NetMutHandle<Algo, Self>, rng: &mut R) {
         self.inject_stage_messages(&mut net);
         net.sort_messages_by(|a, b| {
             a.payload()
@@ -402,14 +403,15 @@ impl Adversary<Algo> for AbaCommonCoinAdversary {
             }
         }
         if redo_crank {
-            self.pre_crank(net);
+            self.pre_crank(net, rng);
         }
     }
 
-    fn tamper(
+    fn tamper<R: Rng>(
         &mut self,
-        _: NetMutHandle<Algo>,
+        _: NetMutHandle<Algo, Self>,
         msg: NetMessage<Algo>,
+        _rng: &mut R,
     ) -> Result<DaStep<Algo>, CrankError<Algo>> {
         if let MessageContent::Coin(ref coin_msg) = msg.payload().content {
             let mut new_coin_state = None;

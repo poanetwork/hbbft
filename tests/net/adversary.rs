@@ -46,13 +46,19 @@ use crate::net::{CrankError, NetMessage, Node, VirtualNet};
 ///
 /// Allows querying public information of the network or getting immutable handles to any node.
 #[derive(Debug)]
-pub struct NetHandle<'a, D: 'a>(&'a VirtualNet<D>)
-where
-    D: DistAlgorithm;
-
-impl<'a, D: 'a> NetHandle<'a, D>
+pub struct NetHandle<'a, D: 'a, A>(&'a VirtualNet<D, A>)
 where
     D: DistAlgorithm,
+    D::Message: Clone,
+    D::Output: Clone,
+    A: Adversary<D>;
+
+impl<'a, D: 'a, A> NetHandle<'a, D, A>
+where
+    D: DistAlgorithm,
+    D::Message: Clone,
+    D::Output: Clone,
+    A: Adversary<D>,
 {
     /// Returns a node handle iterator over all nodes in the network.
     #[inline]
@@ -106,18 +112,22 @@ pub enum QueuePosition {
 /// Allows reordering of messages, injecting new ones into the network queue and getting mutable
 /// handles to nodes.
 #[derive(Debug)]
-pub struct NetMutHandle<'a, D: 'a>(&'a mut VirtualNet<D>)
-where
-    D: DistAlgorithm;
-
-impl<'a, D> NetMutHandle<'a, D>
+pub struct NetMutHandle<'a, D: 'a, A>(&'a mut VirtualNet<D, A>)
 where
     D: DistAlgorithm,
+    D::Message: Clone,
+    D::Output: Clone,
+    A: Adversary<D>;
+
+impl<'a, D, A> NetMutHandle<'a, D, A>
+where
+    D: DistAlgorithm,
+    A: Adversary<D>,
     D::NodeId: Clone,
     D::Message: Clone,
     D::Output: Clone,
 {
-    pub fn new(net: &'a mut VirtualNet<D>) -> Self {
+    pub fn new(net: &'a mut VirtualNet<D, A>) -> Self {
         NetMutHandle(net)
     }
 
@@ -215,12 +225,15 @@ where
 }
 
 // Downgrade-conversion.
-impl<'a, D> From<NetMutHandle<'a, D>> for NetHandle<'a, D>
+impl<'a, D, A> From<NetMutHandle<'a, D, A>> for NetHandle<'a, D, A>
 where
     D: DistAlgorithm,
+    A: Adversary<D>,
+    D::Message: Clone,
+    D::Output: Clone,
 {
     #[inline]
-    fn from(n: NetMutHandle<D>) -> NetHandle<D> {
+    fn from(n: NetMutHandle<D, A>) -> NetHandle<D, A> {
         NetHandle(n.0)
     }
 }
@@ -309,6 +322,7 @@ where
 /// Network adversary.
 pub trait Adversary<D>
 where
+    Self: Sized,
     D: DistAlgorithm,
     D::Message: Clone,
     D::Output: Clone,
@@ -320,7 +334,7 @@ where
     ///
     /// The default implementation does not alter the passed network in any way.
     #[inline]
-    fn pre_crank(&mut self, _net: NetMutHandle<D>) {}
+    fn pre_crank<R: Rng>(&mut self, _net: NetMutHandle<D, Self>, _rng: &mut R) {}
 
     /// Tamper with a faulty node's operation.
     ///
@@ -336,14 +350,13 @@ where
     /// `VirtualNet::dispatch_message`, which results in the message being processed as if the node
     /// was not faulty.
     #[inline]
-    fn tamper(
+    fn tamper<R: Rng>(
         &mut self,
-        mut net: NetMutHandle<D>,
+        mut net: NetMutHandle<D, Self>,
         msg: NetMessage<D>,
+        rng: &mut R,
     ) -> Result<DaStep<D>, CrankError<D>> {
-        // FIXME: RETHINK INTERFACE TO AVOID GENERIC TYPE PARAMETERS!
-        let mut rng = rand::thread_rng();
-        net.dispatch_message(msg, &mut rng)
+        net.dispatch_message(msg, rng)
     }
 }
 
@@ -394,7 +407,7 @@ where
     D::Output: Clone,
 {
     #[inline]
-    fn pre_crank(&mut self, mut net: NetMutHandle<D>) {
+    fn pre_crank<R: Rng>(&mut self, mut net: NetMutHandle<D, Self>, _rng: &mut R) {
         // Message are sorted by NodeID on each step.
         net.sort_messages_by(|a, b| a.to.cmp(&b.to))
     }
@@ -435,7 +448,7 @@ where
     D::Output: Clone,
 {
     #[inline]
-    fn pre_crank(&mut self, mut net: NetMutHandle<D>) {
+    fn pre_crank<R: Rng>(&mut self, mut net: NetMutHandle<D, Self>, _rng: &mut R) {
         let l = net.0.messages_len();
         if l > 0 {
             net.swap_messages(0, self.rng.gen_range(0, l));
