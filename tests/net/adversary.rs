@@ -33,8 +33,8 @@
 //! some cases be upgraded to actual references, if the underlying node is faulty (see
 //! `NodeHandle::node()` and `NodeHandle::node_mut()`).
 
+use std::cmp;
 use std::collections::VecDeque;
-use std::{cmp, fmt};
 
 use rand::Rng;
 
@@ -418,26 +418,12 @@ where
 /// An adversary that swaps the message at the front of the message queue for a random message
 /// within the queue before every `crank`. Thus the order in which messages are received by nodes is
 /// random, which allows to test randomized message delivery.
-pub struct ReorderingAdversary {
-    /// Random number generator to reorder messages.
-    rng: Box<dyn Rng>,
-}
-
-impl fmt::Debug for ReorderingAdversary {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        f.debug_struct("ReorderingAdversary")
-            .field("rng", &"<RNG>")
-            .finish()
-    }
-}
+#[derive(Copy, Clone, Debug)]
+pub struct ReorderingAdversary {}
 
 impl ReorderingAdversary {
-    #[inline]
-    pub fn new<R>(rng: R) -> Self
-    where
-        R: 'static + Rng,
-    {
-        ReorderingAdversary { rng: Box::new(rng) }
+    pub fn new() -> Self {
+        ReorderingAdversary {}
     }
 }
 
@@ -448,10 +434,10 @@ where
     D::Output: Clone,
 {
     #[inline]
-    fn pre_crank<R: Rng>(&mut self, mut net: NetMutHandle<D, Self>, _rng: &mut R) {
+    fn pre_crank<R: Rng>(&mut self, mut net: NetMutHandle<D, Self>, rng: &mut R) {
         let l = net.0.messages_len();
         if l > 0 {
-            net.swap_messages(0, self.rng.gen_range(0, l));
+            net.swap_messages(0, rng.gen_range(0, l));
         }
     }
 }

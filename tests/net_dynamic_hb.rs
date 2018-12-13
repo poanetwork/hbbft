@@ -8,7 +8,7 @@ use crate::net::{NetBuilder, NewNodeInfo};
 use hbbft::dynamic_honey_badger::{Change, ChangeState, DynamicHoneyBadger, Input};
 use hbbft::sender_queue::SenderQueue;
 use proptest::{prelude::ProptestConfig, prop_compose, proptest, proptest_helper};
-use rand::{Rng, SeedableRng};
+use rand::SeedableRng;
 
 /// Choose a node's contribution for an epoch.
 ///
@@ -92,7 +92,7 @@ fn do_drop_and_readd(cfg: TestConfig) {
         .message_limit(15_000 * cfg.dimension.size() as usize)
         // 30 secs per node.
         .time_limit(time::Duration::from_secs(30 * cfg.dimension.size() as u64))
-        .adversary(ReorderingAdversary::new(rng.gen::<TestRng>()))
+        .adversary(ReorderingAdversary::new())
         .using_step(move |node: NewNodeInfo<SenderQueue<_>>| {
             let id = node.id;
             println!("Constructing new dynamic honey badger node #{}", id);

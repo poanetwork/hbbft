@@ -120,7 +120,7 @@ fn binary_agreement(cfg: TestConfig) {
         .num_faulty(num_faulty_nodes as usize)
         .message_limit(10_000 * size as usize)
         .time_limit(time::Duration::from_secs(30 * size as u64))
-        .adversary(ReorderingAdversary::new(rng.gen::<TestRng>()))
+        .adversary(ReorderingAdversary::new())
         .using(move |node_info: NewNodeInfo<_>| {
             BinaryAgreement::new(Arc::new(node_info.netinfo), 0)
                 .expect("Failed to create a BinaryAgreement instance.")
