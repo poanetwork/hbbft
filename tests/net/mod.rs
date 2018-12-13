@@ -283,6 +283,7 @@ where
 /// New network node construction information.
 ///
 /// Helper structure passed to node constructors when building virtual networks.
+#[derive(Debug)]
 pub struct NewNodeInfo<D>
 where
     D: DistAlgorithm,
@@ -293,20 +294,6 @@ where
     pub netinfo: NetworkInfo<D::NodeId>,
     /// Whether or not the node is marked faulty.
     pub faulty: bool,
-}
-
-impl<D> fmt::Debug for NewNodeInfo<D>
-where
-    D: DistAlgorithm,
-{
-    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
-        fmt.debug_struct("NewNodeInfo")
-            .field("id", &self.id)
-            .field("netinfo", &self.netinfo)
-            .field("faulty", &self.faulty)
-            .field("rng", &"<RNG>")
-            .finish()
-    }
 }
 
 /// Virtual network builder.
@@ -568,6 +555,7 @@ where
 ///
 /// An adversary can be hooked into the network to affect the order of message delivery or the
 /// behaviour of faulty nodes.
+#[derive(Debug)]
 pub struct VirtualNet<D, A>
 where
     D: DistAlgorithm,
@@ -599,28 +587,6 @@ where
     /// `false` switches allows to carry on with the test despite `Fault`s reported for a correct
     /// node.
     error_on_fault: bool,
-}
-
-impl<D, A> fmt::Debug for VirtualNet<D, A>
-where
-    D: DistAlgorithm,
-    D::Message: Clone,
-    D::Output: Clone,
-    A: Adversary<D> + fmt::Debug,
-{
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        f.debug_struct("VirtualNet")
-            .field("nodes", &self.nodes.len())
-            .field("messages", &self.messages)
-            .field("adversary", &self.adversary)
-            .field("trace", &self.trace.is_some())
-            .field("crank_count", &self.crank_count)
-            .field("crank_limit", &self.crank_limit)
-            .field("message_count", &self.message_count)
-            .field("message_limit", &self.message_limit)
-            .field("error_on_fault", &self.error_on_fault)
-            .finish()
-    }
 }
 
 impl<D, A> VirtualNet<D, A>
