@@ -147,16 +147,16 @@ where
             .filter(|kg_msg| kg_msg.era() == self.era)
             .cloned()
             .collect();
+
+        let contrib = InternalContrib {
+            contrib,
+            key_gen_messages,
+            votes: self.vote_counter.pending_votes().cloned().collect(),
+        };
+
         let step = self
             .honey_badger
-            .propose(
-                &InternalContrib {
-                    contrib,
-                    key_gen_messages,
-                    votes: self.vote_counter.pending_votes().cloned().collect(),
-                },
-                rng,
-            )
+            .propose(&contrib, rng)
             .map_err(Error::ProposeHoneyBadger)?;
         self.process_output(step, rng)
     }
