@@ -56,14 +56,7 @@ struct Args {
 pub struct NodeId(pub usize);
 
 /// A transaction.
-#[derive(Serialize, Deserialize, Eq, PartialEq, Hash, Ord, PartialOrd, Debug, Clone)]
-pub struct Transaction(pub Vec<u8>);
-
-impl Transaction {
-    fn new(len: usize) -> Transaction {
-        Transaction(rand::thread_rng().gen_iter().take(len).collect())
-    }
-}
+type Transaction = Vec<u8>;
 
 /// A serialized message with a sender and the timestamp of arrival.
 #[derive(Eq, PartialEq, Debug)]
@@ -168,7 +161,7 @@ where
     }
 
     /// Handles the first message in the node's queue.
-    fn handle_message(&mut self) {
+    fn handle_message<R: Rng>(&mut self, rng: &mut R) {
         let ts_msg = self.in_queue.pop_front().expect("message not found");
         self.time = cmp::max(self.time, ts_msg.time);
         self.message_count += 1;
@@ -177,7 +170,7 @@ where
         let msg = bincode::deserialize::<D::Message>(&ts_msg.message).expect("deserialize");
         let step = self
             .algo
-            .handle_message(&ts_msg.sender_id, msg, &mut rand::thread_rng())
+            .handle_message(&ts_msg.sender_id, msg, rng)
             .expect("handling message");
         self.time += start.elapsed() * self.hw_quality.cpu_factor / 100;
         self.send_output_and_msgs(step)
@@ -247,20 +240,21 @@ where
     D::Message: Serialize + DeserializeOwned + Clone,
 {
     /// Creates a new network with `good_num` good nodes, and `dead_num` dead nodes.
-    pub fn new<F>(
+    pub fn new<F, R: Rng>(
         good_num: usize,
         adv_num: usize,
         new_algo: F,
         hw_quality: HwQuality,
+        rng: &mut R,
     ) -> TestNetwork<D>
     where
-        F: Fn(NetworkInfo<NodeId>) -> (D, DaStep<D>),
+        F: Fn(NetworkInfo<NodeId>, &mut R) -> (D, DaStep<D>),
     {
         let node_ids = (0..(good_num + adv_num)).map(NodeId);
-        let netinfos = NetworkInfo::generate_map(node_ids, &mut rand::thread_rng())
-            .expect("Failed to create `NetworkInfo` map");
+        let netinfos =
+            NetworkInfo::generate_map(node_ids, rng).expect("Failed to create `NetworkInfo` map");
         let new_node = |(id, netinfo): (NodeId, NetworkInfo<_>)| {
-            (id, TestNode::new(new_algo(netinfo), hw_quality))
+            (id, TestNode::new(new_algo(netinfo, rng), hw_quality))
         };
         let mut network = TestNetwork {
             nodes: netinfos.into_iter().map(new_node).collect(),
@@ -299,7 +293,7 @@ where
 
     /// Handles a queued message in one of the nodes with the earliest timestamp, if any. Returns
     /// the recipient's ID.
-    pub fn step(&mut self) -> Option<NodeId> {
+    pub fn step<R: Rng>(&mut self, rng: &mut R) -> Option<NodeId> {
         let min_time = self
             .nodes
             .values()
@@ -311,10 +305,10 @@ where
             .filter(|(_, node)| node.next_event_time() == Some(min_time))
             .map(|(id, _)| *id)
             .collect();
-        let next_id = *rand::thread_rng().choose(&min_ids).unwrap();
+        let next_id = *rng.choose(&min_ids).unwrap();
         let msgs: Vec<_> = {
             let node = self.nodes.get_mut(&next_id).unwrap();
-            node.handle_message();
+            node.handle_message(rng);
             node.out_queue.drain(..).collect()
         };
         self.dispatch_messages(msgs);
@@ -378,14 +372,14 @@ impl EpochInfo {
 }
 
 /// Proposes `num_txs` values and expects nodes to output and order them.
-fn simulate_honey_badger(mut network: TestNetwork<QHB>) {
+fn simulate_honey_badger<R: Rng>(mut network: TestNetwork<QHB>, rng: &mut R) {
     // Handle messages until all nodes have output all transactions.
     println!(
         "{}",
         "Epoch  Min/Max Time   Txs Msgs/Node  Size/Node".bold()
     );
     let mut epochs = Vec::new();
-    while let Some(id) = network.step() {
+    while let Some(id) = network.step(rng) {
         for &(time, ref batch) in &network.nodes[&id].outputs {
             let epoch = batch.epoch() as usize;
             if epochs.len() <= epoch {
@@ -406,11 +400,14 @@ fn parse_args() -> Result<Args, docopt::Error> {
 
 fn main() {
     env_logger::init();
+    let mut rng = rand::OsRng::new().expect("Could not initialize OS random number generator.");
+
     let args = parse_args().unwrap_or_else(|e| e.exit());
     if args.flag_n <= 3 * args.flag_f {
         let msg = "Honey Badger only works if less than one third of the nodes are faulty.";
         println!("{}", msg.red().bold());
     }
+
     println!("Simulating Honey Badger with:");
     println!("{} nodes, {} faulty", args.flag_n, args.flag_f);
     println!(
@@ -422,11 +419,14 @@ fn main() {
         args.flag_lag, args.flag_bw, args.flag_cpu
     );
     println!();
+
     let num_good_nodes = args.flag_n - args.flag_f;
+
     let txs: Vec<_> = (0..args.flag_txs)
-        .map(|_| Transaction::new(args.flag_tx_size))
+        .map(|_| rng.gen_iter().take(args.flag_tx_size).collect())
         .collect();
-    let new_honey_badger = |netinfo: NetworkInfo<NodeId>| {
+
+    let new_honey_badger = |netinfo: NetworkInfo<NodeId>, rng: &mut rand::OsRng| {
         let our_id = *netinfo.our_id();
         let peer_ids: Vec<_> = netinfo
             .all_ids()
@@ -436,17 +436,25 @@ fn main() {
         let dhb = DynamicHoneyBadger::builder().build(netinfo);
         let (qhb, qhb_step) = QueueingHoneyBadger::builder(dhb)
             .batch_size(args.flag_b)
-            .build_with_transactions(txs.clone(), &mut rand::thread_rng())
+            .build_with_transactions(txs.clone(), rng)
             .expect("instantiate QueueingHoneyBadger");
         let (sq, mut step) = SenderQueue::builder(qhb, peer_ids.into_iter()).build(our_id);
         step.extend_with(qhb_step, Message::from);
         (sq, step)
     };
+
     let hw_quality = HwQuality {
         latency: Duration::from_millis(args.flag_lag),
         inv_bw: Duration::new(0, 8_000_000 / args.flag_bw),
         cpu_factor: (10_000f32 / args.flag_cpu) as u32,
     };
-    let network = TestNetwork::new(num_good_nodes, args.flag_f, new_honey_badger, hw_quality);
-    simulate_honey_badger(network);
+
+    let network = TestNetwork::new(
+        num_good_nodes,
+        args.flag_f,
+        new_honey_badger,
+        hw_quality,
+        &mut rng,
+    );
+    simulate_honey_badger(network, &mut rng);
 }
