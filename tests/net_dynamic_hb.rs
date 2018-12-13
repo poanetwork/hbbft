@@ -11,6 +11,8 @@ use crate::net::adversary::{Adversary, ReorderingAdversary};
 use crate::net::proptest::{gen_seed, NetworkDimension, TestRng, TestRngSeed};
 use crate::net::{NetBuilder, NewNodeInfo, Node, VirtualNet};
 
+type DHB = SenderQueue<DynamicHoneyBadger<Vec<usize>, usize>>;
+
 /// Choose a node's contribution for an epoch.
 ///
 /// Selects randomly out of a slice, according to chosen batch and contribution sizes. The function
@@ -82,7 +84,7 @@ proptest! {
 
 /// Dynamic honey badger: Drop a validator node, demoting it to observer, then re-add it, all while
 /// running a regular honey badger network.
-#[allow(clippy::needless_pass_by_value)]
+#[allow(clippy::needless_pass_by_value, clippy::cyclomatic_complexity)]
 fn do_drop_and_readd(cfg: TestConfig) {
     let mut rng: TestRng = TestRng::from_seed(cfg.seed);
 
@@ -168,7 +170,7 @@ fn do_drop_and_readd(cfg: TestConfig) {
     let mut rejoined_pivot_node = false;
     // The removed pivot node which is to be restarted as soon as all remaining validators agree to
     // add it back.
-    let mut saved_node: Option<Node<SenderQueue<DynamicHoneyBadger<Vec<usize>, usize>>>> = None;
+    let mut saved_node: Option<Node<DHB>> = None;
 
     // Run the network:
     loop {
@@ -353,14 +355,14 @@ fn do_drop_and_readd(cfg: TestConfig) {
 
 /// Restarts node 0 on the test network for adding it back as a validator.
 fn restart_node_for_add<R, A>(
-    net: &mut VirtualNet<SenderQueue<DynamicHoneyBadger<Vec<usize>, usize>>, A>,
-    mut node: Node<SenderQueue<DynamicHoneyBadger<Vec<usize>, usize>>>,
+    net: &mut VirtualNet<DHB, A>,
+    mut node: Node<DHB>,
     join_plan: JoinPlan<usize>,
     rng: &mut R,
 ) -> Step<DynamicHoneyBadger<Vec<usize>, usize>>
 where
     R: rand::Rng,
-    A: Adversary<SenderQueue<DynamicHoneyBadger<Vec<usize>, usize>>>,
+    A: Adversary<DHB>,
 {
     println!("Restarting node {} with {:?}", node.id(), join_plan);
     let peer_ids: Vec<usize> = net
