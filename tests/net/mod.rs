@@ -846,6 +846,7 @@ where
 
     /// Processes a step of a given node. The results of the processing are stored internally in the
     /// test network.
+    #[must_use = "The result of processing a step must be used."]
     pub fn process_step(&mut self, id: D::NodeId, step: &DaStep<D>) -> Result<(), CrankError<D>> {
         self.message_count = self.message_count.saturating_add(process_step(
             &mut self.nodes,
@@ -941,18 +942,9 @@ where
 
         // All messages are expanded and added to the queue. We opt for copying them, so we can
         // return unaltered step later on for inspection.
-        self.message_count = self.message_count.saturating_add(
-            match process_step(
-                &mut self.nodes,
-                receiver.clone(),
-                &step,
-                &mut self.messages,
-                self.error_on_fault,
-            ) {
-                Ok(n) => n,
-                Err(e) => return Some(Err(e)),
-            },
-        );
+        if let Err(e) = self.process_step(receiver.clone(), &step) {
+            return Some(Err(e));
+        }
 
         // Increase the crank count.
         self.crank_count += 1;
@@ -1006,14 +998,7 @@ where
 
         // Process all messages from all steps in the queue.
         for (id, step) in &steps {
-            let n = process_step(
-                &mut self.nodes,
-                id.clone(),
-                step,
-                &mut self.messages,
-                self.error_on_fault,
-            )?;
-            self.message_count = self.message_count.saturating_add(n);
+            self.process_step(id.clone(), step)?;
         }
 
         Ok(steps)
