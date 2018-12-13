@@ -9,7 +9,7 @@ use rand::SeedableRng;
 
 use crate::net::adversary::{Adversary, ReorderingAdversary};
 use crate::net::proptest::{gen_seed, NetworkDimension, TestRng, TestRngSeed};
-use crate::net::{NetBuilder, NewNodeInfo, VirtualNet};
+use crate::net::{NetBuilder, NewNodeInfo, Node, VirtualNet};
 
 /// Choose a node's contribution for an epoch.
 ///
@@ -161,11 +161,17 @@ fn do_drop_and_readd(cfg: TestConfig) {
         .map(|n| (*n.id(), (0..10).collect()))
         .collect();
     let mut received_batches: collections::BTreeMap<u64, _> = collections::BTreeMap::new();
-    let mut rejoined_pivot_node = false; // Whether node 0 was rejoined as a validator.
+    // Whether node 0 was rejoined as a validator.
+    let mut rejoined_pivot_node = false;
+    // The removed pivot node which is to be restarted as soon as all remaining validators agree to
+    // add it back.
+    let mut saved_node: Option<Node<SenderQueue<DynamicHoneyBadger<Vec<usize>, usize>>>> = None;
 
     // Run the network:
     loop {
         let (node_id, step) = net.crank_expect(&mut rng);
+        // A flag telling whether the cranked node has been removed from the network.
+        let mut removed_ourselves = false;
         if !net[node_id].is_faulty() {
             for batch in &step.output {
                 // Check that correct nodes don't output different batches for the same epoch.
@@ -215,14 +221,27 @@ fn do_drop_and_readd(cfg: TestConfig) {
                     // Removal complete, tally:
                     awaiting_removal.remove(&node_id);
 
-                    // Now we can add the node again. Public keys will be reused.
-                    let _ = net
-                        .send_input(
-                            node_id,
-                            Input::Change(Change::NodeChange(pub_keys_add.clone())),
-                            &mut rng,
-                        )
-                        .expect("failed to send `Add` input");
+                    if awaiting_removal.is_empty() {
+                        println!(
+                            "Removing the pivot node {} from the test network",
+                            pivot_node_id
+                        );
+                        saved_node = net.remove_node(&pivot_node_id);
+                        if node_id == pivot_node_id {
+                            removed_ourselves = true;
+                        }
+                    }
+
+                    if node_id != pivot_node_id {
+                        // Now we can add the node again. Public keys will be reused.
+                        let _ = net
+                            .send_input(
+                                node_id,
+                                Input::Change(Change::NodeChange(pub_keys_add.clone())),
+                                &mut rng,
+                            )
+                            .expect("failed to send `Add` input");
+                    }
                 }
 
                 ChangeState::Complete(Change::NodeChange(ref pub_keys))
@@ -242,6 +261,11 @@ fn do_drop_and_readd(cfg: TestConfig) {
                     println!("Unhandled change: {:?}", change);
                 }
             }
+        }
+        if removed_ourselves {
+            // Further operations on the cranked node are not possible. Continue with processing
+            // other nodes.
+            continue;
         }
 
         // Record whether or not we received some output.
@@ -283,15 +307,12 @@ fn do_drop_and_readd(cfg: TestConfig) {
                         let join_plan = batch
                             .join_plan()
                             .expect("failed to get the join plan of the batch");
-                        let step = restart_pivot_node_for_add(
-                            &mut net,
-                            pivot_node_id,
-                            join_plan,
-                            &mut rng,
-                        );
-                        net.process_step(pivot_node_id, &step)
-                            .expect("processing a step failed");
-                        rejoined_pivot_node = true;
+                        if let Some(node) = saved_node.take() {
+                            let step = restart_node_for_add(&mut net, node, join_plan, &mut rng);
+                            net.process_step(pivot_node_id, &step)
+                                .expect("processing a step failed");
+                            rejoined_pivot_node = true;
+                        }
                     }
                 }
             }
@@ -329,9 +350,9 @@ fn do_drop_and_readd(cfg: TestConfig) {
 }
 
 /// Restarts node 0 on the test network for adding it back as a validator.
-fn restart_pivot_node_for_add<R, A>(
+fn restart_node_for_add<R, A>(
     net: &mut VirtualNet<SenderQueue<DynamicHoneyBadger<Vec<usize>, usize>>, A>,
-    pivot_node_id: usize,
+    mut node: Node<SenderQueue<DynamicHoneyBadger<Vec<usize>, usize>>>,
     join_plan: JoinPlan<usize>,
     rng: &mut R,
 ) -> Step<DynamicHoneyBadger<Vec<usize>, usize>>
@@ -339,19 +360,19 @@ where
     R: rand::Rng,
     A: Adversary<SenderQueue<DynamicHoneyBadger<Vec<usize>, usize>>>,
 {
-    println!("Restarting node {} with {:?}", pivot_node_id, join_plan);
+    println!("Restarting node {} with {:?}", node.id(), join_plan);
     let peer_ids: Vec<usize> = net
         .nodes()
         .map(|node| *node.id())
-        .filter(|&id| id != pivot_node_id)
+        .filter(|id| id != node.id())
         .collect();
-    let pivot_node = &mut net[pivot_node_id];
-    let secret_key = pivot_node.algorithm().algo().netinfo().secret_key().clone();
-    let (dhb, dhb_step) =
-        DynamicHoneyBadger::new_joining(pivot_node_id, secret_key, join_plan, rng)
-            .expect("failed to reconstruct the pivot node");
-    let (sq, mut sq_step) = SenderQueue::builder(dhb, peer_ids.into_iter()).build(pivot_node_id);
-    *pivot_node.algorithm_mut() = sq;
+    let secret_key = node.algorithm().algo().netinfo().secret_key().clone();
+    let id = *node.id();
+    let (dhb, dhb_step) = DynamicHoneyBadger::new_joining(id, secret_key, join_plan, rng)
+        .expect("failed to reconstruct the pivot node");
+    let (sq, mut sq_step) = SenderQueue::builder(dhb, peer_ids.into_iter()).build(id);
+    *node.algorithm_mut() = sq;
     sq_step.extend(dhb_step.map(|output| output, Message::from));
+    net.insert_node(node);
     sq_step
 }

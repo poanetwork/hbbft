@@ -634,6 +634,21 @@ where
         self.nodes_mut().filter(|n| !n.is_faulty())
     }
 
+    /// Inserts a new node into the network. Returns the old node with the same ID if it existed on
+    /// the network at the time of insertion.
+    #[inline]
+    pub fn insert_node(&mut self, node: Node<D>) -> Option<Node<D>> {
+        self.nodes.insert(node.id().clone(), node)
+    }
+
+    /// Removes a node with the given ID from the network. Returns the removed node if there was a
+    /// node with this ID at the time of removal.
+    #[inline]
+    pub fn remove_node(&mut self, id: &D::NodeId) -> Option<Node<D>> {
+        self.messages.retain(|msg| msg.to != *id);
+        self.nodes.remove(id)
+    }
+
     /// Retrieve a node by ID.
     ///
     /// Returns `None` if the node ID is not part of the network.
@@ -804,7 +819,7 @@ where
         let node = self
             .nodes
             .get_mut(&msg.to)
-            .ok_or_else(|| CrankError::NodeDisappeared(msg.to.clone()))?;
+            .ok_or_else(|| CrankError::NodeDisappearedInDispatch(msg.to.clone()))?;
 
         // Store a copy of the message, in case we need to pass it to the error variant.
         // By reducing the information in `CrankError::HandleMessage`, we could reduce overhead
@@ -917,7 +932,7 @@ where
         let is_faulty = try_some!(self
             .nodes
             .get(&msg.to)
-            .ok_or_else(|| CrankError::NodeDisappeared(msg.to.clone())))
+            .ok_or_else(|| CrankError::NodeDisappearedInCrank(msg.to.clone())))
         .is_faulty();
 
         let step: Step<_, _, _> = if is_faulty {
@@ -942,9 +957,7 @@ where
 
         // All messages are expanded and added to the queue. We opt for copying them, so we can
         // return unaltered step later on for inspection.
-        if let Err(e) = self.process_step(receiver.clone(), &step) {
-            return Some(Err(e));
-        }
+        try_some!(self.process_step(receiver.clone(), &step));
 
         // Increase the crank count.
         self.crank_count += 1;
