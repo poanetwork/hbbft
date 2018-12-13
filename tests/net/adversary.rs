@@ -418,7 +418,7 @@ where
 /// An adversary that swaps the message at the front of the message queue for a random message
 /// within the queue before every `crank`. Thus the order in which messages are received by nodes is
 /// random, which allows to test randomized message delivery.
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, Default)]
 pub struct ReorderingAdversary {}
 
 impl ReorderingAdversary {
