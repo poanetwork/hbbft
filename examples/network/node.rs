@@ -108,6 +108,8 @@ impl<T: Clone + Debug + AsRef<[u8]> + PartialEq + Send + Sync + From<Vec<u8>> + 
         let tx_from_algo = messaging.tx_from_algo();
         let stop_tx = messaging.stop_tx();
 
+        let mut rng = rand::OsRng::new().unwrap();
+
         // All spawned threads will have exited by the end of the scope.
         crossbeam::scope(|scope| {
             // Start the centralised message delivery system.
@@ -124,7 +126,7 @@ impl<T: Clone + Debug + AsRef<[u8]> + PartialEq + Send + Sync + From<Vec<u8>> + 
                 if let Some(v) = value {
                     // FIXME: Use the output.
                     let step = broadcast
-                        .handle_input(v.clone().into(), &mut rand::thread_rng())
+                        .handle_input(v.clone().into(), &mut rng)
                         .expect("propose value");
                     for msg in step.messages {
                         tx_from_algo.send(msg).expect("send from algo");
