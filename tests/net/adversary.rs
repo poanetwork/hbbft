@@ -33,8 +33,8 @@
 //! some cases be upgraded to actual references, if the underlying node is faulty (see
 //! `NodeHandle::node()` and `NodeHandle::node_mut()`).
 
+use std::cmp;
 use std::collections::VecDeque;
-use std::{cmp, fmt};
 
 use rand::Rng;
 
@@ -46,13 +46,19 @@ use crate::net::{CrankError, NetMessage, Node, VirtualNet};
 ///
 /// Allows querying public information of the network or getting immutable handles to any node.
 #[derive(Debug)]
-pub struct NetHandle<'a, D: 'a>(&'a VirtualNet<D>)
-where
-    D: DistAlgorithm;
-
-impl<'a, D: 'a> NetHandle<'a, D>
+pub struct NetHandle<'a, D: 'a, A>(&'a VirtualNet<D, A>)
 where
     D: DistAlgorithm,
+    D::Message: Clone,
+    D::Output: Clone,
+    A: Adversary<D>;
+
+impl<'a, D: 'a, A> NetHandle<'a, D, A>
+where
+    D: DistAlgorithm,
+    D::Message: Clone,
+    D::Output: Clone,
+    A: Adversary<D>,
 {
     /// Returns a node handle iterator over all nodes in the network.
     #[inline]
@@ -106,18 +112,22 @@ pub enum QueuePosition {
 /// Allows reordering of messages, injecting new ones into the network queue and getting mutable
 /// handles to nodes.
 #[derive(Debug)]
-pub struct NetMutHandle<'a, D: 'a>(&'a mut VirtualNet<D>)
-where
-    D: DistAlgorithm;
-
-impl<'a, D> NetMutHandle<'a, D>
+pub struct NetMutHandle<'a, D: 'a, A>(&'a mut VirtualNet<D, A>)
 where
     D: DistAlgorithm,
+    D::Message: Clone,
+    D::Output: Clone,
+    A: Adversary<D>;
+
+impl<'a, D, A> NetMutHandle<'a, D, A>
+where
+    D: DistAlgorithm,
+    A: Adversary<D>,
     D::NodeId: Clone,
     D::Message: Clone,
     D::Output: Clone,
 {
-    pub fn new(net: &'a mut VirtualNet<D>) -> Self {
+    pub fn new(net: &'a mut VirtualNet<D, A>) -> Self {
         NetMutHandle(net)
     }
 
@@ -143,8 +153,12 @@ where
     }
 
     /// Normally dispatch a message
-    pub fn dispatch_message(&mut self, msg: NetMessage<D>) -> Result<DaStep<D>, CrankError<D>> {
-        self.0.dispatch_message(msg)
+    pub fn dispatch_message<R: Rng>(
+        &mut self,
+        msg: NetMessage<D>,
+        rng: &mut R,
+    ) -> Result<DaStep<D>, CrankError<D>> {
+        self.0.dispatch_message(msg, rng)
     }
 
     /// Injects a message into the network.
@@ -211,12 +225,15 @@ where
 }
 
 // Downgrade-conversion.
-impl<'a, D> From<NetMutHandle<'a, D>> for NetHandle<'a, D>
+impl<'a, D, A> From<NetMutHandle<'a, D, A>> for NetHandle<'a, D, A>
 where
     D: DistAlgorithm,
+    A: Adversary<D>,
+    D::Message: Clone,
+    D::Output: Clone,
 {
     #[inline]
-    fn from(n: NetMutHandle<D>) -> NetHandle<D> {
+    fn from(n: NetMutHandle<D, A>) -> NetHandle<D, A> {
         NetHandle(n.0)
     }
 }
@@ -305,6 +322,7 @@ where
 /// Network adversary.
 pub trait Adversary<D>
 where
+    Self: Sized,
     D: DistAlgorithm,
     D::Message: Clone,
     D::Output: Clone,
@@ -316,7 +334,7 @@ where
     ///
     /// The default implementation does not alter the passed network in any way.
     #[inline]
-    fn pre_crank(&mut self, _net: NetMutHandle<D>) {}
+    fn pre_crank<R: Rng>(&mut self, _net: NetMutHandle<D, Self>, _rng: &mut R) {}
 
     /// Tamper with a faulty node's operation.
     ///
@@ -332,12 +350,13 @@ where
     /// `VirtualNet::dispatch_message`, which results in the message being processed as if the node
     /// was not faulty.
     #[inline]
-    fn tamper(
+    fn tamper<R: Rng>(
         &mut self,
-        mut net: NetMutHandle<D>,
+        mut net: NetMutHandle<D, Self>,
         msg: NetMessage<D>,
+        rng: &mut R,
     ) -> Result<DaStep<D>, CrankError<D>> {
-        net.dispatch_message(msg)
+        net.dispatch_message(msg, rng)
     }
 }
 
@@ -388,7 +407,7 @@ where
     D::Output: Clone,
 {
     #[inline]
-    fn pre_crank(&mut self, mut net: NetMutHandle<D>) {
+    fn pre_crank<R: Rng>(&mut self, mut net: NetMutHandle<D, Self>, _rng: &mut R) {
         // Message are sorted by NodeID on each step.
         net.sort_messages_by(|a, b| a.to.cmp(&b.to))
     }
@@ -399,26 +418,12 @@ where
 /// An adversary that swaps the message at the front of the message queue for a random message
 /// within the queue before every `crank`. Thus the order in which messages are received by nodes is
 /// random, which allows to test randomized message delivery.
-pub struct ReorderingAdversary {
-    /// Random number generator to reorder messages.
-    rng: Box<dyn Rng>,
-}
-
-impl fmt::Debug for ReorderingAdversary {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        f.debug_struct("ReorderingAdversary")
-            .field("rng", &"<RNG>")
-            .finish()
-    }
-}
+#[derive(Copy, Clone, Debug, Default)]
+pub struct ReorderingAdversary {}
 
 impl ReorderingAdversary {
-    #[inline]
-    pub fn new<R>(rng: R) -> Self
-    where
-        R: 'static + Rng,
-    {
-        ReorderingAdversary { rng: Box::new(rng) }
+    pub fn new() -> Self {
+        ReorderingAdversary {}
     }
 }
 
@@ -429,10 +434,10 @@ where
     D::Output: Clone,
 {
     #[inline]
-    fn pre_crank(&mut self, mut net: NetMutHandle<D>) {
+    fn pre_crank<R: Rng>(&mut self, mut net: NetMutHandle<D, Self>, rng: &mut R) {
         let l = net.0.messages_len();
         if l > 0 {
-            net.swap_messages(0, self.rng.gen_range(0, l));
+            net.swap_messages(0, rng.gen_range(0, l));
         }
     }
 }

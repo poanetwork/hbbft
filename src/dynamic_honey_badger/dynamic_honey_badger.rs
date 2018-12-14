@@ -6,7 +6,7 @@ use crate::crypto::{PublicKey, SecretKey, Signature};
 use bincode;
 use derivative::Derivative;
 use log::debug;
-use rand::{self, Rand, Rng};
+use rand::{Rand, Rng};
 use serde::{de::DeserializeOwned, Serialize};
 
 use super::votes::{SignedVote, VoteCounter};
@@ -19,7 +19,7 @@ use crate::fault_log::{Fault, FaultKind, FaultLog};
 use crate::honey_badger::{self, HoneyBadger, Message as HbMessage};
 
 use crate::sync_key_gen::{Ack, AckOutcome, Part, PartOutcome, SyncKeyGen};
-use crate::util::{self, SubRng};
+use crate::util;
 use crate::{Contribution, DistAlgorithm, Epoched, NetworkInfo, NodeIdT, Target};
 
 /// A Honey Badger instance that can handle adding and removing nodes.
@@ -40,10 +40,6 @@ pub struct DynamicHoneyBadger<C, N: Rand + Ord> {
     pub(super) honey_badger: HoneyBadger<InternalContrib<C, N>, N>,
     /// The current key generation process, and the change it applies to.
     pub(super) key_gen_state: Option<KeyGenState<N>>,
-    /// A random number generator used for secret key generation.
-    // Boxed to avoid overloading the algorithm's type with more generics.
-    #[derivative(Debug(format_with = "util::fmt_rng"))]
-    pub(super) rng: Box<dyn rand::Rng + Send + Sync>,
 }
 
 impl<C, N> DistAlgorithm for DynamicHoneyBadger<C, N>
@@ -57,17 +53,22 @@ where
     type Message = Message<N>;
     type Error = Error;
 
-    fn handle_input(&mut self, input: Self::Input) -> Result<Step<C, N>> {
+    fn handle_input<R: Rng>(&mut self, input: Self::Input, rng: &mut R) -> Result<Step<C, N>> {
         // User contributions are forwarded to `HoneyBadger` right away. Votes are signed and
         // broadcast.
         match input {
-            Input::User(contrib) => self.propose(contrib),
+            Input::User(contrib) => self.propose(contrib, rng),
             Input::Change(change) => self.vote_for(change),
         }
     }
 
-    fn handle_message(&mut self, sender_id: &N, message: Self::Message) -> Result<Step<C, N>> {
-        self.handle_message(sender_id, message)
+    fn handle_message<R: Rng>(
+        &mut self,
+        sender_id: &Self::NodeId,
+        msg: Self::Message,
+        rng: &mut R,
+    ) -> Result<Step<C, N>> {
+        self.handle_message(sender_id, msg, rng)
     }
 
     fn terminated(&self) -> bool {
@@ -90,11 +91,11 @@ where
     }
 
     /// Creates a new `DynamicHoneyBadger` ready to join the network specified in the `JoinPlan`.
-    pub fn new_joining<R: Rng + Send + Sync + 'static>(
+    pub fn new_joining<R: Rng>(
         our_id: N,
         secret_key: SecretKey,
         join_plan: JoinPlan<N>,
-        mut rng: R,
+        rng: &mut R,
     ) -> Result<(Self, Step<C, N>)> {
         let netinfo = NetworkInfo::new(
             our_id,
@@ -108,7 +109,6 @@ where
         let honey_badger = HoneyBadger::builder(arc_netinfo.clone())
             .session_id(join_plan.era)
             .params(join_plan.params)
-            .rng(rng.sub_rng())
             .build();
         let mut dhb = DynamicHoneyBadger {
             netinfo,
@@ -118,11 +118,10 @@ where
             key_gen_msg_buffer: Vec::new(),
             honey_badger,
             key_gen_state: None,
-            rng: Box::new(rng),
         };
         let step = match join_plan.change {
             ChangeState::InProgress(ref change) => match change {
-                Change::NodeChange(change) => dhb.update_key_gen(join_plan.era, change)?,
+                Change::NodeChange(change) => dhb.update_key_gen(join_plan.era, change, rng)?,
                 _ => Step::default(),
             },
             ChangeState::None | ChangeState::Complete(..) => Step::default(),
@@ -141,22 +140,25 @@ where
     ///
     /// If we are the only validator, this will immediately output a batch, containing our
     /// proposal.
-    pub fn propose(&mut self, contrib: C) -> Result<Step<C, N>> {
+    pub fn propose<R: Rng>(&mut self, contrib: C, rng: &mut R) -> Result<Step<C, N>> {
         let key_gen_messages = self
             .key_gen_msg_buffer
             .iter()
             .filter(|kg_msg| kg_msg.era() == self.era)
             .cloned()
             .collect();
+
+        let contrib = InternalContrib {
+            contrib,
+            key_gen_messages,
+            votes: self.vote_counter.pending_votes().cloned().collect(),
+        };
+
         let step = self
             .honey_badger
-            .propose(&InternalContrib {
-                contrib,
-                key_gen_messages,
-                votes: self.vote_counter.pending_votes().cloned().collect(),
-            })
+            .propose(&contrib, rng)
             .map_err(Error::ProposeHoneyBadger)?;
-        self.process_output(step)
+        self.process_output(step, rng)
     }
 
     /// Casts a vote to change the set of validators or parameters.
@@ -195,11 +197,16 @@ where
     /// Handles a message received from `sender_id`.
     ///
     /// This must be called with every message we receive from another node.
-    pub fn handle_message(&mut self, sender_id: &N, message: Message<N>) -> Result<Step<C, N>> {
+    pub fn handle_message<R: Rng>(
+        &mut self,
+        sender_id: &N,
+        message: Message<N>,
+        rng: &mut R,
+    ) -> Result<Step<C, N>> {
         if message.era() == self.era {
             match message {
                 Message::HoneyBadger(_, hb_msg) => {
-                    self.handle_honey_badger_message(sender_id, hb_msg)
+                    self.handle_honey_badger_message(sender_id, hb_msg, rng)
                 }
                 Message::KeyGen(_, kg_msg, sig) => self
                     .handle_key_gen_message(sender_id, kg_msg, *sig)
@@ -249,10 +256,11 @@ where
     }
 
     /// Handles a message for the `HoneyBadger` instance.
-    fn handle_honey_badger_message(
+    fn handle_honey_badger_message<R: Rng>(
         &mut self,
         sender_id: &N,
         message: HbMessage<N>,
+        rng: &mut R,
     ) -> Result<Step<C, N>> {
         if !self.netinfo.is_node_validator(sender_id) {
             return Err(Error::UnknownSender);
@@ -262,7 +270,7 @@ where
             .honey_badger
             .handle_message(sender_id, message)
             .map_err(Error::HandleHoneyBadgerMessage)?;
-        self.process_output(step)
+        self.process_output(step, rng)
     }
 
     /// Handles a vote or key generation message and tries to commit it as a transaction. These
@@ -297,9 +305,10 @@ where
     }
 
     /// Processes all pending batches output by Honey Badger.
-    fn process_output(
+    fn process_output<R: Rng>(
         &mut self,
         hb_step: honey_badger::Step<InternalContrib<C, N>, N>,
+        rng: &mut R,
     ) -> Result<Step<C, N>> {
         let mut step: Step<C, N> = Step::default();
         let output = step.extend_with(hb_step, |hb_msg| Message::HoneyBadger(self.era, hb_msg));
@@ -329,7 +338,7 @@ where
                         step.fault_log.append(id.clone(), fault_kind);
                     } else {
                         step.extend(match kg_msg {
-                            KeyGenMessage::Part(part) => self.handle_part(&s_id, part)?,
+                            KeyGenMessage::Part(part) => self.handle_part(&s_id, part, rng)?,
                             KeyGenMessage::Ack(ack) => self.handle_ack(&s_id, ack)?,
                         });
                     }
@@ -346,7 +355,7 @@ where
                 // If there is a new change, restart DKG. Inform the user about the current change.
                 match change {
                     Change::NodeChange(ref pub_keys) => {
-                        step.extend(self.update_key_gen(batch_epoch + 1, pub_keys)?);
+                        step.extend(self.update_key_gen(batch_epoch + 1, pub_keys, rng)?);
                     }
                     Change::EncryptionSchedule(schedule) => {
                         self.update_encryption_schedule(batch_epoch + 1, schedule);
@@ -380,10 +389,11 @@ where
 
     /// If the winner of the vote has changed, restarts Key Generation for the set of nodes implied
     /// by the current change.
-    pub(super) fn update_key_gen(
+    pub(super) fn update_key_gen<R: Rng>(
         &mut self,
         era: u64,
         pub_keys: &BTreeMap<N, PublicKey>,
+        rng: &mut R,
     ) -> Result<Step<C, N>> {
         if self.key_gen_state.as_ref().map(KeyGenState::public_keys) == Some(pub_keys) {
             return Ok(Step::default()); // The change is the same as before. Continue DKG as is.
@@ -394,9 +404,8 @@ where
         let threshold = util::max_faulty(pub_keys.len());
         let sk = self.netinfo.secret_key().clone();
         let our_id = self.our_id().clone();
-        let (key_gen, part) =
-            SyncKeyGen::new(&mut self.rng, our_id, sk, pub_keys.clone(), threshold)
-                .map_err(Error::SyncKeyGen)?;
+        let (key_gen, part) = SyncKeyGen::new(our_id, sk, pub_keys.clone(), threshold, rng)
+            .map_err(Error::SyncKeyGen)?;
         self.key_gen_state = Some(KeyGenState::new(key_gen));
         if let Some(part) = part {
             self.send_transaction(KeyGenMessage::Part(part))
@@ -413,16 +422,20 @@ where
         self.vote_counter = VoteCounter::new(netinfo.clone(), era);
         self.honey_badger = HoneyBadger::builder(netinfo)
             .session_id(era)
-            .rng(self.rng.sub_rng())
             .params(params)
             .build();
     }
 
     /// Handles a `Part` message that was output by Honey Badger.
-    fn handle_part(&mut self, sender_id: &N, part: Part) -> Result<Step<C, N>> {
+    fn handle_part<R: Rng>(
+        &mut self,
+        sender_id: &N,
+        part: Part,
+        rng: &mut R,
+    ) -> Result<Step<C, N>> {
         let outcome = if let Some(kgs) = self.key_gen_state.as_mut() {
             kgs.key_gen
-                .handle_part(&mut self.rng, &sender_id, part)
+                .handle_part(&sender_id, part, rng)
                 .map_err(Error::SyncKeyGen)?
         } else {
             // No key generation ongoing.

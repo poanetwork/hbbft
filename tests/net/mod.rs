@@ -26,7 +26,6 @@ use rand;
 use rand::{Rand, Rng};
 
 use hbbft::dynamic_honey_badger::Batch;
-use hbbft::util::SubRng;
 use hbbft::{self, Contribution, DaStep, DistAlgorithm, Fault, NetworkInfo, NodeIdT, Step};
 
 use crate::try_some;
@@ -284,6 +283,7 @@ where
 /// New network node construction information.
 ///
 /// Helper structure passed to node constructors when building virtual networks.
+#[derive(Debug)]
 pub struct NewNodeInfo<D>
 where
     D: DistAlgorithm,
@@ -294,28 +294,6 @@ where
     pub netinfo: NetworkInfo<D::NodeId>,
     /// Whether or not the node is marked faulty.
     pub faulty: bool,
-    /// An initialized random number generated for exclusive use by the node.
-    ///
-    /// Can be ignored, but usually comes in handy with algorithms that require additional
-    /// randomness for instantiation or operation.
-    ///
-    /// Note that the random number generator type may differ from the one set for generation on
-    /// the `VirtualNet`, due to limitations of the `rand` crates API.
-    pub rng: Box<dyn rand::Rng>,
-}
-
-impl<D> fmt::Debug for NewNodeInfo<D>
-where
-    D: DistAlgorithm,
-{
-    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
-        fmt.debug_struct("NewNodeInfo")
-            .field("id", &self.id)
-            .field("netinfo", &self.netinfo)
-            .field("faulty", &self.faulty)
-            .field("rng", &"<RNG>")
-            .finish()
-    }
 }
 
 /// Virtual network builder.
@@ -325,7 +303,7 @@ where
 ///
 /// Note that, in addition to the constructor `new`, either `using` or `using_step` must be called,
 /// otherwise the construction will fail and panic.
-pub struct NetBuilder<D, I>
+pub struct NetBuilder<D, I, A>
 where
     D: DistAlgorithm,
 {
@@ -336,7 +314,7 @@ where
     /// Dist-algorithm constructor function.
     cons: Option<Box<Fn(NewNodeInfo<D>) -> (D, DaStep<D>)>>,
     /// Network adversary.
-    adversary: Option<Box<dyn Adversary<D>>>,
+    adversary: Option<A>,
     /// Trace-enabling flag. `None` means use environment.
     trace: Option<bool>,
     /// Optional crank limit.
@@ -348,36 +326,35 @@ where
     /// Property to cause an error if a `Fault` is output from a correct node. By default,
     /// encountering a fault leads to an error.
     error_on_fault: bool,
-    /// Random number generator used to generate keys.
-    rng: Option<Box<dyn Rng>>,
 }
 
-impl<D, I> fmt::Debug for NetBuilder<D, I>
+impl<D, I, A> fmt::Debug for NetBuilder<D, I, A>
 where
     D: DistAlgorithm,
+    A: fmt::Debug,
 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.debug_struct("NetBuilder")
             .field("node_ids", &())
             .field("num_faulty", &self.num_faulty)
             .field("cons", &self.cons.is_some())
-            .field("adversary", &self.cons.is_some())
+            .field("adversary", &self.adversary)
             .field("trace", &self.trace)
             .field("crank_limit", &self.crank_limit)
             .field("message_limit", &self.message_limit)
             .field("time_limit", &self.time_limit)
             .field("error_on_fault", &self.error_on_fault)
-            .field("rng", &"<RNG>")
             .finish()
     }
 }
 
-impl<D, I> NetBuilder<D, I>
+impl<D, I, A> NetBuilder<D, I, A>
 where
     D: DistAlgorithm,
     D::Message: Clone,
     D::Output: Clone,
     I: IntoIterator<Item = D::NodeId>,
+    A: Adversary<D>,
 {
     /// Construct a new network builder.
     ///
@@ -399,7 +376,6 @@ where
             message_limit: None,
             time_limit: DEFAULT_TIME_LIMIT,
             error_on_fault: true,
-            rng: None,
         }
     }
 
@@ -407,11 +383,8 @@ where
     ///
     /// If not set, the virtual network is constructed with a `NullAdversary`.
     #[inline]
-    pub fn adversary<A>(mut self, adversary: A) -> Self
-    where
-        A: Adversary<D> + 'static,
-    {
-        self.adversary = Some(Box::new(adversary));
+    pub fn adversary(mut self, adversary: A) -> Self {
+        self.adversary = Some(adversary);
         self
     }
 
@@ -452,20 +425,6 @@ where
     #[inline]
     pub fn num_faulty(mut self, num_faulty: usize) -> Self {
         self.num_faulty = num_faulty;
-        self
-    }
-
-    /// Random number generator.
-    ///
-    /// Overrides the random number generator used. If not specified, a `thread_rng` will be
-    /// used on construction.
-    ///
-    /// The passed in generator is used for key generation.
-    pub fn rng<R>(mut self, rng: R) -> Self
-    where
-        R: Rng + 'static,
-    {
-        self.rng = Some(Box::new(rng));
         self
     }
 
@@ -531,9 +490,10 @@ where
     ///
     /// If the total number of nodes is not `> 3 * num_faulty`, construction will panic.
     #[inline]
-    pub fn build(self) -> Result<(VirtualNet<D>, Vec<(D::NodeId, DaStep<D>)>), CrankError<D>> {
-        let rng: Box<dyn Rng> = self.rng.unwrap_or_else(|| Box::new(rand::thread_rng()));
-
+    pub fn build<R: Rng>(
+        self,
+        rng: &mut R,
+    ) -> Result<(VirtualNet<D, A>, Vec<(D::NodeId, DaStep<D>)>), CrankError<D>> {
         // The time limit can be overriden through environment variables:
         let override_time_limit = env::var("HBBFT_NO_TIME_LIMIT")
             // We fail early, to avoid tricking the user into thinking that they have set the time
@@ -587,20 +547,28 @@ where
     }
 }
 
-/// Virtual network instance.
-pub struct VirtualNet<D>
+/// A virtual network
+///
+/// Virtual networks host a number of nodes that are marked either correct or faulty. Each time a
+/// node emits a `Step`, the contained messages are queued for delivery, which happens whenever
+/// `crank()` is called. Additionally, inputs (see `DistAlgorithm::Input`) can be sent to any node.
+///
+/// An adversary can be hooked into the network to affect the order of message delivery or the
+/// behaviour of faulty nodes.
+#[derive(Debug)]
+pub struct VirtualNet<D, A>
 where
     D: DistAlgorithm,
+    A: Adversary<D>,
+    D::Message: Clone,
+    D::Output: Clone,
 {
     /// Maps node IDs to actual node instances.
     nodes: NodeMap<D>,
     /// A collection of all network messages queued up for delivery.
     messages: collections::VecDeque<NetMessage<D>>,
-    /// An Adversary that controls the network delivery schedule and all faulty nodes.
-    /// Always present (initialized to `NullAdversary` by default), but an `Option` to be swappable
-    /// during execution, allowing a `&mut self` to be passed to the adversary without running afoul
-    /// of the borrow checker.
-    adversary: Option<Box<dyn Adversary<D>>>,
+    /// An optional `Adversary` that controls the network delivery schedule and all faulty nodes.
+    adversary: Option<A>,
     /// Trace output; if active, writes out a log of all messages.
     trace: Option<io::BufWriter<fs::File>>,
     /// The number of times the network has been cranked.
@@ -621,36 +589,12 @@ where
     error_on_fault: bool,
 }
 
-impl<D> fmt::Debug for VirtualNet<D>
+impl<D, A> VirtualNet<D, A>
 where
     D: DistAlgorithm,
-{
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        f.debug_struct("VirtualNet")
-            .field("nodes", &self.nodes.len())
-            .field("messages", &self.messages)
-            .field("adversary", &self.adversary.is_some())
-            .field("trace", &self.trace.is_some())
-            .field("crank_count", &self.crank_count)
-            .field("crank_limit", &self.crank_limit)
-            .field("message_count", &self.message_count)
-            .field("message_limit", &self.message_limit)
-            .field("error_on_fault", &self.error_on_fault)
-            .finish()
-    }
-}
-
-/// A virtual network
-///
-/// Virtual networks host a number of nodes that are marked either correct or faulty. Each time a
-/// node emits a `Step`, the contained messages are queued for delivery, which happens whenever
-/// `crank()` is called. Additionally, inputs (see `DistAlgorithm::Input`) can be sent to any node.
-///
-/// An adversary can be hooked into the network to affect the order of message delivery or the
-/// behaviour of faulty nodes.
-impl<D> VirtualNet<D>
-where
-    D: DistAlgorithm,
+    D::Message: Clone,
+    D::Output: Clone,
+    A: Adversary<D>,
 {
     /// Returns an iterator over *all* nodes in the network.
     #[inline]
@@ -753,11 +697,12 @@ where
     }
 }
 
-impl<D> VirtualNet<D>
+impl<D, A> VirtualNet<D, A>
 where
     D: DistAlgorithm,
     D::Message: Clone,
     D::Output: Clone,
+    A: Adversary<D>,
 {
     /// Create new virtual network with step constructor.
     ///
@@ -808,7 +753,6 @@ where
                     id: id.clone(),
                     netinfo,
                     faulty: is_faulty,
-                    rng: rng.sub_rng(),
                 });
                 steps.insert(id.clone(), step);
                 (id, Node::new(algorithm, is_faulty))
@@ -832,7 +776,7 @@ where
             VirtualNet {
                 nodes,
                 messages,
-                adversary: Some(Box::new(adversary::NullAdversary::new())),
+                adversary: None,
                 trace: None,
                 crank_count: 0,
                 crank_limit: None,
@@ -850,7 +794,11 @@ where
     ///
     /// Retrieves the receiving node for a `msg` and hands over the payload.
     #[inline]
-    pub fn dispatch_message(&mut self, msg: NetMessage<D>) -> Result<DaStep<D>, CrankError<D>> {
+    pub fn dispatch_message<R: Rng>(
+        &mut self,
+        msg: NetMessage<D>,
+        rng: &mut R,
+    ) -> Result<DaStep<D>, CrankError<D>> {
         let node = self
             .nodes
             .get_mut(&msg.to)
@@ -862,7 +810,7 @@ where
         let msg_copy = msg.clone();
         let step = node
             .algorithm
-            .handle_message(&msg.from, msg.payload)
+            .handle_message(&msg.from, msg.payload, rng)
             .map_err(move |err| CrankError::HandleMessage { msg: msg_copy, err })?;
 
         Ok(step)
@@ -877,17 +825,18 @@ where
     ///
     /// Panics if `id` does not name a valid node.
     #[inline]
-    pub fn send_input(
+    pub fn send_input<R: Rng>(
         &mut self,
         id: D::NodeId,
         input: D::Input,
+        rng: &mut R,
     ) -> Result<DaStep<D>, CrankError<D>> {
         let step = self
             .nodes
             .get_mut(&id)
             .expect("cannot handle input on non-existing node")
             .algorithm
-            .handle_input(input)
+            .handle_input(input, rng)
             .map_err(CrankError::HandleInput)?;
 
         self.message_count = self.message_count.saturating_add(process_step(
@@ -909,7 +858,10 @@ where
     /// If a successful `Step` was generated, all of its messages are queued on the network and the
     /// `Step` is returned.
     #[inline]
-    pub fn crank(&mut self) -> Option<Result<(D::NodeId, DaStep<D>), CrankError<D>>> {
+    pub fn crank<R: Rng>(
+        &mut self,
+        rng: &mut R,
+    ) -> Option<Result<(D::NodeId, DaStep<D>), CrankError<D>>> {
         // Check limits.
         if let Some(limit) = self.crank_limit {
             if self.crank_count >= limit {
@@ -935,7 +887,7 @@ where
         let mut adv = self.adversary.take();
         if let Some(ref mut adversary) = adv {
             // If an adversary was set, we let it affect the network now.
-            adversary.pre_crank(adversary::NetMutHandle::new(self))
+            adversary.pre_crank(adversary::NetMutHandle::new(self), rng)
         }
         self.adversary = adv;
 
@@ -966,7 +918,7 @@ where
             let mut adv = self.adversary.take();
             let opt_tamper_result = adv.as_mut().map(|adversary| {
                 // If an adversary was set, we let it affect the network now.
-                adversary.tamper(adversary::NetMutHandle::new(self), msg)
+                adversary.tamper(adversary::NetMutHandle::new(self), msg, rng)
             });
             self.adversary = adv;
 
@@ -977,7 +929,7 @@ where
             )
         } else {
             // A correct node simply handles the message.
-            try_some!(self.dispatch_message(msg))
+            try_some!(self.dispatch_message(msg, rng))
         };
 
         // All messages are expanded and added to the queue. We opt for copying them, so we can
@@ -1005,19 +957,20 @@ where
     ///
     /// Shortcut for cranking the network, expecting both progress to be made as well as processing
     /// to proceed.
-    pub fn crank_expect(&mut self) -> (D::NodeId, DaStep<D>) {
-        self.crank()
+    pub fn crank_expect<R: Rng>(&mut self, rng: &mut R) -> (D::NodeId, DaStep<D>) {
+        self.crank(rng)
             .expect("crank: network queue empty")
             .expect("crank: node failed to process step")
     }
 }
 
-impl<D> VirtualNet<D>
+impl<D, A> VirtualNet<D, A>
 where
     D: DistAlgorithm,
     D::Message: Clone,
     D::Input: Clone,
     D::Output: Clone,
+    A: Adversary<D>,
 {
     /// Send input to all nodes.
     ///
@@ -1026,17 +979,11 @@ where
     ///
     /// If an error occurs, the first error is returned and broadcasting aborted.
     #[inline]
-    pub fn broadcast_input<'a>(
+    pub fn broadcast_input<'a, R: Rng>(
         &'a mut self,
         input: &'a D::Input,
+        rng: &mut R,
     ) -> Result<Vec<(D::NodeId, DaStep<D>)>, CrankError<D>> {
-        // Note: The tricky lifetime annotation basically says that the input value given must
-        //       live as long as the iterator returned lives (because it is cloned on every step,
-        //       with steps only evaluated each time `next()` is called. For the same reason the
-        //       network should not go away ealier either.
-
-        // Note: It's unfortunately not possible to loop and call `send_input`,
-
         let steps: Vec<_> = self
             .nodes
             .values_mut()
@@ -1044,7 +991,7 @@ where
                 Ok((
                     node.id().clone(),
                     node.algorithm
-                        .handle_input(input.clone())
+                        .handle_input(input.clone(), rng)
                         .map_err(CrankError::HandleInputAll)?,
                 ))
             })
@@ -1066,9 +1013,11 @@ where
     }
 }
 
-impl<C, D, N> VirtualNet<D>
+impl<C, D, N, A> VirtualNet<D, A>
 where
     D: DistAlgorithm<Output = Batch<C, N>>,
+    D::Message: Clone,
+    A: Adversary<D>,
     C: Contribution + Clone,
     N: NodeIdT,
 {
@@ -1089,9 +1038,12 @@ where
     }
 }
 
-impl<D> ops::Index<D::NodeId> for VirtualNet<D>
+impl<D, A> ops::Index<D::NodeId> for VirtualNet<D, A>
 where
     D: DistAlgorithm,
+    D::Message: Clone,
+    D::Output: Clone,
+    A: Adversary<D>,
 {
     type Output = Node<D>;
 
@@ -1101,37 +1053,15 @@ where
     }
 }
 
-impl<D> ops::IndexMut<D::NodeId> for VirtualNet<D>
-where
-    D: DistAlgorithm,
-{
-    #[inline]
-    fn index_mut(&mut self, index: D::NodeId) -> &mut Self::Output {
-        self.get_mut(index).expect("indexed node not found")
-    }
-}
-
-/// Convenient iterator implementation, calls crank repeatedly until the message queue is empty.
-///
-/// Accessing the network during iterator would require
-/// [streaming iterators](https://crates.io/crates/streaming-iterator), an alternative is using
-/// a `while let` loop:
-///
-/// ```rust,no_run
-/// while let Some(rstep) = net.crank() {
-///     // `net` can still be mutable borrowed here.
-/// }
-/// ```
-impl<D> Iterator for VirtualNet<D>
+impl<D, A> ops::IndexMut<D::NodeId> for VirtualNet<D, A>
 where
     D: DistAlgorithm,
     D::Message: Clone,
     D::Output: Clone,
+    A: Adversary<D>,
 {
-    type Item = Result<(D::NodeId, DaStep<D>), CrankError<D>>;
-
     #[inline]
-    fn next(&mut self) -> Option<Self::Item> {
-        self.crank()
+    fn index_mut(&mut self, index: D::NodeId) -> &mut Self::Output {
+        self.get_mut(index).expect("indexed node not found")
     }
 }

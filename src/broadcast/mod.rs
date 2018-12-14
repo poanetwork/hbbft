@@ -92,7 +92,7 @@
 //! ```
 //! use hbbft::broadcast::{Broadcast, Error, Step};
 //! use hbbft::{NetworkInfo, SourcedMessage, Target, TargetedMessage};
-//! use rand::{thread_rng, Rng};
+//! use rand::{OsRng, Rng};
 //! use std::collections::{BTreeMap, BTreeSet, VecDeque};
 //! use std::iter::once;
 //! use std::sync::Arc;
@@ -102,7 +102,7 @@
 //!     const NUM_NODES: u64 = 7;
 //!     const PROPOSER_ID: u64 = 3;
 //!
-//!     let mut rng = thread_rng();
+//!     let mut rng = OsRng::new().expect("Could not initialize OS random number generator.");
 //!
 //!     // Create a random set of keys for testing.
 //!     let netinfos = NetworkInfo::generate_map(0..NUM_NODES, &mut rng)

@@ -9,9 +9,12 @@ use std::sync::{Arc, Mutex};
 use hbbft::binary_agreement::{BinaryAgreement, MessageContent, SbvMessage};
 use hbbft::threshold_sign::ThresholdSign;
 use hbbft::{DaStep, DistAlgorithm, NetworkInfo};
+use proptest::{proptest, proptest_helper};
+use rand::{Rng, SeedableRng};
 
 use crate::net::adversary::{NetMutHandle, QueuePosition};
 use crate::net::err::CrankError;
+use crate::net::proptest::{gen_seed, TestRng, TestRngSeed};
 use crate::net::{Adversary, NetBuilder, NetMessage};
 
 type NodeId = usize;
@@ -236,14 +239,18 @@ const NODES_PER_GROUP: usize = 2;
 const NUM_NODES: usize = (NODES_PER_GROUP * 3 + 1);
 
 impl AbaCommonCoinAdversary {
-    fn new(netinfo_mutex: Arc<Mutex<Option<Arc<NetworkInfo<NodeId>>>>>) -> Self {
-        Self::new_with_epoch(netinfo_mutex, 0, false)
+    fn new<R: Rng>(
+        netinfo_mutex: Arc<Mutex<Option<Arc<NetworkInfo<NodeId>>>>>,
+        rng: &mut R,
+    ) -> Self {
+        Self::new_with_epoch(netinfo_mutex, 0, false, rng)
     }
 
-    fn new_with_epoch(
+    fn new_with_epoch<R: Rng>(
         netinfo_mutex: Arc<Mutex<Option<Arc<NetworkInfo<NodeId>>>>>,
         epoch: u64,
         a_estimated: bool,
+        rng: &mut R,
     ) -> Self {
         AbaCommonCoinAdversary {
             stage: 0,
@@ -265,7 +272,7 @@ impl AbaCommonCoinAdversary {
                     let mut coin = ThresholdSign::new_with_document(netinfo, coin_id)
                         .expect("Failed to set the coin's ID");
                     let _ = coin
-                        .handle_input(())
+                        .handle_input((), rng)
                         .expect("Calling handle_input on Coin failed");
                     CoinState::InProgress(Box::new(coin))
                 }
@@ -288,7 +295,7 @@ impl AbaCommonCoinAdversary {
         }
     }
 
-    fn inject_stage_messages(&mut self, net: &mut NetMutHandle<Algo>) {
+    fn inject_stage_messages(&mut self, net: &mut NetMutHandle<Algo, Self>) {
         if self.sent_stage_messages {
             return;
         }
@@ -371,7 +378,7 @@ impl AbaCommonCoinAdversary {
 }
 
 impl Adversary<Algo> for AbaCommonCoinAdversary {
-    fn pre_crank(&mut self, mut net: NetMutHandle<Algo>) {
+    fn pre_crank<R: Rng>(&mut self, mut net: NetMutHandle<Algo, Self>, rng: &mut R) {
         self.inject_stage_messages(&mut net);
         net.sort_messages_by(|a, b| {
             a.payload()
@@ -395,19 +402,21 @@ impl Adversary<Algo> for AbaCommonCoinAdversary {
                     self.coin_state
                         .value()
                         .expect("Coin value not known at end of epoch"),
+                    rng,
                 );
                 redo_crank = true;
             }
         }
         if redo_crank {
-            self.pre_crank(net);
+            self.pre_crank(net, rng);
         }
     }
 
-    fn tamper(
+    fn tamper<R: Rng>(
         &mut self,
-        _: NetMutHandle<Algo>,
+        _: NetMutHandle<Algo, Self>,
         msg: NetMessage<Algo>,
+        _rng: &mut R,
     ) -> Result<DaStep<Algo>, CrankError<Algo>> {
         if let MessageContent::Coin(ref coin_msg) = msg.payload().content {
             let mut new_coin_state = None;
@@ -427,13 +436,24 @@ impl Adversary<Algo> for AbaCommonCoinAdversary {
     }
 }
 
-#[test]
-fn reordering_attack() {
+proptest! {
+    #[test]
+    #[allow(clippy::unnecessary_operation)]
+    fn reordering_attack(seed in gen_seed()) {
+        do_reordering_attack(seed)
+    }
+}
+
+fn do_reordering_attack(seed: TestRngSeed) {
     let _ = env_logger::try_init();
+    let mut rng: TestRng = TestRng::from_seed(seed);
     let ids: Vec<NodeId> = (0..NUM_NODES).collect();
     let adversary_netinfo: Arc<Mutex<Option<Arc<NetworkInfo<NodeId>>>>> = Default::default();
     let (mut net, _) = NetBuilder::new(ids.iter().cloned())
-        .adversary(AbaCommonCoinAdversary::new(adversary_netinfo.clone()))
+        .adversary(AbaCommonCoinAdversary::new(
+            adversary_netinfo.clone(),
+            &mut rng,
+        ))
         .crank_limit(10000)
         .using(move |info| {
             let netinfo = Arc::new(info.netinfo);
@@ -443,7 +463,7 @@ fn reordering_attack() {
             BinaryAgreement::new(netinfo, 0).expect("failed to create BinaryAgreement instance")
         })
         .num_faulty(1)
-        .build()
+        .build(&mut rng)
         .unwrap();
 
     for id in ids {
@@ -451,15 +471,15 @@ fn reordering_attack() {
             // This is the faulty node.
         } else if id < (1 + NODES_PER_GROUP * 2) {
             // Group A
-            let _ = net.send_input(id, false).unwrap();
+            let _ = net.send_input(id, false, &mut rng).unwrap();
         } else {
             // Group B
-            let _ = net.send_input(id, true).unwrap();
+            let _ = net.send_input(id, true, &mut rng).unwrap();
         }
     }
 
     while !net.nodes().skip(1).all(|n| n.algorithm().terminated()) {
-        net.crank_expect();
+        net.crank_expect(&mut rng);
     }
 
     // Verify that all instances output the same value.

@@ -4,12 +4,11 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 
 use crate::crypto::{SecretKey, SecretKeySet};
-use rand::{self, Rand, Rng};
+use rand::Rand;
 use serde::{de::DeserializeOwned, Serialize};
 
 use super::{DynamicHoneyBadger, EncryptionSchedule, JoinPlan, Result, Step, VoteCounter};
 use crate::honey_badger::{HoneyBadger, Params, SubsetHandlingStrategy};
-use crate::util::SubRng;
 use crate::{Contribution, NetworkInfo, NodeIdT};
 
 /// A Dynamic Honey Badger builder, to configure the parameters and create new instances of
@@ -17,9 +16,6 @@ use crate::{Contribution, NetworkInfo, NodeIdT};
 pub struct DynamicHoneyBadgerBuilder<C, N> {
     /// Start in this era.
     era: u64,
-    /// Random number generator passed on to algorithm instance for key generation. Also used to
-    /// instantiate `HoneyBadger`.
-    rng: Box<dyn rand::Rng>,
     /// Parameters controlling Honey Badger's behavior and performance.
     params: Params,
     _phantom: PhantomData<(C, N)>,
@@ -32,7 +28,6 @@ where
     fn default() -> Self {
         DynamicHoneyBadgerBuilder {
             era: 0,
-            rng: Box::new(rand::thread_rng()),
             params: Params::default(),
             _phantom: PhantomData,
         }
@@ -62,12 +57,6 @@ where
         self
     }
 
-    /// Sets the random number generator to be used to instantiate cryptographic structures.
-    pub fn rng<R: rand::Rng + 'static>(&mut self, rng: R) -> &mut Self {
-        self.rng = Box::new(rng);
-        self
-    }
-
     /// Sets the strategy to use when handling `Subset` output.
     pub fn subset_handling_strategy(
         &mut self,
@@ -93,16 +82,16 @@ where
     pub fn build(&mut self, netinfo: NetworkInfo<N>) -> DynamicHoneyBadger<C, N> {
         let DynamicHoneyBadgerBuilder {
             era,
-            rng,
             params,
             _phantom,
         } = self;
         let arc_netinfo = Arc::new(netinfo.clone());
+
         let honey_badger = HoneyBadger::builder(arc_netinfo.clone())
             .session_id(*era)
             .params(params.clone())
-            .rng(rng.sub_rng())
             .build();
+
         DynamicHoneyBadger {
             netinfo,
             max_future_epochs: params.max_future_epochs,
@@ -111,16 +100,19 @@ where
             key_gen_msg_buffer: Vec::new(),
             honey_badger,
             key_gen_state: None,
-            rng: Box::new(rng.sub_rng()),
         }
     }
 
     /// Creates a new `DynamicHoneyBadger` configured to start a new network as a single validator.
-    pub fn build_first_node(&mut self, our_id: N) -> Result<DynamicHoneyBadger<C, N>> {
-        let sk_set = SecretKeySet::random(0, &mut self.rng);
+    pub fn build_first_node<R: rand::Rng>(
+        &mut self,
+        our_id: N,
+        rng: &mut R,
+    ) -> Result<DynamicHoneyBadger<C, N>> {
+        let sk_set = SecretKeySet::random(0, rng);
         let pk_set = sk_set.public_keys();
         let sks = sk_set.secret_key_share(0);
-        let sk: SecretKey = self.rng.gen();
+        let sk: SecretKey = rng.gen();
         let pub_keys = once((our_id.clone(), sk.public_key())).collect();
         let netinfo = NetworkInfo::new(our_id, sks, pk_set, sk, pub_keys);
         Ok(self.build(netinfo))
@@ -131,12 +123,13 @@ where
     ///
     /// **Deprecated**: Please use `DynamicHoneyBadger::new_joining` instead.
     #[deprecated]
-    pub fn build_joining(
+    pub fn build_joining<R: rand::Rng>(
         &mut self,
         our_id: N,
         secret_key: SecretKey,
         join_plan: JoinPlan<N>,
+        rng: &mut R,
     ) -> Result<(DynamicHoneyBadger<C, N>, Step<C, N>)> {
-        DynamicHoneyBadger::new_joining(our_id, secret_key, join_plan, self.rng.sub_rng())
+        DynamicHoneyBadger::new_joining(our_id, secret_key, join_plan, rng)
     }
 }

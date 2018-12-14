@@ -22,6 +22,7 @@ use std::{fmt, result};
 use crate::crypto::{self, hash_g2, Signature, SignatureShare, G2};
 use failure::Fail;
 use log::debug;
+use rand::Rng;
 use rand_derive::Rand;
 use serde_derive::{Deserialize, Serialize};
 
@@ -82,12 +83,17 @@ impl<N: NodeIdT> DistAlgorithm for ThresholdSign<N> {
     type Error = Error;
 
     /// Sends our threshold signature share if not yet sent.
-    fn handle_input(&mut self, _input: ()) -> Result<Step<N>> {
+    fn handle_input<R: Rng>(&mut self, _input: (), _rng: &mut R) -> Result<Step<N>> {
         self.sign()
     }
 
     /// Receives input from a remote node.
-    fn handle_message(&mut self, sender_id: &N, message: Message) -> Result<Step<N>> {
+    fn handle_message<R: Rng>(
+        &mut self,
+        sender_id: &Self::NodeId,
+        message: Message,
+        _rng: &mut R,
+    ) -> Result<Step<N>> {
         self.handle_message(sender_id, message)
     }
 

@@ -26,7 +26,7 @@ use rand::{Rng, SeedableRng};
 use hbbft::binary_agreement::BinaryAgreement;
 use hbbft::DistAlgorithm;
 
-use crate::net::adversary::ReorderingAdversary;
+use crate::net::adversary::{Adversary, ReorderingAdversary};
 use crate::net::proptest::{gen_seed, NetworkDimension, TestRng, TestRngSeed};
 use crate::net::{NetBuilder, NewNodeInfo, VirtualNet};
 
@@ -72,19 +72,22 @@ proptest! {
 
 type NodeId = u16;
 
-impl VirtualNet<BinaryAgreement<NodeId, u8>> {
+impl<A> VirtualNet<BinaryAgreement<NodeId, u8>, A>
+where
+    A: Adversary<BinaryAgreement<NodeId, u8>>,
+{
     fn test_binary_agreement<R>(&mut self, input: Option<bool>, mut rng: R)
     where
         R: Rng + 'static,
     {
         let ids: Vec<NodeId> = self.nodes().map(|n| *n.id()).collect();
         for id in ids {
-            let _ = self.send_input(id, input.unwrap_or_else(|| rng.gen::<bool>()));
+            let _ = self.send_input(id, input.unwrap_or_else(|| rng.gen::<bool>()), &mut rng);
         }
 
         // Handle messages in random order until all nodes have output the proposed value.
         while !self.nodes().all(|node| node.algorithm().terminated()) {
-            let _ = self.crank_expect();
+            let _ = self.crank_expect(&mut rng);
         }
         // Verify that all instances output the same value.
         let mut expected = input;
@@ -117,13 +120,12 @@ fn binary_agreement(cfg: TestConfig) {
         .num_faulty(num_faulty_nodes as usize)
         .message_limit(10_000 * size as usize)
         .time_limit(time::Duration::from_secs(30 * size as u64))
-        .rng(rng.gen::<TestRng>())
-        .adversary(ReorderingAdversary::new(rng.gen::<TestRng>()))
+        .adversary(ReorderingAdversary::new())
         .using(move |node_info: NewNodeInfo<_>| {
             BinaryAgreement::new(Arc::new(node_info.netinfo), 0)
                 .expect("Failed to create a BinaryAgreement instance.")
         })
-        .build()
+        .build(&mut rng)
         .expect("Could not construct test network.");
     net.test_binary_agreement(cfg.input, rng.gen::<TestRng>());
     println!(

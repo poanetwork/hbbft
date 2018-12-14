@@ -6,6 +6,7 @@ use std::hash::Hash;
 use std::iter::once;
 
 use failure::Fail;
+use rand::Rng;
 use serde::{de::DeserializeOwned, Serialize};
 
 use crate::fault_log::{Fault, FaultLog};
@@ -249,6 +250,9 @@ where
 }
 
 /// A distributed algorithm that defines a message flow.
+///
+/// Many algorithms require an RNG which must be supplied on each call. It is up to the caller to
+/// ensure that this random number generator is cryptographically secure.
 pub trait DistAlgorithm: Send + Sync {
     /// Unique node identifier.
     type NodeId: NodeIdT;
@@ -263,15 +267,20 @@ pub trait DistAlgorithm: Send + Sync {
     type Error: Fail;
 
     /// Handles an input provided by the user, and returns
-    fn handle_input(&mut self, input: Self::Input) -> Result<DaStep<Self>, Self::Error>
+    fn handle_input<R: Rng>(
+        &mut self,
+        input: Self::Input,
+        rng: &mut R,
+    ) -> Result<DaStep<Self>, Self::Error>
     where
         Self: Sized;
 
     /// Handles a message received from node `sender_id`.
-    fn handle_message(
+    fn handle_message<R: Rng>(
         &mut self,
         sender_id: &Self::NodeId,
         message: Self::Message,
+        rng: &mut R,
     ) -> Result<DaStep<Self>, Self::Error>
     where
         Self: Sized;

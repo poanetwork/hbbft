@@ -18,8 +18,11 @@ fn test_threshold_sign<A>(mut network: TestNetwork<A, ThresholdSign<NodeId>>) ->
 where
     A: Adversary<ThresholdSign<NodeId>>,
 {
+    let mut rng = rand::thread_rng();
+
     network.input_all(());
-    network.observer.handle_input(()); // Observer will only return after `input` was called.
+
+    network.observer.handle_input((), &mut rng); // Observer will only return after `input` was called.
 
     // Handle messages until all good nodes have terminated.
     while !network.nodes.values().all(TestNode::terminated) {
