@@ -252,7 +252,7 @@ where
 /// A distributed algorithm that defines a message flow.
 ///
 /// Many algorithms require an RNG which must be supplied on each call. It is up to the caller to
-/// ensure that these source supply random numbers suitable for cryptographic applications.
+/// ensure that this random number generator is cryptographically secure.
 pub trait DistAlgorithm: Send + Sync {
     /// Unique node identifier.
     type NodeId: NodeIdT;
