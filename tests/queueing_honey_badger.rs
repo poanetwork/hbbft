@@ -35,23 +35,20 @@ where
     for tx in 0..(num_txs / 2) {
         network.input_all(Input::User(tx));
     }
+
     let input_second_half = |network: &mut TestNetwork<_, _>, id: NodeId| {
         for tx in (num_txs / 2)..num_txs {
             network.input(id, Input::User(tx));
         }
     };
+
     let has_remove = |node: &TestNode<QHB>| {
         node.outputs().iter().any(|batch| match batch.change() {
             ChangeState::Complete(Change::NodeChange(pub_keys)) => pub_keys == &pub_keys_rm,
             _ => false,
         })
     };
-    let has_add_in_progress = |node: &TestNode<QHB>| {
-        node.outputs().iter().any(|batch| match batch.change() {
-            ChangeState::InProgress(Change::NodeChange(pub_keys)) => pub_keys == &pub_keys_add,
-            _ => false,
-        })
-    };
+
     let has_add = |node: &TestNode<QHB>| {
         node.outputs().iter().any(|batch| match batch.change() {
             ChangeState::Complete(Change::NodeChange(pub_keys)) => pub_keys == &pub_keys_add,
@@ -59,9 +56,8 @@ where
         })
     };
 
-    // Returns `true` if the node has not output all transactions yet.
-    // If it has, and has advanced another epoch, it clears all messages for later epochs.
-    let node_busy = |node: &mut TestNode<QHB>| {
+    // Returns `true` if the node has not output all changes or transactions yet.
+    let node_busy = |node: &TestNode<QHB>| {
         !has_remove(node) || !has_add(node) || !node.instance().algo().queue().is_empty()
     };
 
@@ -81,7 +77,7 @@ where
     let mut saved_node0: Option<TestNode<QHB>> = None;
 
     // Handle messages in random order until all nodes have output all transactions.
-    while network.nodes.values_mut().any(node_busy) {
+    while network.nodes.values().any(node_busy) || !has_add(&network.observer) {
         let stepped_id = network.step();
         if awaiting_removal.contains(&stepped_id) && has_remove(&network.nodes[&stepped_id]) {
             awaiting_removal.remove(&stepped_id);
@@ -106,38 +102,31 @@ where
                 );
             }
         }
-        if awaiting_removal.is_empty()
-            && awaiting_addition.contains(&stepped_id)
-            && has_add_in_progress(&network.nodes[&stepped_id])
-        {
-            awaiting_addition.remove(&stepped_id);
-            info!(
-                "{:?} has finished waiting for node addition; still waiting: {:?}",
-                stepped_id, awaiting_addition
-            );
-            if awaiting_addition.is_empty() && !rejoined_node0 {
-                if let Some(join_plan) =
-                    network.nodes[&stepped_id]
-                        .outputs()
-                        .iter()
-                        .find_map(|batch| match batch.change() {
-                            ChangeState::InProgress(Change::NodeChange(pub_keys))
-                                if pub_keys == &pub_keys_add =>
-                            {
-                                Some(
-                                    batch
-                                        .join_plan()
-                                        .expect("failed to get the join plan of the batch"),
-                                )
-                            }
-                            _ => None,
-                        })
-                {
-                    if let Some(node) = saved_node0.take() {
-                        let step = restart_node_for_add(&mut network, node, join_plan);
-                        network.dispatch_messages(NodeId(0), step.messages);
-                        rejoined_node0 = true;
+        if awaiting_removal.is_empty() && awaiting_addition.contains(&stepped_id) {
+            // If the stepped node started voting to add node 0 back, take a note of that and rejoin
+            // node 0.
+            if let Some(join_plan) = network.nodes[&stepped_id]
+                .outputs()
+                .iter()
+                .find_map(|batch| match batch.change() {
+                    ChangeState::InProgress(Change::NodeChange(pub_keys))
+                        if pub_keys == &pub_keys_add =>
+                    {
+                        batch.join_plan()
                     }
+                    _ => None,
+                })
+            {
+                awaiting_addition.remove(&stepped_id);
+                info!(
+                    "{:?} has finished waiting for node addition; still waiting: {:?}",
+                    stepped_id, awaiting_addition
+                );
+                if awaiting_addition.is_empty() && !rejoined_node0 {
+                    let node = saved_node0.take().expect("node 0 wasn't saved");
+                    let step = restart_node_for_add(&mut network, node, join_plan);
+                    network.dispatch_messages(NodeId(0), step.messages);
+                    rejoined_node0 = true;
                 }
             }
         }
@@ -151,7 +140,8 @@ where
     network.verify_batches(&node1);
 }
 
-/// Restarts node 0 on the test network for adding it back as a validator.
+/// Restarts a stopped and removed node with a given join plan and adds the node back on the test
+/// network.
 fn restart_node_for_add<A>(
     network: &mut TestNetwork<A, QHB>,
     mut node: TestNode<QHB>,
@@ -162,11 +152,13 @@ where
 {
     let our_id = node.id;
     info!("Restarting {:?} with {:?}", our_id, join_plan);
+    let observer = network.observer.id;
     let peer_ids: Vec<NodeId> = network
         .nodes
         .keys()
         .cloned()
         .filter(|id| *id != our_id)
+        .chain(iter::once(observer))
         .collect();
     let secret_key = node.instance().algo().netinfo().secret_key().clone();
     let (qhb, qhb_step) = QueueingHoneyBadger::builder_joining(

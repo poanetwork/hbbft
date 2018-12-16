@@ -84,6 +84,7 @@ proptest! {
 
 /// Dynamic honey badger: Drop a validator node, demoting it to observer, then re-add it, all while
 /// running a regular honey badger network.
+// TODO: Add an observer node to the test network.
 #[allow(clippy::needless_pass_by_value, clippy::cyclomatic_complexity)]
 fn do_drop_and_readd(cfg: TestConfig) {
     let mut rng: TestRng = TestRng::from_seed(cfg.seed);
@@ -365,6 +366,7 @@ where
     A: Adversary<DHB>,
 {
     println!("Restarting node {} with {:?}", node.id(), join_plan);
+    // TODO: When an observer node is added to the network, it should also be added to peer_ids.
     let peer_ids: Vec<usize> = net
         .nodes()
         .map(|node| *node.id())

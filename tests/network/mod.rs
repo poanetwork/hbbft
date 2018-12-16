@@ -642,18 +642,25 @@ where
                 expected[id].iter().map(|batch| batch.epoch()).collect();
             assert_eq!(
                 expected_epochs, actual_epochs,
-                "Output epochs of {:?} don't match the expectation. Expected: {:?} but got {:?}",
-                id, expected_epochs, actual_epochs,
+                "Output epochs of {:?} don't match the expectation.",
+                id
             );
-            assert!(node
+            assert!(
+                node.outputs
+                    .iter()
+                    .zip(expected.get(id).expect("node is not expected"))
+                    .all(|(a, b)| a.public_eq(b)),
+                "Outputs of {:?} don't match the expectation",
+                id
+            );
+        }
+        assert!(
+            self.observer
                 .outputs
                 .iter()
-                .zip(
-                    expected
-                        .get(id)
-                        .expect("outputs don't match the expectation")
-                )
-                .all(|(a, b)| a.public_eq(b)));
-        }
+                .zip(full_node.outputs.iter())
+                .all(|(a, b)| a.public_eq(b)),
+            "Observer outputs don't match the expectation."
+        );
     }
 }
