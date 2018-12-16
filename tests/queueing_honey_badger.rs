@@ -161,15 +161,12 @@ where
         .chain(iter::once(observer))
         .collect();
     let secret_key = node.instance().algo().netinfo().secret_key().clone();
-    let (qhb, qhb_step) = QueueingHoneyBadger::builder_joining(
-        our_id,
-        secret_key,
-        join_plan,
-        rand::thread_rng().gen::<Isaac64Rng>(),
-    )
-    .expect("failed to rebuild the node with a join plan")
-    .batch_size(3)
-    .build(rand::thread_rng().gen::<Isaac64Rng>());
+    let mut rng = rand::thread_rng().gen::<Isaac64Rng>();
+    let (qhb, qhb_step) =
+        QueueingHoneyBadger::builder_joining(our_id, secret_key, join_plan, &mut rng)
+            .expect("failed to rebuild the node with a join plan")
+            .batch_size(3)
+            .build(&mut rng);
     let (sq, mut sq_step) = SenderQueue::builder(qhb, peer_ids.into_iter()).build(our_id);
     *node.instance_mut() = sq;
     sq_step.extend(qhb_step.map(|output| output, Message::from));
