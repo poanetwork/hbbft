@@ -1,5 +1,6 @@
 //! Convenience methods for a `SenderQueue` wrapping a `DynamicHoneyBadger`.
 
+use std::collections::BTreeSet;
 use std::result;
 
 use crate::crypto::PublicKey;
@@ -15,18 +16,29 @@ use crate::dynamic_honey_badger::{
     Batch, Change, ChangeState, DynamicHoneyBadger, Error as DhbError, Message,
 };
 
-impl<C, N> SenderQueueableOutput<N, Message<N>> for Batch<C, N>
+impl<C, N> SenderQueueableOutput<N, (u64, u64)> for Batch<C, N>
 where
     C: Contribution,
     N: NodeIdT + Rand,
 {
-    fn added_peers(&self) -> Vec<N> {
+    fn participant_change(&self) -> Option<BTreeSet<N>> {
         if let ChangeState::InProgress(Change::NodeChange(pub_keys)) = self.change() {
-            // Register the new node to send broadcast messages to it from now on.
-            pub_keys.keys().cloned().collect()
+            let candidates = pub_keys.keys();
+            let current_validators: BTreeSet<&N> =
+                self.network_info().public_key_map().keys().collect();
+            let participants = candidates.chain(current_validators).cloned().collect();
+            Some(participants)
+        } else if let ChangeState::Complete(Change::NodeChange(pub_keys)) = self.change() {
+            let next_validators = pub_keys.keys().cloned().collect();
+            Some(next_validators)
         } else {
-            Vec::new()
+            None
         }
+    }
+
+    fn output_epoch(&self) -> (u64, u64) {
+        let hb_epoch = self.epoch() - self.era();
+        (self.era(), hb_epoch)
     }
 }
 

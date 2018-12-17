@@ -2,13 +2,16 @@ pub mod net;
 
 use std::{collections, time};
 
-use crate::net::adversary::ReorderingAdversary;
-use crate::net::proptest::{gen_seed, NetworkDimension, TestRng, TestRngSeed};
-use crate::net::{NetBuilder, NewNodeInfo};
-use hbbft::dynamic_honey_badger::{Change, ChangeState, DynamicHoneyBadger, Input};
-use hbbft::sender_queue::SenderQueue;
+use hbbft::dynamic_honey_badger::{Change, ChangeState, DynamicHoneyBadger, Input, JoinPlan};
+use hbbft::sender_queue::{Message, SenderQueue, Step};
 use proptest::{prelude::ProptestConfig, prop_compose, proptest, proptest_helper};
 use rand::SeedableRng;
+
+use crate::net::adversary::{Adversary, ReorderingAdversary};
+use crate::net::proptest::{gen_seed, NetworkDimension, TestRng, TestRngSeed};
+use crate::net::{NetBuilder, NewNodeInfo, Node, VirtualNet};
+
+type DHB = SenderQueue<DynamicHoneyBadger<Vec<usize>, usize>>;
 
 /// Choose a node's contribution for an epoch.
 ///
@@ -61,7 +64,7 @@ prop_compose! {
                   contribution_size in 1..10usize,
                   seed in gen_seed())
                  -> TestConfig {
-        TestConfig{
+        TestConfig {
             dimension, total_txs, batch_size, contribution_size, seed
         }
     }
@@ -81,7 +84,8 @@ proptest! {
 
 /// Dynamic honey badger: Drop a validator node, demoting it to observer, then re-add it, all while
 /// running a regular honey badger network.
-#[allow(clippy::needless_pass_by_value)]
+// TODO: Add an observer node to the test network.
+#[allow(clippy::needless_pass_by_value, clippy::cyclomatic_complexity)]
 fn do_drop_and_readd(cfg: TestConfig) {
     let mut rng: TestRng = TestRng::from_seed(cfg.seed);
 
@@ -153,17 +157,27 @@ fn do_drop_and_readd(cfg: TestConfig) {
     // We are tracking (correct) nodes' state through the process by ticking them off individually.
     let mut awaiting_removal: collections::BTreeSet<_> =
         net.correct_nodes().map(|n| *n.id()).collect();
-    let mut awaiting_addition: collections::BTreeSet<_> =
-        net.correct_nodes().map(|n| *n.id()).collect();
+    let mut awaiting_addition: collections::BTreeSet<_> = net
+        .correct_nodes()
+        .map(|n| *n.id())
+        .filter(|id| *id != pivot_node_id)
+        .collect();
     let mut expected_outputs: collections::BTreeMap<_, collections::BTreeSet<_>> = net
         .correct_nodes()
         .map(|n| (*n.id(), (0..10).collect()))
         .collect();
     let mut received_batches: collections::BTreeMap<u64, _> = collections::BTreeMap::new();
+    // Whether node 0 was rejoined as a validator.
+    let mut rejoined_pivot_node = false;
+    // The removed pivot node which is to be restarted as soon as all remaining validators agree to
+    // add it back.
+    let mut saved_node: Option<Node<DHB>> = None;
 
     // Run the network:
     loop {
         let (node_id, step) = net.crank_expect(&mut rng);
+        // A flag telling whether the cranked node has been removed from the network.
+        let mut removed_ourselves = false;
         if !net[node_id].is_faulty() {
             for batch in &step.output {
                 // Check that correct nodes don't output different batches for the same epoch.
@@ -213,14 +227,27 @@ fn do_drop_and_readd(cfg: TestConfig) {
                     // Removal complete, tally:
                     awaiting_removal.remove(&node_id);
 
-                    // Now we can add the node again. Public keys will be reused.
-                    let _ = net
-                        .send_input(
-                            node_id,
-                            Input::Change(Change::NodeChange(pub_keys_add.clone())),
-                            &mut rng,
-                        )
-                        .expect("failed to send `Add` input");
+                    if awaiting_removal.is_empty() {
+                        println!(
+                            "Removing the pivot node {} from the test network",
+                            pivot_node_id
+                        );
+                        saved_node = net.remove_node(&pivot_node_id);
+                        if node_id == pivot_node_id {
+                            removed_ourselves = true;
+                        }
+                    }
+
+                    if node_id != pivot_node_id {
+                        // Now we can add the node again. Public keys will be reused.
+                        let _ = net
+                            .send_input(
+                                node_id,
+                                Input::Change(Change::NodeChange(pub_keys_add.clone())),
+                                &mut rng,
+                            )
+                            .expect("failed to send `Add` input");
+                    }
                 }
 
                 ChangeState::Complete(Change::NodeChange(ref pub_keys))
@@ -240,6 +267,11 @@ fn do_drop_and_readd(cfg: TestConfig) {
                     println!("Unhandled change: {:?}", change);
                 }
             }
+        }
+        if removed_ourselves {
+            // Further operations on the cranked node are not possible. Continue with processing
+            // other nodes.
+            continue;
         }
 
         // Record whether or not we received some output.
@@ -273,6 +305,22 @@ fn do_drop_and_readd(cfg: TestConfig) {
                         .remove(tx);
                 }
             }
+            // If this is the first batch from a correct node with a vote to add node 0 back, take
+            // the join plan of the batch and use it to restart node 0.
+            if awaiting_addition.is_empty() && !net[node_id].is_faulty() && !rejoined_pivot_node {
+                if let ChangeState::InProgress(Change::NodeChange(pub_keys)) = batch.change() {
+                    if *pub_keys == pub_keys_add {
+                        let join_plan = batch
+                            .join_plan()
+                            .expect("failed to get the join plan of the batch");
+                        let node = saved_node.take().expect("the pivot node wasn't saved");
+                        let step = restart_node_for_add(&mut net, node, join_plan, &mut rng);
+                        net.process_step(pivot_node_id, &step)
+                            .expect("processing a step failed");
+                        rejoined_pivot_node = true;
+                    }
+                }
+            }
         }
 
         // Check if we are done.
@@ -296,8 +344,41 @@ fn do_drop_and_readd(cfg: TestConfig) {
         }
     }
 
-    // As a final step, we verify that all nodes have arrived at the same conclusion.
-    let out = net.verify_batches();
+    // As a final step, we verify that all nodes have arrived at the same conclusion. The pivot node
+    // can miss some batches while it was removed.
+    let full_node = net
+        .correct_nodes()
+        .find(|node| *node.id() != pivot_node_id)
+        .expect("Could not find a full node");
+    net.verify_batches(&full_node);
+    println!("End result: {:?}", full_node.outputs());
+}
 
-    println!("End result: {:?}", out);
+/// Restarts node 0 on the test network for adding it back as a validator.
+fn restart_node_for_add<R, A>(
+    net: &mut VirtualNet<DHB, A>,
+    mut node: Node<DHB>,
+    join_plan: JoinPlan<usize>,
+    rng: &mut R,
+) -> Step<DynamicHoneyBadger<Vec<usize>, usize>>
+where
+    R: rand::Rng,
+    A: Adversary<DHB>,
+{
+    println!("Restarting node {} with {:?}", node.id(), join_plan);
+    // TODO: When an observer node is added to the network, it should also be added to peer_ids.
+    let peer_ids: Vec<usize> = net
+        .nodes()
+        .map(|node| *node.id())
+        .filter(|id| id != node.id())
+        .collect();
+    let secret_key = node.algorithm().algo().netinfo().secret_key().clone();
+    let id = *node.id();
+    let (dhb, dhb_step) = DynamicHoneyBadger::new_joining(id, secret_key, join_plan, rng)
+        .expect("failed to reconstruct the pivot node");
+    let (sq, mut sq_step) = SenderQueue::builder(dhb, peer_ids.into_iter()).build(id);
+    *node.algorithm_mut() = sq;
+    sq_step.extend(dhb_step.map(|output| output, Message::from));
+    net.insert_node(node);
+    sq_step
 }

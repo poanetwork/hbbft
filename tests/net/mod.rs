@@ -19,13 +19,15 @@ pub mod err;
 pub mod proptest;
 pub mod util;
 
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::io::Write;
-use std::{cmp, collections, env, fmt, fs, io, ops, process, time};
+use std::{cmp, env, fmt, fs, io, ops, process, time};
 
 use rand;
 use rand::{Rand, Rng};
 
 use hbbft::dynamic_honey_badger::Batch;
+use hbbft::sender_queue::SenderQueueableOutput;
 use hbbft::{self, Contribution, DaStep, DistAlgorithm, Fault, NetworkInfo, NodeIdT, Step};
 
 use crate::try_some;
@@ -194,7 +196,7 @@ impl<M, N> NetworkMessage<M, N> {
 }
 
 /// Mapping from node IDs to actual node instances.
-pub type NodeMap<D> = collections::BTreeMap<<D as DistAlgorithm>::NodeId, Node<D>>;
+pub type NodeMap<D> = BTreeMap<<D as DistAlgorithm>::NodeId, Node<D>>;
 
 /// A virtual network message tied to a distributed algorithm.
 pub type NetMessage<D> =
@@ -215,10 +217,10 @@ pub type NetMessage<D> =
 // borrow-checker restrictions.
 #[allow(clippy::needless_pass_by_value)]
 fn process_step<'a, D>(
-    nodes: &'a mut collections::BTreeMap<D::NodeId, Node<D>>,
+    nodes: &'a mut BTreeMap<D::NodeId, Node<D>>,
     sender: D::NodeId,
     step: &DaStep<D>,
-    dest: &mut collections::VecDeque<NetMessage<D>>,
+    dest: &mut VecDeque<NetMessage<D>>,
     error_on_fault: bool,
 ) -> Result<usize, CrankError<D>>
 where
@@ -566,7 +568,7 @@ where
     /// Maps node IDs to actual node instances.
     nodes: NodeMap<D>,
     /// A collection of all network messages queued up for delivery.
-    messages: collections::VecDeque<NetMessage<D>>,
+    messages: VecDeque<NetMessage<D>>,
     /// An optional `Adversary` that controls the network delivery schedule and all faulty nodes.
     adversary: Option<A>,
     /// Trace output; if active, writes out a log of all messages.
@@ -630,6 +632,21 @@ where
     #[inline]
     pub fn correct_nodes_mut(&mut self) -> impl Iterator<Item = &mut Node<D>> {
         self.nodes_mut().filter(|n| !n.is_faulty())
+    }
+
+    /// Inserts a new node into the network. Returns the old node with the same ID if it existed on
+    /// the network at the time of insertion.
+    #[inline]
+    pub fn insert_node(&mut self, node: Node<D>) -> Option<Node<D>> {
+        self.nodes.insert(node.id().clone(), node)
+    }
+
+    /// Removes a node with the given ID from the network. Returns the removed node if there was a
+    /// node with this ID at the time of removal.
+    #[inline]
+    pub fn remove_node(&mut self, id: &D::NodeId) -> Option<Node<D>> {
+        self.messages.retain(|msg| msg.to != *id);
+        self.nodes.remove(id)
     }
 
     /// Retrieve a node by ID.
@@ -740,8 +757,8 @@ where
             "Too many faulty nodes requested, `f` must satisfy `3f < total_nodes`."
         );
 
-        let mut steps = collections::BTreeMap::new();
-        let mut messages = collections::VecDeque::new();
+        let mut steps = BTreeMap::new();
+        let mut messages = VecDeque::new();
 
         let mut nodes = net_infos
             .into_iter()
@@ -802,7 +819,7 @@ where
         let node = self
             .nodes
             .get_mut(&msg.to)
-            .ok_or_else(|| CrankError::NodeDisappeared(msg.to.clone()))?;
+            .ok_or_else(|| CrankError::NodeDisappearedInDispatch(msg.to.clone()))?;
 
         // Store a copy of the message, in case we need to pass it to the error variant.
         // By reducing the information in `CrankError::HandleMessage`, we could reduce overhead
@@ -838,16 +855,22 @@ where
             .algorithm
             .handle_input(input, rng)
             .map_err(CrankError::HandleInput)?;
+        self.process_step(id, &step)?;
+        Ok(step)
+    }
 
+    /// Processes a step of a given node. The results of the processing are stored internally in the
+    /// test network.
+    #[must_use = "The result of processing a step must be used."]
+    pub fn process_step(&mut self, id: D::NodeId, step: &DaStep<D>) -> Result<(), CrankError<D>> {
         self.message_count = self.message_count.saturating_add(process_step(
             &mut self.nodes,
             id,
-            &step,
+            step,
             &mut self.messages,
             self.error_on_fault,
         )?);
-
-        Ok(step)
+        Ok(())
     }
 
     /// Advance the network.
@@ -909,7 +932,7 @@ where
         let is_faulty = try_some!(self
             .nodes
             .get(&msg.to)
-            .ok_or_else(|| CrankError::NodeDisappeared(msg.to.clone())))
+            .ok_or_else(|| CrankError::NodeDisappearedInCrank(msg.to.clone())))
         .is_faulty();
 
         let step: Step<_, _, _> = if is_faulty {
@@ -934,18 +957,7 @@ where
 
         // All messages are expanded and added to the queue. We opt for copying them, so we can
         // return unaltered step later on for inspection.
-        self.message_count = self.message_count.saturating_add(
-            match process_step(
-                &mut self.nodes,
-                receiver.clone(),
-                &step,
-                &mut self.messages,
-                self.error_on_fault,
-            ) {
-                Ok(n) => n,
-                Err(e) => return Some(Err(e)),
-            },
-        );
+        try_some!(self.process_step(receiver.clone(), &step));
 
         // Increase the crank count.
         self.crank_count += 1;
@@ -999,14 +1011,7 @@ where
 
         // Process all messages from all steps in the queue.
         for (id, step) in &steps {
-            let n = process_step(
-                &mut self.nodes,
-                id.clone(),
-                step,
-                &mut self.messages,
-                self.error_on_fault,
-            )?;
-            self.message_count = self.message_count.saturating_add(n);
+            self.process_step(id.clone(), step)?;
         }
 
         Ok(steps)
@@ -1015,26 +1020,49 @@ where
 
 impl<C, D, N, A> VirtualNet<D, A>
 where
-    D: DistAlgorithm<Output = Batch<C, N>>,
+    D: DistAlgorithm<NodeId = N, Output = Batch<C, N>>,
     D::Message: Clone,
     A: Adversary<D>,
     C: Contribution + Clone,
     N: NodeIdT,
 {
-    /// Verifies that all nodes' outputs agree, and returns the output.
-    pub fn verify_batches(&self) -> &[Batch<C, N>] {
-        let first = self.correct_nodes().nth(0).unwrap().outputs();
-        let pub_eq = |(b0, b1): (&Batch<C, _>, &Batch<C, _>)| b0.public_eq(b1);
-        for (i, node) in self.correct_nodes().enumerate().skip(0) {
-            assert!(
-                first.iter().zip(node.outputs()).all(pub_eq),
-                "Outputs of nodes 0 and {} differ: {:?} != {:?}",
-                i,
-                first,
-                node.outputs()
-            );
+    /// Verifies that all nodes' outputs agree, given a correct "full" node that output all
+    /// batches in a total order and with no gaps.
+    ///
+    /// The output of the full node is used to derive in expected output of other nodes in every
+    /// epoch. After that the check ensures that correct nodes output the same batches in epochs
+    /// when those nodes were participants (either validators or candidates).
+    pub fn verify_batches<E>(&self, full_node: &Node<D>)
+    where
+        Batch<C, N>: SenderQueueableOutput<N, E>,
+    {
+        let mut participants: BTreeSet<N> = self.nodes().map(Node::id).cloned().collect();
+        let mut expected: BTreeMap<N, Vec<_>> = BTreeMap::new();
+        for batch in &full_node.outputs {
+            for id in &participants {
+                expected.entry(id.clone()).or_default().push(batch);
+            }
+            if let Some(new_participants) = batch.participant_change() {
+                participants = new_participants;
+            }
         }
-        first
+        for node in self.correct_nodes().filter(|n| n.id() != full_node.id()) {
+            assert_eq!(
+                node.outputs.len(),
+                expected[node.id()].len(),
+                "The output length of node {:?} is incorrect",
+                node.id()
+            );
+            assert!(node
+                .outputs
+                .iter()
+                .zip(
+                    expected
+                        .get(node.id())
+                        .expect("outputs don't match the expectation")
+                )
+                .all(|(a, b)| a.public_eq(b)));
+        }
     }
 }
 

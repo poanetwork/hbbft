@@ -28,9 +28,12 @@ where
         msg: NetMessage<D>,
         err: D::Error,
     },
-    /// A node unexpectly disappeared from the list of nodes. Note that this is likely a bug in
-    /// the network framework code.
-    NodeDisappeared(D::NodeId),
+    /// As spotted during cranking, a node unexpectly disappeared from the list of nodes. Note that
+    /// this is likely a bug in the network framework code.
+    NodeDisappearedInCrank(D::NodeId),
+    /// As spotted during message dispatch, a node unexpectly disappeared from the list of
+    /// nodes. Note that this is likely a bug in the network framework code.
+    NodeDisappearedInDispatch(D::NodeId),
     /// The configured maximum number of cranks has been reached or exceeded.
     CrankLimitExceeded(usize),
     /// The configured maximum number of messages has been reached or exceeded.
@@ -71,7 +74,12 @@ where
                 "The algorithm could not process network message {:?}. Error: {:?}",
                 msg, err
             ),
-            CrankError::NodeDisappeared(id) => write!(
+            CrankError::NodeDisappearedInCrank(id) => write!(
+                f,
+                "Node {:?} disappeared or never existed, while it was cranked.",
+                id
+            ),
+            CrankError::NodeDisappearedInDispatch(id) => write!(
                 f,
                 "Node {:?} disappeared or never existed, while it still had incoming messages.",
                 id
@@ -114,7 +122,13 @@ where
                 .field("msg", msg)
                 .field("err", err)
                 .finish(),
-            CrankError::NodeDisappeared(id) => f.debug_tuple("NodeDisappeared").field(id).finish(),
+            CrankError::NodeDisappearedInCrank(id) => {
+                f.debug_tuple("NodeDisappearedInCrank").field(id).finish()
+            }
+            CrankError::NodeDisappearedInDispatch(id) => f
+                .debug_tuple("NodeDisappearedInDispatch")
+                .field(id)
+                .finish(),
             CrankError::CrankLimitExceeded(max) => {
                 f.debug_tuple("CrankLimitExceeded").field(max).finish()
             }
