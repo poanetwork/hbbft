@@ -15,6 +15,8 @@ use super::{Error, Message, Result};
 use crate::fault_log::{Fault, FaultKind};
 use crate::{DistAlgorithm, NetworkInfo, NodeIdT, Target};
 
+type RseResult<T> = result::Result<T, rse::Error>;
+
 /// Broadcast algorithm instance.
 #[derive(Debug)]
 pub struct Broadcast<N> {
@@ -76,7 +78,8 @@ impl<N: NodeIdT> Broadcast<N> {
     pub fn new(netinfo: Arc<NetworkInfo<N>>, proposer_id: N) -> Result<Self> {
         let parity_shard_num = 2 * netinfo.num_faulty();
         let data_shard_num = netinfo.num_nodes() - parity_shard_num;
-        let coding = Coding::new(data_shard_num, parity_shard_num)?;
+        let coding =
+            Coding::new(data_shard_num, parity_shard_num).map_err(|_| Error::InvalidNodeCount)?;
 
         Ok(Broadcast {
             netinfo,
@@ -140,15 +143,12 @@ impl<N: NodeIdT> Broadcast<N> {
         let payload_len = value.len() as u32;
         value.splice(0..0, 0..4); // Insert four bytes at the beginning.
         BigEndian::write_u32(&mut value[..4], payload_len); // Write the size.
-        let value_len = value.len();
-        // Size of a Merkle tree leaf value, in bytes.
-        let shard_len = if value_len % data_shard_num > 0 {
-            value_len / data_shard_num + 1
-        } else {
-            value_len / data_shard_num
-        };
-        // Pad the last data shard with zeros. Fill the parity shards with
-        // zeros.
+        let value_len = value.len(); // This is at least 4 now, due to the payload length.
+
+        // Size of a Merkle tree leaf value: the value size divided by the number of data shards,
+        // and rounded up, so that the full value always fits in the data shards. Always at least 1.
+        let shard_len = (value_len + data_shard_num - 1) / data_shard_num;
+        // Pad the last data shard with zeros. Fill the parity shards with zeros.
         value.resize(shard_len * (data_shard_num + parity_shard_num), 0);
 
         // Divide the vector into chunks/shards.
@@ -156,8 +156,9 @@ impl<N: NodeIdT> Broadcast<N> {
         // Convert the iterator over slices into a vector of slices.
         let mut shards: Vec<&mut [u8]> = shards_iter.collect();
 
-        // Construct the parity chunks/shards
-        self.coding.encode(&mut shards)?;
+        // Construct the parity chunks/shards. This only fails if a shard is empty or the shards
+        // have different sizes. Our shards all have size `shard_len`, which is at least 1.
+        self.coding.encode(&mut shards).expect("wrong shard size");
 
         debug!(
             "{}: Value: {} bytes, {} per shard. Shards: {:0.10}",
@@ -343,6 +344,8 @@ impl<N: NodeIdT> Broadcast<N> {
     }
 
     /// Interpolates the missing shards and glues together the data shards to retrieve the value.
+    /// This returns `None` if reconstruction failed or the reconstructed shards don't match the
+    /// root hash. This can only happen if the proposer provided invalid shards.
     fn decode_from_shards(
         &self,
         leaf_values: &mut [Option<Box<[u8]>>],
@@ -422,10 +425,9 @@ enum Coding {
 
 impl Coding {
     /// Creates a new `Coding` instance with the given number of shards.
-    fn new(data_shard_num: usize, parity_shard_num: usize) -> Result<Self> {
+    fn new(data_shard_num: usize, parity_shard_num: usize) -> RseResult<Self> {
         Ok(if parity_shard_num > 0 {
-            let rs = ReedSolomon::new(data_shard_num, parity_shard_num)
-                .map_err(Error::CodingNewReedSolomon)?;
+            let rs = ReedSolomon::new(data_shard_num, parity_shard_num)?;
             Coding::ReedSolomon(Box::new(rs))
         } else {
             Coding::Trivial(data_shard_num)
@@ -449,30 +451,24 @@ impl Coding {
     }
 
     /// Constructs (and overwrites) the parity shards.
-    fn encode(&self, slices: &mut [&mut [u8]]) -> Result<()> {
+    fn encode(&self, slices: &mut [&mut [u8]]) -> RseResult<()> {
         match *self {
-            Coding::ReedSolomon(ref rs) => {
-                rs.encode(slices).map_err(Error::CodingEncodeReedSolomon)?
-            }
-            Coding::Trivial(_) => (),
+            Coding::ReedSolomon(ref rs) => rs.encode(slices),
+            Coding::Trivial(_) => Ok(()),
         }
-        Ok(())
     }
 
     /// If enough shards are present, reconstructs the missing ones.
-    fn reconstruct_shards(&self, shards: &mut [Option<Box<[u8]>>]) -> Result<()> {
+    fn reconstruct_shards(&self, shards: &mut [Option<Box<[u8]>>]) -> RseResult<()> {
         match *self {
-            Coding::ReedSolomon(ref rs) => rs
-                .reconstruct_shards(shards)
-                .map_err(Error::CodingReconstructShardsReedSolomon)?,
+            Coding::ReedSolomon(ref rs) => rs.reconstruct_shards(shards),
             Coding::Trivial(_) => {
-                if shards.iter().any(Option::is_none) {
-                    return Err(Error::CodingReconstructShardsTrivialReedSolomon(
-                        rse::Error::TooFewShardsPresent,
-                    ));
+                if shards.iter().all(Option::is_some) {
+                    Ok(())
+                } else {
+                    Err(rse::Error::TooFewShardsPresent)
                 }
             }
         }
-        Ok(())
     }
 }
