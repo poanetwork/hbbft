@@ -645,6 +645,12 @@ where
                 "Output epochs of {:?} don't match the expectation.",
                 id
             );
+            assert_eq!(
+                node.outputs.len(),
+                expected[id].len(),
+                "Output length of {:?} doesn't match the expectation",
+                id
+            );
             assert!(
                 node.outputs
                     .iter()
