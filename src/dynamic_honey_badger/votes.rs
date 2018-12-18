@@ -6,9 +6,11 @@ use bincode;
 use serde::Serialize;
 use serde_derive::{Deserialize, Serialize};
 
-use super::{Change, Error, Result};
-use crate::fault_log::{FaultKind, FaultLog};
+use super::{Change, Error, FaultKind, Result};
+use crate::fault_log;
 use crate::{NetworkInfo, NodeIdT};
+
+pub type FaultLog<N> = fault_log::FaultLog<N, FaultKind>;
 
 /// A buffer and counter collecting pending and committed votes for validator set changes.
 ///
@@ -190,8 +192,8 @@ mod tests {
     use std::iter;
     use std::sync::Arc;
 
-    use super::{Change, SignedVote, VoteCounter};
-    use crate::fault_log::{FaultKind, FaultLog};
+    use super::{Change, FaultKind, SignedVote, VoteCounter};
+    use crate::fault_log::FaultLog;
     use crate::NetworkInfo;
     use rand;
 

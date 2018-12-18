@@ -11,8 +11,8 @@ use reed_solomon_erasure::ReedSolomon;
 
 use super::merkle::{Digest, MerkleTree, Proof};
 use super::message::HexProof;
-use super::{Error, Message, Result};
-use crate::fault_log::{Fault, FaultKind};
+use super::{Error, FaultKind, Message, Result};
+use crate::fault_log::Fault;
 use crate::{DistAlgorithm, NetworkInfo, NodeIdT, Target};
 
 type RseResult<T> = result::Result<T, rse::Error>;
@@ -49,6 +49,7 @@ impl<N: NodeIdT> DistAlgorithm for Broadcast<N> {
     type Output = Self::Input;
     type Message = Message;
     type Error = Error;
+    type FaultKind = FaultKind;
 
     fn handle_input<R: Rng>(&mut self, input: Self::Input, _rng: &mut R) -> Result<Step<N>> {
         self.broadcast(input)

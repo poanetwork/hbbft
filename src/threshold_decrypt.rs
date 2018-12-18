@@ -20,7 +20,7 @@ use rand::Rng;
 use rand_derive::Rand;
 use serde_derive::{Deserialize, Serialize};
 
-use crate::fault_log::{Fault, FaultKind, FaultLog};
+use crate::fault_log::{self, Fault};
 use crate::{DistAlgorithm, NetworkInfo, NodeIdT, Target};
 
 /// A threshold decryption error.
@@ -45,6 +45,20 @@ pub enum Error {
 
 /// A threshold decryption result.
 pub type Result<T> = ::std::result::Result<T, Error>;
+
+/// A threshold decryption message fault
+#[derive(Clone, Debug, Fail, PartialEq)]
+pub enum FaultKind {
+    /// `ThresholdDecrypt` received multiple shares from the same sender.
+    #[fail(display = "`ThresholdDecrypt` received multiple shares from the same sender.")]
+    MultipleDecryptionShares,
+    /// `HoneyBadger` received a decryption share from an unverified sender.
+    #[fail(display = "`HoneyBadger` received a decryption share from an unverified sender.")]
+    UnverifiedDecryptionShareSender,
+}
+
+/// The type of fault log whose entries are `ThresholdDecrypt` faults.
+pub type FaultLog<N> = fault_log::FaultLog<N, FaultKind>;
 
 /// A Threshold Decryption message.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Rand)]
@@ -74,6 +88,7 @@ impl<N: NodeIdT> DistAlgorithm for ThresholdDecrypt<N> {
     type Output = Vec<u8>;
     type Message = Message;
     type Error = Error;
+    type FaultKind = FaultKind;
 
     fn handle_input<R: Rng>(&mut self, _input: (), _rng: &mut R) -> Result<Step<N>> {
         self.start_decryption()

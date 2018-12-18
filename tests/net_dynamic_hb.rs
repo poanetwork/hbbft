@@ -379,7 +379,7 @@ where
         .expect("failed to reconstruct the pivot node");
     let (sq, mut sq_step) = SenderQueue::builder(dhb, peer_ids.into_iter()).build(id);
     *node.algorithm_mut() = sq;
-    sq_step.extend(dhb_step.map(|output| output, Message::from));
+    sq_step.extend(dhb_step.map(|output| output, |fault| fault, Message::from));
     net.insert_node(node);
     sq_step
 }

@@ -13,8 +13,8 @@ use rand::Rng;
 use serde::{de::DeserializeOwned, Serialize};
 use serde_derive::{Deserialize, Serialize};
 
-use super::{Batch, Error, MessageContent, Result, Step};
-use crate::fault_log::{Fault, FaultKind, FaultLog};
+use super::{Batch, Error, FaultKind, FaultLog, MessageContent, Result, Step};
+use crate::fault_log::Fault;
 use crate::subset::{self as cs, Subset, SubsetOutput};
 use crate::threshold_decrypt::{self as td, ThresholdDecrypt};
 use crate::{Contribution, NetworkInfo, NodeIdT};
@@ -306,7 +306,7 @@ where
     /// Checks whether the subset has output, and if it does, sends out our decryption shares.
     fn process_subset(&mut self, cs_step: CsStep<N>) -> Result<Step<C, N>> {
         let mut step = Step::default();
-        let cs_outputs = step.extend_with(cs_step, |cs_msg| {
+        let cs_outputs = step.extend_with(cs_step, FaultKind::SubsetFault, |cs_msg| {
             MessageContent::Subset(cs_msg).with_epoch(self.epoch)
         });
         let mut has_seen_done = false;
@@ -357,7 +357,7 @@ where
     /// Processes a Threshold Decrypt step.
     fn process_decryption(&mut self, proposer_id: N, td_step: td::Step<N>) -> Result<Step<C, N>> {
         let mut step = Step::default();
-        let opt_output = step.extend_with(td_step, |share| {
+        let opt_output = step.extend_with(td_step, FaultKind::DecryptionFault, |share| {
             MessageContent::DecryptionShare {
                 proposer_id: proposer_id.clone(),
                 share,
