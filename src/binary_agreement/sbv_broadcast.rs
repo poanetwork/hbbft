@@ -11,7 +11,8 @@
 
 use std::sync::Arc;
 
-use rand;
+use rand::distributions::{Distribution, Standard};
+use rand::{seq::SliceRandom, Rng};
 use serde_derive::{Deserialize, Serialize};
 
 use super::bool_multimap::BoolMultimap;
@@ -33,11 +34,11 @@ pub enum Message {
 }
 
 // NOTE: Extending rand_derive to correctly generate random values from boxes would make this
-// implementation obsolete; however at the time of this writing, `rand::Rand` is already deprecated
+// implementation obsolete; however at the time of this writing, `rand_derive` is already deprecated
 // with no replacement in sight.
-impl rand::Rand for Message {
-    fn rand<R: rand::Rng>(rng: &mut R) -> Self {
-        let message_type = *rng.choose(&["bval", "aux"]).unwrap();
+impl Distribution<Message> for Standard {
+    fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> Message {
+        let message_type = *["bval", "aux"].choose(rng).unwrap();
 
         match message_type {
             "bval" => Message::BVal(rng.gen()),

@@ -70,7 +70,8 @@ mod sbv_broadcast;
 
 use bincode;
 use failure::Fail;
-use rand;
+use rand::distributions::{Distribution, Standard};
+use rand::{seq::SliceRandom, Rng};
 use rand_derive::Rand;
 use serde_derive::{Deserialize, Serialize};
 
@@ -148,11 +149,11 @@ pub struct Message {
 }
 
 // NOTE: Extending rand_derive to correctly generate random values from boxes would make this
-// implementation obsolete; however at the time of this writing, `rand::Rand` is already deprecated
+// implementation obsolete; however at the time of this writing, `rand_derive` is already deprecated
 // with no replacement in sight.
-impl rand::Rand for MessageContent {
-    fn rand<R: rand::Rng>(rng: &mut R) -> Self {
-        let message_type = *rng.choose(&["sbvb", "conf", "term", "coin"]).unwrap();
+impl Distribution<MessageContent> for Standard {
+    fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> MessageContent {
+        let message_type = *["sbvb", "conf", "term", "coin"].choose(rng).unwrap();
 
         match message_type {
             "sbvb" => MessageContent::SbvBroadcast(rng.gen()),

@@ -4,7 +4,7 @@ use std::collections::BTreeSet;
 use std::result;
 
 use crate::crypto::PublicKey;
-use rand::{Rand, Rng};
+use rand::Rng;
 use serde::{de::DeserializeOwned, Serialize};
 
 use super::{
@@ -19,7 +19,7 @@ use crate::dynamic_honey_badger::{
 impl<C, N> SenderQueueableOutput<N, (u64, u64)> for Batch<C, N>
 where
     C: Contribution,
-    N: NodeIdT + Rand,
+    N: NodeIdT,
 {
     fn participant_change(&self) -> Option<BTreeSet<N>> {
         if let ChangeState::InProgress(Change::NodeChange(pub_keys)) = self.change() {
@@ -42,10 +42,7 @@ where
     }
 }
 
-impl<N> SenderQueueableMessage for Message<N>
-where
-    N: Rand + Ord,
-{
+impl<N: Ord> SenderQueueableMessage for Message<N> {
     type Epoch = (u64, u64);
 
     fn is_premature(&self, (them_era, them): (u64, u64), max_future_epochs: u64) -> bool {
@@ -80,7 +77,7 @@ where
 impl<C, N> SenderQueueableDistAlgorithm for DynamicHoneyBadger<C, N>
 where
     C: Contribution + Serialize + DeserializeOwned,
-    N: NodeIdT + Serialize + DeserializeOwned + Rand,
+    N: NodeIdT + Serialize + DeserializeOwned,
 {
     fn max_future_epochs(&self) -> u64 {
         self.max_future_epochs()
@@ -92,7 +89,7 @@ type Result<C, N> = result::Result<DaStep<SenderQueue<DynamicHoneyBadger<C, N>>>
 impl<C, N> SenderQueue<DynamicHoneyBadger<C, N>>
 where
     C: Contribution + Serialize + DeserializeOwned,
-    N: NodeIdT + Serialize + DeserializeOwned + Rand,
+    N: NodeIdT + Serialize + DeserializeOwned,
 {
     /// Proposes a contribution in the current epoch.
     ///

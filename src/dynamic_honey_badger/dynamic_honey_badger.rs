@@ -6,7 +6,7 @@ use crate::crypto::{PublicKey, SecretKey, Signature};
 use bincode;
 use derivative::Derivative;
 use log::debug;
-use rand::{Rand, Rng};
+use rand::Rng;
 use serde::{de::DeserializeOwned, Serialize};
 
 use super::votes::{SignedVote, VoteCounter};
@@ -25,7 +25,7 @@ use crate::{Contribution, DistAlgorithm, Epoched, NetworkInfo, NodeIdT, Target};
 /// A Honey Badger instance that can handle adding and removing nodes.
 #[derive(Derivative)]
 #[derivative(Debug)]
-pub struct DynamicHoneyBadger<C, N: Rand + Ord> {
+pub struct DynamicHoneyBadger<C, N: Ord> {
     /// Shared network data.
     pub(super) netinfo: NetworkInfo<N>,
     /// The maximum number of future epochs for which we handle messages simultaneously.
@@ -45,7 +45,7 @@ pub struct DynamicHoneyBadger<C, N: Rand + Ord> {
 impl<C, N> DistAlgorithm for DynamicHoneyBadger<C, N>
 where
     C: Contribution + Serialize + DeserializeOwned,
-    N: NodeIdT + Serialize + DeserializeOwned + Rand,
+    N: NodeIdT + Serialize + DeserializeOwned,
 {
     type NodeId = N;
     type Input = Input<C, N>;
@@ -83,7 +83,7 @@ where
 impl<C, N> DynamicHoneyBadger<C, N>
 where
     C: Contribution + Serialize + DeserializeOwned,
-    N: NodeIdT + Serialize + DeserializeOwned + Rand,
+    N: NodeIdT + Serialize + DeserializeOwned,
 {
     /// Returns a new `DynamicHoneyBadgerBuilder`.
     pub fn builder() -> DynamicHoneyBadgerBuilder<C, N> {
@@ -531,7 +531,7 @@ where
 impl<C, N> fmt::Display for DynamicHoneyBadger<C, N>
 where
     C: Contribution + Serialize + DeserializeOwned,
-    N: NodeIdT + Serialize + DeserializeOwned + Rand,
+    N: NodeIdT + Serialize + DeserializeOwned,
 {
     fn fmt(&self, f: &mut fmt::Formatter) -> result::Result<(), fmt::Error> {
         write!(f, "{:?} DHB(era: {})", self.our_id(), self.era)
@@ -541,7 +541,7 @@ where
 impl<C, N> Epoched for DynamicHoneyBadger<C, N>
 where
     C: Contribution + Serialize + DeserializeOwned,
-    N: NodeIdT + Serialize + DeserializeOwned + Rand,
+    N: NodeIdT + Serialize + DeserializeOwned,
 {
     type Epoch = (u64, u64);
 

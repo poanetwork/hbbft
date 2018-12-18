@@ -180,7 +180,7 @@ use std::fmt::{self, Debug, Formatter};
 use crate::crypto::{
     error::Error as CryptoError,
     poly::{BivarCommitment, BivarPoly, Poly},
-    serde_impl::field_vec::FieldWrap,
+    serde_impl::FieldWrap,
     Ciphertext, Fr, G1Affine, PublicKey, PublicKeySet, SecretKey, SecretKeyShare,
 };
 use crate::pairing::{CurveAffine, Field};
@@ -385,7 +385,7 @@ impl<N: NodeIdT> SyncKeyGen<N> {
         let mut values = Vec::new();
         for (idx, pk) in self.pub_keys.values().enumerate() {
             let val = row.evaluate(idx + 1);
-            let ser_val = bincode::serialize(&FieldWrap::new(val))?;
+            let ser_val = bincode::serialize(&FieldWrap(val))?;
             values.push(pk.encrypt_with_rng(rng, ser_val));
         }
         Ok(PartOutcome::Valid(Some(Ack(sender_idx, values))))
@@ -536,7 +536,7 @@ impl<N: NodeIdT> SyncKeyGen<N> {
             .sec_key
             .decrypt(&values[our_idx as usize])
             .ok_or(AckFault::DecryptValue)?;
-        let val = bincode::deserialize::<FieldWrap<Fr, Fr>>(&ser_val)
+        let val = bincode::deserialize::<FieldWrap<Fr>>(&ser_val)
             .map_err(|_| AckFault::DeserializeValue)?
             .into_inner();
         if part.commit.evaluate(our_idx + 1, sender_idx + 1) != G1Affine::one().mul(val) {

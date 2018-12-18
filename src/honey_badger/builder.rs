@@ -2,7 +2,6 @@ use std::collections::BTreeMap;
 use std::marker::PhantomData;
 use std::sync::Arc;
 
-use rand::Rand;
 use serde::{de::DeserializeOwned, Serialize};
 
 use super::{EncryptionSchedule, HoneyBadger, Params, SubsetHandlingStrategy};
@@ -25,7 +24,7 @@ pub struct HoneyBadgerBuilder<C, N> {
 impl<C, N> HoneyBadgerBuilder<C, N>
 where
     C: Contribution + Serialize + DeserializeOwned,
-    N: NodeIdT + Rand,
+    N: NodeIdT,
 {
     /// Returns a new `HoneyBadgerBuilder` configured to use the node IDs and cryptographic keys
     /// specified by `netinfo`.

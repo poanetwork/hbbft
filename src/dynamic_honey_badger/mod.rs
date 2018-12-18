@@ -75,7 +75,6 @@ mod votes;
 use std::collections::BTreeMap;
 
 use crate::crypto::{PublicKey, PublicKeySet, Signature};
-use rand::Rand;
 use serde_derive::{Deserialize, Serialize};
 
 use self::votes::{SignedVote, VoteCounter};
@@ -114,7 +113,7 @@ pub enum KeyGenMessage {
 
 /// A message sent to or received from another node's Honey Badger instance.
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub enum Message<N: Rand + Ord> {
+pub enum Message<N: Ord> {
     /// A message belonging to the `HoneyBadger` algorithm started in the given epoch.
     HoneyBadger(u64, HbMessage<N>),
     /// A transaction to be committed, signed by a node.
@@ -123,7 +122,7 @@ pub enum Message<N: Rand + Ord> {
     SignedVote(SignedVote<N>),
 }
 
-impl<N: Rand + Ord> Message<N> {
+impl<N: Ord> Message<N> {
     fn era(&self) -> u64 {
         match *self {
             Message::HoneyBadger(era, _) => era,

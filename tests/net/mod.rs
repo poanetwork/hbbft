@@ -23,8 +23,7 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::io::Write;
 use std::{cmp, env, fmt, fs, io, ops, process, time};
 
-use rand;
-use rand::{Rand, Rng};
+use rand::{self, Rng};
 
 use hbbft::dynamic_honey_badger::Batch;
 use hbbft::sender_queue::SenderQueueableOutput;
@@ -61,7 +60,7 @@ fn open_trace() -> Result<io::BufWriter<fs::File>, io::Error> {
             .to_string_lossy()
             .into_owned(),
         process::id(),
-        u16::rand(&mut rng),
+        rng.gen::<u16>()
     );
 
     Ok(io::BufWriter::new(fs::File::create(name)?))

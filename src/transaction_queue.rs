@@ -3,7 +3,7 @@
 use std::collections::HashSet;
 use std::{cmp, fmt};
 
-use rand::{self, Rng};
+use rand::{self, seq::IteratorRandom, Rng};
 
 use crate::Contribution;
 
@@ -47,10 +47,7 @@ where
     #[inline]
     fn choose<R: Rng>(&mut self, rng: &mut R, amount: usize, batch_size: usize) -> Vec<T> {
         let limit = cmp::min(batch_size, self.len());
-        let sample = match rand::seq::sample_iter(rng, self.iter().take(limit), amount) {
-            Ok(choice) => choice,
-            Err(choice) => choice, // Fewer than `amount` were available, which is fine.
-        };
+        let sample = self.iter().take(limit).choose_multiple(rng, amount);
         sample.into_iter().cloned().collect()
     }
 }
