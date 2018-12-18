@@ -26,7 +26,7 @@ use rand::Rng;
 use rand_derive::Rand;
 use serde_derive::{Deserialize, Serialize};
 
-use crate::fault_log::{Fault, FaultKind, FaultLog};
+use crate::fault_log::{Fault, FaultLog};
 use crate::{DistAlgorithm, NetworkInfo, NodeIdT, Target};
 
 /// A threshold signing error.
@@ -51,6 +51,20 @@ pub enum Error {
 
 /// A threshold signing result.
 pub type Result<T> = ::std::result::Result<T, Error>;
+
+/// A threshold sign message fault
+#[derive(Debug, Fail, PartialEq)]
+pub enum FaultKind {
+    #[fail(
+        display = "`ThresholdSign` (`Coin`) received a signature share from an unverified sender."
+    )]
+    UnverifiedSignatureShareSender,
+    #[fail(
+        display = "`HoneyBadger` received a signatures share for the random value even though it
+                   is disabled."
+    )]
+    UnexpectedSignatureShare,
+}
 
 /// A threshold signing message, containing a signature share.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Rand)]
@@ -180,7 +194,7 @@ impl<N: NodeIdT> ThresholdSign<N> {
     }
 
     /// Removes all shares that are invalid, and returns faults for their senders.
-    fn remove_invalid_shares(&mut self) -> FaultLog<N> {
+    fn remove_invalid_shares(&mut self) -> FaultLog<N, FaultKind> {
         let faulty_senders: Vec<N> = self
             .received_shares
             .iter()

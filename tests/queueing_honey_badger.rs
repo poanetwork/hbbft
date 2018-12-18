@@ -192,7 +192,7 @@ fn new_queueing_hb(
         .build(&mut rng)
         .expect("failed to build QueueingHoneyBadger");
     let (sq, mut step) = SenderQueue::builder(qhb, peer_ids).build(our_id);
-    assert!(step.extend_with(qhb_step, Message::from).is_empty());
+    assert!(step.extend_with(qhb_step, |fault| fault, Message::from).is_empty());
     (sq, step)
 }
 

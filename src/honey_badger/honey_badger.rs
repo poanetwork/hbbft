@@ -8,8 +8,8 @@ use serde::{de::DeserializeOwned, Serialize};
 use serde_derive::{Deserialize, Serialize};
 
 use super::epoch_state::EpochState;
-use super::{Batch, Error, HoneyBadgerBuilder, Message, Result};
-use crate::{Contribution, DistAlgorithm, Fault, FaultKind, NetworkInfo, NodeIdT};
+use super::{Batch, Error, FaultKind, HoneyBadgerBuilder, Message, Result};
+use crate::{Contribution, DistAlgorithm, Fault, NetworkInfo, NodeIdT};
 
 use super::Params;
 
@@ -45,6 +45,7 @@ where
     type Output = Batch<C, N>;
     type Message = Message<N>;
     type Error = Error;
+    type FaultKind = FaultKind;
 
     fn handle_input<R: Rng>(&mut self, input: Self::Input, rng: &mut R) -> Result<Step<C, N>> {
         self.propose(&input, rng)

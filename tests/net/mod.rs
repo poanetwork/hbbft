@@ -935,7 +935,7 @@ where
             .ok_or_else(|| CrankError::NodeDisappearedInCrank(msg.to.clone())))
         .is_faulty();
 
-        let step: Step<_, _, _> = if is_faulty {
+        let step: Step<_, _, _, _> = if is_faulty {
             // The swap-dance is painful here, as we are creating an `opt_step` just to avoid
             // borrow issues.
             let mut adv = self.adversary.take();

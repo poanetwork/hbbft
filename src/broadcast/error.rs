@@ -22,3 +22,20 @@ pub enum Error {
 
 /// A broadcast result.
 pub type Result<T> = ::std::result::Result<T, Error>;
+
+/// Represents each reason why a broadcast message could be faulty.
+#[derive(Debug, Fail, PartialEq)]
+pub enum FaultKind {
+    #[fail(display = "`Broadcast` received a `Value` from a node other than the proposer.")]
+    ReceivedValueFromNonProposer,
+    #[fail(display = "`Broadcast` received multiple different `Value`s from the proposer.")]
+    MultipleValues,
+    #[fail(display = "`Broadcast` received multiple different `Echo`s from the same sender.")]
+    MultipleEchos,
+    #[fail(display = "`Broadcast` received multiple different `Ready`s from the same sender.")]
+    MultipleReadys,
+    #[fail(display = "`Broadcast` recevied an Echo message containing an invalid proof.")]
+    InvalidProof,
+    #[fail(display = "`Broadcast` received shards with valid proofs, that couldn't be decoded.")]
+    BroadcastDecoding,
+}

@@ -104,8 +104,24 @@ impl From<bincode::Error> for Error {
 /// A `BinaryAgreement` result.
 pub type Result<T> = ::std::result::Result<T, Error>;
 
+/// A faulty Binary Agreement message received from a peer.
+#[derive(Debug, Fail, PartialEq)]
+pub enum FaultKind {
+    #[fail(display = "`BinaryAgreement` received a duplicate `BVal` message.")]
+    DuplicateBVal,
+    #[fail(display = "`BinaryAgreement` received a duplicate `Aux` message.")]
+    DuplicateAux,
+    #[fail(display = "`BinaryAgreement` received multiple `Conf` messages.")]
+    MultipleConf,
+    #[fail(display = "`BinaryAgreement` received multiple `Term` messages.")]
+    MultipleTerm,
+    #[fail(display = "`BinaryAgreement` received a message with an epoch too far ahead.")]
+    AgreementEpoch,
+    #[fail(display = "`BinaryAgreement` received a Coin Fault.")]
+    CoinFault(threshold_sign::FaultKind),
+}
 /// A `BinaryAgreement` step, containing at most one output.
-pub type Step<N> = crate::Step<Message, bool, N>;
+pub type Step<N> = ::Step<Message, bool, N, FaultKind>;
 
 /// The content of a message belonging to a particular `BinaryAgreement` epoch.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
