@@ -10,8 +10,8 @@ use rand::Rng;
 use super::bool_multimap::BoolMultimap;
 use super::bool_set::{self, BoolSet};
 use super::sbv_broadcast::{self, Message as SbvMessage, SbvBroadcast};
-use super::{Error, Message, MessageContent, Result, Step};
-use crate::fault_log::{Fault, FaultKind};
+use super::{Error, FaultKind, Message, MessageContent, Result, Step};
+use crate::fault_log::Fault;
 use crate::threshold_sign::{self, Message as TsMessage, ThresholdSign};
 use crate::{DistAlgorithm, NetworkInfo, NodeIdT, SessionIdT, Target};
 
@@ -177,6 +177,7 @@ impl<N: NodeIdT, S: SessionIdT> DistAlgorithm for BinaryAgreement<N, S> {
     type Output = bool;
     type Message = Message;
     type Error = Error;
+    type FaultKind = FaultKind;
 
     fn handle_input<R: Rng>(&mut self, input: Self::Input, _rng: &mut R) -> Result<Step<N>> {
         self.propose(input)
@@ -299,9 +300,11 @@ impl<N: NodeIdT, S: SessionIdT> BinaryAgreement<N, S> {
     /// decides.
     fn handle_sbvb_step(&mut self, sbvb_step: sbv_broadcast::Step<N>) -> Result<Step<N>> {
         let mut step = Step::default();
-        let output = step.extend_with(sbvb_step, |msg| {
-            MessageContent::SbvBroadcast(msg).with_epoch(self.epoch)
-        });
+        let output = step.extend_with(
+            sbvb_step,
+            |fault| fault,
+            |msg| MessageContent::SbvBroadcast(msg).with_epoch(self.epoch),
+        );
         if self.conf_values.is_some() {
             return Ok(step); // The `Conf` round has already started.
         }
@@ -393,7 +396,7 @@ impl<N: NodeIdT, S: SessionIdT> BinaryAgreement<N, S> {
         let mut step = Step::default();
         let epoch = self.epoch;
         let to_msg = |c_msg| MessageContent::Coin(Box::new(c_msg)).with_epoch(epoch);
-        let ts_output = step.extend_with(ts_step, to_msg);
+        let ts_output = step.extend_with(ts_step, FaultKind::CoinFault, to_msg);
         if let Some(sig) = ts_output.into_iter().next() {
             // Take the parity of the signature as the coin value.
             self.coin_state = sig.parity().into();

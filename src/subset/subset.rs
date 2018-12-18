@@ -8,12 +8,12 @@ use log::debug;
 use serde_derive::Serialize;
 
 use super::proposal_state::{ProposalState, Step as ProposalStep};
-use super::{Error, Message, MessageContent, Result};
+use super::{Error, FaultKind, Message, MessageContent, Result};
 use crate::{util, DistAlgorithm, NetworkInfo, NodeIdT, SessionIdT};
 use rand::Rng;
 
 /// A `Subset` step, possibly containing several outputs.
-pub type Step<N> = crate::Step<Message<N>, SubsetOutput<N>, N>;
+pub type Step<N> = crate::Step<Message<N>, SubsetOutput<N>, N, FaultKind>;
 
 /// An output with an accepted contribution or the end of the set.
 #[derive(Derivative, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -47,6 +47,7 @@ impl<N: NodeIdT, S: SessionIdT> DistAlgorithm for Subset<N, S> {
     type Output = SubsetOutput<N>;
     type Message = Message<N>;
     type Error = Error;
+    type FaultKind = FaultKind;
 
     fn handle_input<R: Rng>(&mut self, input: Self::Input, _rng: &mut R) -> Result<Step<N>> {
         self.propose(input)
@@ -135,7 +136,7 @@ impl<N: NodeIdT, S: SessionIdT> Subset<N, S> {
     fn convert_step(proposer_id: &N, prop_step: ProposalStep<N>) -> Step<N> {
         let from_p_msg = |p_msg: MessageContent| p_msg.with(proposer_id.clone());
         let mut step = Step::default();
-        if let Some(value) = step.extend_with(prop_step, from_p_msg).pop() {
+        if let Some(value) = step.extend_with(prop_step, |fault| fault, from_p_msg).pop() {
             let contribution = SubsetOutput::Contribution(proposer_id.clone(), value);
             step.output.push(contribution);
         }

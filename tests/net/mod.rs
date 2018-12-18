@@ -75,7 +75,7 @@ pub struct Node<D: DistAlgorithm> {
     /// Captured algorithm outputs, in order.
     outputs: Vec<D::Output>,
     /// Collected fault log, in order.
-    faults: Vec<Fault<D::NodeId>>,
+    faults: Vec<Fault<D::NodeId, D::FaultKind>>,
 }
 
 impl<D> fmt::Debug for Node<D>
@@ -141,7 +141,7 @@ impl<D: DistAlgorithm> Node<D> {
     ///
     /// All faults are collected for reference purposes.
     #[inline]
-    pub fn faults(&self) -> &[Fault<D::NodeId>] {
+    pub fn faults(&self) -> &[Fault<D::NodeId, D::FaultKind>] {
         self.faults.as_slice()
     }
 
@@ -934,7 +934,7 @@ where
             .ok_or_else(|| CrankError::NodeDisappearedInCrank(msg.to.clone())))
         .is_faulty();
 
-        let step: Step<_, _, _> = if is_faulty {
+        let step: Step<_, _, _, _> = if is_faulty {
             // The swap-dance is painful here, as we are creating an `opt_step` just to avoid
             // borrow issues.
             let mut adv = self.adversary.take();

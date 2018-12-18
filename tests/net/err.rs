@@ -41,7 +41,7 @@ where
     /// The execution time limit has been reached or exceeded.
     TimeLimitHit(time::Duration),
     /// A `Fault` is encountered in a step of a `DistAlgorithm`.
-    Fault(Fault<D::NodeId>),
+    Fault(Fault<D::NodeId, D::FaultKind>),
     /// An error occurred while generating initial keys for threshold cryptography.
     InitialKeyGeneration(crypto::error::Error),
 }

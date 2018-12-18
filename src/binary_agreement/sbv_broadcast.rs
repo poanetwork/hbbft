@@ -17,11 +17,11 @@ use serde_derive::{Deserialize, Serialize};
 
 use super::bool_multimap::BoolMultimap;
 use super::bool_set::{self, BoolSet};
-use super::Result;
-use crate::fault_log::{Fault, FaultKind};
+use super::{FaultKind, Result};
+use crate::fault_log::Fault;
 use crate::{NetworkInfo, NodeIdT, Target};
 
-pub type Step<N> = crate::Step<Message, BoolSet, N>;
+pub type Step<N> = crate::Step<Message, BoolSet, N, FaultKind>;
 
 /// A message belonging to the Synchronized Binary Value Broadcast phase of a `BinaryAgreement`
 /// epoch.

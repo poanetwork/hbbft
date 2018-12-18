@@ -33,7 +33,7 @@ use serde::{de::DeserializeOwned, Serialize};
 
 use crate::crypto::{PublicKey, SecretKey};
 use crate::dynamic_honey_badger::{
-    self, Batch as DhbBatch, DynamicHoneyBadger, JoinPlan, Message, Step as DhbStep,
+    self, Batch as DhbBatch, DynamicHoneyBadger, FaultKind, JoinPlan, Message, Step as DhbStep,
 };
 use crate::transaction_queue::TransactionQueue;
 use crate::{Contribution, DistAlgorithm, NetworkInfo, NodeIdT};
@@ -162,7 +162,7 @@ pub struct QueueingHoneyBadger<T, N: Ord, Q> {
 }
 
 /// A `QueueingHoneyBadger` step, possibly containing multiple outputs.
-pub type Step<T, N> = crate::Step<Message<N>, Batch<T, N>, N>;
+pub type Step<T, N> = crate::Step<Message<N>, Batch<T, N>, N, FaultKind>;
 
 impl<T, N, Q> DistAlgorithm for QueueingHoneyBadger<T, N, Q>
 where
@@ -176,6 +176,7 @@ where
     type Output = Batch<T, N>;
     type Message = Message<N>;
     type Error = Error;
+    type FaultKind = FaultKind;
 
     fn handle_input<R: Rng>(&mut self, input: Self::Input, rng: &mut R) -> Result<Step<T, N>> {
         // User transactions are forwarded to `HoneyBadger` right away. Internal messages are

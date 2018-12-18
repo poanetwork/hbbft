@@ -32,7 +32,7 @@ pub struct TestNode<D: DistAlgorithm> {
     /// Outgoing messages to be sent to other nodes.
     messages: Vec<TargetedMessage<D::Message, D::NodeId>>,
     /// Collected fault logs.
-    faults: Vec<Fault<D::NodeId>>,
+    faults: Vec<Fault<D::NodeId, D::FaultKind>>,
 }
 
 impl<D: DistAlgorithm> TestNode<D> {
@@ -594,7 +594,7 @@ where
     }
 
     /// Verifies that no correct node is reported as faulty.
-    fn check_faults<I: IntoIterator<Item = Fault<D::NodeId>>>(&self, faults: I) {
+    fn check_faults<I: IntoIterator<Item = Fault<D::NodeId, D::FaultKind>>>(&self, faults: I) {
         for fault in faults {
             if self.nodes.contains_key(&fault.node_id) {
                 panic!("Unexpected fault: {:?}", fault);

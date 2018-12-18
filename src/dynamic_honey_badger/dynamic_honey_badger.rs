@@ -11,11 +11,11 @@ use serde::{de::DeserializeOwned, Serialize};
 
 use super::votes::{SignedVote, VoteCounter};
 use super::{
-    Batch, Change, ChangeState, DynamicHoneyBadgerBuilder, EncryptionSchedule, Error, Input,
-    InternalContrib, JoinPlan, KeyGenMessage, KeyGenState, Message, Params, Result,
+    Batch, Change, ChangeState, DynamicHoneyBadgerBuilder, EncryptionSchedule, Error, FaultKind,
+    Input, InternalContrib, JoinPlan, KeyGenMessage, KeyGenState, Message, Params, Result,
     SignedKeyGenMsg, Step,
 };
-use crate::fault_log::{Fault, FaultKind, FaultLog};
+use crate::fault_log::{Fault, FaultLog};
 use crate::honey_badger::{self, HoneyBadger, Message as HbMessage};
 
 use crate::sync_key_gen::{Ack, AckOutcome, Part, PartOutcome, SyncKeyGen};
@@ -52,6 +52,7 @@ where
     type Output = Batch<C, N>;
     type Message = Message<N>;
     type Error = Error;
+    type FaultKind = FaultKind;
 
     fn handle_input<R: Rng>(&mut self, input: Self::Input, rng: &mut R) -> Result<Step<C, N>> {
         // User contributions are forwarded to `HoneyBadger` right away. Votes are signed and
@@ -280,7 +281,7 @@ where
         sender_id: &N,
         kg_msg: KeyGenMessage,
         sig: Signature,
-    ) -> Result<FaultLog<N>> {
+    ) -> Result<FaultLog<N, FaultKind>> {
         if !self.verify_signature(sender_id, &sig, &kg_msg)? {
             let fault_kind = FaultKind::InvalidKeyGenMessageSignature;
             return Ok(Fault::new(sender_id.clone(), fault_kind).into());
@@ -311,7 +312,9 @@ where
         rng: &mut R,
     ) -> Result<Step<C, N>> {
         let mut step: Step<C, N> = Step::default();
-        let output = step.extend_with(hb_step, |hb_msg| Message::HoneyBadger(self.era, hb_msg));
+        let output = step.extend_with(hb_step, FaultKind::HbFault, |hb_msg| {
+            Message::HoneyBadger(self.era, hb_msg)
+        });
         for hb_batch in output {
             let batch_era = self.era;
             let batch_epoch = hb_batch.epoch + batch_era;

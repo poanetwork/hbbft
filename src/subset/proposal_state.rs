@@ -2,7 +2,7 @@ use std::mem;
 use std::sync::Arc;
 
 use super::subset::BaSessionId;
-use super::{Error, MessageContent, Result};
+use super::{Error, FaultKind, MessageContent, Result};
 use crate::binary_agreement;
 use crate::broadcast::{self, Broadcast};
 use crate::{NetworkInfo, NodeIdT, SessionIdT};
@@ -11,7 +11,7 @@ type BaInstance<N, S> = binary_agreement::BinaryAgreement<N, BaSessionId<S>>;
 type ValueAndStep<N> = (Option<Vec<u8>>, Step<N>);
 type BaResult<N> = binary_agreement::Result<binary_agreement::Step<N>>;
 
-pub type Step<N> = crate::Step<MessageContent, Vec<u8>, N>;
+pub type Step<N> = crate::Step<MessageContent, Vec<u8>, N, FaultKind>;
 
 /// The state of a proposal's broadcast and agreement process.
 #[derive(Debug)]
@@ -138,7 +138,13 @@ impl<N: NodeIdT, S: SessionIdT> ProposalState<N, S> {
     fn convert_bc(result: broadcast::Result<broadcast::Step<N>>) -> Result<ValueAndStep<N>> {
         let bc_step = result.map_err(Error::HandleBroadcast)?;
         let mut step = Step::default();
-        let opt_value = step.extend_with(bc_step, MessageContent::Broadcast).pop();
+        let opt_value = step
+            .extend_with(
+                bc_step,
+                FaultKind::BroadcastFault,
+                MessageContent::Broadcast,
+            )
+            .pop();
         Ok((opt_value, step))
     }
 
@@ -146,7 +152,9 @@ impl<N: NodeIdT, S: SessionIdT> ProposalState<N, S> {
     fn convert_ba(result: BaResult<N>) -> Result<(Option<bool>, Step<N>)> {
         let ba_step = result.map_err(Error::HandleAgreement)?;
         let mut step = Step::default();
-        let opt_decision = step.extend_with(ba_step, MessageContent::Agreement).pop();
+        let opt_decision = step
+            .extend_with(ba_step, FaultKind::BaFault, MessageContent::Agreement)
+            .pop();
         Ok((opt_decision, step))
     }
 
