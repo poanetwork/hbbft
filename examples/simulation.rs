@@ -5,7 +5,7 @@ use std::{cmp, u64};
 use colored::*;
 use docopt::Docopt;
 use itertools::Itertools;
-use rand::{distributions::Standard, rngs::OsRng, seq::IteratorRandom, Rng};
+use rand::{distributions::Standard, rngs::OsRng, seq::SliceRandom, Rng};
 use rand_derive::Rand;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
@@ -299,13 +299,13 @@ where
             .values()
             .filter_map(TestNode::next_event_time)
             .min()?;
-        let next_id = self
+        let min_ids: Vec<NodeId> = self
             .nodes
             .iter()
             .filter(|(_, node)| node.next_event_time() == Some(min_time))
-            .choose(rng)
             .map(|(id, _)| *id)
-            .unwrap();
+            .collect();
+        let next_id = *min_ids.choose(rng).unwrap();
         let msgs: Vec<_> = {
             let node = self.nodes.get_mut(&next_id).unwrap();
             node.handle_message(rng);

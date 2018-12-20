@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use itertools::Itertools;
 use log::info;
-use rand::{seq::IteratorRandom, Rng};
+use rand::{seq::SliceRandom, Rng};
 
 use hbbft::honey_badger::{Batch, EncryptionSchedule, HoneyBadger, MessageContent};
 use hbbft::sender_queue::{self, SenderQueue, Step};
@@ -133,16 +133,16 @@ where
     // Handle messages in random order until all nodes have output all transactions.
     while network.nodes.values_mut().any(node_busy) {
         // If a node is expecting input, take it from the queue. Otherwise handle a message.
-        if let Some(id) = network
+        let input_ids: Vec<_> = network
             .nodes
             .iter()
             .filter(|(_, node)| !node.instance().algo().has_input())
             .map(|(id, _)| *id)
-            .choose(&mut rng)
-        {
-            let queue = queues.get_mut(&id).unwrap();
-            queue.remove_multiple(network.nodes[&id].outputs().iter().flat_map(Batch::iter));
-            network.input(id, queue.choose(&mut rng, 3, 10));
+            .collect();
+        if let Some(id) = input_ids[..].choose(&mut rng) {
+            let queue = queues.get_mut(id).unwrap();
+            queue.remove_multiple(network.nodes[id].outputs().iter().flat_map(Batch::iter));
+            network.input(*id, queue.choose(&mut rng, 3, 10));
         } else {
             network.step();
         }
