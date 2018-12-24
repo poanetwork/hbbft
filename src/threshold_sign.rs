@@ -95,6 +95,7 @@ impl<N: NodeIdT> DistAlgorithm for ThresholdSign<N> {
     type Output = Signature;
     type Message = Message;
     type Error = Error;
+    type FaultKind = FaultKind;
 
     /// Sends our threshold signature share if not yet sent.
     fn handle_input<R: Rng>(&mut self, _input: (), _rng: &mut R) -> Result<Step<N>> {

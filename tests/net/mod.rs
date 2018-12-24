@@ -76,7 +76,7 @@ pub struct Node<D: DistAlgorithm> {
     /// Captured algorithm outputs, in order.
     outputs: Vec<D::Output>,
     /// Collected fault log, in order.
-    faults: Vec<Fault<D::NodeId>>,
+    faults: Vec<Fault<D::NodeId, D::FaultKind>>,
 }
 
 impl<D> fmt::Debug for Node<D>
@@ -142,7 +142,7 @@ impl<D: DistAlgorithm> Node<D> {
     ///
     /// All faults are collected for reference purposes.
     #[inline]
-    pub fn faults(&self) -> &[Fault<D::NodeId>] {
+    pub fn faults(&self) -> &[Fault<D::NodeId, D::FaultKind>] {
         self.faults.as_slice()
     }
 
@@ -150,6 +150,7 @@ impl<D: DistAlgorithm> Node<D> {
     fn store_step(&mut self, step: &DaStep<D>)
     where
         D::Output: Clone,
+        <D as hbbft::traits::DistAlgorithm>::FaultKind: std::clone::Clone,
     {
         self.outputs.extend(step.output.iter().cloned());
         self.faults.extend(step.fault_log.0.iter().cloned());

@@ -20,7 +20,7 @@ use rand::Rng;
 use rand_derive::Rand;
 use serde_derive::{Deserialize, Serialize};
 
-use fault_log::{self, Fault};
+use crate::fault_log::{self, Fault};
 use crate::{DistAlgorithm, NetworkInfo, NodeIdT, Target};
 
 /// A threshold decryption error.

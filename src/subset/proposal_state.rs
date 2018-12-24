@@ -159,6 +159,7 @@ impl<N: NodeIdT + Rand, S: SessionIdT> ProposalState<N, S> {
                 |fault| Fault::new(fault.node_id, FaultKind::BaFault(fault.kind)),
                 MessageContent::Agreement,
             ).pop();
+        Ok((opt_decision, step))
     }
 
     /// Applies the given transition to `self`.

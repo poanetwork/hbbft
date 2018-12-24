@@ -1,7 +1,7 @@
 use bincode;
 use failure::Fail;
 
-use fault_log;
+use crate::fault_log;
 use crate::subset;
 use crate::threshold_decrypt;
 
@@ -51,8 +51,6 @@ pub enum FaultKind {
     SubsetFault(subset::FaultKind),
     #[fail(display = "`HoneyBadger` received a fault from `ThresholdDecrypt`.")]
     DecryptionFault(threshold_decrypt::FaultKind),
-    #[fail(display = "`HoneyBadger` received a fault from `ThresholdSign`.")]
-    SigningFault(threshold_sign::FaultKind),
 }
 
 pub type FaultLog<N> = fault_log::FaultLog<N, FaultKind>;

@@ -13,7 +13,7 @@ use rand::{Rand, Rng};
 use serde::{de::DeserializeOwned, Serialize};
 use serde_derive::{Deserialize, Serialize};
 
-use super::{Batch, ErrorKind, FaultKind, FaultLog, MessageContent, Result, Step};
+use super::{Batch, Error, FaultKind, FaultLog, MessageContent, Result, Step};
 use crate::fault_log::Fault;
 use crate::subset::{self as cs, Subset, SubsetOutput};
 use crate::threshold_decrypt::{self as td, ThresholdDecrypt};

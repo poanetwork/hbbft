@@ -121,7 +121,7 @@ pub enum FaultKind {
     CoinFault(threshold_sign::FaultKind),
 }
 /// A `BinaryAgreement` step, containing at most one output.
-pub type Step<N> = ::Step<Message, bool, N, FaultKind>;
+pub type Step<N> = crate::Step<Message, bool, N, FaultKind>;
 
 /// The content of a message belonging to a particular `BinaryAgreement` epoch.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
