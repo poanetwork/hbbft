@@ -150,7 +150,6 @@ impl<D: DistAlgorithm> Node<D> {
     fn store_step(&mut self, step: &DaStep<D>)
     where
         D::Output: Clone,
-        <D as hbbft::traits::DistAlgorithm>::FaultKind: std::clone::Clone,
     {
         self.outputs.extend(step.output.iter().cloned());
         self.faults.extend(step.fault_log.0.iter().cloned());
