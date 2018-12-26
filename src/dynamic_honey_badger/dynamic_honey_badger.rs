@@ -11,8 +11,8 @@ use serde::{de::DeserializeOwned, Serialize};
 
 use super::votes::{SignedVote, VoteCounter};
 use super::{
-    Batch, Change, ChangeState, DynamicHoneyBadgerBuilder, EncryptionSchedule, Error, Input,
-    InternalContrib, JoinPlan, KeyGenMessage, KeyGenState, Message, Params, FaultKind, Result,
+    Batch, Change, ChangeState, DynamicHoneyBadgerBuilder, EncryptionSchedule, Error, FaultKind,
+    Input, InternalContrib, JoinPlan, KeyGenMessage, KeyGenState, Message, Params, Result,
     SignedKeyGenMsg, Step,
 };
 use crate::fault_log::{Fault, FaultLog};

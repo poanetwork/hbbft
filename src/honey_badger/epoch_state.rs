@@ -373,7 +373,8 @@ where
                 MessageContent::DecryptionShare {
                     proposer_id: proposer_id.clone(),
                     share,
-                }.with_epoch(self.epoch)
+                }
+                .with_epoch(self.epoch)
             },
         );
         if let Some(output) = opt_output.into_iter().next() {

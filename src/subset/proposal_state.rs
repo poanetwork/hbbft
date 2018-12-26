@@ -145,7 +145,8 @@ impl<N: NodeIdT + Rand, S: SessionIdT> ProposalState<N, S> {
                 bc_step,
                 |fail| Fault::new(fail.node_id, FaultKind::BroadcastFault(fail.kind)),
                 MessageContent::Broadcast,
-            ).pop();
+            )
+            .pop();
         Ok((opt_value, step))
     }
 
@@ -158,7 +159,8 @@ impl<N: NodeIdT + Rand, S: SessionIdT> ProposalState<N, S> {
                 ba_step,
                 |fault| Fault::new(fault.node_id, FaultKind::BaFault(fault.kind)),
                 MessageContent::Agreement,
-            ).pop();
+            )
+            .pop();
         Ok((opt_decision, step))
     }
 
