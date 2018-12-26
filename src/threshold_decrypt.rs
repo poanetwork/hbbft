@@ -45,15 +45,19 @@ pub enum Error {
 
 /// A threshold decryption result.
 pub type Result<T> = ::std::result::Result<T, Error>;
+
 /// A threshold decryption message fault
-#[derive(Debug, Fail, PartialEq)]
+#[derive(Clone, Debug, Fail, PartialEq)]
 pub enum FaultKind {
+    /// `ThresholdDecrypt` received multiple shares from the same sender.
     #[fail(display = "`ThresholdDecrypt` received multiple shares from the same sender.")]
     MultipleDecryptionShares,
+    /// `HoneyBadger` received a decryption share from an unverified sender.
     #[fail(display = "`HoneyBadger` received a decryption share from an unverified sender.")]
     UnverifiedDecryptionShareSender,
 }
 
+/// The type of fault log whose entries are `ThresholdDecrypt` faults.
 pub type FaultLog<N> = fault_log::FaultLog<N, FaultKind>;
 
 /// A Threshold Decryption message.

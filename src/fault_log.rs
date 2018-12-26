@@ -21,6 +21,7 @@ impl<N, F> Fault<N, F>
 where
     F: Fail,
 {
+    /// Creates a new fault given a node ID and a fault description.
     pub fn new(node_id: N, kind: F) -> Self {
         Fault { node_id, kind }
     }

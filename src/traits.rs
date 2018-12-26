@@ -21,6 +21,10 @@ impl<C> Contribution for C where C: Eq + Debug + Hash + Send + Sync {}
 pub trait NodeIdT: Eq + Ord + Clone + Debug + Hash + Send + Sync {}
 impl<N> NodeIdT for N where N: Eq + Ord + Clone + Debug + Hash + Send + Sync {}
 
+/// A distributed algorithm fault.
+pub trait FaultT: Clone + Debug + Fail + PartialEq {}
+impl<N> FaultT for N where N: Clone + Debug + Fail + PartialEq {}
+
 /// Messages.
 pub trait Message: Debug + Send + Sync {}
 impl<M> Message for M where M: Debug + Send + Sync {}
@@ -303,7 +307,7 @@ pub trait DistAlgorithm: Send + Sync {
     /// The errors that can occur during execution.
     type Error: Fail;
     /// The kinds of message faults that can be detected during execution.
-    type FaultKind: Fail;
+    type FaultKind: FaultT;
 
     /// Handles an input provided by the user, and returns
     fn handle_input<R: Rng>(

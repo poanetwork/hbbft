@@ -29,10 +29,12 @@ pub enum Error {
 pub type Result<T> = result::Result<T, Error>;
 
 /// Subset does not actually have any messages defined, so there's no real FaultKind to define here
-#[derive(Debug, Fail, PartialEq)]
+#[derive(Clone, Debug, Fail, PartialEq)]
 pub enum FaultKind {
+    /// `Subset` received a faulty Broadcast message.
     #[fail(display = "`Subset` received a faulty Broadcast message.")]
     BroadcastFault(broadcast::FaultKind),
+    /// `Subset` received a faulty Binary Agreement message.
     #[fail(display = "`Subset` received a faulty Binary Agreement message.")]
     BaFault(binary_agreement::FaultKind),
 }

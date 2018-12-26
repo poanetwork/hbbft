@@ -32,25 +32,34 @@ pub enum Error {
 pub type Result<T> = ::std::result::Result<T, Error>;
 
 /// Faults detectable from receiving honey badger messages
-#[derive(Debug, Fail, PartialEq)]
+#[derive(Clone, Debug, Fail, PartialEq)]
 pub enum FaultKind {
+    /// `HoneyBadger` received a decryption share for an unaccepted proposer.
     #[fail(display = "`HoneyBadger` received a decryption share for an unaccepted proposer.")]
     UnexpectedDecryptionShare,
+    /// `HoneyBadger` was unable to deserialize a proposer's ciphertext.
     #[fail(display = "`HoneyBadger` was unable to deserialize a proposer's ciphertext.")]
     DeserializeCiphertext,
+    /// `HoneyBadger` received an invalid ciphertext from the proposer.
     #[fail(display = "`HoneyBadger` received an invalid ciphertext from the proposer.")]
     InvalidCiphertext,
+    /// `HoneyBadger` received a message with an invalid epoch.
     #[fail(display = "`HoneyBadger` received a message with an invalid epoch.")]
     UnexpectedHbMessageEpoch,
+    /// `HoneyBadger` could not deserialize bytes (i.e. a serialized Batch) from a given proposer
+    /// into a vector of transactions.
     #[fail(
         display = "`HoneyBadger` could not deserialize bytes (i.e. a serialized Batch) from a
                     given proposer into a vector of transactions."
     )]
     BatchDeserializationFailed,
+    /// `HoneyBadger` received a fault from `Subset`.
     #[fail(display = "`HoneyBadger` received a fault from `Subset`.")]
     SubsetFault(subset::FaultKind),
+    /// `HoneyBadger` received a fault from `ThresholdDecrypt`.
     #[fail(display = "`HoneyBadger` received a fault from `ThresholdDecrypt`.")]
     DecryptionFault(threshold_decrypt::FaultKind),
 }
 
+/// The type of fault log whose entries are `HoneyBadger` faults.
 pub type FaultLog<N> = fault_log::FaultLog<N, FaultKind>;

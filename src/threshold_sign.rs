@@ -53,12 +53,14 @@ pub enum Error {
 pub type Result<T> = ::std::result::Result<T, Error>;
 
 /// A threshold sign message fault
-#[derive(Debug, Fail, PartialEq)]
+#[derive(Clone, Debug, Fail, PartialEq)]
 pub enum FaultKind {
+    /// `ThresholdSign` (`Coin`) received a signature share from an unverified sender.
     #[fail(
         display = "`ThresholdSign` (`Coin`) received a signature share from an unverified sender."
     )]
     UnverifiedSignatureShareSender,
+    /// `HoneyBadger` received a signatures share for the random value even though it is disabled.
     #[fail(
         display = "`HoneyBadger` received a signatures share for the random value even though it
                    is disabled."

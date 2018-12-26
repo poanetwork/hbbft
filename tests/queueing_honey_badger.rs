@@ -168,7 +168,7 @@ where
             .expect("failed to rebuild the node with a join plan");
     let (sq, mut sq_step) = SenderQueue::builder(qhb, peer_ids.into_iter()).build(our_id);
     *node.instance_mut() = sq;
-    sq_step.extend(qhb_step.map(|output| output, Message::from));
+    sq_step.extend(qhb_step.map(|output| output, |fault| fault, Message::from));
     network.nodes.insert(our_id, node);
     sq_step
 }
@@ -192,7 +192,9 @@ fn new_queueing_hb(
         .build(&mut rng)
         .expect("failed to build QueueingHoneyBadger");
     let (sq, mut step) = SenderQueue::builder(qhb, peer_ids).build(our_id);
-    assert!(step.extend_with(qhb_step, |fault| fault, Message::from).is_empty());
+    assert!(step
+        .extend_with(qhb_step, |fault| fault, Message::from)
+        .is_empty());
     (sq, step)
 }
 
