@@ -41,7 +41,12 @@ where
     /// The execution time limit has been reached or exceeded.
     TimeLimitHit(time::Duration),
     /// A `Fault` is encountered in a step of a `DistAlgorithm`.
-    Fault(Fault<D::NodeId, D::FaultKind>),
+    Fault {
+        /// The ID of the node that reported the fault.
+        reported_by_id: D::NodeId,
+        /// The reported fault.
+        fault: D::FaultKind,
+    },
     /// An error occurred while generating initial keys for threshold cryptography.
     InitialKeyGeneration(crypto::error::Error),
 }
@@ -93,9 +98,14 @@ where
             CrankError::TimeLimitHit(lim) => {
                 write!(f, "Time limit of {} seconds exceeded.", lim.as_secs())
             }
-            CrankError::Fault(fault) => {
-                write!(f, "Node {:?} is faulty: {:?}.", fault.node_id, fault.kind)
-            }
+            CrankError::Fault {
+                reported_by_id,
+                fault,
+            } => write!(
+                f,
+                "Node {:?} reported another node {:?} as faulty: {:?}.",
+                reported_by_id, fault.node_id, fault.kind
+            ),
             CrankError::InitialKeyGeneration(err) => write!(
                 f,
                 "An error occurred while generating initial keys for threshold cryptography: {:?}.",
@@ -136,7 +146,14 @@ where
                 f.debug_tuple("MessageLimitExceeded").field(max).finish()
             }
             CrankError::TimeLimitHit(lim) => f.debug_tuple("TimeLimitHit").field(lim).finish(),
-            CrankError::Fault(fault) => f.debug_tuple("Fault").field(fault).finish(),
+            CrankError::Fault {
+                reported_by_id,
+                fault,
+            } => f
+                .debug_struct("Fault")
+                .field("reported_by_id", reported_by_id)
+                .field("err", fault)
+                .finish(),
             CrankError::InitialKeyGeneration(err) => {
                 f.debug_tuple("InitialKeyGeneration").field(err).finish()
             }

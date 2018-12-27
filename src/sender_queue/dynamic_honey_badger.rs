@@ -8,12 +8,14 @@ use rand::Rng;
 use serde::{de::DeserializeOwned, Serialize};
 
 use super::{
-    SenderQueue, SenderQueueableDistAlgorithm, SenderQueueableMessage, SenderQueueableOutput,
+    Message, SenderQueue, SenderQueueableDistAlgorithm, SenderQueueableMessage,
+    SenderQueueableOutput, Step,
 };
 use crate::{Contribution, DaStep, NodeIdT};
 
 use crate::dynamic_honey_badger::{
-    Batch, Change, ChangeState, DynamicHoneyBadger, Error as DhbError, Message,
+    Batch, Change, ChangeState, DynamicHoneyBadger, Error as DhbError, JoinPlan,
+    Message as DhbMessage,
 };
 
 impl<C, N> SenderQueueableOutput<N, (u64, u64)> for Batch<C, N>
@@ -42,34 +44,34 @@ where
     }
 }
 
-impl<N: Ord> SenderQueueableMessage for Message<N> {
+impl<N: Ord> SenderQueueableMessage for DhbMessage<N> {
     type Epoch = (u64, u64);
 
     fn is_premature(&self, (them_era, them): (u64, u64), max_future_epochs: u64) -> bool {
         match *self {
-            Message::HoneyBadger(era, ref msg) => {
+            DhbMessage::HoneyBadger(era, ref msg) => {
                 era > them_era || (era == them_era && msg.epoch() > them + max_future_epochs)
             }
-            Message::KeyGen(era, _, _) => era > them_era,
-            Message::SignedVote(ref signed_vote) => signed_vote.era() > them_era,
+            DhbMessage::KeyGen(era, _, _) => era > them_era,
+            DhbMessage::SignedVote(ref signed_vote) => signed_vote.era() > them_era,
         }
     }
 
     fn is_obsolete(&self, (them_era, them): (u64, u64)) -> bool {
         match *self {
-            Message::HoneyBadger(era, ref msg) => {
+            DhbMessage::HoneyBadger(era, ref msg) => {
                 era < them_era || (era == them_era && msg.epoch() < them)
             }
-            Message::KeyGen(era, _, _) => era < them_era,
-            Message::SignedVote(ref signed_vote) => signed_vote.era() < them_era,
+            DhbMessage::KeyGen(era, _, _) => era < them_era,
+            DhbMessage::SignedVote(ref signed_vote) => signed_vote.era() < them_era,
         }
     }
 
     fn first_epoch(&self) -> (u64, u64) {
         match *self {
-            Message::HoneyBadger(era, ref msg) => (era, msg.epoch()),
-            Message::KeyGen(era, _, _) => (era, 0),
-            Message::SignedVote(ref signed_vote) => (signed_vote.era(), 0),
+            DhbMessage::HoneyBadger(era, ref msg) => (era, msg.epoch()),
+            DhbMessage::KeyGen(era, _, _) => (era, 0),
+            DhbMessage::SignedVote(ref signed_vote) => (signed_vote.era(), 0),
         }
     }
 }
@@ -123,5 +125,32 @@ where
     /// once enough validators have been voted for the same change, it will take effect.
     pub fn vote_to_remove(&mut self, node_id: &N) -> Result<C, N> {
         self.apply(|algo| algo.vote_to_remove(node_id))
+    }
+
+    /// Restarts the managed algorithm with the given join plan with a new list of peers and with
+    /// the same secret key. In order to be restarted, the node should have completed the process of
+    /// removing itself from the network. The node may not output a batch if it were not properly
+    /// removed.
+    pub fn restart<I, R: Rng>(
+        &mut self,
+        join_plan: JoinPlan<N>,
+        peer_ids: I,
+        rng: &mut R,
+    ) -> Result<C, N>
+    where
+        I: Iterator<Item = N>,
+    {
+        if !self.is_removed {
+            // TODO: return an error?
+            return Ok(Step::<DynamicHoneyBadger<C, N>>::default());
+        }
+        let secret_key = self.algo().netinfo().secret_key().clone();
+        let id = self.algo().netinfo().our_id().clone();
+        let (dhb, dhb_step) =
+            DynamicHoneyBadger::new_joining(id.clone(), secret_key, join_plan, rng)?;
+        let (sq, mut sq_step) = SenderQueue::builder(dhb, peer_ids.into_iter()).build(id);
+        sq_step.extend(dhb_step.map(|output| output, Message::from));
+        *self = sq;
+        Ok(sq_step)
     }
 }
