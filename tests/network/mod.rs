@@ -4,6 +4,7 @@ use std::mem;
 use std::sync::Arc;
 
 use log::{debug, warn};
+use rand::seq::{IteratorRandom, SliceRandom};
 use rand::{self, Rng};
 use rand_derive::Rand;
 use serde_derive::{Deserialize, Serialize};
@@ -118,12 +119,11 @@ impl MessageScheduler {
             .filter(|(_, node)| !node.queue.is_empty())
             .map(|(id, _)| id.clone());
         let rand_node = match *self {
-            MessageScheduler::First => rand::thread_rng().gen_weighted_bool(10),
+            MessageScheduler::First => rand::thread_rng().gen_bool(0.1),
             MessageScheduler::Random => true,
         };
         if rand_node {
-            let ids: Vec<D::NodeId> = ids.collect();
-            rand::thread_rng().choose(&ids).cloned()
+            ids.choose(&mut rand::thread_rng())
         } else {
             ids.next()
         }
@@ -319,7 +319,7 @@ impl<D: DistAlgorithm, F: Fn() -> TargetedMessage<D::Message, D::NodeId>> Advers
                 // Choose a new target to send the message to. The unwrap never fails, because we
                 // ensured that `known_node_ids` is non-empty earlier.
                 let mut rng = rand::thread_rng();
-                let new_target_node = rng.choose(&self.known_node_ids).unwrap().clone();
+                let new_target_node = self.known_node_ids.iter().choose(&mut rng).unwrap().clone();
 
                 // TODO: We could randomly broadcast it instead, if we had access to topology
                 //       information.
@@ -344,7 +344,7 @@ impl<D: DistAlgorithm, F: Fn() -> TargetedMessage<D::Message, D::NodeId>> Advers
             let mut rng = rand::thread_rng();
 
             // Pick a random adversarial node and create a message using the generator.
-            if let Some(sender) = rng.choose(&self.known_adversarial_ids[..]) {
+            if let Some(sender) = self.known_adversarial_ids[..].choose(&mut rng) {
                 let tm = (self.generator)();
 
                 // Add to outgoing queue.

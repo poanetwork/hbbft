@@ -8,7 +8,8 @@ use std::iter;
 use std::sync::Arc;
 
 use log::info;
-use rand::{Isaac64Rng, Rng};
+use rand::{Rng, SeedableRng};
+use rand_xorshift::XorShiftRng;
 
 use hbbft::dynamic_honey_badger::{DynamicHoneyBadger, JoinPlan};
 use hbbft::queueing_honey_badger::{Change, ChangeState, Input, QueueingHoneyBadger};
@@ -161,7 +162,7 @@ where
         .chain(iter::once(observer))
         .collect();
     let secret_key = node.instance().algo().netinfo().secret_key().clone();
-    let mut rng = rand::thread_rng().gen::<Isaac64Rng>();
+    let mut rng = XorShiftRng::from_seed(rand::thread_rng().gen::<[u8; 16]>());
     let (qhb, qhb_step) =
         QueueingHoneyBadger::builder_joining(our_id, secret_key, join_plan, &mut rng)
             .and_then(|builder| builder.batch_size(3).build(&mut rng))
@@ -186,7 +187,7 @@ fn new_queueing_hb(
         .cloned()
         .chain(iter::once(observer));
     let dhb = DynamicHoneyBadger::builder().build((*netinfo).clone());
-    let mut rng = rand::thread_rng().gen::<Isaac64Rng>();
+    let mut rng = XorShiftRng::from_seed(rand::thread_rng().gen::<[u8; 16]>());
     let (qhb, qhb_step) = QueueingHoneyBadger::builder(dhb)
         .batch_size(3)
         .build(&mut rng)

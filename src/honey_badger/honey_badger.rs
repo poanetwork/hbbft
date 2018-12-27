@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use derivative::Derivative;
-use rand::{Rand, Rng};
+use rand::Rng;
 use serde::{de::DeserializeOwned, Serialize};
 use serde_derive::{Deserialize, Serialize};
 
@@ -16,7 +16,7 @@ use super::Params;
 /// An instance of the Honey Badger Byzantine fault tolerant consensus algorithm.
 #[derive(Derivative)]
 #[derivative(Debug)]
-pub struct HoneyBadger<C, N: Rand> {
+pub struct HoneyBadger<C, N> {
     /// Shared network data.
     pub(super) netinfo: Arc<NetworkInfo<N>>,
     /// A session identifier. Different session IDs foil replay attacks in two instances with the
@@ -38,7 +38,7 @@ pub type Step<C, N> = crate::DaStep<HoneyBadger<C, N>>;
 impl<C, N> DistAlgorithm for HoneyBadger<C, N>
 where
     C: Contribution + Serialize + DeserializeOwned,
-    N: NodeIdT + Rand,
+    N: NodeIdT,
 {
     type NodeId = N;
     type Input = C;
@@ -71,7 +71,7 @@ where
 impl<C, N> HoneyBadger<C, N>
 where
     C: Contribution + Serialize + DeserializeOwned,
-    N: NodeIdT + Rand,
+    N: NodeIdT,
 {
     /// Returns a new `HoneyBadgerBuilder` configured to use the node IDs and cryptographic keys
     /// specified by `netinfo`.

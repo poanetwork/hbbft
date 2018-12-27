@@ -27,7 +27,8 @@ use std::{cmp, iter};
 
 use derivative::Derivative;
 use failure::Fail;
-use rand::{Rand, Rng};
+use rand::distributions::{Distribution, Standard};
+use rand::Rng;
 use serde::{de::DeserializeOwned, Serialize};
 
 use crate::crypto::{PublicKey, SecretKey};
@@ -64,7 +65,7 @@ pub type Result<T> = ::std::result::Result<T, Error>;
 pub struct QueueingHoneyBadgerBuilder<T, N, Q>
 where
     T: Contribution + Serialize + DeserializeOwned + Clone,
-    N: NodeIdT + Serialize + DeserializeOwned + Rand,
+    N: NodeIdT + Serialize + DeserializeOwned,
 {
     /// Shared network data.
     dyn_hb: DynamicHoneyBadger<Vec<T>, N>,
@@ -82,8 +83,9 @@ type QueueingHoneyBadgerWithStep<T, N, Q> = (QueueingHoneyBadger<T, N, Q>, Step<
 impl<T, N, Q> QueueingHoneyBadgerBuilder<T, N, Q>
 where
     T: Contribution + Serialize + DeserializeOwned + Clone,
-    N: NodeIdT + Serialize + DeserializeOwned + Rand,
+    N: NodeIdT + Serialize + DeserializeOwned,
     Q: TransactionQueue<T>,
+    Standard: Distribution<N>,
 {
     /// Returns a new `QueueingHoneyBadgerBuilder` wrapping the given instance of
     /// `DynamicHoneyBadger`.
@@ -150,7 +152,7 @@ where
 /// queue.
 #[derive(Derivative)]
 #[derivative(Debug)]
-pub struct QueueingHoneyBadger<T, N: Rand + Ord, Q> {
+pub struct QueueingHoneyBadger<T, N: Ord, Q> {
     /// The target number of transactions to be included in each batch.
     batch_size: usize,
     /// The internal managed `DynamicHoneyBadger` instance.
@@ -165,8 +167,9 @@ pub type Step<T, N> = crate::Step<Message<N>, Batch<T, N>, N>;
 impl<T, N, Q> DistAlgorithm for QueueingHoneyBadger<T, N, Q>
 where
     T: Contribution + Serialize + DeserializeOwned + Clone,
-    N: NodeIdT + Serialize + DeserializeOwned + Rand,
+    N: NodeIdT + Serialize + DeserializeOwned,
     Q: TransactionQueue<T>,
+    Standard: Distribution<N>,
 {
     type NodeId = N;
     type Input = Input<T, N>;
@@ -205,8 +208,9 @@ where
 impl<T, N, Q> QueueingHoneyBadger<T, N, Q>
 where
     T: Contribution + Serialize + DeserializeOwned + Clone,
-    N: NodeIdT + Serialize + DeserializeOwned + Rand,
+    N: NodeIdT + Serialize + DeserializeOwned,
     Q: TransactionQueue<T>,
+    Standard: Distribution<N>,
 {
     /// Returns a new `QueueingHoneyBadgerBuilder` configured to use the node IDs and cryptographic
     /// keys specified by `netinfo`.

@@ -92,7 +92,7 @@
 //! ```
 //! use hbbft::broadcast::{Broadcast, Error, Step};
 //! use hbbft::{NetworkInfo, SourcedMessage, Target, TargetedMessage};
-//! use rand::{OsRng, Rng};
+//! use rand::{OsRng, Rng, RngCore};
 //! use std::collections::{BTreeMap, BTreeSet, VecDeque};
 //! use std::iter::once;
 //! use std::sync::Arc;

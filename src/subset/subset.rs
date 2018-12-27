@@ -10,7 +10,7 @@ use serde_derive::Serialize;
 use super::proposal_state::{ProposalState, Step as ProposalStep};
 use super::{Error, Message, MessageContent, Result};
 use crate::{util, DistAlgorithm, NetworkInfo, NodeIdT, SessionIdT};
-use rand::{Rand, Rng};
+use rand::Rng;
 
 /// A `Subset` step, possibly containing several outputs.
 pub type Step<N> = crate::Step<Message<N>, SubsetOutput<N>, N>;
@@ -30,7 +30,7 @@ pub enum SubsetOutput<N> {
 
 /// Subset algorithm instance
 #[derive(Debug)]
-pub struct Subset<N: Rand, S> {
+pub struct Subset<N, S> {
     /// Shared network information.
     netinfo: Arc<NetworkInfo<N>>,
     /// The session identifier.
@@ -41,7 +41,7 @@ pub struct Subset<N: Rand, S> {
     decided: bool,
 }
 
-impl<N: NodeIdT + Rand, S: SessionIdT> DistAlgorithm for Subset<N, S> {
+impl<N: NodeIdT, S: SessionIdT> DistAlgorithm for Subset<N, S> {
     type NodeId = N;
     type Input = Vec<u8>;
     type Output = SubsetOutput<N>;
@@ -70,7 +70,7 @@ impl<N: NodeIdT + Rand, S: SessionIdT> DistAlgorithm for Subset<N, S> {
     }
 }
 
-impl<N: NodeIdT + Rand, S: SessionIdT> Subset<N, S> {
+impl<N: NodeIdT, S: SessionIdT> Subset<N, S> {
     /// Creates a new `Subset` instance with the given session identifier.
     ///
     /// If multiple `Subset`s are instantiated within a single network, they must use different
@@ -168,7 +168,7 @@ impl<N: NodeIdT + Rand, S: SessionIdT> Subset<N, S> {
     }
 }
 
-impl<N: NodeIdT + Rand, S: SessionIdT> fmt::Display for Subset<N, S> {
+impl<N: NodeIdT, S: SessionIdT> fmt::Display for Subset<N, S> {
     fn fmt(&self, f: &mut fmt::Formatter) -> result::Result<(), fmt::Error> {
         write!(f, "{:?} Subset({})", self.our_id(), self.session_id)
     }

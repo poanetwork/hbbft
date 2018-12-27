@@ -4,7 +4,6 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 
 use crate::crypto::{SecretKey, SecretKeySet};
-use rand::Rand;
 use serde::{de::DeserializeOwned, Serialize};
 
 use super::{DynamicHoneyBadger, EncryptionSchedule, JoinPlan, Result, Step, VoteCounter};
@@ -21,10 +20,7 @@ pub struct DynamicHoneyBadgerBuilder<C, N> {
     _phantom: PhantomData<(C, N)>,
 }
 
-impl<C, N> Default for DynamicHoneyBadgerBuilder<C, N>
-where
-    N: Ord,
-{
+impl<C, N: Ord> Default for DynamicHoneyBadgerBuilder<C, N> {
     fn default() -> Self {
         DynamicHoneyBadgerBuilder {
             era: 0,
@@ -37,7 +33,7 @@ where
 impl<C, N> DynamicHoneyBadgerBuilder<C, N>
 where
     C: Contribution + Serialize + DeserializeOwned,
-    N: NodeIdT + Serialize + DeserializeOwned + Rand,
+    N: NodeIdT + Serialize + DeserializeOwned,
 {
     /// Returns a new `DynamicHoneyBadgerBuilder` configured to use the node IDs and cryptographic
     /// keys specified by `netinfo`.
@@ -112,7 +108,7 @@ where
         let sk_set = SecretKeySet::random(0, rng);
         let pk_set = sk_set.public_keys();
         let sks = sk_set.secret_key_share(0);
-        let sk: SecretKey = rng.gen();
+        let sk = rng.gen::<SecretKey>();
         let pub_keys = once((our_id.clone(), sk.public_key())).collect();
         let netinfo = NetworkInfo::new(our_id, sks, pk_set, sk, pub_keys);
         Ok(self.build(netinfo))

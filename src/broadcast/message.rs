@@ -1,7 +1,8 @@
 use std::fmt::{self, Debug};
 
 use hex_fmt::HexFmt;
-use rand;
+use rand::distributions::{Distribution, Standard};
+use rand::{self, seq::SliceRandom, Rng};
 use serde_derive::{Deserialize, Serialize};
 
 use super::merkle::{Digest, MerkleTree, Proof};
@@ -20,9 +21,9 @@ pub enum Message {
 
 // A random generation impl is provided for test cases. Unfortunately `#[cfg(test)]` does not work
 // for integration tests.
-impl rand::Rand for Message {
-    fn rand<R: rand::Rng>(rng: &mut R) -> Self {
-        let message_type = *rng.choose(&["value", "echo", "ready"]).unwrap();
+impl Distribution<Message> for Standard {
+    fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> Message {
+        let message_type = *["value", "echo", "ready"].choose(rng).unwrap();
 
         // Create a random buffer for our proof.
         let mut buffer: [u8; 32] = [0; 32];

@@ -6,7 +6,6 @@ use super::{Error, MessageContent, Result};
 use crate::binary_agreement;
 use crate::broadcast::{self, Broadcast};
 use crate::{NetworkInfo, NodeIdT, SessionIdT};
-use rand::Rand;
 
 type BaInstance<N, S> = binary_agreement::BinaryAgreement<N, BaSessionId<S>>;
 type ValueAndStep<N> = (Option<Vec<u8>>, Step<N>);
@@ -16,7 +15,7 @@ pub type Step<N> = crate::Step<MessageContent, Vec<u8>, N>;
 
 /// The state of a proposal's broadcast and agreement process.
 #[derive(Debug)]
-pub enum ProposalState<N: Rand, S> {
+pub enum ProposalState<N, S> {
     /// We are still awaiting the value from the `Broadcast` protocol and the decision from
     /// `BinaryAgreement`.
     Ongoing(Broadcast<N>, BaInstance<N, S>),
@@ -28,7 +27,7 @@ pub enum ProposalState<N: Rand, S> {
     Complete(bool),
 }
 
-impl<N: NodeIdT + Rand, S: SessionIdT> ProposalState<N, S> {
+impl<N: NodeIdT, S: SessionIdT> ProposalState<N, S> {
     /// Creates a new `ProposalState::Ongoing`, with a fresh broadcast and agreement instance.
     pub fn new(netinfo: Arc<NetworkInfo<N>>, ba_id: BaSessionId<S>, prop_id: N) -> Result<Self> {
         let agreement = BaInstance::new(netinfo.clone(), ba_id).map_err(Error::NewAgreement)?;

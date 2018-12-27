@@ -5,7 +5,7 @@ use std::{collections, time};
 use hbbft::dynamic_honey_badger::{Change, ChangeState, DynamicHoneyBadger, Input, JoinPlan};
 use hbbft::sender_queue::{Message, SenderQueue, Step};
 use proptest::{prelude::ProptestConfig, prop_compose, proptest, proptest_helper};
-use rand::SeedableRng;
+use rand::{seq::SliceRandom, SeedableRng};
 
 use crate::net::adversary::{Adversary, ReorderingAdversary};
 use crate::net::proptest::{gen_seed, NetworkDimension, TestRng, TestRngSeed};
@@ -37,7 +37,7 @@ where
     let n = queue.len().min(batch_size);
     let k = queue.len().min(contribution_size);
 
-    rand::seq::sample_slice(rng, &queue[0..n], k)
+    queue[0..n].choose_multiple(rng, k).cloned().collect()
 }
 
 /// Test configuration for dynamic honey badger tests.
@@ -212,7 +212,8 @@ fn do_drop_and_readd(cfg: TestConfig) {
                     batch_participants
                         .iter()
                         .all(|id| expected_participants.contains(id)),
-                    "The batch at node {} contains a contribution from an unexpected participant: {:?}",
+                    "The batch at node {} contains a contribution from an unexpected participant: \
+                     {:?}",
                     node_id,
                     batch
                 );
