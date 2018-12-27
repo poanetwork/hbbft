@@ -255,7 +255,7 @@ fn do_drop_and_readd(cfg: TestConfig) {
                 ChangeState::InProgress(Change::NodeChange(ref pub_keys))
                     if *pub_keys == pub_keys_add =>
                 {
-                    println!("Node {} is progressing to readd.", node_id);
+                    println!("Node {} is progressing with readding.", node_id);
                     awaiting_addition_in_progress.remove(&node_id);
                 }
 
@@ -351,37 +351,32 @@ fn do_drop_and_readd(cfg: TestConfig) {
             }
             // If this is the first batch from a correct node with a vote to add node 0 back, take
             // the join plan of the batch and use it to restart node 0.
-            //
-            // TODO: Merge with restarting the pivot node and remove join_plan from state.
             if !rejoined_pivot_node
                 && !state.get_net()[node_id].is_faulty()
                 && state.join_plan.is_none()
             {
                 if let ChangeState::InProgress(Change::NodeChange(pub_keys)) = batch.change() {
                     if *pub_keys == pub_keys_add {
-                        let join_plan = batch
-                            .join_plan()
-                            .expect("failed to get the join plan of the batch");
-                        state.join_plan = Some(join_plan);
+                        state.join_plan = Some(
+                            batch
+                                .join_plan()
+                                .expect("failed to get the join plan of the batch"),
+                        );
                     }
                 }
             }
             // Restart the pivot node having checked that it can be correctly restarted.
-            if !rejoined_pivot_node
-                && state.join_plan.is_some()
-                && awaiting_addition_in_progress.is_empty()
-            // && state.have_reached_epoch(&iter::once(pivot_node_id).collect(), batch.epoch() + 1)
-            // && state.have_reached_epoch(&non_pivot_nodes, batch.epoch())
-            {
-                let join_plan = state.join_plan.take().unwrap();
-                let node = saved_node.take().expect("the pivot node wasn't saved");
-                let step = restart_node_for_add(state.get_net_mut(), node, join_plan, &mut rng);
-                state.observe_step(pivot_node_id, &step);
-                state
-                    .get_net_mut()
-                    .process_step(pivot_node_id, &step)
-                    .expect("processing a step failed");
-                rejoined_pivot_node = true;
+            if !rejoined_pivot_node && awaiting_addition_in_progress.is_empty() {
+                if let Some(join_plan) = state.join_plan.take() {
+                    let node = saved_node.take().expect("the pivot node wasn't saved");
+                    let step = restart_node_for_add(state.get_net_mut(), node, join_plan, &mut rng);
+                    state.observe_step(pivot_node_id, &step);
+                    state
+                        .get_net_mut()
+                        .process_step(pivot_node_id, &step)
+                        .expect("processing a step failed");
+                    rejoined_pivot_node = true;
+                }
             }
         }
 
@@ -479,7 +474,6 @@ where
     /// communication.
     epochs: BTreeMap<usize, (u64, u64)>,
     /// The join plan for readding the pivot node.
-    // TODO: This is a short-lived value. No need to store it.
     join_plan: Option<JoinPlan<usize>>,
     /// The epoch in which the pivot node should go offline.
     shutdown_epoch: Option<u64>,
