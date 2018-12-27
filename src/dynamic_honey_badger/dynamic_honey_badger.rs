@@ -218,12 +218,6 @@ where
                     .map(FaultLog::into),
             }
         } else if message.era() > self.era {
-            println!(
-                "Us: {:?}, them: {:?}, message: {:?}",
-                self.era,
-                message.era(),
-                message
-            );
             Ok(Fault::new(sender_id.clone(), FaultKind::UnexpectedDhbMessageEra).into())
         } else {
             // The message is late; discard it.
@@ -425,7 +419,6 @@ where
 
     /// Starts a new `HoneyBadger` instance and resets the vote counter.
     fn restart_honey_badger(&mut self, era: u64, params: Params) {
-        println!("Restarting DHB at {:?} in era {}.", self.netinfo.our_id(), era);
         self.era = era;
         self.key_gen_msg_buffer.retain(|kg_msg| kg_msg.0 >= era);
         let netinfo = Arc::new(self.netinfo.clone());

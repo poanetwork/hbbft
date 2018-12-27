@@ -506,18 +506,15 @@ where
     /// Observes the given step and collects useful information from it.
     fn observe_step(&mut self, id: usize, step: &Step<DynamicHoneyBadger<Vec<usize>, usize>>) {
         for msg in &step.messages {
-            match msg.message {
-                Message::EpochStarted(epoch) => {
-                    self.epochs
-                        .entry(id)
-                        .and_modify(|e| {
-                            if *e < epoch {
-                                *e = epoch;
-                            }
-                        })
-                        .or_insert(epoch);
-                }
-                _ => {}
+            if let Message::EpochStarted(epoch) = msg.message {
+                self.epochs
+                    .entry(id)
+                    .and_modify(|e| {
+                        if *e < epoch {
+                            *e = epoch;
+                        }
+                    })
+                    .or_insert(epoch);
             }
         }
     }

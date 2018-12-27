@@ -361,7 +361,7 @@ where
     /// Returns `true` if the participant has been removed and `false` otherwise.
     fn remove_participant_if_old(&mut self, id: &D::NodeId) -> bool {
         let last_epoch = if let Some(epoch) = self.last_epochs.get(id) {
-            epoch.clone()
+            *epoch
         } else {
             return false;
         };

@@ -148,7 +148,7 @@ where
         let id = self.algo().netinfo().our_id().clone();
         let (dhb, dhb_step) =
             DynamicHoneyBadger::new_joining(id.clone(), secret_key, join_plan, rng)?;
-        let (sq, mut sq_step) = SenderQueue::builder(dhb, peer_ids.into_iter()).build(id);
+        let (sq, mut sq_step) = SenderQueue::builder(dhb, peer_ids).build(id);
         sq_step.extend(dhb_step.map(|output| output, Message::from));
         *self = sq;
         Ok(sq_step)
