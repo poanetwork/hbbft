@@ -944,10 +944,10 @@ where
         // Unfortunately, we have to re-borrow the target node further down to make the borrow
         // checker happy. First, we check if the receiving node is faulty, so we can dispatch
         // through the adversary if it is.
-        let is_faulty = try_some!(self.nodes.get(&stepped_id).ok_or_else(|| {
-            println!("Cannot send message: {:?}", msg);
-            CrankError::NodeDisappearedInCrank(msg.to.clone())
-        }))
+        let is_faulty = try_some!(self
+            .nodes
+            .get(&stepped_id)
+            .ok_or_else(|| CrankError::NodeDisappearedInCrank(msg.to.clone())))
         .is_faulty();
 
         let step: Step<_, _, _, _> = if is_faulty {

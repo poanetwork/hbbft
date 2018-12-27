@@ -228,12 +228,6 @@ where
 
     /// Handles an epoch start announcement.
     fn handle_epoch_started(&mut self, sender_id: &D::NodeId, epoch: D::Epoch) -> DaStep<Self> {
-        println!(
-            "Node {:?} got node {:?} epoch {:?}",
-            self.our_id(),
-            sender_id,
-            epoch
-        );
         self.peer_epochs
             .entry(sender_id.clone())
             .and_modify(|e| {
@@ -351,12 +345,6 @@ where
     /// superseded by a new set of participants of which it is not a member. Returns `true` if the
     /// participant has been removed and `false` otherwise.
     fn remove_participant_after(&mut self, id: &D::NodeId, last_epoch: &D::Epoch) -> bool {
-        println!(
-            "Node {:?} will remove participant {:?} after epoch {:?}.",
-            self.our_id(),
-            id,
-            last_epoch
-        );
         self.last_epochs.insert(id.clone(), last_epoch.clone());
         self.remove_participant_if_old(id)
     }
@@ -383,36 +371,17 @@ where
         if id == self.our_id() {
             // TODO: Schedule our own shutdown?
             self.is_removed = true;
-            println!("Node {:?} removed itself as participant.", self.our_id());
         } else {
             if let Some(peer_epoch) = self.peer_epochs.get(id) {
                 if last_epoch >= *peer_epoch {
                     return false;
                 }
-                // if let Some(q) = self.outgoing_queue.get(id) {
-                //     if q.keys().any(|&epoch| epoch <= last_epoch) {
-                //         return false;
-                //     }
-                // }
             }
             self.peer_epochs.remove(&id);
             self.outgoing_queue.remove(&id);
-            println!(
-                "Node {:?} removed {:?}. Remaining messages: {:?}",
-                self.our_id(),
-                id,
-                self.outgoing_queue.get(&id)
-            );
         }
         self.last_epochs.remove(&id);
         true
-    }
-
-    /// Cancels participant removal if there is one in progress. Returns the scheduled last epoch of
-    /// the participant if there was removal in progress and `None` otherwise.
-    pub fn cancel_participant_removal(&mut self, id: &D::NodeId) -> Option<D::Epoch> {
-        println!("Cancelling removal of node {:?}", id);
-        self.last_epochs.remove(&id)
     }
 
     /// Returns a reference to the managed algorithm.
