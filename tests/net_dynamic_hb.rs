@@ -282,7 +282,7 @@ fn do_drop_and_readd(cfg: TestConfig) {
         if node_id != pivot_node_id
             && awaiting_addition_input.contains(&node_id)
             && state.shutdown_epoch.is_some()
-            && era + hb_epoch > state.shutdown_epoch.unwrap()
+            && era + hb_epoch == state.shutdown_epoch.unwrap()
         {
             // Now we can add the node again. Public keys will be reused.
             let step = state
