@@ -446,20 +446,18 @@ where
 {
     println!("Restarting node {} with {:?}", node.id(), join_plan);
     // TODO: When an observer node is added to the network, it should also be added to peer_ids.
-    let peer_ids: Vec<usize> = net
+    let peer_ids: Vec<_> = net
         .nodes()
-        .map(|node| *node.id())
-        .filter(|id| id != node.id())
+        .map(|node| node.id())
+        .filter(|id| *id != node.id())
+        .cloned()
         .collect();
-    let secret_key = node.algorithm().algo().netinfo().secret_key().clone();
-    let id = *node.id();
-    let (dhb, dhb_step) = DynamicHoneyBadger::new_joining(id, secret_key, join_plan, rng)
-        .expect("failed to reconstruct the pivot node");
-    let (sq, mut sq_step) = SenderQueue::builder(dhb, peer_ids.into_iter()).build(id);
-    *node.algorithm_mut() = sq;
-    sq_step.extend(dhb_step.map(|output| output, |fault| fault, Message::from));
+    let step = node
+        .algorithm_mut()
+        .restart(join_plan, peer_ids.into_iter(), rng)
+        .expect("failed to restart pivot node");
     net.insert_node(node);
-    sq_step
+    step
 }
 
 /// Internal state of the test containing data collected by inspecting steps of the algorithm under

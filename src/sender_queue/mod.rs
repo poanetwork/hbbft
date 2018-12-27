@@ -203,16 +203,6 @@ where
         self.is_removed
     }
 
-    /// Tells whether the sender queue is empty.
-    pub fn has_messages_for_peer(&self, id: &D::NodeId) -> bool {
-        self.outgoing_queue.get(id).map_or(false, |q| q.is_empty())
-    }
-
-    /// Returns the epoch of a given node if the epoch is known.
-    pub fn get_peer_epoch(&self, id: &D::NodeId) -> Option<&D::Epoch> {
-        self.peer_epochs.get(id)
-    }
-
     /// Applies `f` to the wrapped algorithm and converts the step in the result to a sender queue
     /// step, deferring or dropping messages, where necessary.
     fn apply<F>(&mut self, f: F) -> Result<DaStep<Self>, D::Error>
