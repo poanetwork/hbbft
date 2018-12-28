@@ -40,10 +40,10 @@ where
     MessageLimitExceeded(usize),
     /// The execution time limit has been reached or exceeded.
     TimeLimitHit(time::Duration),
-    /// A `Fault` is encountered in a step of a `DistAlgorithm`.
+    /// A `Fault` was reported by a correct node in a step of a `DistAlgorithm`.
     Fault {
         /// The ID of the node that reported the fault.
-        reported_by_id: D::NodeId,
+        reported_by: D::NodeId,
         /// The reported fault.
         fault: D::FaultKind,
     },
@@ -98,13 +98,10 @@ where
             CrankError::TimeLimitHit(lim) => {
                 write!(f, "Time limit of {} seconds exceeded.", lim.as_secs())
             }
-            CrankError::Fault {
-                reported_by_id,
-                fault,
-            } => write!(
+            CrankError::Fault { reported_by, fault } => write!(
                 f,
-                "Node {:?} reported another node {:?} as faulty: {:?}.",
-                reported_by_id, fault.node_id, fault.kind
+                "Correct node {:?} reported node {:?} as faulty: {:?}.",
+                reported_by, fault.node_id, fault.kind
             ),
             CrankError::InitialKeyGeneration(err) => write!(
                 f,
@@ -146,12 +143,9 @@ where
                 f.debug_tuple("MessageLimitExceeded").field(max).finish()
             }
             CrankError::TimeLimitHit(lim) => f.debug_tuple("TimeLimitHit").field(lim).finish(),
-            CrankError::Fault {
-                reported_by_id,
-                fault,
-            } => f
+            CrankError::Fault { reported_by, fault } => f
                 .debug_struct("Fault")
-                .field("reported_by_id", reported_by_id)
+                .field("reported_by", reported_by)
                 .field("err", fault)
                 .finish(),
             CrankError::InitialKeyGeneration(err) => {

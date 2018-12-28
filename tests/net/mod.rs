@@ -275,7 +275,7 @@ where
         for fault in &step.fault_log.0 {
             if nodes.get(&fault.node_id).map_or(false, |n| !n.is_faulty()) {
                 return Err(CrankError::Fault {
-                    reported_by_id: stepped_id.clone(),
+                    reported_by: stepped_id.clone(),
                     fault: fault.clone(),
                 });
             }
@@ -922,15 +922,14 @@ where
         }
         self.adversary = adv;
 
-        // Step 1: Pick a message from the queue and deliver it; returns `None` if queue is empty.
-        // We use a do-while loop to remove the prefix of messages addressed to removed nodes.
-        let mut msg;
-        while {
-            msg = self.messages.pop_front()?;
-            self.removed_nodes.contains(&msg.to)
-        } {
-            // Empty body. The work was done evaluating the condition.
-        }
+        // Step 1: Pick the first message from the queue addressed to a node that is not removed and
+        // deliver it. Return `None` if the queue is empty.
+        let msg = loop {
+            let msg = self.messages.pop_front()?;
+            if !self.removed_nodes.contains(&msg.to) {
+                break msg;
+            }
+        };
 
         net_trace!(
             self,

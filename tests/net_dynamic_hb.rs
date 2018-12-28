@@ -1,10 +1,10 @@
 pub mod net;
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::{iter, time};
+use std::time;
 
 use hbbft::dynamic_honey_badger::{Change, ChangeState, DynamicHoneyBadger, Input, JoinPlan};
-use hbbft::sender_queue::{Message, SenderQueue, Step};
+use hbbft::sender_queue::{SenderQueue, Step};
 use hbbft::Epoched;
 use proptest::{prelude::ProptestConfig, prop_compose, proptest, proptest_helper};
 use rand::{seq::SliceRandom, SeedableRng};
@@ -122,7 +122,7 @@ fn do_drop_and_readd(cfg: TestConfig) {
     // We will use the first correct node as the node we will remove from and re-add to the network.
     // Note: This should be randomized using proptest.
     let pivot_node_id: usize = *(state
-        .get_net_mut()
+        .net
         .correct_nodes()
         .nth(0)
         .expect("expected at least one correct node")
@@ -132,7 +132,7 @@ fn do_drop_and_readd(cfg: TestConfig) {
     // We generate a list of transaction we want to propose, for each node. All nodes will propose
     // a number between 0..total_txs, chosen randomly.
     let mut queues: BTreeMap<_, Vec<usize>> = state
-        .get_net_mut()
+        .net
         .nodes()
         .map(|node| (*node.id(), (0..cfg.total_txs).collect()))
         .collect();
@@ -143,16 +143,15 @@ fn do_drop_and_readd(cfg: TestConfig) {
         println!("Node {:?} will propose: {:?}", id, proposal);
 
         // The step will have its messages added to the queue automatically, we ignore the output.
-        let step = state
-            .get_net_mut()
+        let _ = state
+            .net
             .send_input(*id, Input::User(proposal), &mut rng)
             .expect("could not send initial transaction");
-        state.observe_step(*id, &step);
     }
 
     // Afterwards, remove a specific node from the dynamic honey badger network.
     let netinfo = state
-        .get_net_mut()
+        .net
         .get(pivot_node_id)
         .expect("pivot node missing")
         .algorithm()
@@ -163,7 +162,7 @@ fn do_drop_and_readd(cfg: TestConfig) {
     let mut pub_keys_rm = pub_keys_add.clone();
     pub_keys_rm.remove(&pivot_node_id);
     state
-        .get_net_mut()
+        .net
         .broadcast_input(
             &Input::Change(Change::NodeChange(pub_keys_rm.clone())),
             &mut rng,
@@ -172,21 +171,17 @@ fn do_drop_and_readd(cfg: TestConfig) {
 
     // We are tracking (correct) nodes' state through the process by ticking them off individually.
     let non_pivot_nodes: BTreeSet<_> = state
-        .get_net_mut()
+        .net
         .correct_nodes()
         .map(|n| *n.id())
         .filter(|id| *id != pivot_node_id)
         .collect();
-    let mut awaiting_removal: BTreeSet<_> = state
-        .get_net_mut()
-        .correct_nodes()
-        .map(|n| *n.id())
-        .collect();
+    let mut awaiting_removal: BTreeSet<_> = state.net.correct_nodes().map(|n| *n.id()).collect();
     let mut awaiting_addition_input: BTreeSet<_> = non_pivot_nodes.clone();
     let mut awaiting_addition_in_progress: BTreeSet<_> = non_pivot_nodes.clone();
     let mut awaiting_addition: BTreeSet<_> = awaiting_removal.clone();
     let mut expected_outputs: BTreeMap<_, BTreeSet<_>> = state
-        .get_net_mut()
+        .net
         .correct_nodes()
         .map(|n| (*n.id(), (0..10).collect()))
         .collect();
@@ -199,9 +194,8 @@ fn do_drop_and_readd(cfg: TestConfig) {
 
     // Run the network:
     loop {
-        let (node_id, step) = state.get_net_mut().crank_expect(&mut rng);
-        state.observe_step(node_id, &step);
-        if !state.get_net_mut()[node_id].is_faulty() {
+        let (node_id, step) = state.net.crank_expect(&mut rng);
+        if !state.net[node_id].is_faulty() {
             for batch in &step.output {
                 // Check that correct nodes don't output different batches for the same epoch.
                 if let Some(b) = received_batches.insert(batch.epoch(), batch.clone()) {
@@ -278,22 +272,21 @@ fn do_drop_and_readd(cfg: TestConfig) {
             }
         }
 
-        let (era, hb_epoch) = state.get_net_mut()[node_id].algorithm().algo().epoch();
+        let (era, hb_epoch) = state.net[node_id].algorithm().algo().epoch();
         if node_id != pivot_node_id
             && awaiting_addition_input.contains(&node_id)
             && state.shutdown_epoch.is_some()
             && era + hb_epoch == state.shutdown_epoch.unwrap()
         {
             // Now we can add the node again. Public keys will be reused.
-            let step = state
-                .get_net_mut()
+            let _ = state
+                .net
                 .send_input(
                     node_id,
                     Input::Change(Change::NodeChange(pub_keys_add.clone())),
                     &mut rng,
                 )
                 .expect("failed to send `Add` input");
-            state.observe_step(node_id, &step);
             awaiting_addition_input.remove(&node_id);
             println!("Node {} started readding.", node_id);
         }
@@ -330,7 +323,7 @@ fn do_drop_and_readd(cfg: TestConfig) {
                 }
 
                 // Add it to the set of received outputs.
-                if !state.get_net()[node_id].is_faulty() {
+                if !state.net[node_id].is_faulty() {
                     expected_outputs
                         .get_mut(&node_id)
                         .expect("output set disappeared")
@@ -351,9 +344,7 @@ fn do_drop_and_readd(cfg: TestConfig) {
             }
             // If this is the first batch from a correct node with a vote to add node 0 back, take
             // the join plan of the batch and use it to restart node 0.
-            if !rejoined_pivot_node
-                && !state.get_net()[node_id].is_faulty()
-                && state.join_plan.is_none()
+            if !rejoined_pivot_node && !state.net[node_id].is_faulty() && state.join_plan.is_none()
             {
                 if let ChangeState::InProgress(Change::NodeChange(pub_keys)) = batch.change() {
                     if *pub_keys == pub_keys_add {
@@ -369,10 +360,9 @@ fn do_drop_and_readd(cfg: TestConfig) {
             if !rejoined_pivot_node && awaiting_addition_in_progress.is_empty() {
                 if let Some(join_plan) = state.join_plan.take() {
                     let node = saved_node.take().expect("the pivot node wasn't saved");
-                    let step = restart_node_for_add(state.get_net_mut(), node, join_plan, &mut rng);
-                    state.observe_step(pivot_node_id, &step);
+                    let step = restart_node_for_add(&mut state.net, node, join_plan, &mut rng);
                     state
-                        .get_net_mut()
+                        .net
                         .process_step(pivot_node_id, &step)
                         .expect("processing a step failed");
                     rejoined_pivot_node = true;
@@ -381,21 +371,19 @@ fn do_drop_and_readd(cfg: TestConfig) {
         }
 
         // Decide - from the point of view of the pivot node - whether it is ready to go offline.
-        if let Some(shutdown_epoch) = state.shutdown_epoch {
-            if !rejoined_pivot_node
-                && saved_node.is_none()
-                && state.have_reached_epoch(&iter::once(pivot_node_id).collect(), shutdown_epoch)
-            {
-                println!(
-                    "Removing the pivot node {} from the test network.",
-                    pivot_node_id
-                );
-                saved_node = state.get_net_mut().remove_node(&pivot_node_id);
-                if node_id == pivot_node_id {
-                    // Further operations on the cranked node are not possible. Continue with
-                    // processing other nodes.
-                    continue;
-                }
+        if !rejoined_pivot_node
+            && saved_node.is_none()
+            && state.net[pivot_node_id].algorithm().is_removed()
+        {
+            println!(
+                "Removing the pivot node {} from the test network.",
+                pivot_node_id
+            );
+            saved_node = state.net.remove_node(&pivot_node_id);
+            if node_id == pivot_node_id {
+                // Further operations on the cranked node are not possible. Continue with
+                // processing other nodes.
+                continue;
             }
         }
 
@@ -414,22 +402,21 @@ fn do_drop_and_readd(cfg: TestConfig) {
             let proposal =
                 choose_contribution(&mut rng, queue, cfg.batch_size, cfg.contribution_size);
 
-            let step = state
-                .get_net_mut()
+            let _ = state
+                .net
                 .send_input(node_id, Input::User(proposal), &mut rng)
                 .expect("could not send follow-up transaction");
-            state.observe_step(node_id, &step);
         }
     }
 
     // As a final step, we verify that all nodes have arrived at the same conclusion. The pivot node
     // can miss some batches while it was removed.
     let full_node = state
-        .get_net()
+        .net
         .correct_nodes()
         .find(|node| *node.id() != pivot_node_id)
         .expect("Could not find a full node");
-    state.get_net().verify_batches(&full_node);
+    state.net.verify_batches(&full_node);
     println!("End result: {:?}", full_node.outputs());
 }
 
@@ -460,17 +447,13 @@ where
     step
 }
 
-/// Internal state of the test containing data collected by inspecting steps of the algorithm under
-/// test.
+/// Internal state of the test.
 struct TestState<A>
 where
     A: Adversary<DHB>,
 {
     /// The test network.
     net: VirtualNet<DHB, A>,
-    /// The set of all observed nodes on the network together with their epochs as of the last
-    /// communication.
-    epochs: BTreeMap<usize, (u64, u64)>,
     /// The join plan for readding the pivot node.
     join_plan: Option<JoinPlan<usize>>,
     /// The epoch in which the pivot node should go offline.
@@ -485,46 +468,8 @@ where
     fn new(net: VirtualNet<DHB, A>) -> Self {
         TestState {
             net,
-            epochs: BTreeMap::new(),
             join_plan: None,
             shutdown_epoch: None,
         }
-    }
-
-    /// Returns an immutable reference to the underlying `VirtualNet`.
-    fn get_net(&self) -> &VirtualNet<DHB, A> {
-        &self.net
-    }
-
-    /// Returns a mutable reference to the underlying `VirtualNet`.
-    fn get_net_mut(&mut self) -> &mut VirtualNet<DHB, A> {
-        &mut self.net
-    }
-
-    /// Observes the given step and collects useful information from it.
-    fn observe_step(&mut self, id: usize, step: &Step<DynamicHoneyBadger<Vec<usize>, usize>>) {
-        for msg in &step.messages {
-            if let Message::EpochStarted(epoch) = msg.message {
-                self.epochs
-                    .entry(id)
-                    .and_modify(|e| {
-                        if *e < epoch {
-                            *e = epoch;
-                        }
-                    })
-                    .or_insert(epoch);
-            }
-        }
-    }
-
-    /// Checks whether the given nodes have reached the given batch epoch.
-    fn have_reached_epoch(&self, ids: &BTreeSet<usize>, batch_epoch: u64) -> bool {
-        ids.iter().all(|id| {
-            if let Some((era, hb_epoch)) = self.epochs.get(&id) {
-                era + hb_epoch >= batch_epoch
-            } else {
-                false
-            }
-        })
     }
 }

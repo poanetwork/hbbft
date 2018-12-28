@@ -6,6 +6,7 @@
 //! any incoming messages with non-matching epochs can be safely discarded.
 
 mod dynamic_honey_badger;
+mod error;
 mod honey_badger;
 mod message;
 mod queueing_honey_badger;
@@ -19,6 +20,7 @@ use log::debug;
 use crate::traits::EpochT;
 use crate::{DaStep, DistAlgorithm, Epoched, NodeIdT, Target};
 
+pub use self::error::Error;
 pub use self::message::Message;
 
 /// A message type that is suitable for use with a sender queue.
@@ -103,10 +105,11 @@ where
     /// participants (validators both current and proposed) in order to roll the ballot back if it
     /// fails to progress.
     participants_after_change: BTreeSet<D::NodeId>,
-    /// A flag that gets set when this node has been removed from the set of participants. If it is
-    /// set, the node doesn't send any messages until it receives a signal (that is,
-    /// `DynamicHoneyBadger::JoinPlan`) to rejoin as validator. The flag gets unset as soon as the
-    /// node becomes a participant again.
+    /// A flag that gets set when this node is removed from the set of participants. When it is set,
+    /// the node broadcasts the last `EpochStarted` and then no more messages. The flag can be reset
+    /// to `false` only by restarting the node. In case of `DynamicHoneyBadger` or
+    /// `QueueingHoneyBadger`, it can be restarted on receipt of a join plan where this node is a
+    /// validator.
     is_removed: bool,
 }
 
@@ -124,14 +127,14 @@ where
     type Input = D::Input;
     type Output = D::Output;
     type Message = Message<D::Message>;
-    type Error = D::Error;
+    type Error = Error<D::Error>;
     type FaultKind = D::FaultKind;
 
     fn handle_input<R: Rng>(
         &mut self,
         input: Self::Input,
         rng: &mut R,
-    ) -> Result<DaStep<Self>, D::Error> {
+    ) -> Result<DaStep<Self>, Error<D::Error>> {
         self.handle_input(input, rng)
     }
 
@@ -140,12 +143,12 @@ where
         sender_id: &D::NodeId,
         message: Self::Message,
         rng: &mut R,
-    ) -> Result<DaStep<Self>, D::Error> {
+    ) -> Result<DaStep<Self>, Error<D::Error>> {
         self.handle_message(sender_id, message, rng)
     }
 
     fn terminated(&self) -> bool {
-        false
+        self.is_removed
     }
 
     fn our_id(&self) -> &D::NodeId {
@@ -174,7 +177,10 @@ where
         &mut self,
         input: D::Input,
         rng: &mut R,
-    ) -> Result<DaStep<Self>, D::Error> {
+    ) -> Result<DaStep<Self>, Error<D::Error>> {
+        if self.is_removed {
+            return Ok(Step::<D>::default());
+        }
         self.apply(|algo| algo.handle_input(input, rng))
     }
 
@@ -186,7 +192,10 @@ where
         sender_id: &D::NodeId,
         message: Message<D::Message>,
         rng: &mut R,
-    ) -> Result<DaStep<Self>, D::Error> {
+    ) -> Result<DaStep<Self>, Error<D::Error>> {
+        if self.is_removed {
+            return Ok(Step::<D>::default());
+        }
         match message {
             Message::EpochStarted(epoch) => Ok(self.handle_epoch_started(sender_id, epoch)),
             Message::Algo(msg) => self.handle_message_content(sender_id, msg, rng),
@@ -205,11 +214,11 @@ where
 
     /// Applies `f` to the wrapped algorithm and converts the step in the result to a sender queue
     /// step, deferring or dropping messages, where necessary.
-    fn apply<F>(&mut self, f: F) -> Result<DaStep<Self>, D::Error>
+    fn apply<F>(&mut self, f: F) -> Result<DaStep<Self>, Error<D::Error>>
     where
         F: FnOnce(&mut D) -> Result<DaStep<D>, D::Error>,
     {
-        let mut step = f(&mut self.algo)?;
+        let mut step = f(&mut self.algo).map_err(Error::Apply)?;
         let mut sender_queue_step = self.update_epoch(&step);
         self.defer_messages(&mut step);
         sender_queue_step.extend(step.map(|output| output, |fault| fault, Message::from));
@@ -259,7 +268,7 @@ where
         sender_id: &D::NodeId,
         content: D::Message,
         rng: &mut R,
-    ) -> Result<DaStep<Self>, D::Error> {
+    ) -> Result<DaStep<Self>, Error<D::Error>> {
         self.apply(|algo| algo.handle_message(sender_id, content, rng))
     }
 
@@ -359,7 +368,6 @@ where
             return false;
         }
         if id == self.our_id() {
-            // TODO: Schedule our own shutdown?
             self.is_removed = true;
         } else {
             if let Some(peer_epoch) = self.peer_epochs.get(id) {

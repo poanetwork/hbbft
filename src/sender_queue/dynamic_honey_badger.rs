@@ -8,8 +8,8 @@ use rand::Rng;
 use serde::{de::DeserializeOwned, Serialize};
 
 use super::{
-    Message, SenderQueue, SenderQueueableDistAlgorithm, SenderQueueableMessage,
-    SenderQueueableOutput, Step,
+    Error, Message, SenderQueue, SenderQueueableDistAlgorithm, SenderQueueableMessage,
+    SenderQueueableOutput,
 };
 use crate::{Contribution, DaStep, NodeIdT};
 
@@ -86,7 +86,7 @@ where
     }
 }
 
-type Result<C, N> = result::Result<DaStep<SenderQueue<DynamicHoneyBadger<C, N>>>, DhbError>;
+type Result<C, N> = result::Result<DaStep<SenderQueue<DynamicHoneyBadger<C, N>>>, Error<DhbError>>;
 
 impl<C, N> SenderQueue<DynamicHoneyBadger<C, N>>
 where
@@ -141,13 +141,13 @@ where
         I: Iterator<Item = N>,
     {
         if !self.is_removed {
-            // TODO: return an error?
-            return Ok(Step::<DynamicHoneyBadger<C, N>>::default());
+            return Err(Error::DynamicHoneyBadgerNotRemoved);
         }
         let secret_key = self.algo().netinfo().secret_key().clone();
         let id = self.algo().netinfo().our_id().clone();
         let (dhb, dhb_step) =
-            DynamicHoneyBadger::new_joining(id.clone(), secret_key, join_plan, rng)?;
+            DynamicHoneyBadger::new_joining(id.clone(), secret_key, join_plan, rng)
+                .map_err(Error::DynamicHoneyBadgerNewJoining)?;
         let (sq, mut sq_step) = SenderQueue::builder(dhb, peer_ids).build(id);
         sq_step.extend(dhb_step.map(|output| output, |fault| fault, Message::from));
         *self = sq;
