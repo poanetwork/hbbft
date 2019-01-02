@@ -6,7 +6,7 @@ use std::time;
 use failure;
 use threshold_crypto as crypto;
 
-use hbbft::{DistAlgorithm, Fault};
+use hbbft::DistAlgorithm;
 
 use super::NetMessage;
 
@@ -44,8 +44,10 @@ where
     Fault {
         /// The ID of the node that reported the fault.
         reported_by: D::NodeId,
+        /// The ID of the faulty node.
+        faulty_id: D::NodeId,
         /// The reported fault.
-        fault: D::FaultKind,
+        fault_kind: D::FaultKind,
     },
     /// An error occurred while generating initial keys for threshold cryptography.
     InitialKeyGeneration(crypto::error::Error),
@@ -98,10 +100,14 @@ where
             CrankError::TimeLimitHit(lim) => {
                 write!(f, "Time limit of {} seconds exceeded.", lim.as_secs())
             }
-            CrankError::Fault { reported_by, fault } => write!(
+            CrankError::Fault {
+                reported_by,
+                faulty_id,
+                fault_kind,
+            } => write!(
                 f,
                 "Correct node {:?} reported node {:?} as faulty: {:?}.",
-                reported_by, fault.node_id, fault.kind
+                reported_by, faulty_id, fault_kind
             ),
             CrankError::InitialKeyGeneration(err) => write!(
                 f,
@@ -143,10 +149,15 @@ where
                 f.debug_tuple("MessageLimitExceeded").field(max).finish()
             }
             CrankError::TimeLimitHit(lim) => f.debug_tuple("TimeLimitHit").field(lim).finish(),
-            CrankError::Fault { reported_by, fault } => f
+            CrankError::Fault {
+                reported_by,
+                faulty_id,
+                fault_kind,
+            } => f
                 .debug_struct("Fault")
                 .field("reported_by", reported_by)
-                .field("err", fault)
+                .field("faulty_id", faulty_id)
+                .field("fault_kind", fault_kind)
                 .finish(),
             CrankError::InitialKeyGeneration(err) => {
                 f.debug_tuple("InitialKeyGeneration").field(err).finish()

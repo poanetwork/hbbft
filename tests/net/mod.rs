@@ -276,7 +276,8 @@ where
             if nodes.get(&fault.node_id).map_or(false, |n| !n.is_faulty()) {
                 return Err(CrankError::Fault {
                     reported_by: stepped_id.clone(),
-                    fault: fault.clone(),
+                    faulty_id: fault.node_id.clone(),
+                    fault_kind: fault.kind.clone(),
                 });
             }
         }
