@@ -7,7 +7,7 @@ use rand::distributions::{Distribution, Standard};
 use rand::Rng;
 use serde::{de::DeserializeOwned, Serialize};
 
-use super::{SenderQueue, SenderQueueableDistAlgorithm};
+use super::{Error, SenderQueue, SenderQueueableDistAlgorithm};
 use crate::queueing_honey_badger::{Change, Error as QhbError, QueueingHoneyBadger};
 use crate::transaction_queue::TransactionQueue;
 use crate::{Contribution, DaStep, Epoched, NodeIdT};
@@ -38,7 +38,8 @@ where
     }
 }
 
-type Result<T, N, Q> = result::Result<DaStep<SenderQueue<QueueingHoneyBadger<T, N, Q>>>, QhbError>;
+type Result<T, N, Q> =
+    result::Result<DaStep<SenderQueue<QueueingHoneyBadger<T, N, Q>>>, Error<QhbError>>;
 
 impl<T, N, Q> SenderQueue<QueueingHoneyBadger<T, N, Q>>
 where

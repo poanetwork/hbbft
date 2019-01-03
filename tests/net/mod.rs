@@ -217,7 +217,7 @@ pub type NetMessage<D> =
 #[allow(clippy::needless_pass_by_value)]
 fn process_step<'a, D>(
     nodes: &'a mut BTreeMap<D::NodeId, Node<D>>,
-    sender: D::NodeId,
+    stepped_id: D::NodeId,
     step: &DaStep<D>,
     dest: &mut VecDeque<NetMessage<D>>,
     error_on_fault: bool,
@@ -229,7 +229,7 @@ where
 {
     // For non-faulty nodes, we count the number of messages.
     let faulty = nodes
-        .get(&sender)
+        .get(&stepped_id)
         .expect("Trying to process a step with non-existing node ID")
         .is_faulty();
     let mut message_count: usize = 0;
@@ -244,20 +244,20 @@ where
                 }
 
                 dest.push_back(NetworkMessage::new(
-                    sender.clone(),
+                    stepped_id.clone(),
                     tmsg.message.clone(),
                     to.clone(),
                 ));
             }
             // Broadcast messages get expanded into multiple direct messages.
             hbbft::Target::All => {
-                for to in nodes.keys().filter(|&to| to != &sender) {
+                for to in nodes.keys().filter(|&to| to != &stepped_id) {
                     if !faulty {
                         message_count = message_count.saturating_add(1);
                     }
 
                     dest.push_back(NetworkMessage::new(
-                        sender.clone(),
+                        stepped_id.clone(),
                         tmsg.message.clone(),
                         to.clone(),
                     ));
@@ -267,14 +267,18 @@ where
     }
 
     nodes
-        .get_mut(&sender)
+        .get_mut(&stepped_id)
         .expect("Trying to process a step with non-existing node ID")
         .store_step(step);
-    if error_on_fault {
-        // Verify that no correct node is reported as faulty.
+    // Verify that no correct node is reported as faulty by a correct node.
+    if error_on_fault && !nodes[&stepped_id].is_faulty() {
         for fault in &step.fault_log.0 {
             if nodes.get(&fault.node_id).map_or(false, |n| !n.is_faulty()) {
-                return Err(CrankError::Fault(fault.clone()));
+                return Err(CrankError::Fault {
+                    reported_by: stepped_id.clone(),
+                    faulty_id: fault.node_id.clone(),
+                    fault_kind: fault.kind.clone(),
+                });
             }
         }
     }
@@ -588,6 +592,9 @@ where
     /// `false` switches allows to carry on with the test despite `Fault`s reported for a correct
     /// node.
     error_on_fault: bool,
+    /// IDs of nodes that have been removed from the network. This is used to discard messages that
+    /// may be sent to those nodes cleanly.
+    removed_nodes: BTreeSet<D::NodeId>,
 }
 
 impl<D, A> VirtualNet<D, A>
@@ -637,13 +644,15 @@ where
     /// the network at the time of insertion.
     #[inline]
     pub fn insert_node(&mut self, node: Node<D>) -> Option<Node<D>> {
+        self.removed_nodes.remove(node.id());
         self.nodes.insert(node.id().clone(), node)
     }
 
-    /// Removes a node with the given ID from the network. Returns the removed node if there was a
-    /// node with this ID at the time of removal.
+    /// Removes a node with the given ID from the network and all messages addressed to
+    /// it. Returns the removed node if there was a node with this ID at the time of removal.
     #[inline]
     pub fn remove_node(&mut self, id: &D::NodeId) -> Option<Node<D>> {
+        self.removed_nodes.insert(id.clone());
         self.messages.retain(|msg| msg.to != *id);
         self.nodes.remove(id)
     }
@@ -777,10 +786,10 @@ where
 
         let mut message_count: usize = 0;
         // For every recorded step, apply it.
-        for (sender, step) in &steps {
+        for (stepped_id, step) in &steps {
             let n = process_step(
                 &mut nodes,
-                sender.clone(),
+                stepped_id.clone(),
                 step,
                 &mut messages,
                 error_on_fault,
@@ -801,6 +810,7 @@ where
                 time_limit: None,
                 start_time: time::Instant::now(),
                 error_on_fault: true,
+                removed_nodes: BTreeSet::new(),
             },
             steps.into_iter().collect(),
         ))
@@ -913,8 +923,14 @@ where
         }
         self.adversary = adv;
 
-        // Step 1: Pick a message from the queue and deliver it; returns `None` if queue is empty.
-        let msg = self.messages.pop_front()?;
+        // Step 1: Pick the first message from the queue addressed to a node that is not removed and
+        // deliver it. Return `None` if the queue is empty.
+        let msg = loop {
+            let msg = self.messages.pop_front()?;
+            if !self.removed_nodes.contains(&msg.to) {
+                break msg;
+            }
+        };
 
         net_trace!(
             self,
@@ -923,14 +939,14 @@ where
             msg.to,
             msg.payload
         );
-        let receiver = msg.to.clone();
+        let stepped_id = msg.to.clone();
 
         // Unfortunately, we have to re-borrow the target node further down to make the borrow
         // checker happy. First, we check if the receiving node is faulty, so we can dispatch
         // through the adversary if it is.
         let is_faulty = try_some!(self
             .nodes
-            .get(&msg.to)
+            .get(&stepped_id)
             .ok_or_else(|| CrankError::NodeDisappearedInCrank(msg.to.clone())))
         .is_faulty();
 
@@ -956,12 +972,12 @@ where
 
         // All messages are expanded and added to the queue. We opt for copying them, so we can
         // return unaltered step later on for inspection.
-        try_some!(self.process_step(receiver.clone(), &step));
+        try_some!(self.process_step(stepped_id.clone(), &step));
 
         // Increase the crank count.
         self.crank_count += 1;
 
-        Some(Ok((receiver, step)))
+        Some(Ok((stepped_id, step)))
     }
 
     /// Convenience function for cranking.
@@ -1046,6 +1062,16 @@ where
             }
         }
         for node in self.correct_nodes().filter(|n| n.id() != full_node.id()) {
+            let id = node.id();
+            let actual_epochs: BTreeSet<_> =
+                node.outputs.iter().map(|batch| batch.epoch()).collect();
+            let expected_epochs: BTreeSet<_> =
+                expected[id].iter().map(|batch| batch.epoch()).collect();
+            assert_eq!(
+                expected_epochs, actual_epochs,
+                "Output epochs of {:?} don't match the expectation.",
+                id
+            );
             assert_eq!(
                 node.outputs.len(),
                 expected[node.id()].len(),

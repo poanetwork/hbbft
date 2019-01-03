@@ -6,6 +6,7 @@
 //! any incoming messages with non-matching epochs can be safely discarded.
 
 mod dynamic_honey_badger;
+mod error;
 mod honey_badger;
 mod message;
 mod queueing_honey_badger;
@@ -19,6 +20,7 @@ use log::debug;
 use crate::traits::EpochT;
 use crate::{DaStep, DistAlgorithm, Epoched, NodeIdT, Target};
 
+pub use self::error::Error;
 pub use self::message::Message;
 
 /// A message type that is suitable for use with a sender queue.
@@ -103,6 +105,12 @@ where
     /// participants (validators both current and proposed) in order to roll the ballot back if it
     /// fails to progress.
     participants_after_change: BTreeSet<D::NodeId>,
+    /// A flag that gets set when this node is removed from the set of participants. When it is set,
+    /// the node broadcasts the last `EpochStarted` and then no more messages. The flag can be reset
+    /// to `false` only by restarting the node. In case of `DynamicHoneyBadger` or
+    /// `QueueingHoneyBadger`, it can be restarted on receipt of a join plan where this node is a
+    /// validator.
+    is_removed: bool,
 }
 
 /// A `SenderQueue` step. The output corresponds to the wrapped algorithm.
@@ -119,14 +127,14 @@ where
     type Input = D::Input;
     type Output = D::Output;
     type Message = Message<D::Message>;
-    type Error = D::Error;
+    type Error = Error<D::Error>;
     type FaultKind = D::FaultKind;
 
     fn handle_input<R: Rng>(
         &mut self,
         input: Self::Input,
         rng: &mut R,
-    ) -> Result<DaStep<Self>, D::Error> {
+    ) -> Result<DaStep<Self>, Error<D::Error>> {
         self.handle_input(input, rng)
     }
 
@@ -135,12 +143,12 @@ where
         sender_id: &D::NodeId,
         message: Self::Message,
         rng: &mut R,
-    ) -> Result<DaStep<Self>, D::Error> {
+    ) -> Result<DaStep<Self>, Error<D::Error>> {
         self.handle_message(sender_id, message, rng)
     }
 
     fn terminated(&self) -> bool {
-        false
+        self.is_removed
     }
 
     fn our_id(&self) -> &D::NodeId {
@@ -169,7 +177,10 @@ where
         &mut self,
         input: D::Input,
         rng: &mut R,
-    ) -> Result<DaStep<Self>, D::Error> {
+    ) -> Result<DaStep<Self>, Error<D::Error>> {
+        if self.is_removed {
+            return Ok(Step::<D>::default());
+        }
         self.apply(|algo| algo.handle_input(input, rng))
     }
 
@@ -181,7 +192,10 @@ where
         sender_id: &D::NodeId,
         message: Message<D::Message>,
         rng: &mut R,
-    ) -> Result<DaStep<Self>, D::Error> {
+    ) -> Result<DaStep<Self>, Error<D::Error>> {
+        if self.is_removed {
+            return Ok(Step::<D>::default());
+        }
         match message {
             Message::EpochStarted(epoch) => Ok(self.handle_epoch_started(sender_id, epoch)),
             Message::Algo(msg) => self.handle_message_content(sender_id, msg, rng),
@@ -193,13 +207,18 @@ where
         &self.algo
     }
 
+    /// Returns `true` iff the node has been removed from the list of participants.
+    pub fn is_removed(&self) -> bool {
+        self.is_removed
+    }
+
     /// Applies `f` to the wrapped algorithm and converts the step in the result to a sender queue
     /// step, deferring or dropping messages, where necessary.
-    fn apply<F>(&mut self, f: F) -> Result<DaStep<Self>, D::Error>
+    fn apply<F>(&mut self, f: F) -> Result<DaStep<Self>, Error<D::Error>>
     where
         F: FnOnce(&mut D) -> Result<DaStep<D>, D::Error>,
     {
-        let mut step = f(&mut self.algo)?;
+        let mut step = f(&mut self.algo).map_err(Error::Apply)?;
         let mut sender_queue_step = self.update_epoch(&step);
         self.defer_messages(&mut step);
         sender_queue_step.extend(step.map(|output| output, |fault| fault, Message::from));
@@ -249,7 +268,7 @@ where
         sender_id: &D::NodeId,
         content: D::Message,
         rng: &mut R,
-    ) -> Result<DaStep<Self>, D::Error> {
+    ) -> Result<DaStep<Self>, Error<D::Error>> {
         self.apply(|algo| algo.handle_message(sender_id, content, rng))
     }
 
@@ -258,6 +277,9 @@ where
         if step.output.is_empty() {
             return Step::<D>::default();
         }
+        // If this node removes itself after this epoch, it should send an `EpochStarted` with the
+        // next epoch and then go offline.
+        let mut send_last_epoch_started = false;
         // Look up `DynamicHoneyBadger` epoch updates and collect any added peers.
         for batch in &step.output {
             if let Some(next_participants) = batch.participant_change() {
@@ -278,16 +300,27 @@ where
                     .clone()
                     .difference(&next_participants)
                 {
-                    // Begin the peer removal process.
+                    // Begin the participant removal process.
                     self.remove_participant_after(&id, &batch.output_epoch());
+                }
+                if self.participants_after_change.contains(&self.our_id)
+                    && !next_participants.contains(&self.our_id)
+                {
+                    send_last_epoch_started = true;
                 }
                 self.participants_after_change = next_participants;
             }
         }
-        // Announce the new epoch.
-        Target::All
-            .message(Message::EpochStarted(self.algo.epoch()))
-            .into()
+        if !self.is_removed || send_last_epoch_started {
+            // Announce the new epoch.
+            Target::All
+                .message(Message::EpochStarted(self.algo.epoch()))
+                .into()
+        } else {
+            // If removed, do not announce the new epoch to prevent peers from sending messages to
+            // this node.
+            Step::<D>::default()
+        }
     }
 
     /// Removes any messages to nodes at earlier epochs from the given `Step`. This may involve
@@ -307,25 +340,17 @@ where
         }
     }
 
-    /// Removes a given old participant if it has been scheduled for removal as a result of being
-    /// superseded by a new set of participants of which it is not a member. Returns `true` if the
-    /// participant has been removed and `false` otherwise.
-    fn remove_participant_if_old(&mut self, id: &D::NodeId) -> bool {
-        self.last_epochs
-            .get(id)
-            .cloned()
-            .map_or(false, |last_epoch| self.remove_participant(id, &last_epoch))
-    }
-
     /// Removes a given old participant after a specified epoch if that participant has become
     /// superseded by a new set of participants of which it is not a member. Returns `true` if the
     /// participant has been removed and `false` otherwise.
     fn remove_participant_after(&mut self, id: &D::NodeId, last_epoch: &D::Epoch) -> bool {
         self.last_epochs.insert(id.clone(), last_epoch.clone());
-        self.remove_participant(id, last_epoch)
+        self.remove_participant_if_old(id)
     }
 
-    /// Removes a participant after a specified last epoch. The participant is removed if
+    /// Removes a given old participant if it has been scheduled for removal as a result of being
+    /// superseded by a new set of participants of which it is not a member. The participant is
+    /// removed if
     ///
     /// 1. its epoch is newer than its last epoch, or
     ///
@@ -333,23 +358,27 @@ where
     /// queue has sent all messages for all epochs up to the last epoch to the participant.
     ///
     /// Returns `true` if the participant has been removed and `false` otherwise.
-    fn remove_participant(&mut self, id: &D::NodeId, last_epoch: &D::Epoch) -> bool {
-        if *last_epoch >= self.algo.epoch() {
+    fn remove_participant_if_old(&mut self, id: &D::NodeId) -> bool {
+        let last_epoch = if let Some(epoch) = self.last_epochs.get(id) {
+            *epoch
+        } else {
+            return false;
+        };
+        if last_epoch >= self.algo.epoch() {
             return false;
         }
-        if let Some(peer_epoch) = self.peer_epochs.get(id) {
-            if last_epoch >= peer_epoch {
-                return false;
-            }
-            if let Some(q) = self.outgoing_queue.get(id) {
-                if q.keys().any(|epoch| epoch <= last_epoch) {
+        if id == self.our_id() {
+            self.is_removed = true;
+        } else {
+            if let Some(peer_epoch) = self.peer_epochs.get(id) {
+                if last_epoch >= *peer_epoch {
                     return false;
                 }
             }
+            self.peer_epochs.remove(&id);
+            self.outgoing_queue.remove(&id);
         }
-        self.peer_epochs.remove(&id);
         self.last_epochs.remove(&id);
-        self.outgoing_queue.remove(&id);
         true
     }
 
@@ -408,6 +437,7 @@ where
             peer_epochs: self.peer_epochs,
             last_epochs: BTreeMap::new(),
             participants_after_change: BTreeSet::new(),
+            is_removed: false,
         };
         let step = Target::All.message(Message::EpochStarted(epoch)).into();
         (sq, step)

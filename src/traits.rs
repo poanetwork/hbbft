@@ -265,18 +265,18 @@ where
                     }
                 }
                 Target::All => {
-                    if peer_epochs
-                        .values()
-                        .all(|&them| msg.message.is_accepted(them, max_future_epochs))
-                    {
+                    let is_accepted = |&them| msg.message.is_accepted(them, max_future_epochs);
+                    let is_premature = |&them| msg.message.is_premature(them, max_future_epochs);
+                    let is_obsolete = |&them| msg.message.is_obsolete(them);
+                    if peer_epochs.values().all(is_accepted) {
                         passed_msgs.push(msg);
                     } else {
                         // The `Target::All` message is split into two sets of point messages: those
                         // which can be sent without delay and those which should be postponed.
-                        for (id, &them) in peer_epochs {
-                            if msg.message.is_premature(them, max_future_epochs) {
+                        for (id, them) in peer_epochs {
+                            if is_premature(them) {
                                 deferred_msgs.push((id.clone(), msg.message.clone()));
-                            } else if !msg.message.is_obsolete(them) {
+                            } else if !is_obsolete(them) {
                                 passed_msgs
                                     .push(Target::Node(id.clone()).message(msg.message.clone()));
                             }
