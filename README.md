@@ -5,6 +5,9 @@
 
 Welcome to a [Rust](https://www.rust-lang.org/en-US/) library of the Honey Badger Byzantine Fault Tolerant (BFT) consensus algorithm. The research and protocols for this algorithm are explained in detail in "[The Honey Badger of BFT Protocols](https://eprint.iacr.org/2016/199.pdf)" by Miller et al., 2016.
 
+An [official security audit](https://github.com/poanetwork/wiki/blob/master/assets/pdf/hbbft-audit-report.pdf) has been completed on `hbbft` by [Jean-Philippe Aumasson](https://aumasson.jp/).
+
+
 Following is an overview of HoneyBadger BFT and [basic instructions for getting started](#getting-started).
 
 _**Note:** This library is a work in progress and parts of the algorithm are still in development._
