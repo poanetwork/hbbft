@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use itertools::Itertools;
 use log::info;
-use rand::Rng;
+use rand::{seq::SliceRandom, Rng};
 
 use hbbft::honey_badger::{Batch, EncryptionSchedule, HoneyBadger, MessageContent};
 use hbbft::sender_queue::{self, SenderQueue, Step};
@@ -139,7 +139,7 @@ where
             .filter(|(_, node)| !node.instance().algo().has_input())
             .map(|(id, _)| *id)
             .collect();
-        if let Some(id) = rng.choose(&input_ids) {
+        if let Some(id) = input_ids[..].choose(&mut rng) {
             let queue = queues.get_mut(id).unwrap();
             queue.remove_multiple(network.nodes[id].outputs().iter().flat_map(Batch::iter));
             network.input(*id, queue.choose(&mut rng, 3, 10));

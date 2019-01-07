@@ -6,16 +6,16 @@ use crate::crypto::{PublicKey, SecretKey, Signature};
 use bincode;
 use derivative::Derivative;
 use log::debug;
-use rand::{Rand, Rng};
+use rand::Rng;
 use serde::{de::DeserializeOwned, Serialize};
 
 use super::votes::{SignedVote, VoteCounter};
 use super::{
-    Batch, Change, ChangeState, DynamicHoneyBadgerBuilder, EncryptionSchedule, Error, Input,
-    InternalContrib, JoinPlan, KeyGenMessage, KeyGenState, Message, Params, Result,
+    Batch, Change, ChangeState, DynamicHoneyBadgerBuilder, EncryptionSchedule, Error, FaultKind,
+    Input, InternalContrib, JoinPlan, KeyGenMessage, KeyGenState, Message, Params, Result,
     SignedKeyGenMsg, Step,
 };
-use crate::fault_log::{Fault, FaultKind, FaultLog};
+use crate::fault_log::{Fault, FaultLog};
 use crate::honey_badger::{self, HoneyBadger, Message as HbMessage};
 
 use crate::sync_key_gen::{Ack, AckOutcome, Part, PartOutcome, SyncKeyGen};
@@ -25,7 +25,7 @@ use crate::{Contribution, DistAlgorithm, Epoched, NetworkInfo, NodeIdT, Target};
 /// A Honey Badger instance that can handle adding and removing nodes.
 #[derive(Derivative)]
 #[derivative(Debug)]
-pub struct DynamicHoneyBadger<C, N: Rand + Ord> {
+pub struct DynamicHoneyBadger<C, N: Ord> {
     /// Shared network data.
     pub(super) netinfo: NetworkInfo<N>,
     /// The maximum number of future epochs for which we handle messages simultaneously.
@@ -45,13 +45,14 @@ pub struct DynamicHoneyBadger<C, N: Rand + Ord> {
 impl<C, N> DistAlgorithm for DynamicHoneyBadger<C, N>
 where
     C: Contribution + Serialize + DeserializeOwned,
-    N: NodeIdT + Serialize + DeserializeOwned + Rand,
+    N: NodeIdT + Serialize + DeserializeOwned,
 {
     type NodeId = N;
     type Input = Input<C, N>;
     type Output = Batch<C, N>;
     type Message = Message<N>;
     type Error = Error;
+    type FaultKind = FaultKind;
 
     fn handle_input<R: Rng>(&mut self, input: Self::Input, rng: &mut R) -> Result<Step<C, N>> {
         // User contributions are forwarded to `HoneyBadger` right away. Votes are signed and
@@ -83,7 +84,7 @@ where
 impl<C, N> DynamicHoneyBadger<C, N>
 where
     C: Contribution + Serialize + DeserializeOwned,
-    N: NodeIdT + Serialize + DeserializeOwned + Rand,
+    N: NodeIdT + Serialize + DeserializeOwned,
 {
     /// Returns a new `DynamicHoneyBadgerBuilder`.
     pub fn builder() -> DynamicHoneyBadgerBuilder<C, N> {
@@ -280,7 +281,7 @@ where
         sender_id: &N,
         kg_msg: KeyGenMessage,
         sig: Signature,
-    ) -> Result<FaultLog<N>> {
+    ) -> Result<FaultLog<N, FaultKind>> {
         if !self.verify_signature(sender_id, &sig, &kg_msg)? {
             let fault_kind = FaultKind::InvalidKeyGenMessageSignature;
             return Ok(Fault::new(sender_id.clone(), fault_kind).into());
@@ -311,7 +312,9 @@ where
         rng: &mut R,
     ) -> Result<Step<C, N>> {
         let mut step: Step<C, N> = Step::default();
-        let output = step.extend_with(hb_step, |hb_msg| Message::HoneyBadger(self.era, hb_msg));
+        let output = step.extend_with(hb_step, FaultKind::HbFault, |hb_msg| {
+            Message::HoneyBadger(self.era, hb_msg)
+        });
         for hb_batch in output {
             let batch_era = self.era;
             let batch_epoch = hb_batch.epoch + batch_era;
@@ -531,7 +534,7 @@ where
 impl<C, N> fmt::Display for DynamicHoneyBadger<C, N>
 where
     C: Contribution + Serialize + DeserializeOwned,
-    N: NodeIdT + Serialize + DeserializeOwned + Rand,
+    N: NodeIdT + Serialize + DeserializeOwned,
 {
     fn fmt(&self, f: &mut fmt::Formatter) -> result::Result<(), fmt::Error> {
         write!(f, "{:?} DHB(era: {})", self.our_id(), self.era)
@@ -541,7 +544,7 @@ where
 impl<C, N> Epoched for DynamicHoneyBadger<C, N>
 where
     C: Contribution + Serialize + DeserializeOwned,
-    N: NodeIdT + Serialize + DeserializeOwned + Rand,
+    N: NodeIdT + Serialize + DeserializeOwned,
 {
     type Epoch = (u64, u64);
 

@@ -26,7 +26,7 @@ use rand::Rng;
 use rand_derive::Rand;
 use serde_derive::{Deserialize, Serialize};
 
-use crate::fault_log::{Fault, FaultKind, FaultLog};
+use crate::fault_log::{Fault, FaultLog};
 use crate::{DistAlgorithm, NetworkInfo, NodeIdT, Target};
 
 /// A threshold signing error.
@@ -52,6 +52,22 @@ pub enum Error {
 /// A threshold signing result.
 pub type Result<T> = ::std::result::Result<T, Error>;
 
+/// A threshold sign message fault
+#[derive(Clone, Debug, Fail, PartialEq)]
+pub enum FaultKind {
+    /// `ThresholdSign` (`Coin`) received a signature share from an unverified sender.
+    #[fail(
+        display = "`ThresholdSign` (`Coin`) received a signature share from an unverified sender."
+    )]
+    UnverifiedSignatureShareSender,
+    /// `HoneyBadger` received a signatures share for the random value even though it is disabled.
+    #[fail(
+        display = "`HoneyBadger` received a signatures share for the random value even though it
+                   is disabled."
+    )]
+    UnexpectedSignatureShare,
+}
+
 /// A threshold signing message, containing a signature share.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Rand)]
 pub struct Message(pub SignatureShare);
@@ -64,8 +80,8 @@ pub struct ThresholdSign<N> {
     netinfo: Arc<NetworkInfo<N>>,
     /// The hash of the document to be signed.
     doc_hash: Option<G2>,
-    /// All received threshold signature shares.
-    received_shares: BTreeMap<N, SignatureShare>,
+    /// All received threshold signature shares, together with the node index.
+    received_shares: BTreeMap<N, (usize, SignatureShare)>,
     /// Whether we already sent our shares.
     had_input: bool,
     /// Termination flag.
@@ -81,6 +97,7 @@ impl<N: NodeIdT> DistAlgorithm for ThresholdSign<N> {
     type Output = Signature;
     type Message = Message;
     type Error = Error;
+    type FaultKind = FaultKind;
 
     /// Sends our threshold signature share if not yet sent.
     fn handle_input<R: Rng>(&mut self, _input: (), _rng: &mut R) -> Result<Step<N>> {
@@ -167,23 +184,24 @@ impl<N: NodeIdT> ThresholdSign<N> {
         }
         let Message(share) = message;
         // Before checking the share, ensure the sender is a known validator
-        self.netinfo
-            .public_key_share(sender_id)
+        let idx = self
+            .netinfo
+            .node_index(sender_id)
             .ok_or(Error::UnknownSender)?;
         if !self.is_share_valid(sender_id, &share) {
             let fault_kind = FaultKind::UnverifiedSignatureShareSender;
             return Ok(Fault::new(sender_id.clone(), fault_kind).into());
         }
-        self.received_shares.insert(sender_id.clone(), share);
+        self.received_shares.insert(sender_id.clone(), (idx, share));
         self.try_output()
     }
 
     /// Removes all shares that are invalid, and returns faults for their senders.
-    fn remove_invalid_shares(&mut self) -> FaultLog<N> {
+    fn remove_invalid_shares(&mut self) -> FaultLog<N, FaultKind> {
         let faulty_senders: Vec<N> = self
             .received_shares
             .iter()
-            .filter(|(id, share)| !self.is_share_valid(id, share))
+            .filter(|(id, (_, ref share))| !self.is_share_valid(id, share))
             .map(|(id, _)| id.clone())
             .collect();
         let mut fault_log = FaultLog::default();
@@ -230,12 +248,14 @@ impl<N: NodeIdT> ThresholdSign<N> {
 
     fn combine_and_verify_sig(&self, hash: G2) -> Result<Signature> {
         // Pass the indices of sender nodes to `combine_signatures`.
-        let to_idx = |(id, share)| (self.netinfo.node_index(id).unwrap(), share);
-        let shares = self.received_shares.iter().map(to_idx);
+        let shares_itr = self
+            .received_shares
+            .values()
+            .map(|&(ref idx, ref share)| (idx, share));
         let sig = self
             .netinfo
             .public_key_set()
-            .combine_signatures(shares)
+            .combine_signatures(shares_itr)
             .map_err(Error::CombineAndVerifySigCrypto)?;
         if !self
             .netinfo

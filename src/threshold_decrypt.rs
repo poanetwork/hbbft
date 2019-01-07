@@ -20,7 +20,7 @@ use rand::Rng;
 use rand_derive::Rand;
 use serde_derive::{Deserialize, Serialize};
 
-use crate::fault_log::{Fault, FaultKind, FaultLog};
+use crate::fault_log::{self, Fault};
 use crate::{DistAlgorithm, NetworkInfo, NodeIdT, Target};
 
 /// A threshold decryption error.
@@ -46,6 +46,20 @@ pub enum Error {
 /// A threshold decryption result.
 pub type Result<T> = ::std::result::Result<T, Error>;
 
+/// A threshold decryption message fault
+#[derive(Clone, Debug, Fail, PartialEq)]
+pub enum FaultKind {
+    /// `ThresholdDecrypt` received multiple shares from the same sender.
+    #[fail(display = "`ThresholdDecrypt` received multiple shares from the same sender.")]
+    MultipleDecryptionShares,
+    /// `HoneyBadger` received a decryption share from an unverified sender.
+    #[fail(display = "`HoneyBadger` received a decryption share from an unverified sender.")]
+    UnverifiedDecryptionShareSender,
+}
+
+/// The type of fault log whose entries are `ThresholdDecrypt` faults.
+pub type FaultLog<N> = fault_log::FaultLog<N, FaultKind>;
+
 /// A Threshold Decryption message.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Rand)]
 pub struct Message(pub DecryptionShare);
@@ -58,7 +72,7 @@ pub struct ThresholdDecrypt<N> {
     /// The encrypted data.
     ciphertext: Option<Ciphertext>,
     /// All received threshold decryption shares.
-    shares: BTreeMap<N, DecryptionShare>,
+    shares: BTreeMap<N, (usize, DecryptionShare)>,
     /// Whether we already sent our shares.
     had_input: bool,
     /// Whether we have already returned the output.
@@ -74,6 +88,7 @@ impl<N: NodeIdT> DistAlgorithm for ThresholdDecrypt<N> {
     type Output = Vec<u8>;
     type Message = Message;
     type Error = Error;
+    type FaultKind = FaultKind;
 
     fn handle_input<R: Rng>(&mut self, _input: (), _rng: &mut R) -> Result<Step<N>> {
         self.start_decryption()
@@ -141,14 +156,15 @@ impl<N: NodeIdT> ThresholdDecrypt<N> {
         let mut step = Step::default();
         step.fault_log.extend(self.remove_invalid_shares());
         self.had_input = true;
-        let share = match self.netinfo.secret_key_share() {
-            Some(sks) => sks.decrypt_share_no_verify(&ct),
-            None => return Ok(step.join(self.try_output()?)), // Not a validator.
+        let opt_idx = self.netinfo.node_index(self.our_id());
+        let (idx, share) = match (opt_idx, self.netinfo.secret_key_share()) {
+            (Some(idx), Some(sks)) => (idx, sks.decrypt_share_no_verify(&ct)),
+            (_, _) => return Ok(step.join(self.try_output()?)), // Not a validator.
         };
         let our_id = self.our_id().clone();
         let msg = Target::All.message(Message(share.clone()));
         step.messages.push(msg);
-        self.shares.insert(our_id, share);
+        self.shares.insert(our_id, (idx, share));
         step.extend(self.try_output()?);
         Ok(step)
     }
@@ -168,15 +184,17 @@ impl<N: NodeIdT> ThresholdDecrypt<N> {
             return Ok(Step::default()); // Don't waste time on redundant shares.
         }
         // Before checking the share, ensure the sender is a known validator
-        self.netinfo
-            .public_key_share(sender_id)
+        let idx = self
+            .netinfo
+            .node_index(sender_id)
             .ok_or(Error::UnknownSender)?;
         let Message(share) = message;
         if !self.is_share_valid(sender_id, &share) {
             let fault_kind = FaultKind::UnverifiedDecryptionShareSender;
             return Ok(Fault::new(sender_id.clone(), fault_kind).into());
         }
-        if self.shares.insert(sender_id.clone(), share).is_some() {
+        let entry = (idx, share);
+        if self.shares.insert(sender_id.clone(), entry).is_some() {
             return Ok(Fault::new(sender_id.clone(), FaultKind::MultipleDecryptionShares).into());
         }
         self.try_output()
@@ -187,7 +205,7 @@ impl<N: NodeIdT> ThresholdDecrypt<N> {
         let faulty_senders: Vec<N> = self
             .shares
             .iter()
-            .filter(|(id, share)| !self.is_share_valid(id, share))
+            .filter(|(id, (_, share))| !self.is_share_valid(id, share))
             .map(|(id, _)| id.clone())
             .collect();
         let mut fault_log = FaultLog::default();
@@ -221,20 +239,15 @@ impl<N: NodeIdT> ThresholdDecrypt<N> {
         };
         self.terminated = true;
         let step = self.start_decryption()?; // Before terminating, make sure we sent our share.
-        let plaintext = {
-            let to_idx = |(id, share)| {
-                let idx = self
-                    .netinfo
-                    .node_index(id)
-                    .expect("we put only validators' shares in the map; qed");
-                (idx, share)
-            };
-            let share_itr = self.shares.iter().map(to_idx);
-            self.netinfo
-                .public_key_set()
-                .decrypt(share_itr, &ct)
-                .map_err(Error::Decryption)?
-        };
+        let share_itr = self
+            .shares
+            .values()
+            .map(|&(ref idx, ref share)| (idx, share));
+        let plaintext = self
+            .netinfo
+            .public_key_set()
+            .decrypt(share_itr, &ct)
+            .map_err(Error::Decryption)?;
         Ok(step.with_output(plaintext))
     }
 }

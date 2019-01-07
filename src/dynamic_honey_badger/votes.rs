@@ -6,9 +6,11 @@ use bincode;
 use serde::Serialize;
 use serde_derive::{Deserialize, Serialize};
 
-use super::{Change, Error, Result};
-use crate::fault_log::{FaultKind, FaultLog};
+use super::{Change, Error, FaultKind, Result};
+use crate::fault_log;
 use crate::{NetworkInfo, NodeIdT};
+
+pub type FaultLog<N> = fault_log::FaultLog<N, FaultKind>;
 
 /// A buffer and counter collecting pending and committed votes for validator set changes.
 ///
@@ -55,8 +57,8 @@ where
             voter: voter.clone(),
             sig: self.netinfo.secret_key().sign(ser_vote),
         };
-        self.pending.insert(voter.clone(), signed_vote);
-        Ok(self.pending.get(&voter).expect("entry was just inserted"))
+        self.pending.remove(&voter);
+        Ok(self.pending.entry(voter).or_insert(signed_vote))
     }
 
     /// Inserts a pending vote into the buffer, if it has a higher number than the existing one.
@@ -190,8 +192,8 @@ mod tests {
     use std::iter;
     use std::sync::Arc;
 
-    use super::{Change, SignedVote, VoteCounter};
-    use crate::fault_log::{FaultKind, FaultLog};
+    use super::{Change, FaultKind, SignedVote, VoteCounter};
+    use crate::fault_log::FaultLog;
     use crate::NetworkInfo;
     use rand;
 
@@ -201,7 +203,7 @@ mod tests {
     /// the vote by node `i` for making `j` the only validator. Each node signed this for nodes
     /// `0`, `1`, ... in order.
     fn setup(node_num: usize, era: u64) -> (Vec<VoteCounter<usize>>, Vec<Vec<SignedVote<usize>>>) {
-        let mut rng = rand::OsRng::new().expect("could not initialize OsRng");
+        let mut rng = rand::rngs::OsRng::new().expect("could not initialize OsRng");
         // Create keys for threshold cryptography.
         let netinfos = NetworkInfo::generate_map(0..node_num, &mut rng)
             .expect("Failed to generate `NetworkInfo` map");

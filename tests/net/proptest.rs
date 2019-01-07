@@ -11,12 +11,10 @@ use proptest::test_runner::{Reason, TestRunner};
 use rand::{self, SeedableRng};
 
 /// Random number generator type used in testing.
-pub type TestRng = rand::XorShiftRng;
+pub type TestRng = rand_xorshift::XorShiftRng;
 
 /// Seed type of the random number generator used in testing.
-// Note: In `rand` 0.5, this is an associated type of the `SeedableRng` trait, but for 0.4 and below
-//       we still need to alias this type.
-pub type TestRngSeed = [u32; 4];
+pub type TestRngSeed = [u8; 16];
 
 /// Generates a random instance of a random number generator.
 pub fn gen_rng() -> impl Strategy<Value = TestRng> {

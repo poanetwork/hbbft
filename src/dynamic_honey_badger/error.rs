@@ -29,3 +29,65 @@ pub enum Error {
 
 /// The result of `DynamicHoneyBadger` handling an input or message.
 pub type Result<T> = ::std::result::Result<T, Error>;
+/// Represents each way an an incoming message can be considered faulty.
+#[derive(Clone, Debug, Fail, PartialEq)]
+pub enum FaultKind {
+    /// `DynamicHoneyBadger` received a key generation message with an invalid signature.
+    #[fail(
+        display = "`DynamicHoneyBadger` received a key generation message with an invalid signature."
+    )]
+    InvalidKeyGenMessageSignature,
+    /// `DynamicHoneyBadger` received a key generation message with an invalid era.
+    #[fail(
+        display = "`DynamicHoneyBadger` received a key generation message with an invalid era."
+    )]
+    InvalidKeyGenMessageEra,
+    /// `DynamicHoneyBadger` received a key generation message when there was no key generation in
+    /// progress.
+    #[fail(
+        display = "`DynamicHoneyBadger` received a key generation message when there was no key
+                    generation in progress."
+    )]
+    UnexpectedKeyGenMessage,
+    /// `DynamicHoneyBadger` received a signed `Ack` when no key generation in progress.
+    #[fail(
+        display = "`DynamicHoneyBadger` received a signed `Ack` when no key generation in progress."
+    )]
+    UnexpectedKeyGenAck,
+    /// `DynamicHoneyBadger` received a signed `Part` when no key generation in progress.
+    #[fail(
+        display = "`DynamicHoneyBadger` received a signed `Part` when no key generation in progress."
+    )]
+    UnexpectedKeyGenPart,
+    /// `DynamicHoneyBadger` received more key generation messages from the peer than expected.
+    #[fail(
+        display = "`DynamicHoneyBadger` received more key generation messages from the peer than
+                    expected."
+    )]
+    TooManyKeyGenMessages,
+    /// `DynamicHoneyBadger` received a message (Accept, Propose, or Change with an invalid
+    /// signature.
+    #[fail(
+        display = "`DynamicHoneyBadger` received a message (Accept, Propose, or Change
+                       with an invalid signature."
+    )]
+    IncorrectPayloadSignature,
+    /// `DynamicHoneyBadger`/`SyncKeyGen` received an invalid `Ack` message.
+    #[fail(display = "`DynamicHoneyBadger`/`SyncKeyGen` received an invalid `Ack` message.")]
+    SyncKeyGenAck(sync_key_gen::AckFault),
+    /// `DynamicHoneyBadger`/`SyncKeyGen` received an invalid `Part` message.
+    #[fail(display = "`DynamicHoneyBadger`/`SyncKeyGen` received an invalid `Part` message.")]
+    SyncKeyGenPart(sync_key_gen::PartFault),
+    /// `DynamicHoneyBadger` received a change vote with an invalid signature.
+    #[fail(display = "`DynamicHoneyBadger` received a change vote with an invalid signature.")]
+    InvalidVoteSignature,
+    /// A validator committed an invalid vote in `DynamicHoneyBadger`.
+    #[fail(display = "A validator committed an invalid vote in `DynamicHoneyBadger`.")]
+    InvalidCommittedVote,
+    /// `DynamicHoneyBadger` received a message with an invalid era.
+    #[fail(display = "`DynamicHoneyBadger` received a message with an invalid era.")]
+    UnexpectedDhbMessageEra,
+    /// `DynamicHoneyBadger` received a fault from `HoneyBadger`.
+    #[fail(display = "`DynamicHoneyBadger` received a fault from `HoneyBadger`.")]
+    HbFault(honey_badger::FaultKind),
+}

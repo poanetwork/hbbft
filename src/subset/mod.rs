@@ -28,6 +28,6 @@ mod message;
 mod proposal_state;
 mod subset;
 
-pub use self::error::{Error, Result};
+pub use self::error::{Error, FaultKind, Result};
 pub use self::message::{Message, MessageContent};
 pub use self::subset::{Step, Subset, SubsetOutput};

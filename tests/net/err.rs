@@ -6,7 +6,7 @@ use std::time;
 use failure;
 use threshold_crypto as crypto;
 
-use hbbft::{DistAlgorithm, Fault};
+use hbbft::DistAlgorithm;
 
 use super::NetMessage;
 
@@ -28,17 +28,27 @@ where
         msg: NetMessage<D>,
         err: D::Error,
     },
-    /// A node unexpectly disappeared from the list of nodes. Note that this is likely a bug in
-    /// the network framework code.
-    NodeDisappeared(D::NodeId),
+    /// As spotted during cranking, a node unexpectly disappeared from the list of nodes. Note that
+    /// this is likely a bug in the network framework code.
+    NodeDisappearedInCrank(D::NodeId),
+    /// As spotted during message dispatch, a node unexpectly disappeared from the list of
+    /// nodes. Note that this is likely a bug in the network framework code.
+    NodeDisappearedInDispatch(D::NodeId),
     /// The configured maximum number of cranks has been reached or exceeded.
     CrankLimitExceeded(usize),
     /// The configured maximum number of messages has been reached or exceeded.
     MessageLimitExceeded(usize),
     /// The execution time limit has been reached or exceeded.
     TimeLimitHit(time::Duration),
-    /// A `Fault` is encountered in a step of a `DistAlgorithm`.
-    Fault(Fault<D::NodeId>),
+    /// A `Fault` was reported by a correct node in a step of a `DistAlgorithm`.
+    Fault {
+        /// The ID of the node that reported the fault.
+        reported_by: D::NodeId,
+        /// The ID of the faulty node.
+        faulty_id: D::NodeId,
+        /// The reported fault.
+        fault_kind: D::FaultKind,
+    },
     /// An error occurred while generating initial keys for threshold cryptography.
     InitialKeyGeneration(crypto::error::Error),
 }
@@ -71,7 +81,12 @@ where
                 "The algorithm could not process network message {:?}. Error: {:?}",
                 msg, err
             ),
-            CrankError::NodeDisappeared(id) => write!(
+            CrankError::NodeDisappearedInCrank(id) => write!(
+                f,
+                "Node {:?} disappeared or never existed, while it was cranked.",
+                id
+            ),
+            CrankError::NodeDisappearedInDispatch(id) => write!(
                 f,
                 "Node {:?} disappeared or never existed, while it still had incoming messages.",
                 id
@@ -85,9 +100,15 @@ where
             CrankError::TimeLimitHit(lim) => {
                 write!(f, "Time limit of {} seconds exceeded.", lim.as_secs())
             }
-            CrankError::Fault(fault) => {
-                write!(f, "Node {:?} is faulty: {:?}.", fault.node_id, fault.kind)
-            }
+            CrankError::Fault {
+                reported_by,
+                faulty_id,
+                fault_kind,
+            } => write!(
+                f,
+                "Correct node {:?} reported node {:?} as faulty: {:?}.",
+                reported_by, faulty_id, fault_kind
+            ),
             CrankError::InitialKeyGeneration(err) => write!(
                 f,
                 "An error occurred while generating initial keys for threshold cryptography: {:?}.",
@@ -114,7 +135,13 @@ where
                 .field("msg", msg)
                 .field("err", err)
                 .finish(),
-            CrankError::NodeDisappeared(id) => f.debug_tuple("NodeDisappeared").field(id).finish(),
+            CrankError::NodeDisappearedInCrank(id) => {
+                f.debug_tuple("NodeDisappearedInCrank").field(id).finish()
+            }
+            CrankError::NodeDisappearedInDispatch(id) => f
+                .debug_tuple("NodeDisappearedInDispatch")
+                .field(id)
+                .finish(),
             CrankError::CrankLimitExceeded(max) => {
                 f.debug_tuple("CrankLimitExceeded").field(max).finish()
             }
@@ -122,7 +149,16 @@ where
                 f.debug_tuple("MessageLimitExceeded").field(max).finish()
             }
             CrankError::TimeLimitHit(lim) => f.debug_tuple("TimeLimitHit").field(lim).finish(),
-            CrankError::Fault(fault) => f.debug_tuple("Fault").field(fault).finish(),
+            CrankError::Fault {
+                reported_by,
+                faulty_id,
+                fault_kind,
+            } => f
+                .debug_struct("Fault")
+                .field("reported_by", reported_by)
+                .field("faulty_id", faulty_id)
+                .field("fault_kind", fault_kind)
+                .finish(),
             CrankError::InitialKeyGeneration(err) => {
                 f.debug_tuple("InitialKeyGeneration").field(err).finish()
             }

@@ -2,48 +2,11 @@ pub mod net;
 
 use proptest::arbitrary::any;
 use proptest::strategy::{Strategy, ValueTree};
-use proptest::{prelude::RngCore, proptest, proptest_helper};
-use rand::{Rng as Rng4, SeedableRng as SeedableRng4};
+use proptest::{proptest, proptest_helper};
+use rand::SeedableRng;
+use rand_xorshift::XorShiftRng;
 
 use crate::net::proptest::{max_sum, NetworkDimension, NetworkDimensionTree};
-
-struct RngAdapter4To5<T>(pub T);
-
-impl<T> Rng4 for RngAdapter4To5<T>
-where
-    T: Rng4,
-{
-    #[inline]
-    fn next_u32(&mut self) -> u32 {
-        self.0.next_u32()
-    }
-}
-
-impl<T> RngCore for RngAdapter4To5<T>
-where
-    T: Rng4,
-{
-    #[inline]
-    fn next_u32(&mut self) -> u32 {
-        self.0.next_u32()
-    }
-
-    #[inline]
-    fn next_u64(&mut self) -> u64 {
-        self.0.next_u64()
-    }
-
-    #[inline]
-    fn fill_bytes(&mut self, bytes: &mut [u8]) {
-        self.0.fill_bytes(bytes);
-    }
-
-    #[inline]
-    fn try_fill_bytes(&mut self, bytes: &mut [u8]) -> Result<(), rand_core::Error> {
-        self.0.fill_bytes(bytes);
-        Ok(())
-    }
-}
 
 proptest! {
     /// Ensures all generated network dimensions are actually sane.
@@ -68,13 +31,13 @@ proptest! {
     #[test]
     fn network_dimensions_shrink_and_grow(
         // dim in NetworkDimension::range(1, 400).no_shrink(),
-        seed in any::<[u32; 4]>().no_shrink(),
+        seed in any::<[u8; 16]>().no_shrink(),
         // num_ops in 10..10000,
         ops in proptest::collection::vec(any_op(), 1..100)
     ) {
-        let mut rng5 = RngAdapter4To5(rand::XorShiftRng::from_seed(seed));
+        let mut rng = XorShiftRng::from_seed(seed);
 
-        let mut tree = NetworkDimensionTree::gen(&mut rng5, 1, 40);
+        let mut tree = NetworkDimensionTree::gen(&mut rng, 1, 40);
         println!("Start: {:?}", tree);
 
         for op in ops {

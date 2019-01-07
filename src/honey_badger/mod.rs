@@ -33,7 +33,7 @@ mod params;
 pub use self::batch::Batch;
 pub use self::builder::HoneyBadgerBuilder;
 pub use self::epoch_state::SubsetHandlingStrategy;
-pub use self::error::{Error, Result};
+pub use self::error::{Error, FaultKind, FaultLog, Result};
 pub use self::honey_badger::{EncryptionSchedule, HoneyBadger, Step};
 pub use self::message::{Message, MessageContent};
 pub use self::params::Params;

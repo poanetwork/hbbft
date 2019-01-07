@@ -27,3 +27,14 @@ pub enum Error {
 
 /// A subset result.
 pub type Result<T> = result::Result<T, Error>;
+
+/// Faults that can be detected in Subset.
+#[derive(Clone, Debug, Fail, PartialEq)]
+pub enum FaultKind {
+    /// `Subset` received a faulty Broadcast message.
+    #[fail(display = "`Subset` received a faulty Broadcast message.")]
+    BroadcastFault(broadcast::FaultKind),
+    /// `Subset` received a faulty Binary Agreement message.
+    #[fail(display = "`Subset` received a faulty Binary Agreement message.")]
+    BaFault(binary_agreement::FaultKind),
+}

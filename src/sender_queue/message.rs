@@ -1,4 +1,5 @@
-use rand::{Rand, Rng};
+use rand::distributions::{Distribution, Standard};
+use rand::{seq::SliceRandom, Rng};
 use serde_derive::{Deserialize, Serialize};
 
 use super::SenderQueueableMessage;
@@ -12,13 +13,12 @@ pub enum Message<M: SenderQueueableMessage> {
     Algo(M),
 }
 
-impl<M> Rand for Message<M>
+impl<M: SenderQueueableMessage> Distribution<Message<M>> for Standard
 where
-    M: SenderQueueableMessage + Rand,
-    M::Epoch: Rand,
+    Standard: Distribution<M> + Distribution<M::Epoch>,
 {
-    fn rand<R: Rng>(rng: &mut R) -> Self {
-        let message_type = *rng.choose(&["epoch", "algo"]).unwrap();
+    fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> Message<M> {
+        let message_type = *["epoch", "algo"].choose(rng).unwrap();
 
         match message_type {
             "epoch" => Message::EpochStarted(rng.gen()),

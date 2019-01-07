@@ -5,7 +5,7 @@ use std::{cmp, u64};
 use colored::*;
 use docopt::Docopt;
 use itertools::Itertools;
-use rand::Rng;
+use rand::{distributions::Standard, rngs::OsRng, seq::SliceRandom, Rng};
 use rand_derive::Rand;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
@@ -305,7 +305,7 @@ where
             .filter(|(_, node)| node.next_event_time() == Some(min_time))
             .map(|(id, _)| *id)
             .collect();
-        let next_id = *rng.choose(&min_ids).unwrap();
+        let next_id = *min_ids.choose(rng).unwrap();
         let msgs: Vec<_> = {
             let node = self.nodes.get_mut(&next_id).unwrap();
             node.handle_message(rng);
@@ -400,7 +400,7 @@ fn parse_args() -> Result<Args, docopt::Error> {
 
 fn main() {
     env_logger::init();
-    let mut rng = rand::OsRng::new().expect("Could not initialize OS random number generator.");
+    let mut rng = OsRng::new().expect("Could not initialize OS random number generator.");
 
     let args = parse_args().unwrap_or_else(|e| e.exit());
     if args.flag_n <= 3 * args.flag_f {
@@ -423,10 +423,10 @@ fn main() {
     let num_good_nodes = args.flag_n - args.flag_f;
 
     let txs: Vec<_> = (0..args.flag_txs)
-        .map(|_| rng.gen_iter().take(args.flag_tx_size).collect())
+        .map(|_| rng.sample_iter(&Standard).take(args.flag_tx_size).collect())
         .collect();
 
-    let new_honey_badger = |netinfo: NetworkInfo<NodeId>, rng: &mut rand::OsRng| {
+    let new_honey_badger = |netinfo: NetworkInfo<NodeId>, rng: &mut OsRng| {
         let our_id = *netinfo.our_id();
         let peer_ids: Vec<_> = netinfo
             .all_ids()
@@ -439,7 +439,8 @@ fn main() {
             .build_with_transactions(txs.clone(), rng)
             .expect("instantiate QueueingHoneyBadger");
         let (sq, mut step) = SenderQueue::builder(qhb, peer_ids.into_iter()).build(our_id);
-        step.extend_with(qhb_step, Message::from);
+        let output = step.extend_with(qhb_step, |fault| fault, Message::from);
+        assert!(output.is_empty());
         (sq, step)
     };
 

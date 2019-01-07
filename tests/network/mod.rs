@@ -1,14 +1,16 @@
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fmt::{self, Debug};
 use std::mem;
 use std::sync::Arc;
 
 use log::{debug, warn};
+use rand::seq::{IteratorRandom, SliceRandom};
 use rand::{self, Rng};
 use rand_derive::Rand;
 use serde_derive::{Deserialize, Serialize};
 
 use hbbft::dynamic_honey_badger::Batch;
+use hbbft::sender_queue::SenderQueueableOutput;
 use hbbft::{
     Contribution, DaStep, DistAlgorithm, Fault, NetworkInfo, Step, Target, TargetedMessage,
 };
@@ -30,7 +32,7 @@ pub struct TestNode<D: DistAlgorithm> {
     /// Outgoing messages to be sent to other nodes.
     messages: Vec<TargetedMessage<D::Message, D::NodeId>>,
     /// Collected fault logs.
-    faults: Vec<Fault<D::NodeId>>,
+    faults: Vec<Fault<D::NodeId, D::FaultKind>>,
 }
 
 impl<D: DistAlgorithm> TestNode<D> {
@@ -57,6 +59,12 @@ impl<D: DistAlgorithm> TestNode<D> {
     #[allow(unused)] // Not used in all tests.
     pub fn instance(&self) -> &D {
         &self.algo
+    }
+
+    /// Returns the internal algorithm's mutable instance.
+    #[allow(unused)] // Not used in all tests.
+    pub fn instance_mut(&mut self) -> &mut D {
+        &mut self.algo
     }
 
     /// Creates a new test node with the given broadcast instance.
@@ -111,12 +119,11 @@ impl MessageScheduler {
             .filter(|(_, node)| !node.queue.is_empty())
             .map(|(id, _)| id.clone());
         let rand_node = match *self {
-            MessageScheduler::First => rand::thread_rng().gen_weighted_bool(10),
+            MessageScheduler::First => rand::thread_rng().gen_bool(0.1),
             MessageScheduler::Random => true,
         };
         if rand_node {
-            let ids: Vec<D::NodeId> = ids.collect();
-            rand::thread_rng().choose(&ids).cloned()
+            ids.choose(&mut rand::thread_rng())
         } else {
             ids.next()
         }
@@ -312,7 +319,7 @@ impl<D: DistAlgorithm, F: Fn() -> TargetedMessage<D::Message, D::NodeId>> Advers
                 // Choose a new target to send the message to. The unwrap never fails, because we
                 // ensured that `known_node_ids` is non-empty earlier.
                 let mut rng = rand::thread_rng();
-                let new_target_node = rng.choose(&self.known_node_ids).unwrap().clone();
+                let new_target_node = self.known_node_ids.iter().choose(&mut rng).unwrap().clone();
 
                 // TODO: We could randomly broadcast it instead, if we had access to topology
                 //       information.
@@ -337,7 +344,7 @@ impl<D: DistAlgorithm, F: Fn() -> TargetedMessage<D::Message, D::NodeId>> Advers
             let mut rng = rand::thread_rng();
 
             // Pick a random adversarial node and create a message using the generator.
-            if let Some(sender) = rng.choose(&self.known_adversarial_ids[..]) {
+            if let Some(sender) = self.known_adversarial_ids[..].choose(&mut rng) {
                 let tm = (self.generator)();
 
                 // Add to outgoing queue.
@@ -459,7 +466,7 @@ where
     }
 
     /// Pushes the messages into the queues of the corresponding recipients.
-    fn dispatch_messages<Q>(&mut self, sender_id: NodeId, msgs: Q)
+    pub fn dispatch_messages<Q>(&mut self, sender_id: NodeId, msgs: Q)
     where
         Q: IntoIterator<Item = TargetedMessage<D::Message, NodeId>> + Debug,
     {
@@ -587,7 +594,7 @@ where
     }
 
     /// Verifies that no correct node is reported as faulty.
-    fn check_faults<I: IntoIterator<Item = Fault<D::NodeId>>>(&self, faults: I) {
+    fn check_faults<I: IntoIterator<Item = Fault<D::NodeId, D::FaultKind>>>(&self, faults: I) {
         for fault in faults {
             if self.nodes.contains_key(&fault.node_id) {
                 panic!("Unexpected fault: {:?}", fault);
@@ -601,21 +608,65 @@ where
     D: DistAlgorithm<Output = Batch<C, NodeId>, NodeId = NodeId>,
     C: Contribution + Clone,
 {
-    /// Verifies that all nodes' outputs agree.
+    /// Verifies that all nodes' outputs agree, given a correct "full" node that output all
+    /// batches with no gaps.
+    ///
+    /// The output of the full node is used to derive in expected output of other nodes in every
+    /// epoch. After that the check ensures that correct nodes output the same batches in epochs
+    /// when those nodes were participants (either validators or candidates).
     #[allow(unused)] // Not used in all tests.
-    pub fn verify_batches(&self) {
-        let expected = self.nodes[&NodeId(0)].outputs().to_vec();
-        assert!(!expected.is_empty());
-        let pub_eq = |(b0, b1): (&Batch<C, _>, &Batch<C, _>)| b0.public_eq(b1);
-        for node in self.nodes.values() {
-            assert_eq!(expected.len(), node.outputs().len());
+    pub fn verify_batches<E>(&self, full_node: &TestNode<D>)
+    where
+        Batch<C, NodeId>: SenderQueueableOutput<NodeId, E>,
+    {
+        // Participants of epoch 0 are all validators in the test network.
+        let mut participants: BTreeSet<NodeId> = self
+            .nodes
+            .keys()
+            .cloned()
+            .chain(self.adv_nodes.keys().cloned())
+            .collect();
+        let mut expected: BTreeMap<NodeId, Vec<_>> = BTreeMap::new();
+        for batch in &full_node.outputs {
+            for id in &participants {
+                expected.entry(id.clone()).or_default().push(batch);
+            }
+            if let Some(new_participants) = batch.participant_change() {
+                participants = new_participants;
+            }
+        }
+        for (id, node) in self.nodes.iter().filter(|(&id, _)| id != full_node.id) {
+            let actual_epochs: BTreeSet<_> =
+                node.outputs.iter().map(|batch| batch.epoch()).collect();
+            let expected_epochs: BTreeSet<_> =
+                expected[id].iter().map(|batch| batch.epoch()).collect();
+            assert_eq!(
+                expected_epochs, actual_epochs,
+                "Output epochs of {:?} don't match the expectation.",
+                id
+            );
+            assert_eq!(
+                node.outputs.len(),
+                expected[id].len(),
+                "Output length of {:?} doesn't match the expectation",
+                id
+            );
             assert!(
-                expected.iter().zip(node.outputs()).all(pub_eq),
-                "Outputs of nodes 0 and {} differ: {:?} != {:?}",
-                node.instance().our_id().0,
-                expected,
-                node.outputs()
+                node.outputs
+                    .iter()
+                    .zip(expected.get(id).expect("node is not expected"))
+                    .all(|(a, b)| a.public_eq(b)),
+                "Outputs of {:?} don't match the expectation",
+                id
             );
         }
+        assert!(
+            self.observer
+                .outputs
+                .iter()
+                .zip(full_node.outputs.iter())
+                .all(|(a, b)| a.public_eq(b)),
+            "Observer outputs don't match the expectation."
+        );
     }
 }

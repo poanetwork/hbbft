@@ -3,10 +3,11 @@
 use std::result;
 
 use crate::crypto::PublicKey;
-use rand::{Rand, Rng};
+use rand::distributions::{Distribution, Standard};
+use rand::Rng;
 use serde::{de::DeserializeOwned, Serialize};
 
-use super::{SenderQueue, SenderQueueableDistAlgorithm};
+use super::{Error, SenderQueue, SenderQueueableDistAlgorithm};
 use crate::queueing_honey_badger::{Change, Error as QhbError, QueueingHoneyBadger};
 use crate::transaction_queue::TransactionQueue;
 use crate::{Contribution, DaStep, Epoched, NodeIdT};
@@ -14,8 +15,9 @@ use crate::{Contribution, DaStep, Epoched, NodeIdT};
 impl<T, N, Q> Epoched for QueueingHoneyBadger<T, N, Q>
 where
     T: Contribution + Serialize + DeserializeOwned + Clone,
-    N: NodeIdT + Serialize + DeserializeOwned + Rand,
+    N: NodeIdT + Serialize + DeserializeOwned,
     Q: TransactionQueue<T>,
+    Standard: Distribution<N>,
 {
     type Epoch = (u64, u64);
 
@@ -27,21 +29,24 @@ where
 impl<T, N, Q> SenderQueueableDistAlgorithm for QueueingHoneyBadger<T, N, Q>
 where
     T: Contribution + Serialize + DeserializeOwned + Clone,
-    N: NodeIdT + Serialize + DeserializeOwned + Rand,
+    N: NodeIdT + Serialize + DeserializeOwned,
     Q: TransactionQueue<T>,
+    Standard: Distribution<N>,
 {
     fn max_future_epochs(&self) -> u64 {
         self.dyn_hb().max_future_epochs()
     }
 }
 
-type Result<T, N, Q> = result::Result<DaStep<SenderQueue<QueueingHoneyBadger<T, N, Q>>>, QhbError>;
+type Result<T, N, Q> =
+    result::Result<DaStep<SenderQueue<QueueingHoneyBadger<T, N, Q>>>, Error<QhbError>>;
 
 impl<T, N, Q> SenderQueue<QueueingHoneyBadger<T, N, Q>>
 where
     T: Contribution + Serialize + DeserializeOwned + Clone,
-    N: NodeIdT + Serialize + DeserializeOwned + Rand,
+    N: NodeIdT + Serialize + DeserializeOwned,
     Q: TransactionQueue<T>,
+    Standard: Distribution<N>,
 {
     /// Adds a transaction to the queue.
     ///

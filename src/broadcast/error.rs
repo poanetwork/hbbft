@@ -1,22 +1,11 @@
 use failure::Fail;
-use reed_solomon_erasure as rse;
 
 /// A broadcast error.
 #[derive(Clone, PartialEq, Debug, Fail)]
 pub enum Error {
-    /// Failed to create a `ReedSolomon` instance.
-    #[fail(display = "CodingNewReedSolomon error: {}", _0)]
-    CodingNewReedSolomon(#[cause] rse::Error),
-    /// Failed to encode the value.
-    #[fail(display = "CodingEncodeReedSolomon error: {}", _0)]
-    CodingEncodeReedSolomon(#[cause] rse::Error),
-    /// Failed to reconstruct the value.
-    #[fail(display = "CodingReconstructShardsReedSolomon error: {}", _0)]
-    CodingReconstructShardsReedSolomon(#[cause] rse::Error),
-    /// Failed to reconstruct the value.
-    // TODO: This should be unreachable.
-    #[fail(display = "CodingReconstructShardsTrivialReedSolomon error: {}", _0)]
-    CodingReconstructShardsTrivialReedSolomon(#[cause] rse::Error),
+    /// Due to a limitation in `reed_solomon_erasure`, only up to 256 nodes are supported.
+    #[fail(display = "Number of participants must be between 1 and 256")]
+    InvalidNodeCount,
     /// Observers cannot propose a value.
     #[fail(display = "Instance cannot propose")]
     InstanceCannotPropose,
@@ -33,3 +22,26 @@ pub enum Error {
 
 /// A broadcast result.
 pub type Result<T> = ::std::result::Result<T, Error>;
+
+/// Represents each reason why a broadcast message could be faulty.
+#[derive(Clone, Debug, Fail, PartialEq)]
+pub enum FaultKind {
+    /// `Broadcast` received a `Value` from a node other than the proposer.
+    #[fail(display = "`Broadcast` received a `Value` from a node other than the proposer.")]
+    ReceivedValueFromNonProposer,
+    /// `Broadcast` received multiple different `Value`s from the proposer.
+    #[fail(display = "`Broadcast` received multiple different `Value`s from the proposer.")]
+    MultipleValues,
+    /// `Broadcast` received multiple different `Echo`s from the same sender.
+    #[fail(display = "`Broadcast` received multiple different `Echo`s from the same sender.")]
+    MultipleEchos,
+    /// `Broadcast` received multiple different `Ready`s from the same sender.
+    #[fail(display = "`Broadcast` received multiple different `Ready`s from the same sender.")]
+    MultipleReadys,
+    /// `Broadcast` recevied an Echo message containing an invalid proof.
+    #[fail(display = "`Broadcast` recevied an Echo message containing an invalid proof.")]
+    InvalidProof,
+    ///`Broadcast` received shards with valid proofs, that couldn't be decoded.
+    #[fail(display = "`Broadcast` received shards with valid proofs, that couldn't be decoded.")]
+    BroadcastDecoding,
+}

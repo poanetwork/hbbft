@@ -24,32 +24,28 @@ travis-ci = { repository = "poanetwork/hbbft" }
 bincode = "1.0.0"
 byteorder = "1.2.3"
 derivative = "1.0.1"
-env_logger = "0.5.10"
+env_logger = "0.6.0"
 failure = "0.1"
 hex_fmt = "0.2"
 init_with = "1.1.0"
 log = "0.4.1"
-rand = "0.4.2"
-rand_derive = "0.3.1"
-reed-solomon-erasure = "3.1.0"
-serde = "1.0.55"
-serde_derive = "1.0.55"
-threshold_crypto = "0.2.1"
+rand = "0.6.1"
+rand_derive = "0.5.0"
+reed-solomon-erasure = "3.1.1"
+serde = "1.0.82"
+serde_derive = "1.0.82"
+threshold_crypto = "0.3.0"
 tiny-keccak = "1.4"
 
 [dev-dependencies]
 colored = "1.6"
-crossbeam = "0.5"
+crossbeam = "0.6"
 crossbeam-channel = "0.3"
 docopt = "1.0"
-itertools = "0.7"
-serde_derive = "1.0.55"
+itertools = "0.8.0"
+rand_xorshift = "0.1.0"
 signifix = "0.9"
 proptest = "0.8.7"
-# Note: `rand_core` is solely used for the randomness adapter in `net_utils.rs`
-#       tests and should be removed as soon as a migration path to rand 0.5
-#       appears.
-rand_core = "0.2.1"
 integer-sqrt = "0.1.1"
 
 [[example]]

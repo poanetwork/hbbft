@@ -70,7 +70,8 @@ mod sbv_broadcast;
 
 use bincode;
 use failure::Fail;
-use rand;
+use rand::distributions::{Distribution, Standard};
+use rand::{seq::SliceRandom, Rng};
 use rand_derive::Rand;
 use serde_derive::{Deserialize, Serialize};
 
@@ -104,8 +105,30 @@ impl From<bincode::Error> for Error {
 /// A `BinaryAgreement` result.
 pub type Result<T> = ::std::result::Result<T, Error>;
 
+/// A faulty Binary Agreement message received from a peer.
+#[derive(Clone, Debug, Fail, PartialEq)]
+pub enum FaultKind {
+    /// `BinaryAgreement` received a duplicate `BVal` message.
+    #[fail(display = "`BinaryAgreement` received a duplicate `BVal` message.")]
+    DuplicateBVal,
+    /// `BinaryAgreement` received a duplicate `Aux` message.
+    #[fail(display = "`BinaryAgreement` received a duplicate `Aux` message.")]
+    DuplicateAux,
+    /// `BinaryAgreement` received multiple `Conf` messages.
+    #[fail(display = "`BinaryAgreement` received multiple `Conf` messages.")]
+    MultipleConf,
+    /// `BinaryAgreement` received multiple `Term` messages.
+    #[fail(display = "`BinaryAgreement` received multiple `Term` messages.")]
+    MultipleTerm,
+    /// `BinaryAgreement` received a message with an epoch too far ahead.
+    #[fail(display = "`BinaryAgreement` received a message with an epoch too far ahead.")]
+    AgreementEpoch,
+    /// `BinaryAgreement` received a Coin Fault.
+    #[fail(display = "`BinaryAgreement` received a Coin Fault.")]
+    CoinFault(threshold_sign::FaultKind),
+}
 /// A `BinaryAgreement` step, containing at most one output.
-pub type Step<N> = crate::Step<Message, bool, N>;
+pub type Step<N> = crate::Step<Message, bool, N, FaultKind>;
 
 /// The content of a message belonging to a particular `BinaryAgreement` epoch.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -148,11 +171,11 @@ pub struct Message {
 }
 
 // NOTE: Extending rand_derive to correctly generate random values from boxes would make this
-// implementation obsolete; however at the time of this writing, `rand::Rand` is already deprecated
+// implementation obsolete; however at the time of this writing, `rand_derive` is already deprecated
 // with no replacement in sight.
-impl rand::Rand for MessageContent {
-    fn rand<R: rand::Rng>(rng: &mut R) -> Self {
-        let message_type = *rng.choose(&["sbvb", "conf", "term", "coin"]).unwrap();
+impl Distribution<MessageContent> for Standard {
+    fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> MessageContent {
+        let message_type = *["sbvb", "conf", "term", "coin"].choose(rng).unwrap();
 
         match message_type {
             "sbvb" => MessageContent::SbvBroadcast(rng.gen()),

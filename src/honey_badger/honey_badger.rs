@@ -3,20 +3,20 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use derivative::Derivative;
-use rand::{Rand, Rng};
+use rand::Rng;
 use serde::{de::DeserializeOwned, Serialize};
 use serde_derive::{Deserialize, Serialize};
 
 use super::epoch_state::EpochState;
-use super::{Batch, Error, HoneyBadgerBuilder, Message, Result};
-use crate::{Contribution, DistAlgorithm, Fault, FaultKind, NetworkInfo, NodeIdT};
+use super::{Batch, Error, FaultKind, HoneyBadgerBuilder, Message, Result};
+use crate::{Contribution, DistAlgorithm, Fault, NetworkInfo, NodeIdT};
 
 use super::Params;
 
 /// An instance of the Honey Badger Byzantine fault tolerant consensus algorithm.
 #[derive(Derivative)]
 #[derivative(Debug)]
-pub struct HoneyBadger<C, N: Rand> {
+pub struct HoneyBadger<C, N> {
     /// Shared network data.
     pub(super) netinfo: Arc<NetworkInfo<N>>,
     /// A session identifier. Different session IDs foil replay attacks in two instances with the
@@ -38,13 +38,14 @@ pub type Step<C, N> = crate::DaStep<HoneyBadger<C, N>>;
 impl<C, N> DistAlgorithm for HoneyBadger<C, N>
 where
     C: Contribution + Serialize + DeserializeOwned,
-    N: NodeIdT + Rand,
+    N: NodeIdT,
 {
     type NodeId = N;
     type Input = C;
     type Output = Batch<C, N>;
     type Message = Message<N>;
     type Error = Error;
+    type FaultKind = FaultKind;
 
     fn handle_input<R: Rng>(&mut self, input: Self::Input, rng: &mut R) -> Result<Step<C, N>> {
         self.propose(&input, rng)
@@ -71,7 +72,7 @@ where
 impl<C, N> HoneyBadger<C, N>
 where
     C: Contribution + Serialize + DeserializeOwned,
-    N: NodeIdT + Rand,
+    N: NodeIdT,
 {
     /// Returns a new `HoneyBadgerBuilder` configured to use the node IDs and cryptographic keys
     /// specified by `netinfo`.
@@ -90,16 +91,7 @@ where
             return Ok(Step::default());
         }
         self.has_input = true;
-        let epoch = self.epoch;
-        let step = {
-            let epoch_state = {
-                self.epoch_state_mut(epoch)?;
-                self.epochs.get_mut(&epoch).expect(
-                    "We created the epoch_state in `self.epoch_state_mut(...)` just a moment ago.",
-                )
-            };
-            epoch_state.propose(proposal, rng)?
-        };
+        let step = self.epoch_state_mut(self.epoch)?.propose(proposal, rng)?;
         Ok(step.join(self.try_output_batches()?))
     }
 

@@ -127,7 +127,7 @@ fn binary_agreement(cfg: TestConfig) {
         })
         .build(&mut rng)
         .expect("Could not construct test network.");
-    net.test_binary_agreement(cfg.input, rng.gen::<TestRng>());
+    net.test_binary_agreement(cfg.input, TestRng::from_seed(rng.gen::<TestRngSeed>()));
     println!(
         "Test success: {} good nodes and {} faulty nodes, input: {:?}",
         num_good_nodes, num_faulty_nodes, cfg.input

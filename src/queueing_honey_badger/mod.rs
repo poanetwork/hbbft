@@ -25,13 +25,16 @@
 use std::marker::PhantomData;
 use std::{cmp, iter};
 
-use crate::crypto::PublicKey;
 use derivative::Derivative;
 use failure::Fail;
-use rand::{Rand, Rng};
+use rand::distributions::{Distribution, Standard};
+use rand::Rng;
 use serde::{de::DeserializeOwned, Serialize};
 
-use crate::dynamic_honey_badger::{self, Batch as DhbBatch, DynamicHoneyBadger, Message};
+use crate::crypto::{PublicKey, SecretKey};
+use crate::dynamic_honey_badger::{
+    self, Batch as DhbBatch, DynamicHoneyBadger, FaultKind, JoinPlan, Message, Step as DhbStep,
+};
 use crate::transaction_queue::TransactionQueue;
 use crate::{Contribution, DistAlgorithm, NetworkInfo, NodeIdT};
 
@@ -49,6 +52,9 @@ pub enum Error {
     /// Failed to propose a contribution.
     #[fail(display = "Propose error: {}", _0)]
     Propose(dynamic_honey_badger::Error),
+    /// Failed to create a Dynamic Honey Badger instance according to a join plan.
+    #[fail(display = "New joining error: {}", _0)]
+    NewJoining(dynamic_honey_badger::Error),
 }
 
 /// The result of `QueueingHoneyBadger` handling an input or message.
@@ -56,13 +62,19 @@ pub type Result<T> = ::std::result::Result<T, Error>;
 
 /// A Queueing Honey Badger builder, to configure the parameters and create new instances of
 /// `QueueingHoneyBadger`.
-pub struct QueueingHoneyBadgerBuilder<T, N: Rand + Ord, Q> {
+pub struct QueueingHoneyBadgerBuilder<T, N, Q>
+where
+    T: Contribution + Serialize + DeserializeOwned + Clone,
+    N: NodeIdT + Serialize + DeserializeOwned,
+{
     /// Shared network data.
     dyn_hb: DynamicHoneyBadger<Vec<T>, N>,
     /// The target number of transactions to be included in each batch.
     batch_size: usize,
     /// The queue of pending transactions that haven't been output in a batch yet.
     queue: Q,
+    /// The initial step of the managed `DynamicHoneyBadger` instance.
+    step: Option<DhbStep<Vec<T>, N>>,
     _phantom: PhantomData<T>,
 }
 
@@ -71,21 +83,27 @@ type QueueingHoneyBadgerWithStep<T, N, Q> = (QueueingHoneyBadger<T, N, Q>, Step<
 impl<T, N, Q> QueueingHoneyBadgerBuilder<T, N, Q>
 where
     T: Contribution + Serialize + DeserializeOwned + Clone,
-    N: NodeIdT + Serialize + DeserializeOwned + Rand,
+    N: NodeIdT + Serialize + DeserializeOwned,
     Q: TransactionQueue<T>,
+    Standard: Distribution<N>,
 {
-    /// Returns a new `QueueingHoneyBadgerBuilder` configured to use the node IDs and cryptographic
-    /// keys specified by `netinfo`.
-    // TODO: Make it easier to build a `QueueingHoneyBadger` with a `JoinPlan`. Handle `Step`
-    // conversion internally.
+    /// Returns a new `QueueingHoneyBadgerBuilder` wrapping the given instance of
+    /// `DynamicHoneyBadger`.
     pub fn new(dyn_hb: DynamicHoneyBadger<Vec<T>, N>) -> Self {
         // TODO: Use the defaults from `HoneyBadgerBuilder`.
         QueueingHoneyBadgerBuilder {
             dyn_hb,
             batch_size: 100,
             queue: Default::default(),
+            step: None,
             _phantom: PhantomData,
         }
+    }
+
+    /// Sets the initial step of the `DynamicHoneyBadger` instance.
+    pub fn step(mut self, step: DhbStep<Vec<T>, N>) -> Self {
+        self.step = Some(step);
+        self
     }
 
     /// Sets the target number of transactions per batch.
@@ -101,9 +119,8 @@ where
     }
 
     /// Creates a new Queueing Honey Badger instance with an empty buffer.
-    pub fn build<R: Rng>(self, rng: &mut R) -> QueueingHoneyBadgerWithStep<T, N, Q> {
+    pub fn build<R: Rng>(self, rng: &mut R) -> Result<QueueingHoneyBadgerWithStep<T, N, Q>> {
         self.build_with_transactions(None, rng)
-            .expect("building without transactions cannot fail")
     }
 
     /// Returns a new Queueing Honey Badger instance that starts with the given transactions in its
@@ -123,7 +140,10 @@ where
             batch_size: self.batch_size,
             queue: self.queue,
         };
-        let step = qhb.propose(rng)?;
+        let mut step = qhb.propose(rng)?;
+        if let Some(dhb_step) = self.step {
+            step.extend(dhb_step);
+        }
         Ok((qhb, step))
     }
 }
@@ -132,7 +152,7 @@ where
 /// queue.
 #[derive(Derivative)]
 #[derivative(Debug)]
-pub struct QueueingHoneyBadger<T, N: Rand + Ord, Q> {
+pub struct QueueingHoneyBadger<T, N: Ord, Q> {
     /// The target number of transactions to be included in each batch.
     batch_size: usize,
     /// The internal managed `DynamicHoneyBadger` instance.
@@ -142,19 +162,21 @@ pub struct QueueingHoneyBadger<T, N: Rand + Ord, Q> {
 }
 
 /// A `QueueingHoneyBadger` step, possibly containing multiple outputs.
-pub type Step<T, N> = crate::Step<Message<N>, Batch<T, N>, N>;
+pub type Step<T, N> = crate::Step<Message<N>, Batch<T, N>, N, FaultKind>;
 
 impl<T, N, Q> DistAlgorithm for QueueingHoneyBadger<T, N, Q>
 where
     T: Contribution + Serialize + DeserializeOwned + Clone,
-    N: NodeIdT + Serialize + DeserializeOwned + Rand,
+    N: NodeIdT + Serialize + DeserializeOwned,
     Q: TransactionQueue<T>,
+    Standard: Distribution<N>,
 {
     type NodeId = N;
     type Input = Input<T, N>;
     type Output = Batch<T, N>;
     type Message = Message<N>;
     type Error = Error;
+    type FaultKind = FaultKind;
 
     fn handle_input<R: Rng>(&mut self, input: Self::Input, rng: &mut R) -> Result<Step<T, N>> {
         // User transactions are forwarded to `HoneyBadger` right away. Internal messages are
@@ -187,13 +209,30 @@ where
 impl<T, N, Q> QueueingHoneyBadger<T, N, Q>
 where
     T: Contribution + Serialize + DeserializeOwned + Clone,
-    N: NodeIdT + Serialize + DeserializeOwned + Rand,
+    N: NodeIdT + Serialize + DeserializeOwned,
     Q: TransactionQueue<T>,
+    Standard: Distribution<N>,
 {
     /// Returns a new `QueueingHoneyBadgerBuilder` configured to use the node IDs and cryptographic
     /// keys specified by `netinfo`.
     pub fn builder(dyn_hb: DynamicHoneyBadger<Vec<T>, N>) -> QueueingHoneyBadgerBuilder<T, N, Q> {
         QueueingHoneyBadgerBuilder::new(dyn_hb)
+    }
+
+    /// Creates a new `QueueingHoneyBadgerBuilder` for joining the network specified in the
+    /// `JoinPlan`.
+    ///
+    /// Returns a `QueueingHoneyBadgerBuilder` or an error if creation of the managed
+    /// `DynamicHoneyBadger` instance has failed.
+    pub fn builder_joining<R: Rng>(
+        our_id: N,
+        secret_key: SecretKey,
+        join_plan: JoinPlan<N>,
+        rng: &mut R,
+    ) -> Result<QueueingHoneyBadgerBuilder<T, N, Q>> {
+        let (dhb, step) = DynamicHoneyBadger::new_joining(our_id, secret_key, join_plan, rng)
+            .map_err(Error::NewJoining)?;
+        Ok(QueueingHoneyBadgerBuilder::new(dhb).step(step))
     }
 
     /// Adds a transaction to the queue.
@@ -261,6 +300,11 @@ where
     /// Returns the information about the node IDs in the network, and the cryptographic keys.
     pub fn netinfo(&self) -> &NetworkInfo<N> {
         self.dyn_hb.netinfo()
+    }
+
+    /// Returns the current queue of the `QueueingHoneyBadger`.
+    pub fn queue(&self) -> &Q {
+        &self.queue
     }
 
     /// Applies a function `f` to the `DynamicHoneyBadger` instance and processes the step.

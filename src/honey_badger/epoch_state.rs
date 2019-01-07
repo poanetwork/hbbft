@@ -9,12 +9,12 @@ use std::sync::Arc;
 use crate::crypto::Ciphertext;
 use bincode;
 use log::error;
-use rand::{Rand, Rng};
+use rand::Rng;
 use serde::{de::DeserializeOwned, Serialize};
 use serde_derive::{Deserialize, Serialize};
 
-use super::{Batch, Error, MessageContent, Result, Step};
-use crate::fault_log::{Fault, FaultKind, FaultLog};
+use super::{Batch, Error, FaultKind, FaultLog, MessageContent, Result, Step};
+use crate::fault_log::Fault;
 use crate::subset::{self as cs, Subset, SubsetOutput};
 use crate::threshold_decrypt::{self as td, ThresholdDecrypt};
 use crate::{Contribution, NetworkInfo, NodeIdT};
@@ -30,10 +30,7 @@ enum DecryptionState<N> {
     Complete(Vec<u8>),
 }
 
-impl<N> DecryptionState<N>
-where
-    N: NodeIdT + Rand,
-{
+impl<N: NodeIdT> DecryptionState<N> {
     /// Creates a new `ThresholdDecrypt` instance, waiting for shares and a ciphertext.
     fn new(netinfo: Arc<NetworkInfo<N>>) -> Self {
         DecryptionState::Ongoing(Box::new(ThresholdDecrypt::new(netinfo)))
@@ -61,17 +58,14 @@ where
 
 /// The status of the subset algorithm.
 #[derive(Debug)]
-enum SubsetState<N: Rand> {
+enum SubsetState<N> {
     /// The algorithm is ongoing: the set of accepted contributions is still undecided.
     Ongoing(Subset<N, EpochId>),
     /// The algorithm is complete. This contains the set of accepted proposers.
     Complete(BTreeSet<N>),
 }
 
-impl<N> SubsetState<N>
-where
-    N: NodeIdT + Rand,
-{
+impl<N: NodeIdT> SubsetState<N> {
     /// Provides input to the Subset instance, unless it has already completed.
     fn handle_input(&mut self, proposal: Vec<u8>) -> Result<CsStep<N>> {
         match self {
@@ -181,7 +175,7 @@ impl<N> From<SubsetHandlingStrategy> for SubsetHandler<N> {
 
 /// The sub-algorithms and their intermediate results for a single epoch.
 #[derive(Debug)]
-pub struct EpochState<C, N: Rand> {
+pub struct EpochState<C, N> {
     /// Our epoch number.
     epoch: u64,
     /// Shared network data.
@@ -202,7 +196,7 @@ pub struct EpochState<C, N: Rand> {
 impl<C, N> EpochState<C, N>
 where
     C: Contribution + Serialize + DeserializeOwned,
-    N: NodeIdT + Rand,
+    N: NodeIdT,
 {
     /// Creates a new `Subset` instance.
     pub fn new(
@@ -312,7 +306,7 @@ where
     /// Checks whether the subset has output, and if it does, sends out our decryption shares.
     fn process_subset(&mut self, cs_step: CsStep<N>) -> Result<Step<C, N>> {
         let mut step = Step::default();
-        let cs_outputs = step.extend_with(cs_step, |cs_msg| {
+        let cs_outputs = step.extend_with(cs_step, FaultKind::SubsetFault, |cs_msg| {
             MessageContent::Subset(cs_msg).with_epoch(self.epoch)
         });
         let mut has_seen_done = false;
@@ -363,7 +357,7 @@ where
     /// Processes a Threshold Decrypt step.
     fn process_decryption(&mut self, proposer_id: N, td_step: td::Step<N>) -> Result<Step<C, N>> {
         let mut step = Step::default();
-        let opt_output = step.extend_with(td_step, |share| {
+        let opt_output = step.extend_with(td_step, FaultKind::DecryptionFault, |share| {
             MessageContent::DecryptionShare {
                 proposer_id: proposer_id.clone(),
                 share,

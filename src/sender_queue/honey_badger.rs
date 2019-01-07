@@ -1,24 +1,26 @@
-use rand::Rand;
+use std::collections::BTreeSet;
+
 use serde::{de::DeserializeOwned, Serialize};
 
 use super::{SenderQueueableDistAlgorithm, SenderQueueableMessage, SenderQueueableOutput};
 use crate::honey_badger::{Batch, HoneyBadger, Message};
 use crate::{Contribution, Epoched, NodeIdT};
 
-impl<C, N> SenderQueueableOutput<N, Message<N>> for Batch<C, N>
+impl<C, N> SenderQueueableOutput<N, u64> for Batch<C, N>
 where
     C: Contribution,
-    N: NodeIdT + Rand,
+    N: NodeIdT,
 {
-    fn added_peers(&self) -> Vec<N> {
-        Vec::new()
+    fn participant_change(&self) -> Option<BTreeSet<N>> {
+        None
+    }
+
+    fn output_epoch(&self) -> u64 {
+        self.epoch
     }
 }
 
-impl<N> SenderQueueableMessage for Message<N>
-where
-    N: Rand,
-{
+impl<N> SenderQueueableMessage for Message<N> {
     type Epoch = u64;
 
     fn is_premature(&self, them: u64, max_future_epochs: u64) -> bool {
@@ -37,7 +39,7 @@ where
 impl<C, N> Epoched for HoneyBadger<C, N>
 where
     C: Contribution + Serialize + DeserializeOwned,
-    N: NodeIdT + Rand,
+    N: NodeIdT,
 {
     type Epoch = u64;
 
@@ -49,7 +51,7 @@ where
 impl<C, N> SenderQueueableDistAlgorithm for HoneyBadger<C, N>
 where
     C: Contribution + Serialize + DeserializeOwned,
-    N: NodeIdT + Rand,
+    N: NodeIdT,
 {
     fn max_future_epochs(&self) -> u64 {
         self.max_future_epochs()
