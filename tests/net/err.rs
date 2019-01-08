@@ -6,7 +6,7 @@ use std::time;
 use failure;
 use threshold_crypto as crypto;
 
-use hbbft::DistAlgorithm;
+use hbbft::ConsensusProtocol;
 
 use super::NetMessage;
 
@@ -15,14 +15,14 @@ use super::NetMessage;
 /// Errors resulting from processing a single message ("cranking").
 pub enum CrankError<D>
 where
-    D: DistAlgorithm,
+    D: ConsensusProtocol,
 {
-    /// The algorithm run by the node produced a `DistAlgorithm::Error` while processing input.
+    /// The algorithm run by the node produced a `ConsensusProtocol::Error` while processing input.
     HandleInput(D::Error),
-    /// The algorithm run by the node produced a `DistAlgorithm::Error` while processing input to
+    /// The algorithm run by the node produced a `ConsensusProtocol::Error` while processing input to
     /// all nodes.
     HandleInputAll(D::Error),
-    /// The algorithm run by the node produced a `DistAlgorithm::Error` while processing a message.
+    /// The algorithm run by the node produced a `ConsensusProtocol::Error` while processing a message.
     HandleMessage {
         /// Network message that triggered the error.
         msg: NetMessage<D>,
@@ -40,7 +40,7 @@ where
     MessageLimitExceeded(usize),
     /// The execution time limit has been reached or exceeded.
     TimeLimitHit(time::Duration),
-    /// A `Fault` was reported by a correct node in a step of a `DistAlgorithm`.
+    /// A `Fault` was reported by a correct node in a step of a `ConsensusProtocol`.
     Fault {
         /// The ID of the node that reported the fault.
         reported_by: D::NodeId,
@@ -55,7 +55,7 @@ where
 
 // Note: Deriving [Debug](std::fmt::Debug), [Fail](failure::Fail) and through that,
 //       [Debug](std::fmt::Debug) automatically does not work due to the wrongly required trait
-//       bound of `D: DistAlgorithm` implementing the respective Trait. For this reason, these
+//       bound of `D: ConsensusProtocol` implementing the respective Trait. For this reason, these
 //       three traits are implemented manually.
 //
 //       More details at
@@ -64,7 +64,7 @@ where
 //       * <https://github.com/rust-lang/rust/issues/26925#issuecomment-405189266>
 impl<D> Display for CrankError<D>
 where
-    D: DistAlgorithm,
+    D: ConsensusProtocol,
 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
@@ -120,7 +120,7 @@ where
 
 impl<D> Debug for CrankError<D>
 where
-    D: DistAlgorithm,
+    D: ConsensusProtocol,
 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
@@ -168,7 +168,7 @@ where
 
 impl<D> failure::Fail for CrankError<D>
 where
-    D: DistAlgorithm + 'static,
+    D: ConsensusProtocol + 'static,
 {
     fn cause(&self) -> Option<&failure::Fail> {
         match self {

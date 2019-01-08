@@ -2,7 +2,7 @@ use std::collections::BTreeSet;
 
 use serde::{de::DeserializeOwned, Serialize};
 
-use super::{SenderQueueableDistAlgorithm, SenderQueueableMessage, SenderQueueableOutput};
+use super::{SenderQueueableConsensusProtocol, SenderQueueableMessage, SenderQueueableOutput};
 use crate::honey_badger::{Batch, HoneyBadger, Message};
 use crate::{Contribution, Epoched, NodeIdT};
 
@@ -48,7 +48,7 @@ where
     }
 }
 
-impl<C, N> SenderQueueableDistAlgorithm for HoneyBadger<C, N>
+impl<C, N> SenderQueueableConsensusProtocol for HoneyBadger<C, N>
 where
     C: Contribution + Serialize + DeserializeOwned,
     N: NodeIdT,

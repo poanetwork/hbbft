@@ -27,7 +27,7 @@ use rand::{self, Rng};
 
 use hbbft::dynamic_honey_badger::Batch;
 use hbbft::sender_queue::SenderQueueableOutput;
-use hbbft::{self, Contribution, DaStep, DistAlgorithm, Fault, NetworkInfo, NodeIdT, Step};
+use hbbft::{self, ConsensusProtocol, Contribution, CpStep, Fault, NetworkInfo, NodeIdT, Step};
 
 use crate::try_some;
 
@@ -67,7 +67,7 @@ fn open_trace() -> Result<io::BufWriter<fs::File>, io::Error> {
 }
 
 /// A node in the test network.
-pub struct Node<D: DistAlgorithm> {
+pub struct Node<D: ConsensusProtocol> {
     /// Algorithm instance of node.
     algorithm: D,
     /// Whether or not the node is faulty.
@@ -80,7 +80,7 @@ pub struct Node<D: DistAlgorithm> {
 
 impl<D> fmt::Debug for Node<D>
 where
-    D: DistAlgorithm,
+    D: ConsensusProtocol,
 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.debug_struct("Node")
@@ -91,7 +91,7 @@ where
     }
 }
 
-impl<D: DistAlgorithm> Node<D> {
+impl<D: ConsensusProtocol> Node<D> {
     /// Create a new node.
     #[inline]
     fn new(algorithm: D, is_faulty: bool) -> Self {
@@ -146,7 +146,7 @@ impl<D: DistAlgorithm> Node<D> {
     }
 
     /// Collects all outputs and faults (not required for network operation) for user convenience.
-    fn store_step(&mut self, step: &DaStep<D>)
+    fn store_step(&mut self, step: &CpStep<D>)
     where
         D::Output: Clone,
     {
@@ -195,11 +195,11 @@ impl<M, N> NetworkMessage<M, N> {
 }
 
 /// Mapping from node IDs to actual node instances.
-pub type NodeMap<D> = BTreeMap<<D as DistAlgorithm>::NodeId, Node<D>>;
+pub type NodeMap<D> = BTreeMap<<D as ConsensusProtocol>::NodeId, Node<D>>;
 
-/// A virtual network message tied to a distributed algorithm.
+/// A virtual network message tied to a consensus protocol.
 pub type NetMessage<D> =
-    NetworkMessage<<D as DistAlgorithm>::Message, <D as DistAlgorithm>::NodeId>;
+    NetworkMessage<<D as ConsensusProtocol>::Message, <D as ConsensusProtocol>::NodeId>;
 
 /// Process a step.
 ///
@@ -218,12 +218,12 @@ pub type NetMessage<D> =
 fn process_step<'a, D>(
     nodes: &'a mut BTreeMap<D::NodeId, Node<D>>,
     stepped_id: D::NodeId,
-    step: &DaStep<D>,
+    step: &CpStep<D>,
     dest: &mut VecDeque<NetMessage<D>>,
     error_on_fault: bool,
 ) -> Result<usize, CrankError<D>>
 where
-    D: DistAlgorithm + 'a,
+    D: ConsensusProtocol + 'a,
     D::Message: Clone,
     D::Output: Clone,
 {
@@ -291,7 +291,7 @@ where
 #[derive(Debug)]
 pub struct NewNodeInfo<D>
 where
-    D: DistAlgorithm,
+    D: ConsensusProtocol,
 {
     /// The node ID for the new node.
     pub id: D::NodeId,
@@ -310,14 +310,14 @@ where
 /// otherwise the construction will fail and panic.
 pub struct NetBuilder<D, I, A>
 where
-    D: DistAlgorithm,
+    D: ConsensusProtocol,
 {
     /// Iterator used to create node ids.
     node_ids: I,
     /// Number of faulty nodes in the network.
     num_faulty: usize,
     /// Dist-algorithm constructor function.
-    cons: Option<Box<Fn(NewNodeInfo<D>) -> (D, DaStep<D>)>>,
+    cons: Option<Box<Fn(NewNodeInfo<D>) -> (D, CpStep<D>)>>,
     /// Network adversary.
     adversary: Option<A>,
     /// Trace-enabling flag. `None` means use environment.
@@ -335,7 +335,7 @@ where
 
 impl<D, I, A> fmt::Debug for NetBuilder<D, I, A>
 where
-    D: DistAlgorithm,
+    D: ConsensusProtocol,
     A: fmt::Debug,
 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -355,7 +355,7 @@ where
 
 impl<D, I, A> NetBuilder<D, I, A>
 where
-    D: DistAlgorithm,
+    D: ConsensusProtocol,
     D::Message: Clone,
     D::Output: Clone,
     I: IntoIterator<Item = D::NodeId>,
@@ -469,7 +469,7 @@ where
     #[inline]
     pub fn using_step<F>(mut self, cons: F) -> Self
     where
-        F: Fn(NewNodeInfo<D>) -> (D, DaStep<D>) + 'static,
+        F: Fn(NewNodeInfo<D>) -> (D, CpStep<D>) + 'static,
     {
         self.cons = Some(Box::new(cons));
         self
@@ -498,7 +498,7 @@ where
     pub fn build<R: Rng>(
         self,
         rng: &mut R,
-    ) -> Result<(VirtualNet<D, A>, Vec<(D::NodeId, DaStep<D>)>), CrankError<D>> {
+    ) -> Result<(VirtualNet<D, A>, Vec<(D::NodeId, CpStep<D>)>), CrankError<D>> {
         // The time limit can be overriden through environment variables:
         let override_time_limit = env::var("HBBFT_NO_TIME_LIMIT")
             // We fail early, to avoid tricking the user into thinking that they have set the time
@@ -556,14 +556,14 @@ where
 ///
 /// Virtual networks host a number of nodes that are marked either correct or faulty. Each time a
 /// node emits a `Step`, the contained messages are queued for delivery, which happens whenever
-/// `crank()` is called. Additionally, inputs (see `DistAlgorithm::Input`) can be sent to any node.
+/// `crank()` is called. Additionally, inputs (see `ConsensusProtocol::Input`) can be sent to any node.
 ///
 /// An adversary can be hooked into the network to affect the order of message delivery or the
 /// behaviour of faulty nodes.
 #[derive(Debug)]
 pub struct VirtualNet<D, A>
 where
-    D: DistAlgorithm,
+    D: ConsensusProtocol,
     A: Adversary<D>,
     D::Message: Clone,
     D::Output: Clone,
@@ -599,7 +599,7 @@ where
 
 impl<D, A> VirtualNet<D, A>
 where
-    D: DistAlgorithm,
+    D: ConsensusProtocol,
     D::Message: Clone,
     D::Output: Clone,
     A: Adversary<D>,
@@ -724,7 +724,7 @@ where
 
 impl<D, A> VirtualNet<D, A>
 where
-    D: DistAlgorithm,
+    D: ConsensusProtocol,
     D::Message: Clone,
     D::Output: Clone,
     A: Adversary<D>,
@@ -733,7 +733,7 @@ where
     ///
     /// Creates a new network from `node_ids`, with the first `faulty` nodes marked faulty. To
     /// construct nodes, the `cons` function is passed the ID and the generated `NetworkInfo` and
-    /// expected to return a (`DistAlgorithm`, `Step`) tuple.
+    /// expected to return a (`ConsensusProtocol`, `Step`) tuple.
     ///
     /// All messages from the resulting step are queued for delivery. The function outputs the
     /// initial steps of the nodes in the constructed network for testing purposes.
@@ -750,9 +750,9 @@ where
         mut rng: R,
         cons: F,
         error_on_fault: bool,
-    ) -> Result<(Self, Vec<(D::NodeId, DaStep<D>)>), CrankError<D>>
+    ) -> Result<(Self, Vec<(D::NodeId, CpStep<D>)>), CrankError<D>>
     where
-        F: Fn(NewNodeInfo<D>) -> (D, DaStep<D>),
+        F: Fn(NewNodeInfo<D>) -> (D, CpStep<D>),
         I: IntoIterator<Item = D::NodeId>,
         R: rand::Rng,
     {
@@ -824,7 +824,7 @@ where
         &mut self,
         msg: NetMessage<D>,
         rng: &mut R,
-    ) -> Result<DaStep<D>, CrankError<D>> {
+    ) -> Result<CpStep<D>, CrankError<D>> {
         let node = self
             .nodes
             .get_mut(&msg.to)
@@ -856,7 +856,7 @@ where
         id: D::NodeId,
         input: D::Input,
         rng: &mut R,
-    ) -> Result<DaStep<D>, CrankError<D>> {
+    ) -> Result<CpStep<D>, CrankError<D>> {
         let step = self
             .nodes
             .get_mut(&id)
@@ -871,7 +871,7 @@ where
     /// Processes a step of a given node. The results of the processing are stored internally in the
     /// test network.
     #[must_use = "The result of processing a step must be used."]
-    pub fn process_step(&mut self, id: D::NodeId, step: &DaStep<D>) -> Result<(), CrankError<D>> {
+    pub fn process_step(&mut self, id: D::NodeId, step: &CpStep<D>) -> Result<(), CrankError<D>> {
         self.message_count = self.message_count.saturating_add(process_step(
             &mut self.nodes,
             id,
@@ -893,7 +893,7 @@ where
     pub fn crank<R: Rng>(
         &mut self,
         rng: &mut R,
-    ) -> Option<Result<(D::NodeId, DaStep<D>), CrankError<D>>> {
+    ) -> Option<Result<(D::NodeId, CpStep<D>), CrankError<D>>> {
         // Check limits.
         if let Some(limit) = self.crank_limit {
             if self.crank_count >= limit {
@@ -984,7 +984,7 @@ where
     ///
     /// Shortcut for cranking the network, expecting both progress to be made as well as processing
     /// to proceed.
-    pub fn crank_expect<R: Rng>(&mut self, rng: &mut R) -> (D::NodeId, DaStep<D>) {
+    pub fn crank_expect<R: Rng>(&mut self, rng: &mut R) -> (D::NodeId, CpStep<D>) {
         self.crank(rng)
             .expect("crank: network queue empty")
             .expect("crank: node failed to process step")
@@ -993,7 +993,7 @@ where
 
 impl<D, A> VirtualNet<D, A>
 where
-    D: DistAlgorithm,
+    D: ConsensusProtocol,
     D::Message: Clone,
     D::Input: Clone,
     D::Output: Clone,
@@ -1010,7 +1010,7 @@ where
         &'a mut self,
         input: &'a D::Input,
         rng: &mut R,
-    ) -> Result<Vec<(D::NodeId, DaStep<D>)>, CrankError<D>> {
+    ) -> Result<Vec<(D::NodeId, CpStep<D>)>, CrankError<D>> {
         let steps: Vec<_> = self
             .nodes
             .values_mut()
@@ -1035,7 +1035,7 @@ where
 
 impl<C, D, N, A> VirtualNet<D, A>
 where
-    D: DistAlgorithm<NodeId = N, Output = Batch<C, N>>,
+    D: ConsensusProtocol<NodeId = N, Output = Batch<C, N>>,
     D::Message: Clone,
     A: Adversary<D>,
     C: Contribution + Clone,
@@ -1093,7 +1093,7 @@ where
 
 impl<D, A> ops::Index<D::NodeId> for VirtualNet<D, A>
 where
-    D: DistAlgorithm,
+    D: ConsensusProtocol,
     D::Message: Clone,
     D::Output: Clone,
     A: Adversary<D>,
@@ -1108,7 +1108,7 @@ where
 
 impl<D, A> ops::IndexMut<D::NodeId> for VirtualNet<D, A>
 where
-    D: DistAlgorithm,
+    D: ConsensusProtocol,
     D::Message: Clone,
     D::Output: Clone,
     A: Adversary<D>,

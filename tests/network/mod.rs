@@ -12,7 +12,7 @@ use serde_derive::{Deserialize, Serialize};
 use hbbft::dynamic_honey_badger::Batch;
 use hbbft::sender_queue::SenderQueueableOutput;
 use hbbft::{
-    Contribution, DaStep, DistAlgorithm, Fault, NetworkInfo, Step, Target, TargetedMessage,
+    ConsensusProtocol, Contribution, CpStep, Fault, NetworkInfo, Step, Target, TargetedMessage,
 };
 
 /// A node identifier. In the tests, nodes are simply numbered.
@@ -20,7 +20,7 @@ use hbbft::{
 pub struct NodeId(pub usize);
 
 /// A "node" running an instance of the algorithm `D`.
-pub struct TestNode<D: DistAlgorithm> {
+pub struct TestNode<D: ConsensusProtocol> {
     /// This node's own ID.
     pub id: D::NodeId,
     /// The instance of the broadcast algorithm.
@@ -35,7 +35,7 @@ pub struct TestNode<D: DistAlgorithm> {
     faults: Vec<Fault<D::NodeId, D::FaultKind>>,
 }
 
-impl<D: DistAlgorithm> TestNode<D> {
+impl<D: ConsensusProtocol> TestNode<D> {
     /// Returns the list of outputs received by this node.
     pub fn outputs(&self) -> &[D::Output] {
         &self.outputs
@@ -68,7 +68,7 @@ impl<D: DistAlgorithm> TestNode<D> {
     }
 
     /// Creates a new test node with the given broadcast instance.
-    fn new((algo, step): (D, DaStep<D>)) -> TestNode<D> {
+    fn new((algo, step): (D, CpStep<D>)) -> TestNode<D> {
         TestNode {
             id: algo.our_id().clone(),
             algo,
@@ -110,7 +110,7 @@ pub enum MessageScheduler {
 
 impl MessageScheduler {
     /// Chooses a node to be the next one to handle a message.
-    pub fn pick_node<D: DistAlgorithm>(
+    pub fn pick_node<D: ConsensusProtocol>(
         &self,
         nodes: &BTreeMap<D::NodeId, TestNode<D>>,
     ) -> D::NodeId {
@@ -132,16 +132,16 @@ impl MessageScheduler {
 }
 
 /// A message combined with a sender.
-pub struct MessageWithSender<D: DistAlgorithm> {
+pub struct MessageWithSender<D: ConsensusProtocol> {
     /// The sender of the message.
-    pub sender: <D as DistAlgorithm>::NodeId,
+    pub sender: <D as ConsensusProtocol>::NodeId,
     /// The targeted message (recipient and message body).
-    pub tm: TargetedMessage<<D as DistAlgorithm>::Message, <D as DistAlgorithm>::NodeId>,
+    pub tm: TargetedMessage<<D as ConsensusProtocol>::Message, <D as ConsensusProtocol>::NodeId>,
 }
 
 // The Debug implementation cannot be derived automatically, possibly due to a compiler bug. For
 // this reason, it is implemented manually here.
-impl<D: DistAlgorithm> fmt::Debug for MessageWithSender<D> {
+impl<D: ConsensusProtocol> fmt::Debug for MessageWithSender<D> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
@@ -151,7 +151,7 @@ impl<D: DistAlgorithm> fmt::Debug for MessageWithSender<D> {
     }
 }
 
-impl<D: DistAlgorithm> MessageWithSender<D> {
+impl<D: ConsensusProtocol> MessageWithSender<D> {
     /// Creates a new message with a sender.
     pub fn new(
         sender: D::NodeId,
@@ -164,7 +164,7 @@ impl<D: DistAlgorithm> MessageWithSender<D> {
 /// An adversary that can control a set of nodes and pick the next good node to receive a message.
 ///
 /// See `TestNetwork::step()` for a more detailed description of its capabilities.
-pub trait Adversary<D: DistAlgorithm> {
+pub trait Adversary<D: ConsensusProtocol> {
     /// Chooses a node to be the next one to handle a message.
     ///
     /// Starvation is illegal, i.e. in every iteration a node that has pending incoming messages
@@ -200,7 +200,7 @@ impl SilentAdversary {
     }
 }
 
-impl<D: DistAlgorithm> Adversary<D> for SilentAdversary {
+impl<D: ConsensusProtocol> Adversary<D> for SilentAdversary {
     fn pick_node(&self, nodes: &BTreeMap<D::NodeId, TestNode<D>>) -> D::NodeId {
         self.scheduler.pick_node(nodes)
     }
@@ -234,7 +234,7 @@ fn test_randomly() {
 /// The adversary will randomly take a message that is sent to one of its nodes and re-send it to
 /// a different node. Additionally, it will inject unrelated messages at random.
 #[allow(unused)] // not used in all tests
-pub struct RandomAdversary<D: DistAlgorithm, F> {
+pub struct RandomAdversary<D: ConsensusProtocol, F> {
     /// The underlying scheduler used
     scheduler: MessageScheduler,
 
@@ -254,7 +254,7 @@ pub struct RandomAdversary<D: DistAlgorithm, F> {
     p_inject: f32,
 }
 
-impl<D: DistAlgorithm, F> RandomAdversary<D, F> {
+impl<D: ConsensusProtocol, F> RandomAdversary<D, F> {
     /// Creates a new random adversary instance.
     #[allow(unused)]
     pub fn new(p_replay: f32, p_inject: f32, generator: F) -> RandomAdversary<D, F> {
@@ -276,7 +276,7 @@ impl<D: DistAlgorithm, F> RandomAdversary<D, F> {
     }
 }
 
-impl<D: DistAlgorithm, F: Fn() -> TargetedMessage<D::Message, D::NodeId>> Adversary<D>
+impl<D: ConsensusProtocol, F: Fn() -> TargetedMessage<D::Message, D::NodeId>> Adversary<D>
     for RandomAdversary<D, F>
 {
     fn init(
@@ -361,7 +361,7 @@ impl<D: DistAlgorithm, F: Fn() -> TargetedMessage<D::Message, D::NodeId>> Advers
 
 /// A collection of `TestNode`s representing a network.
 ///
-/// Each `TestNetwork` type is tied to a specific adversary and a distributed algorithm. It consists
+/// Each `TestNetwork` type is tied to a specific adversary and a consensus protocol. It consists
 /// of a set of nodes, some of which are controlled by the adversary and some of which may be
 /// observer nodes, as well as a set of threshold-cryptography public keys.
 ///
@@ -372,14 +372,14 @@ impl<D: DistAlgorithm, F: Fn() -> TargetedMessage<D::Message, D::NodeId>> Advers
 /// 2. Send arbitrary messages to any node originating from one of the nodes they control.
 ///
 /// See the `step` function for details on actual operation of the network.
-pub struct TestNetwork<A: Adversary<D>, D: DistAlgorithm> {
+pub struct TestNetwork<A: Adversary<D>, D: ConsensusProtocol> {
     pub nodes: BTreeMap<D::NodeId, TestNode<D>>,
     pub observer: TestNode<D>,
     pub adv_nodes: BTreeMap<D::NodeId, Arc<NetworkInfo<D::NodeId>>>,
     adversary: A,
 }
 
-impl<A: Adversary<D>, D: DistAlgorithm<NodeId = NodeId>> TestNetwork<A, D>
+impl<A: Adversary<D>, D: ConsensusProtocol<NodeId = NodeId>> TestNetwork<A, D>
 where
     D::Message: Clone,
 {
@@ -410,7 +410,7 @@ where
         new_algo: F,
     ) -> TestNetwork<A, D>
     where
-        F: Fn(Arc<NetworkInfo<NodeId>>) -> (D, DaStep<D>),
+        F: Fn(Arc<NetworkInfo<NodeId>>) -> (D, CpStep<D>),
         G: Fn(BTreeMap<D::NodeId, Arc<NetworkInfo<D::NodeId>>>) -> A,
     {
         let mut rng = rand::thread_rng();
@@ -605,7 +605,7 @@ where
 
 impl<A: Adversary<D>, C, D> TestNetwork<A, D>
 where
-    D: DistAlgorithm<Output = Batch<C, NodeId>, NodeId = NodeId>,
+    D: ConsensusProtocol<Output = Batch<C, NodeId>, NodeId = NodeId>,
     C: Contribution + Clone,
 {
     /// Verifies that all nodes' outputs agree, given a correct "full" node that output all

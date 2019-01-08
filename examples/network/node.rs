@@ -46,7 +46,7 @@ use crate::network::messaging::Messaging;
 use crate::network::{commst, connection};
 use hbbft::broadcast::{Broadcast, Message};
 use hbbft::crypto::{poly::Poly, SecretKey, SecretKeySet};
-use hbbft::{DistAlgorithm, NetworkInfo, SourcedMessage};
+use hbbft::{ConsensusProtocol, NetworkInfo, SourcedMessage};
 
 /// This is a structure to start a consensus node.
 pub struct Node<T> {

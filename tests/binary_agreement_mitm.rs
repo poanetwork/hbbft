@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex};
 
 use hbbft::binary_agreement::{BinaryAgreement, MessageContent, SbvMessage};
 use hbbft::threshold_sign::ThresholdSign;
-use hbbft::{DaStep, DistAlgorithm, NetworkInfo};
+use hbbft::{ConsensusProtocol, CpStep, NetworkInfo};
 use proptest::{proptest, proptest_helper};
 use rand::{Rng, SeedableRng};
 
@@ -417,7 +417,7 @@ impl Adversary<Algo> for AbaCommonCoinAdversary {
         _: NetMutHandle<Algo, Self>,
         msg: NetMessage<Algo>,
         _rng: &mut R,
-    ) -> Result<DaStep<Algo>, CrankError<Algo>> {
+    ) -> Result<CpStep<Algo>, CrankError<Algo>> {
         if let MessageContent::Coin(ref coin_msg) = msg.payload().content {
             let mut new_coin_state = None;
             if let CoinState::InProgress(ref mut coin) = self.coin_state {
@@ -432,7 +432,7 @@ impl Adversary<Algo> for AbaCommonCoinAdversary {
                 self.coin_state = new_coin_state;
             }
         }
-        Ok(DaStep::<Algo>::default())
+        Ok(CpStep::<Algo>::default())
     }
 }
 

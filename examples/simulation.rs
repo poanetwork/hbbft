@@ -15,7 +15,7 @@ use signifix::{metric, TryFrom};
 use hbbft::dynamic_honey_badger::DynamicHoneyBadger;
 use hbbft::queueing_honey_badger::{Batch, QueueingHoneyBadger};
 use hbbft::sender_queue::{Message, SenderQueue};
-use hbbft::{DaStep, DistAlgorithm, NetworkInfo, Step, Target};
+use hbbft::{ConsensusProtocol, CpStep, NetworkInfo, Step, Target};
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 const USAGE: &str = "
@@ -60,14 +60,14 @@ type Transaction = Vec<u8>;
 
 /// A serialized message with a sender and the timestamp of arrival.
 #[derive(Eq, PartialEq, Debug)]
-struct TimestampedMessage<D: DistAlgorithm> {
+struct TimestampedMessage<D: ConsensusProtocol> {
     time: Duration,
     sender_id: D::NodeId,
     target: Target<D::NodeId>,
     message: Vec<u8>,
 }
 
-impl<D: DistAlgorithm> Clone for TimestampedMessage<D>
+impl<D: ConsensusProtocol> Clone for TimestampedMessage<D>
 where
     D::Message: Clone,
 {
@@ -95,7 +95,7 @@ pub struct HwQuality {
 }
 
 /// A "node" running an instance of the algorithm `D`.
-pub struct TestNode<D: DistAlgorithm> {
+pub struct TestNode<D: ConsensusProtocol> {
     /// This node's own ID.
     id: D::NodeId,
     /// The instance of the broadcast algorithm.
@@ -118,14 +118,14 @@ pub struct TestNode<D: DistAlgorithm> {
     hw_quality: HwQuality,
 }
 
-type TestNodeStepResult<D> = DaStep<D>;
+type TestNodeStepResult<D> = CpStep<D>;
 
-impl<D: DistAlgorithm> TestNode<D>
+impl<D: ConsensusProtocol> TestNode<D>
 where
     D::Message: Serialize + DeserializeOwned,
 {
     /// Creates a new test node with the given broadcast instance.
-    fn new((algo, step): (D, DaStep<D>), hw_quality: HwQuality) -> TestNode<D> {
+    fn new((algo, step): (D, CpStep<D>), hw_quality: HwQuality) -> TestNode<D> {
         let out_queue = step
             .messages
             .into_iter()
@@ -231,11 +231,11 @@ where
 }
 
 /// A collection of `TestNode`s representing a network.
-pub struct TestNetwork<D: DistAlgorithm> {
+pub struct TestNetwork<D: ConsensusProtocol> {
     nodes: BTreeMap<D::NodeId, TestNode<D>>,
 }
 
-impl<D: DistAlgorithm<NodeId = NodeId>> TestNetwork<D>
+impl<D: ConsensusProtocol<NodeId = NodeId>> TestNetwork<D>
 where
     D::Message: Serialize + DeserializeOwned + Clone,
 {
@@ -248,7 +248,7 @@ where
         rng: &mut R,
     ) -> TestNetwork<D>
     where
-        F: Fn(NetworkInfo<NodeId>, &mut R) -> (D, DaStep<D>),
+        F: Fn(NetworkInfo<NodeId>, &mut R) -> (D, CpStep<D>),
     {
         let node_ids = (0..(good_num + adv_num)).map(NodeId);
         let netinfos =

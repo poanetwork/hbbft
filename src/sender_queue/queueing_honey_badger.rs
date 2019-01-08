@@ -7,10 +7,10 @@ use rand::distributions::{Distribution, Standard};
 use rand::Rng;
 use serde::{de::DeserializeOwned, Serialize};
 
-use super::{Error, SenderQueue, SenderQueueableDistAlgorithm};
+use super::{Error, SenderQueue, SenderQueueableConsensusProtocol};
 use crate::queueing_honey_badger::{Change, Error as QhbError, QueueingHoneyBadger};
 use crate::transaction_queue::TransactionQueue;
-use crate::{Contribution, DaStep, Epoched, NodeIdT};
+use crate::{Contribution, CpStep, Epoched, NodeIdT};
 
 impl<T, N, Q> Epoched for QueueingHoneyBadger<T, N, Q>
 where
@@ -26,7 +26,7 @@ where
     }
 }
 
-impl<T, N, Q> SenderQueueableDistAlgorithm for QueueingHoneyBadger<T, N, Q>
+impl<T, N, Q> SenderQueueableConsensusProtocol for QueueingHoneyBadger<T, N, Q>
 where
     T: Contribution + Serialize + DeserializeOwned + Clone,
     N: NodeIdT + Serialize + DeserializeOwned,
@@ -39,7 +39,7 @@ where
 }
 
 type Result<T, N, Q> =
-    result::Result<DaStep<SenderQueue<QueueingHoneyBadger<T, N, Q>>>, Error<QhbError>>;
+    result::Result<CpStep<SenderQueue<QueueingHoneyBadger<T, N, Q>>>, Error<QhbError>>;
 
 impl<T, N, Q> SenderQueue<QueueingHoneyBadger<T, N, Q>>
 where

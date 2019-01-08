@@ -14,7 +14,7 @@ use rand::{seq::SliceRandom, Rng};
 use hbbft::honey_badger::{Batch, EncryptionSchedule, HoneyBadger, MessageContent};
 use hbbft::sender_queue::{self, SenderQueue, Step};
 use hbbft::transaction_queue::TransactionQueue;
-use hbbft::{threshold_decrypt, util, DistAlgorithm, NetworkInfo, Target, TargetedMessage};
+use hbbft::{threshold_decrypt, util, ConsensusProtocol, NetworkInfo, Target, TargetedMessage};
 
 use crate::network::{
     Adversary, MessageScheduler, MessageWithSender, NodeId, RandomAdversary, SilentAdversary,
@@ -58,7 +58,7 @@ impl Adversary<UsizeHoneyBadger> for FaultyShareAdversary {
     fn push_message(
         &mut self,
         sender_id: NodeId,
-        msg: TargetedMessage<<UsizeHoneyBadger as DistAlgorithm>::Message, NodeId>,
+        msg: TargetedMessage<<UsizeHoneyBadger as ConsensusProtocol>::Message, NodeId>,
     ) {
         let NodeId(sender_id) = sender_id;
         if sender_id < self.num_good {

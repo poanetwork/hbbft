@@ -36,7 +36,7 @@ use crate::dynamic_honey_badger::{
     self, Batch as DhbBatch, DynamicHoneyBadger, FaultKind, JoinPlan, Message, Step as DhbStep,
 };
 use crate::transaction_queue::TransactionQueue;
-use crate::{Contribution, DistAlgorithm, NetworkInfo, NodeIdT};
+use crate::{ConsensusProtocol, Contribution, NetworkInfo, NodeIdT};
 
 pub use crate::dynamic_honey_badger::{Change, ChangeState, Input};
 
@@ -164,7 +164,7 @@ pub struct QueueingHoneyBadger<T, N: Ord, Q> {
 /// A `QueueingHoneyBadger` step, possibly containing multiple outputs.
 pub type Step<T, N> = crate::Step<Message<N>, Batch<T, N>, N, FaultKind>;
 
-impl<T, N, Q> DistAlgorithm for QueueingHoneyBadger<T, N, Q>
+impl<T, N, Q> ConsensusProtocol for QueueingHoneyBadger<T, N, Q>
 where
     T: Contribution + Serialize + DeserializeOwned + Clone,
     N: NodeIdT + Serialize + DeserializeOwned,

@@ -27,7 +27,7 @@ use rand_derive::Rand;
 use serde_derive::{Deserialize, Serialize};
 
 use crate::fault_log::{Fault, FaultLog};
-use crate::{DistAlgorithm, NetworkInfo, NodeIdT, Target};
+use crate::{ConsensusProtocol, NetworkInfo, NodeIdT, Target};
 
 /// A threshold signing error.
 #[derive(Clone, Eq, PartialEq, Debug, Fail)]
@@ -89,9 +89,9 @@ pub struct ThresholdSign<N> {
 }
 
 /// A step returned from `ThresholdSign`. It contains at most one output.
-pub type Step<N> = crate::DaStep<ThresholdSign<N>>;
+pub type Step<N> = crate::CpStep<ThresholdSign<N>>;
 
-impl<N: NodeIdT> DistAlgorithm for ThresholdSign<N> {
+impl<N: NodeIdT> ConsensusProtocol for ThresholdSign<N> {
     type NodeId = N;
     type Input = ();
     type Output = Signature;

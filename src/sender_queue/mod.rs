@@ -1,6 +1,6 @@
 //! # Sender queue
 //!
-//! A sender queue allows a `DistAlgorithm` that outputs `Epoched` messages to buffer those outgoing
+//! A sender queue allows a `ConsensusProtocol` that outputs `Epoched` messages to buffer those outgoing
 //! messages based on their epochs. A message is sent to its recipient only when the recipient's
 //! epoch matches the epoch of the message. Thus no queueing is required for incoming messages since
 //! any incoming messages with non-matching epochs can be safely discarded.
@@ -18,7 +18,7 @@ use std::fmt::Debug;
 use log::debug;
 
 use crate::traits::EpochT;
-use crate::{DaStep, DistAlgorithm, Epoched, NodeIdT, Target};
+use crate::{ConsensusProtocol, CpStep, Epoched, NodeIdT, Target};
 
 pub use self::error::Error;
 pub use self::message::Message;
@@ -61,20 +61,20 @@ where
     fn output_epoch(&self) -> E;
 }
 
-/// A `DistAlgorithm` that can be wrapped by a sender queue.
-pub trait SenderQueueableDistAlgorithm: Epoched + DistAlgorithm {
-    /// The maximum number of subsequent future epochs that the `DistAlgorithm` is allowed to handle
+/// A `ConsensusProtocol` that can be wrapped by a sender queue.
+pub trait SenderQueueableConsensusProtocol: Epoched + ConsensusProtocol {
+    /// The maximum number of subsequent future epochs that the `ConsensusProtocol` is allowed to handle
     /// messages for.
     fn max_future_epochs(&self) -> u64;
 }
 
 /// A map with outgoing messages, per epoch and per target node.
 pub type OutgoingQueue<D> = BTreeMap<
-    <D as DistAlgorithm>::NodeId,
-    BTreeMap<<D as Epoched>::Epoch, Vec<<D as DistAlgorithm>::Message>>,
+    <D as ConsensusProtocol>::NodeId,
+    BTreeMap<<D as Epoched>::Epoch, Vec<<D as ConsensusProtocol>::Message>>,
 >;
 
-/// An instance of `DistAlgorithm` wrapped with a queue of outgoing messages, that is, a sender
+/// An instance of `ConsensusProtocol` wrapped with a queue of outgoing messages, that is, a sender
 /// queue. This wrapping ensures that the messages sent to remote instances lead to progress of the
 /// entire consensus network. In particular, messages to lagging remote nodes are queued and sent
 /// only when those nodes' epochs match the queued messages' epochs. Thus all nodes can handle
@@ -83,9 +83,9 @@ pub type OutgoingQueue<D> = BTreeMap<
 #[derive(Debug)]
 pub struct SenderQueue<D>
 where
-    D: SenderQueueableDistAlgorithm,
+    D: SenderQueueableConsensusProtocol,
 {
-    /// The managed `DistAlgorithm` instance.
+    /// The managed `ConsensusProtocol` instance.
     algo: D,
     /// Our node ID.
     our_id: D::NodeId,
@@ -114,11 +114,11 @@ where
 }
 
 /// A `SenderQueue` step. The output corresponds to the wrapped algorithm.
-pub type Step<D> = crate::DaStep<SenderQueue<D>>;
+pub type Step<D> = crate::CpStep<SenderQueue<D>>;
 
-impl<D> DistAlgorithm for SenderQueue<D>
+impl<D> ConsensusProtocol for SenderQueue<D>
 where
-    D: SenderQueueableDistAlgorithm + Debug,
+    D: SenderQueueableConsensusProtocol + Debug,
     D::Message: Clone + SenderQueueableMessage<Epoch = D::Epoch>,
     D::NodeId: NodeIdT,
     D::Output: SenderQueueableOutput<D::NodeId, D::Epoch>,
@@ -134,7 +134,7 @@ where
         &mut self,
         input: Self::Input,
         rng: &mut R,
-    ) -> Result<DaStep<Self>, Error<D::Error>> {
+    ) -> Result<CpStep<Self>, Error<D::Error>> {
         self.handle_input(input, rng)
     }
 
@@ -143,7 +143,7 @@ where
         sender_id: &D::NodeId,
         message: Self::Message,
         rng: &mut R,
-    ) -> Result<DaStep<Self>, Error<D::Error>> {
+    ) -> Result<CpStep<Self>, Error<D::Error>> {
         self.handle_message(sender_id, message, rng)
     }
 
@@ -158,7 +158,7 @@ where
 
 impl<D> SenderQueue<D>
 where
-    D: SenderQueueableDistAlgorithm + Debug,
+    D: SenderQueueableConsensusProtocol + Debug,
     D::Message: Clone + SenderQueueableMessage<Epoch = D::Epoch>,
     D::NodeId: NodeIdT,
     D::Output: SenderQueueableOutput<D::NodeId, D::Epoch>,
@@ -177,7 +177,7 @@ where
         &mut self,
         input: D::Input,
         rng: &mut R,
-    ) -> Result<DaStep<Self>, Error<D::Error>> {
+    ) -> Result<CpStep<Self>, Error<D::Error>> {
         if self.is_removed {
             return Ok(Step::<D>::default());
         }
@@ -192,7 +192,7 @@ where
         sender_id: &D::NodeId,
         message: Message<D::Message>,
         rng: &mut R,
-    ) -> Result<DaStep<Self>, Error<D::Error>> {
+    ) -> Result<CpStep<Self>, Error<D::Error>> {
         if self.is_removed {
             return Ok(Step::<D>::default());
         }
@@ -214,9 +214,9 @@ where
 
     /// Applies `f` to the wrapped algorithm and converts the step in the result to a sender queue
     /// step, deferring or dropping messages, where necessary.
-    fn apply<F>(&mut self, f: F) -> Result<DaStep<Self>, Error<D::Error>>
+    fn apply<F>(&mut self, f: F) -> Result<CpStep<Self>, Error<D::Error>>
     where
-        F: FnOnce(&mut D) -> Result<DaStep<D>, D::Error>,
+        F: FnOnce(&mut D) -> Result<CpStep<D>, D::Error>,
     {
         let mut step = f(&mut self.algo).map_err(Error::Apply)?;
         let mut sender_queue_step = self.update_epoch(&step);
@@ -226,7 +226,7 @@ where
     }
 
     /// Handles an epoch start announcement.
-    fn handle_epoch_started(&mut self, sender_id: &D::NodeId, epoch: D::Epoch) -> DaStep<Self> {
+    fn handle_epoch_started(&mut self, sender_id: &D::NodeId, epoch: D::Epoch) -> CpStep<Self> {
         self.peer_epochs
             .entry(sender_id.clone())
             .and_modify(|e| {
@@ -243,9 +243,9 @@ where
     }
 
     /// Processes an announcement of a new epoch update received from a remote node.
-    fn process_new_epoch(&mut self, sender_id: &D::NodeId, epoch: D::Epoch) -> DaStep<Self> {
+    fn process_new_epoch(&mut self, sender_id: &D::NodeId, epoch: D::Epoch) -> CpStep<Self> {
         let queue = match self.outgoing_queue.get_mut(sender_id) {
-            None => return DaStep::<Self>::default(),
+            None => return CpStep::<Self>::default(),
             Some(queue) => queue,
         };
         let earlier_keys: Vec<_> = queue
@@ -268,12 +268,12 @@ where
         sender_id: &D::NodeId,
         content: D::Message,
         rng: &mut R,
-    ) -> Result<DaStep<Self>, Error<D::Error>> {
+    ) -> Result<CpStep<Self>, Error<D::Error>> {
         self.apply(|algo| algo.handle_message(sender_id, content, rng))
     }
 
     /// Updates the current Honey Badger epoch.
-    fn update_epoch(&mut self, step: &DaStep<D>) -> DaStep<Self> {
+    fn update_epoch(&mut self, step: &CpStep<D>) -> CpStep<Self> {
         if step.output.is_empty() {
             return Step::<D>::default();
         }
@@ -327,7 +327,7 @@ where
     /// decomposing a `Target::All` message into `Target::Node` messages and sending some of the
     /// resulting messages while placing onto the queue those remaining messages whose recipient is
     /// currently at an earlier epoch.
-    fn defer_messages(&mut self, step: &mut DaStep<D>) {
+    fn defer_messages(&mut self, step: &mut CpStep<D>) {
         let max_future_epochs = self.algo.max_future_epochs();
         // Append the deferred messages onto the queues.
         for (id, message) in step.defer_messages(&self.peer_epochs, max_future_epochs) {
@@ -397,7 +397,7 @@ where
 /// instance of `SenderQueue`.
 pub struct SenderQueueBuilder<D>
 where
-    D: SenderQueueableDistAlgorithm,
+    D: SenderQueueableConsensusProtocol,
 {
     algo: D,
     peer_epochs: BTreeMap<D::NodeId, D::Epoch>,
@@ -405,7 +405,7 @@ where
 
 impl<D> SenderQueueBuilder<D>
 where
-    D: SenderQueueableDistAlgorithm + Debug,
+    D: SenderQueueableConsensusProtocol + Debug,
     D::Message: Clone + SenderQueueableMessage<Epoch = D::Epoch>,
     D::NodeId: NodeIdT,
     D::Output: SenderQueueableOutput<D::NodeId, D::Epoch>,
@@ -428,7 +428,7 @@ where
     }
 
     /// Creates a new sender queue and returns the `Step` with the initial message.
-    pub fn build(self, our_id: D::NodeId) -> (SenderQueue<D>, DaStep<SenderQueue<D>>) {
+    pub fn build(self, our_id: D::NodeId) -> (SenderQueue<D>, CpStep<SenderQueue<D>>) {
         let epoch = self.algo.epoch();
         let sq = SenderQueue {
             algo: self.algo,

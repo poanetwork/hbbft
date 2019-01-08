@@ -9,7 +9,7 @@ use serde_derive::Serialize;
 
 use super::proposal_state::{ProposalState, Step as ProposalStep};
 use super::{Error, FaultKind, Message, MessageContent, Result};
-use crate::{util, DistAlgorithm, NetworkInfo, NodeIdT, SessionIdT};
+use crate::{util, ConsensusProtocol, NetworkInfo, NodeIdT, SessionIdT};
 use rand::Rng;
 
 /// A `Subset` step, possibly containing several outputs.
@@ -41,7 +41,7 @@ pub struct Subset<N, S> {
     decided: bool,
 }
 
-impl<N: NodeIdT, S: SessionIdT> DistAlgorithm for Subset<N, S> {
+impl<N: NodeIdT, S: SessionIdT> ConsensusProtocol for Subset<N, S> {
     type NodeId = N;
     type Input = Vec<u8>;
     type Output = SubsetOutput<N>;
