@@ -89,7 +89,7 @@ pub use self::dynamic_honey_badger::DynamicHoneyBadger;
 pub use self::error::{Error, FaultKind, Result};
 
 /// A `DynamicHoneyBadger` step, possibly containing multiple outputs.
-pub type Step<C, N> = crate::DaStep<DynamicHoneyBadger<C, N>>;
+pub type Step<C, N> = crate::CpStep<DynamicHoneyBadger<C, N>>;
 
 /// The user input for `DynamicHoneyBadger`.
 #[derive(Clone, Debug)]

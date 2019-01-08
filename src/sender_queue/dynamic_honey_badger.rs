@@ -8,10 +8,10 @@ use rand::Rng;
 use serde::{de::DeserializeOwned, Serialize};
 
 use super::{
-    Error, Message, SenderQueue, SenderQueueableDistAlgorithm, SenderQueueableMessage,
+    Error, Message, SenderQueue, SenderQueueableConsensusProtocol, SenderQueueableMessage,
     SenderQueueableOutput,
 };
-use crate::{Contribution, DaStep, NodeIdT};
+use crate::{Contribution, CpStep, NodeIdT};
 
 use crate::dynamic_honey_badger::{
     Batch, Change, ChangeState, DynamicHoneyBadger, Error as DhbError, JoinPlan,
@@ -76,7 +76,7 @@ impl<N: Ord> SenderQueueableMessage for DhbMessage<N> {
     }
 }
 
-impl<C, N> SenderQueueableDistAlgorithm for DynamicHoneyBadger<C, N>
+impl<C, N> SenderQueueableConsensusProtocol for DynamicHoneyBadger<C, N>
 where
     C: Contribution + Serialize + DeserializeOwned,
     N: NodeIdT + Serialize + DeserializeOwned,
@@ -86,7 +86,7 @@ where
     }
 }
 
-type Result<C, N> = result::Result<DaStep<SenderQueue<DynamicHoneyBadger<C, N>>>, Error<DhbError>>;
+type Result<C, N> = result::Result<CpStep<SenderQueue<DynamicHoneyBadger<C, N>>>, Error<DhbError>>;
 
 impl<C, N> SenderQueue<DynamicHoneyBadger<C, N>>
 where

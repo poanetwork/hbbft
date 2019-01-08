@@ -1,4 +1,4 @@
-//! Common supertraits for distributed algorithms.
+//! Common supertraits for consensus protocols.
 
 use std::collections::BTreeMap;
 use std::fmt::{Debug, Display};
@@ -21,7 +21,7 @@ impl<C> Contribution for C where C: Eq + Debug + Hash + Send + Sync {}
 pub trait NodeIdT: Eq + Ord + Clone + Debug + Hash + Send + Sync {}
 impl<N> NodeIdT for N where N: Eq + Ord + Clone + Debug + Hash + Send + Sync {}
 
-/// A distributed algorithm fault.
+/// A consensus protocol fault.
 pub trait FaultT: Clone + Debug + Fail + PartialEq {}
 impl<N> FaultT for N where N: Clone + Debug + Fail + PartialEq {}
 
@@ -230,11 +230,11 @@ pub trait Epoched {
 }
 
 /// An alias for the type of `Step` returned by `D`'s methods.
-pub type DaStep<D> = Step<
-    <D as DistAlgorithm>::Message,
-    <D as DistAlgorithm>::Output,
-    <D as DistAlgorithm>::NodeId,
-    <D as DistAlgorithm>::FaultKind,
+pub type CpStep<D> = Step<
+    <D as ConsensusProtocol>::Message,
+    <D as ConsensusProtocol>::Output,
+    <D as ConsensusProtocol>::NodeId,
+    <D as ConsensusProtocol>::FaultKind,
 >;
 
 impl<'i, M, O, N, F> Step<M, O, N, F>
@@ -290,11 +290,11 @@ where
     }
 }
 
-/// A distributed algorithm that defines a message flow.
+/// A consensus protocol that defines a message flow.
 ///
 /// Many algorithms require an RNG which must be supplied on each call. It is up to the caller to
 /// ensure that this random number generator is cryptographically secure.
-pub trait DistAlgorithm: Send + Sync {
+pub trait ConsensusProtocol: Send + Sync {
     /// Unique node identifier.
     type NodeId: NodeIdT;
     /// The input provided by the user.
@@ -314,7 +314,7 @@ pub trait DistAlgorithm: Send + Sync {
         &mut self,
         input: Self::Input,
         rng: &mut R,
-    ) -> Result<DaStep<Self>, Self::Error>
+    ) -> Result<CpStep<Self>, Self::Error>
     where
         Self: Sized;
 
@@ -324,7 +324,7 @@ pub trait DistAlgorithm: Send + Sync {
         sender_id: &Self::NodeId,
         message: Self::Message,
         rng: &mut R,
-    ) -> Result<DaStep<Self>, Self::Error>
+    ) -> Result<CpStep<Self>, Self::Error>
     where
         Self: Sized;
 

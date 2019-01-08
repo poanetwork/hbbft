@@ -15,7 +15,7 @@ use crate::network::{
     TestNetwork, TestNode,
 };
 use hbbft::broadcast::{Broadcast, Message};
-use hbbft::{util, DistAlgorithm, NetworkInfo, Target, TargetedMessage};
+use hbbft::{util, ConsensusProtocol, NetworkInfo, Target, TargetedMessage};
 
 /// An adversary that inputs an alternate value.
 struct ProposeAdversary {

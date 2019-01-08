@@ -20,7 +20,7 @@ use crate::honey_badger::{self, HoneyBadger, Message as HbMessage};
 
 use crate::sync_key_gen::{Ack, AckOutcome, Part, PartOutcome, SyncKeyGen};
 use crate::util;
-use crate::{Contribution, DistAlgorithm, Epoched, NetworkInfo, NodeIdT, Target};
+use crate::{ConsensusProtocol, Contribution, Epoched, NetworkInfo, NodeIdT, Target};
 
 /// A Honey Badger instance that can handle adding and removing nodes.
 #[derive(Derivative)]
@@ -42,7 +42,7 @@ pub struct DynamicHoneyBadger<C, N: Ord> {
     pub(super) key_gen_state: Option<KeyGenState<N>>,
 }
 
-impl<C, N> DistAlgorithm for DynamicHoneyBadger<C, N>
+impl<C, N> ConsensusProtocol for DynamicHoneyBadger<C, N>
 where
     C: Contribution + Serialize + DeserializeOwned,
     N: NodeIdT + Serialize + DeserializeOwned,

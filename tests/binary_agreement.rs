@@ -24,7 +24,7 @@ use proptest::{prelude::ProptestConfig, prop_compose, proptest, proptest_helper}
 use rand::{Rng, SeedableRng};
 
 use hbbft::binary_agreement::BinaryAgreement;
-use hbbft::DistAlgorithm;
+use hbbft::ConsensusProtocol;
 
 use crate::net::adversary::{Adversary, ReorderingAdversary};
 use crate::net::proptest::{gen_seed, NetworkDimension, TestRng, TestRngSeed};

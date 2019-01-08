@@ -13,7 +13,7 @@ use super::sbv_broadcast::{self, Message as SbvMessage, SbvBroadcast};
 use super::{Error, FaultKind, Message, MessageContent, Result, Step};
 use crate::fault_log::Fault;
 use crate::threshold_sign::{self, Message as TsMessage, ThresholdSign};
-use crate::{DistAlgorithm, NetworkInfo, NodeIdT, SessionIdT, Target};
+use crate::{ConsensusProtocol, NetworkInfo, NodeIdT, SessionIdT, Target};
 
 /// The state of the current epoch's coin. In some epochs this is fixed, in others it starts
 /// with in `InProgress`.
@@ -158,7 +158,7 @@ pub struct BinaryAgreement<N, S> {
     /// The estimate of the decision value in the current epoch.
     estimated: Option<bool>,
     /// A permanent, latching copy of the output value. This copy is required because `output` can
-    /// be consumed using `DistAlgorithm::next_output` immediately after the instance finishing to
+    /// be consumed using `ConsensusProtocol::next_output` immediately after the instance finishing to
     /// handle a message, in which case it would otherwise be unknown whether the output value was
     /// ever there at all. While the output value will still be required in a later epoch to decide
     /// the termination state.
@@ -171,7 +171,7 @@ pub struct BinaryAgreement<N, S> {
     coin_state: CoinState<N>,
 }
 
-impl<N: NodeIdT, S: SessionIdT> DistAlgorithm for BinaryAgreement<N, S> {
+impl<N: NodeIdT, S: SessionIdT> ConsensusProtocol for BinaryAgreement<N, S> {
     type NodeId = N;
     type Input = bool;
     type Output = bool;

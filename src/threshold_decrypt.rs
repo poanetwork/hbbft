@@ -21,7 +21,7 @@ use rand_derive::Rand;
 use serde_derive::{Deserialize, Serialize};
 
 use crate::fault_log::{self, Fault};
-use crate::{DistAlgorithm, NetworkInfo, NodeIdT, Target};
+use crate::{ConsensusProtocol, NetworkInfo, NodeIdT, Target};
 
 /// A threshold decryption error.
 #[derive(Clone, Eq, PartialEq, Debug, Fail)]
@@ -80,9 +80,9 @@ pub struct ThresholdDecrypt<N> {
 }
 
 /// A `ThresholdDecrypt` step. It will contain at most one output.
-pub type Step<N> = crate::DaStep<ThresholdDecrypt<N>>;
+pub type Step<N> = crate::CpStep<ThresholdDecrypt<N>>;
 
-impl<N: NodeIdT> DistAlgorithm for ThresholdDecrypt<N> {
+impl<N: NodeIdT> ConsensusProtocol for ThresholdDecrypt<N> {
     type NodeId = N;
     type Input = ();
     type Output = Vec<u8>;

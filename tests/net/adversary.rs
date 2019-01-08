@@ -4,7 +4,7 @@
 //! node. These functions are handled through callbacks, implemented individually by each adversary.
 //!
 //! This module contains algorithm-agnostic adversaries, which should work for (or rather, against)
-//! any `DistAlgorithm`. Specific adversaries tailored to individual algorithms are implemented
+//! any `ConsensusProtocol`. Specific adversaries tailored to individual algorithms are implemented
 //! alongside their other test cases.
 //!
 //! ## Adversary model
@@ -38,7 +38,7 @@ use std::collections::VecDeque;
 
 use rand::Rng;
 
-use hbbft::{DaStep, DistAlgorithm};
+use hbbft::{ConsensusProtocol, CpStep};
 
 use crate::net::{CrankError, NetMessage, Node, VirtualNet};
 
@@ -48,14 +48,14 @@ use crate::net::{CrankError, NetMessage, Node, VirtualNet};
 #[derive(Debug)]
 pub struct NetHandle<'a, D: 'a, A>(&'a VirtualNet<D, A>)
 where
-    D: DistAlgorithm,
+    D: ConsensusProtocol,
     D::Message: Clone,
     D::Output: Clone,
     A: Adversary<D>;
 
 impl<'a, D: 'a, A> NetHandle<'a, D, A>
 where
-    D: DistAlgorithm,
+    D: ConsensusProtocol,
     D::Message: Clone,
     D::Output: Clone,
     A: Adversary<D>,
@@ -114,14 +114,14 @@ pub enum QueuePosition {
 #[derive(Debug)]
 pub struct NetMutHandle<'a, D: 'a, A>(&'a mut VirtualNet<D, A>)
 where
-    D: DistAlgorithm,
+    D: ConsensusProtocol,
     D::Message: Clone,
     D::Output: Clone,
     A: Adversary<D>;
 
 impl<'a, D, A> NetMutHandle<'a, D, A>
 where
-    D: DistAlgorithm,
+    D: ConsensusProtocol,
     A: Adversary<D>,
     D::NodeId: Clone,
     D::Message: Clone,
@@ -157,7 +157,7 @@ where
         &mut self,
         msg: NetMessage<D>,
         rng: &mut R,
-    ) -> Result<DaStep<D>, CrankError<D>> {
+    ) -> Result<CpStep<D>, CrankError<D>> {
         self.0.dispatch_message(msg, rng)
     }
 
@@ -227,7 +227,7 @@ where
 // Downgrade-conversion.
 impl<'a, D, A> From<NetMutHandle<'a, D, A>> for NetHandle<'a, D, A>
 where
-    D: DistAlgorithm,
+    D: ConsensusProtocol,
     A: Adversary<D>,
     D::Message: Clone,
     D::Output: Clone,
@@ -242,11 +242,11 @@ where
 #[derive(Debug)]
 pub struct NodeHandle<'a, D: 'a>(&'a Node<D>)
 where
-    D: DistAlgorithm;
+    D: ConsensusProtocol;
 
 impl<'a, D> NodeHandle<'a, D>
 where
-    D: DistAlgorithm,
+    D: ConsensusProtocol,
 {
     /// Construct a new immutable node handle.
     #[inline]
@@ -286,11 +286,11 @@ where
 #[derive(Debug)]
 pub struct NodeMutHandle<'a, D: 'a>(&'a mut Node<D>)
 where
-    D: DistAlgorithm;
+    D: ConsensusProtocol;
 
 impl<'a, D: 'a> NodeMutHandle<'a, D>
 where
-    D: DistAlgorithm,
+    D: ConsensusProtocol,
 {
     /// Construct a new mutable node handle.
     fn new(inner: &'a mut Node<D>) -> Self {
@@ -323,7 +323,7 @@ where
 pub trait Adversary<D>
 where
     Self: Sized,
-    D: DistAlgorithm,
+    D: ConsensusProtocol,
     D::Message: Clone,
     D::Output: Clone,
 {
@@ -355,7 +355,7 @@ where
         mut net: NetMutHandle<D, Self>,
         msg: NetMessage<D>,
         rng: &mut R,
-    ) -> Result<DaStep<D>, CrankError<D>> {
+    ) -> Result<CpStep<D>, CrankError<D>> {
         net.dispatch_message(msg, rng)
     }
 }
@@ -377,7 +377,7 @@ impl NullAdversary {
 
 impl<D> Adversary<D> for NullAdversary
 where
-    D: DistAlgorithm,
+    D: ConsensusProtocol,
     D::Message: Clone,
     D::Output: Clone,
 {
@@ -402,7 +402,7 @@ impl NodeOrderAdversary {
 
 impl<D> Adversary<D> for NodeOrderAdversary
 where
-    D: DistAlgorithm,
+    D: ConsensusProtocol,
     D::Message: Clone,
     D::Output: Clone,
 {
@@ -429,7 +429,7 @@ impl ReorderingAdversary {
 
 impl<D> Adversary<D> for ReorderingAdversary
 where
-    D: DistAlgorithm,
+    D: ConsensusProtocol,
     D::Message: Clone,
     D::Output: Clone,
 {

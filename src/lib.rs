@@ -144,5 +144,5 @@ pub use crate::fault_log::{Fault, FaultLog};
 pub use crate::messaging::{SourcedMessage, Target, TargetedMessage};
 pub use crate::network_info::NetworkInfo;
 pub use crate::traits::{
-    Contribution, DaStep, DistAlgorithm, Epoched, Message, NodeIdT, SessionIdT, Step,
+    ConsensusProtocol, Contribution, CpStep, Epoched, Message, NodeIdT, SessionIdT, Step,
 };

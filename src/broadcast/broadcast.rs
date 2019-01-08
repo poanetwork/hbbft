@@ -13,7 +13,7 @@ use super::merkle::{Digest, MerkleTree, Proof};
 use super::message::HexProof;
 use super::{Error, FaultKind, Message, Result};
 use crate::fault_log::Fault;
-use crate::{DistAlgorithm, NetworkInfo, NodeIdT, Target};
+use crate::{ConsensusProtocol, NetworkInfo, NodeIdT, Target};
 
 type RseResult<T> = result::Result<T, rse::Error>;
 
@@ -41,9 +41,9 @@ pub struct Broadcast<N> {
 }
 
 /// A `Broadcast` step, containing at most one output.
-pub type Step<N> = crate::DaStep<Broadcast<N>>;
+pub type Step<N> = crate::CpStep<Broadcast<N>>;
 
-impl<N: NodeIdT> DistAlgorithm for Broadcast<N> {
+impl<N: NodeIdT> ConsensusProtocol for Broadcast<N> {
     type NodeId = N;
     type Input = Vec<u8>;
     type Output = Self::Input;
