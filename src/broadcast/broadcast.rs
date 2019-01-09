@@ -410,7 +410,7 @@ impl<N: NodeIdT> Broadcast<N> {
 }
 
 impl<N: NodeIdT> fmt::Display for Broadcast<N> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> result::Result<(), fmt::Error> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> result::Result<(), fmt::Error> {
         write!(f, "{:?} Broadcast({:?})", self.our_id(), self.proposer_id)
     }
 }

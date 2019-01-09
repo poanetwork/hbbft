@@ -34,7 +34,7 @@ impl<'a, N: Ord> IntoIterator for &'a BoolMultimap<N> {
     }
 }
 
-pub struct Iter<'a, N: 'a> {
+pub struct Iter<'a, N> {
     key: bool,
     set_iter: btree_set::Iter<'a, N>,
     map: &'a BoolMultimap<N>,

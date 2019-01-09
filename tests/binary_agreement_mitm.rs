@@ -295,7 +295,7 @@ impl AbaCommonCoinAdversary {
         }
     }
 
-    fn inject_stage_messages(&mut self, net: &mut NetMutHandle<Algo, Self>) {
+    fn inject_stage_messages(&mut self, net: &mut NetMutHandle<'_, Algo, Self>) {
         if self.sent_stage_messages {
             return;
         }
@@ -378,7 +378,7 @@ impl AbaCommonCoinAdversary {
 }
 
 impl Adversary<Algo> for AbaCommonCoinAdversary {
-    fn pre_crank<R: Rng>(&mut self, mut net: NetMutHandle<Algo, Self>, rng: &mut R) {
+    fn pre_crank<R: Rng>(&mut self, mut net: NetMutHandle<'_, Algo, Self>, rng: &mut R) {
         self.inject_stage_messages(&mut net);
         net.sort_messages_by(|a, b| {
             a.payload()
@@ -414,7 +414,7 @@ impl Adversary<Algo> for AbaCommonCoinAdversary {
 
     fn tamper<R: Rng>(
         &mut self,
-        _: NetMutHandle<Algo, Self>,
+        _: NetMutHandle<'_, Algo, Self>,
         msg: NetMessage<Algo>,
         _rng: &mut R,
     ) -> Result<CpStep<Algo>, CrankError<Algo>> {

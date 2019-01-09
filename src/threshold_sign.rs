@@ -271,7 +271,7 @@ impl<N: NodeIdT> ThresholdSign<N> {
 }
 
 impl<N: NodeIdT> fmt::Display for ThresholdSign<N> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> result::Result<(), fmt::Error> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> result::Result<(), fmt::Error> {
         write!(f, "{:?} TS({:?})", self.our_id(), self.doc_hash)
     }
 }

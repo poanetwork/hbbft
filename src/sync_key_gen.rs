@@ -225,7 +225,7 @@ impl From<bincode::Error> for Error {
 pub struct Part(BivarCommitment, Vec<Ciphertext>);
 
 impl Debug for Part {
-    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_tuple("Part")
             .field(&format!("<degree {}>", self.0.degree()))
             .field(&format!("<{} rows>", self.1.len()))
@@ -242,7 +242,7 @@ impl Debug for Part {
 pub struct Ack(u64, Vec<Ciphertext>);
 
 impl Debug for Ack {
-    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_tuple("Ack")
             .field(&self.0)
             .field(&format!("<{} values>", self.1.len()))

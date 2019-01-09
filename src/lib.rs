@@ -119,7 +119,7 @@
 #![allow(clippy::module_inception, clippy::new_ret_no_self)]
 #![warn(missing_docs)]
 
-pub extern crate threshold_crypto as crypto;
+pub use threshold_crypto as crypto;
 
 mod fault_log;
 mod messaging;
