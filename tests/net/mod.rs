@@ -82,7 +82,7 @@ impl<D> fmt::Debug for Node<D>
 where
     D: ConsensusProtocol,
 {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Node")
             .field("algorithm", &"yes")
             .field("is_faulty", &self.is_faulty)
@@ -317,7 +317,7 @@ where
     /// Number of faulty nodes in the network.
     num_faulty: usize,
     /// Dist-algorithm constructor function.
-    cons: Option<Box<Fn(NewNodeInfo<D>) -> (D, CpStep<D>)>>,
+    cons: Option<Box<dyn Fn(NewNodeInfo<D>) -> (D, CpStep<D>)>>,
     /// Network adversary.
     adversary: Option<A>,
     /// Trace-enabling flag. `None` means use environment.
@@ -338,7 +338,7 @@ where
     D: ConsensusProtocol,
     A: fmt::Debug,
 {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("NetBuilder")
             .field("node_ids", &())
             .field("num_faulty", &self.num_faulty)

@@ -8,7 +8,7 @@ use std::fmt;
 use hex_fmt::HexFmt;
 
 /// Prints a byte slice as shortened hexadecimal in debug output.
-pub fn fmt_hex<T: AsRef<[u8]>>(bytes: T, f: &mut fmt::Formatter) -> fmt::Result {
+pub fn fmt_hex<T: AsRef<[u8]>>(bytes: T, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     write!(f, "{:10}", HexFmt(bytes))
 }
 

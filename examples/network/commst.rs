@@ -14,7 +14,7 @@ use hbbft::SourcedMessage;
 
 /// A communication task connects a remote node to the thread that manages the
 /// consensus algorithm.
-pub struct CommsTask<'a, M: 'a> {
+pub struct CommsTask<'a, M> {
     /// The transmit side of the multiple producer channel from comms threads.
     tx: &'a Sender<SourcedMessage<M, usize>>,
     /// The receive side of the channel to the comms thread.

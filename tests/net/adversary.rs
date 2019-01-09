@@ -46,7 +46,7 @@ use crate::net::{CrankError, NetMessage, Node, VirtualNet};
 ///
 /// Allows querying public information of the network or getting immutable handles to any node.
 #[derive(Debug)]
-pub struct NetHandle<'a, D: 'a, A>(&'a VirtualNet<D, A>)
+pub struct NetHandle<'a, D, A>(&'a VirtualNet<D, A>)
 where
     D: ConsensusProtocol,
     D::Message: Clone,
@@ -62,7 +62,7 @@ where
 {
     /// Returns a node handle iterator over all nodes in the network.
     #[inline]
-    pub fn nodes(&self) -> impl Iterator<Item = NodeHandle<D>> {
+    pub fn nodes(&self) -> impl Iterator<Item = NodeHandle<'_, D>> {
         self.0.nodes().map(NodeHandle::new)
     }
 
@@ -79,7 +79,7 @@ where
 
     /// Returns a node handle iterator over all correct nodes in the network.
     #[inline]
-    pub fn correct_nodes(&self) -> impl Iterator<Item = NodeHandle<D>> {
+    pub fn correct_nodes(&self) -> impl Iterator<Item = NodeHandle<'_, D>> {
         self.0.correct_nodes().map(NodeHandle::new)
     }
 
@@ -91,7 +91,7 @@ where
 
     /// Returns a handle to a specific node handle.
     #[inline]
-    pub fn get(&self, id: D::NodeId) -> Option<NodeHandle<D>> {
+    pub fn get(&self, id: D::NodeId) -> Option<NodeHandle<'_, D>> {
         self.0.get(id).map(NodeHandle::new)
     }
 }
@@ -112,7 +112,7 @@ pub enum QueuePosition {
 /// Allows reordering of messages, injecting new ones into the network queue and getting mutable
 /// handles to nodes.
 #[derive(Debug)]
-pub struct NetMutHandle<'a, D: 'a, A>(&'a mut VirtualNet<D, A>)
+pub struct NetMutHandle<'a, D, A>(&'a mut VirtualNet<D, A>)
 where
     D: ConsensusProtocol,
     D::Message: Clone,
@@ -133,7 +133,7 @@ where
 
     /// Returns a mutable node handle iterator over all nodes in the network.
     #[inline]
-    pub fn nodes_mut(&mut self) -> impl Iterator<Item = NodeMutHandle<D>> {
+    pub fn nodes_mut(&mut self) -> impl Iterator<Item = NodeMutHandle<'_, D>> {
         self.0.nodes_mut().map(NodeMutHandle::new)
     }
 
@@ -148,7 +148,7 @@ where
 
     /// Returns a mutable node handle iterator over all nodes in the network.
     #[inline]
-    pub fn correct_nodes_mut(&mut self) -> impl Iterator<Item = NodeMutHandle<D>> {
+    pub fn correct_nodes_mut(&mut self) -> impl Iterator<Item = NodeMutHandle<'_, D>> {
         self.0.correct_nodes_mut().map(NodeMutHandle::new)
     }
 
@@ -233,14 +233,14 @@ where
     D::Output: Clone,
 {
     #[inline]
-    fn from(n: NetMutHandle<D, A>) -> NetHandle<D, A> {
+    fn from(n: NetMutHandle<'_, D, A>) -> NetHandle<'_, D, A> {
         NetHandle(n.0)
     }
 }
 
 /// Immutable node handle.
 #[derive(Debug)]
-pub struct NodeHandle<'a, D: 'a>(&'a Node<D>)
+pub struct NodeHandle<'a, D>(&'a Node<D>)
 where
     D: ConsensusProtocol;
 
@@ -284,7 +284,7 @@ where
 
 /// Mutable node handle.
 #[derive(Debug)]
-pub struct NodeMutHandle<'a, D: 'a>(&'a mut Node<D>)
+pub struct NodeMutHandle<'a, D>(&'a mut Node<D>)
 where
     D: ConsensusProtocol;
 
@@ -334,7 +334,7 @@ where
     ///
     /// The default implementation does not alter the passed network in any way.
     #[inline]
-    fn pre_crank<R: Rng>(&mut self, _net: NetMutHandle<D, Self>, _rng: &mut R) {}
+    fn pre_crank<R: Rng>(&mut self, _net: NetMutHandle<'_, D, Self>, _rng: &mut R) {}
 
     /// Tamper with a faulty node's operation.
     ///
@@ -352,7 +352,7 @@ where
     #[inline]
     fn tamper<R: Rng>(
         &mut self,
-        mut net: NetMutHandle<D, Self>,
+        mut net: NetMutHandle<'_, D, Self>,
         msg: NetMessage<D>,
         rng: &mut R,
     ) -> Result<CpStep<D>, CrankError<D>> {
@@ -407,7 +407,7 @@ where
     D::Output: Clone,
 {
     #[inline]
-    fn pre_crank<R: Rng>(&mut self, mut net: NetMutHandle<D, Self>, _rng: &mut R) {
+    fn pre_crank<R: Rng>(&mut self, mut net: NetMutHandle<'_, D, Self>, _rng: &mut R) {
         // Message are sorted by NodeID on each step.
         net.sort_messages_by(|a, b| a.to.cmp(&b.to))
     }
@@ -434,7 +434,7 @@ where
     D::Output: Clone,
 {
     #[inline]
-    fn pre_crank<R: Rng>(&mut self, mut net: NetMutHandle<D, Self>, rng: &mut R) {
+    fn pre_crank<R: Rng>(&mut self, mut net: NetMutHandle<'_, D, Self>, rng: &mut R) {
         let l = net.0.messages_len();
         if l > 0 {
             net.swap_messages(0, rng.gen_range(0, l));

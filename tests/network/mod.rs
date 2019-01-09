@@ -142,7 +142,7 @@ pub struct MessageWithSender<D: ConsensusProtocol> {
 // The Debug implementation cannot be derived automatically, possibly due to a compiler bug. For
 // this reason, it is implemented manually here.
 impl<D: ConsensusProtocol> fmt::Debug for MessageWithSender<D> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
             "MessageWithSender {{ sender: {:?}, tm: {:?} }}",

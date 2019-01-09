@@ -536,7 +536,7 @@ where
     C: Contribution + Serialize + DeserializeOwned,
     N: NodeIdT + Serialize + DeserializeOwned,
 {
-    fn fmt(&self, f: &mut fmt::Formatter) -> result::Result<(), fmt::Error> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> result::Result<(), fmt::Error> {
         write!(f, "{:?} DHB(era: {})", self.our_id(), self.era)
     }
 }

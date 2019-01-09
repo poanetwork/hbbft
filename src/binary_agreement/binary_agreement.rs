@@ -522,7 +522,7 @@ impl<N: NodeIdT, S: SessionIdT> BinaryAgreement<N, S> {
 }
 
 impl<N: NodeIdT, S: SessionIdT> fmt::Display for BinaryAgreement<N, S> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> result::Result<(), fmt::Error> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> result::Result<(), fmt::Error> {
         write!(
             f,
             "{:?} BA {} epoch {} ({})",

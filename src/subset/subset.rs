@@ -170,7 +170,7 @@ impl<N: NodeIdT, S: SessionIdT> Subset<N, S> {
 }
 
 impl<N: NodeIdT, S: SessionIdT> fmt::Display for Subset<N, S> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> result::Result<(), fmt::Error> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> result::Result<(), fmt::Error> {
         write!(f, "{:?} Subset({})", self.our_id(), self.session_id)
     }
 }
@@ -185,7 +185,7 @@ pub struct BaSessionId<S> {
 }
 
 impl<S: fmt::Display> fmt::Display for BaSessionId<S> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> result::Result<(), fmt::Error> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> result::Result<(), fmt::Error> {
         write!(
             f,
             "subset {}, proposer #{}",

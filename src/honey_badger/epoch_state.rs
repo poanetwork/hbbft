@@ -404,7 +404,7 @@ struct EpochId {
 }
 
 impl Display for EpochId {
-    fn fmt(&self, f: &mut fmt::Formatter) -> result::Result<(), fmt::Error> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> result::Result<(), fmt::Error> {
         write!(f, "{}/{}", self.hb_id, self.epoch)
     }
 }

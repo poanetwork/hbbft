@@ -66,7 +66,7 @@ impl<D> Display for CrankError<D>
 where
     D: ConsensusProtocol,
 {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             CrankError::HandleInput(err) => {
                 write!(f, "The algorithm could not process input: {:?}", err)
@@ -122,7 +122,7 @@ impl<D> Debug for CrankError<D>
 where
     D: ConsensusProtocol,
 {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             CrankError::HandleInput(err) => {
                 f.debug_struct("HandleInput").field("err", err).finish()
@@ -170,7 +170,7 @@ impl<D> failure::Fail for CrankError<D>
 where
     D: ConsensusProtocol + 'static,
 {
-    fn cause(&self) -> Option<&failure::Fail> {
+    fn cause(&self) -> Option<&dyn failure::Fail> {
         match self {
             CrankError::HandleInput(err) | CrankError::HandleInputAll(err) => Some(err),
             CrankError::HandleMessage { err, .. } => Some(err),

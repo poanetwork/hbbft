@@ -43,7 +43,7 @@ impl Distribution<Message> for Standard {
 }
 
 impl Debug for Message {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
             Message::Value(ref v) => f.debug_tuple("Value").field(&HexProof(v)).finish(),
             Message::Echo(ref v) => f.debug_tuple("Echo").field(&HexProof(v)).finish(),
@@ -52,10 +52,10 @@ impl Debug for Message {
     }
 }
 /// Wrapper for a `Proof`, to print the bytes as a shortened hexadecimal number.
-pub struct HexProof<'a, T: 'a>(pub &'a Proof<T>);
+pub struct HexProof<'a, T>(pub &'a Proof<T>);
 
 impl<'a, T: AsRef<[u8]>> fmt::Debug for HexProof<'a, T> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
             "Proof {{ #{}, root_hash: {:0.10}, value: {:0.10}, .. }}",
