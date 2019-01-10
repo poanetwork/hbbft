@@ -1,5 +1,7 @@
 # Honey Badger Byzantine Fault Tolerant (BFT) consensus algorithm
 
+[![crates.io](https://img.shields.io/crates/v/hbbft.svg)](https://crates.io/crates/hbbft)
+[![Documentation](https://docs.rs/hbbft/badge.svg)](https://docs.rs/hbbft)
 [![Build Status](https://travis-ci.org/poanetwork/hbbft.svg?branch=master)](https://travis-ci.org/poanetwork/hbbft)
 [![Gitter](https://badges.gitter.im/poanetwork/hbbft.svg)](https://gitter.im/poanetwork/hbbft?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge)
 
