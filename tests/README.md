@@ -165,6 +165,7 @@ fn do_example_test(seed: TestRngSeed, dimension: NetworkDimension) {
         })
         // ...
 }
+```
 
 ### Property based testing
 
