@@ -196,7 +196,7 @@ impl<N: NodeIdT> KeyGenState<N> {
 /// The contribution for the internal `HoneyBadger` instance: this includes a user-defined
 /// application-level contribution as well as internal signed messages.
 #[derive(Clone, Eq, PartialEq, Debug, Serialize, Deserialize, Hash)]
-struct InternalContrib<C, N: Ord> {
+pub struct InternalContrib<C, N: Ord> {
     /// A user-defined contribution.
     contrib: C,
     /// Key generation messages that get committed via Honey Badger to communicate synchronously.
