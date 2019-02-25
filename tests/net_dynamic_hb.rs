@@ -42,6 +42,18 @@ where
     queue[0..n].choose_multiple(rng, k).cloned().collect()
 }
 
+/// Chooses one correct validator at random and returns its id.
+fn choose_rnd_pivot_node<'a, R: rand::Rng>(
+    rng: &mut R,
+    correct_nodes: impl Iterator<Item = &'a Node<DHB>>,
+) -> usize {
+    correct_nodes
+        .collect::<Vec<_>>()
+        .choose(rng)
+        .map(|n| *n.id())
+        .expect("expected at least one correct node")
+}
+
 /// Test configuration for dynamic honey badger tests.
 #[derive(Debug)]
 struct TestConfig {
@@ -72,15 +84,13 @@ prop_compose! {
     }
 }
 
-/// Proptest wrapper for `do_drop_and_readd`.
+/// Proptest wrapper for `do_drop_and_re_add`.
 proptest! {
-    #![proptest_config(ProptestConfig {
-        cases: 1, .. ProptestConfig::default()
-    })]
+    #![proptest_config(ProptestConfig::with_cases(1))]
     #[test]
     #[allow(clippy::unnecessary_operation)]
-    fn drop_and_readd(cfg in arb_config()) {
-        do_drop_and_readd(cfg)
+    fn drop_and_re_add(cfg in arb_config()) {
+        do_drop_and_re_add(cfg)
     }
 }
 
@@ -88,7 +98,7 @@ proptest! {
 /// running a regular honey badger network.
 // TODO: Add an observer node to the test network.
 #[allow(clippy::needless_pass_by_value, clippy::cyclomatic_complexity)]
-fn do_drop_and_readd(cfg: TestConfig) {
+fn do_drop_and_re_add(cfg: TestConfig) {
     let mut rng: TestRng = TestRng::from_seed(cfg.seed);
 
     // First, we create a new test network with Honey Badger instances.
@@ -119,15 +129,9 @@ fn do_drop_and_readd(cfg: TestConfig) {
 
     let mut state = TestState::new(net);
 
-    // We will use the first correct node as the node we will remove from and re-add to the network.
-    // Note: This should be randomized using proptest.
-    let pivot_node_id: usize = *(state
-        .net
-        .correct_nodes()
-        .nth(0)
-        .expect("expected at least one correct node")
-        .id());
-    println!("Will remove and readd node #{}", pivot_node_id);
+    // We will use a random correct node as the node we will remove from and re-add to the network.
+    let pivot_node_id = choose_rnd_pivot_node(&mut rng, state.net.correct_nodes());
+    println!("Will remove and re-add node #{}", pivot_node_id);
 
     // We generate a list of transaction we want to propose, for each node. All nodes will propose
     // a number between 0..total_txs, chosen randomly.
@@ -156,8 +160,8 @@ fn do_drop_and_readd(cfg: TestConfig) {
         .expect("pivot node missing")
         .algorithm()
         .algo()
-        .netinfo()
-        .clone();
+        .netinfo();
+
     let pub_keys_add = netinfo.public_key_map().clone();
     let mut pub_keys_rm = pub_keys_add.clone();
     pub_keys_rm.remove(&pivot_node_id);
@@ -186,11 +190,6 @@ fn do_drop_and_readd(cfg: TestConfig) {
         .map(|n| (*n.id(), (0..10).collect()))
         .collect();
     let mut received_batches: BTreeMap<u64, _> = BTreeMap::new();
-    // Whether node 0 was rejoined as a validator.
-    let mut rejoined_pivot_node = false;
-    // The removed pivot node which is to be restarted as soon as all remaining validators agree to
-    // add it back.
-    let mut saved_node: Option<Node<DHB>> = None;
 
     // Run the network:
     loop {
@@ -249,7 +248,7 @@ fn do_drop_and_readd(cfg: TestConfig) {
                 ChangeState::InProgress(Change::NodeChange(ref pub_keys))
                     if *pub_keys == pub_keys_add =>
                 {
-                    println!("Node {} is progressing with readding.", node_id);
+                    println!("Node {} is progressing with re-adding.", node_id);
                     awaiting_addition_in_progress.remove(&node_id);
                 }
 
@@ -258,12 +257,13 @@ fn do_drop_and_readd(cfg: TestConfig) {
                 {
                     println!("Node {} done adding.", node_id);
                     // Node added, ensure it has been removed first.
-                    if awaiting_removal.contains(&node_id) {
-                        panic!(
-                            "Node {} reported a success `Add({}, _)` before `Remove({})`",
-                            node_id, pivot_node_id, pivot_node_id
-                        );
-                    }
+                    assert!(
+                        !awaiting_removal.contains(&node_id),
+                        "Node {} reported a success `Add({}, _)` before `Remove({})`",
+                        node_id,
+                        pivot_node_id,
+                        pivot_node_id
+                    );
                     awaiting_addition.remove(&node_id);
                 }
                 _ => {
@@ -289,7 +289,7 @@ fn do_drop_and_readd(cfg: TestConfig) {
                 .expect("failed to send `Add` input");
             assert!(step.output.is_empty());
             awaiting_addition_input.remove(&node_id);
-            println!("Node {} started readding.", node_id);
+            println!("Node {} started re-adding.", node_id);
         }
 
         // Record whether or not we received some output.
@@ -334,7 +334,7 @@ fn do_drop_and_readd(cfg: TestConfig) {
                     // participant.
                     if node_id != pivot_node_id
                         && awaiting_removal.is_empty()
-                        && !rejoined_pivot_node
+                        && !state.rejoined_pivot_node
                     {
                         expected_outputs
                             .get_mut(&pivot_node_id)
@@ -345,7 +345,9 @@ fn do_drop_and_readd(cfg: TestConfig) {
             }
             // If this is the first batch from a correct node with a vote to add node 0 back, take
             // the join plan of the batch and use it to restart node 0.
-            if !rejoined_pivot_node && !state.net[node_id].is_faulty() && state.join_plan.is_none()
+            if !state.rejoined_pivot_node
+                && !state.net[node_id].is_faulty()
+                && state.join_plan.is_none()
             {
                 if let ChangeState::InProgress(Change::NodeChange(pub_keys)) = batch.change() {
                     if *pub_keys == pub_keys_add {
@@ -358,29 +360,32 @@ fn do_drop_and_readd(cfg: TestConfig) {
                 }
             }
             // Restart the pivot node having checked that it can be correctly restarted.
-            if !rejoined_pivot_node && awaiting_addition_in_progress.is_empty() {
+            if !state.rejoined_pivot_node && awaiting_addition_in_progress.is_empty() {
                 if let Some(join_plan) = state.join_plan.take() {
-                    let node = saved_node.take().expect("the pivot node wasn't saved");
+                    let node = state
+                        .saved_node
+                        .take()
+                        .expect("the pivot node wasn't saved");
                     let step = restart_node_for_add(&mut state.net, node, join_plan, &mut rng);
                     state
                         .net
                         .process_step(pivot_node_id, &step)
                         .expect("processing a step failed");
-                    rejoined_pivot_node = true;
+                    state.rejoined_pivot_node = true;
                 }
             }
         }
 
         // Decide - from the point of view of the pivot node - whether it is ready to go offline.
-        if !rejoined_pivot_node
-            && saved_node.is_none()
+        if !state.rejoined_pivot_node
+            && state.saved_node.is_none()
             && state.net[pivot_node_id].algorithm().is_removed()
         {
             println!(
                 "Removing the pivot node {} from the test network.",
                 pivot_node_id
             );
-            saved_node = state.net.remove_node(&pivot_node_id);
+            state.saved_node = state.net.remove_node(&pivot_node_id);
             if node_id == pivot_node_id {
                 // Further operations on the cranked node are not possible. Continue with
                 // processing other nodes.
@@ -455,10 +460,15 @@ where
 {
     /// The test network.
     net: VirtualNet<DHB, A>,
-    /// The join plan for readding the pivot node.
+    /// The join plan for re-adding the pivot node.
     join_plan: Option<JoinPlan<usize>>,
     /// The epoch in which the pivot node should go offline.
     shutdown_epoch: Option<u64>,
+    /// The removed pivot node which is to be restarted as soon as all remaining validators agree to
+    /// add it back.
+    saved_node: Option<Node<DHB>>,
+    /// Whether pivot node was rejoined as a validator.
+    rejoined_pivot_node: bool,
 }
 
 impl<A> TestState<A>
@@ -471,6 +481,8 @@ where
             net,
             join_plan: None,
             shutdown_epoch: None,
+            saved_node: None,
+            rejoined_pivot_node: false,
         }
     }
 }
