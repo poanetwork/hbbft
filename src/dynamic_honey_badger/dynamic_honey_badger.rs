@@ -230,6 +230,11 @@ where
         &self.netinfo
     }
 
+    /// Returns a reference to the internal managed `HoneyBadger` instance.
+    pub fn honey_badger(&self) -> &HoneyBadger<InternalContrib<C, N>, N> {
+        &self.honey_badger
+    }
+
     /// Returns `true` if we should make our contribution for the next epoch, even if we don't have
     /// content ourselves, to avoid stalling the network.
     ///
