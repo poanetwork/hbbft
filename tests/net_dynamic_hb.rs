@@ -141,7 +141,7 @@ fn do_drop_and_re_add(cfg: TestConfig) {
             .expect("could not send initial transaction");
     }
 
-    // Afterwards, remove a specific nodes from the dynamic honey badger network.
+    // Afterwards, remove specific nodes from the dynamic honey badger network.
     let old_pub_keys = state.get_pub_keys();
     let new_pub_keys: BTreeMap<usize, PublicKey> = old_pub_keys
         .clone()
@@ -341,7 +341,7 @@ fn do_drop_and_re_add(cfg: TestConfig) {
                     }
                 }
             }
-            // Restart removed nodes having checked that theirs can be correctly restarted.
+            // Restart removed nodes having checked that they can be correctly restarted.
             if !state.old_subset_applied && awaiting_apply_old_subset_in_progress.is_empty() {
                 if let Some(join_plan) = state.join_plan.take() {
                     let saved_nodes: Vec<_> = state.saved_nodes.drain(..).collect();
@@ -367,7 +367,7 @@ fn do_drop_and_re_add(cfg: TestConfig) {
                 .iter()
                 .all(|id| state.net[*id].algorithm().is_removed())
         };
-        // Decide - from the point of view of removed nodes - whether their are ready to go offline.
+        // Decide - from the point of view of removed nodes - whether they are ready to go offline.
         if !state.old_subset_applied
             && state.saved_nodes.is_empty()
             && all_removed(&nodes_for_remove)
@@ -408,7 +408,7 @@ fn do_drop_and_re_add(cfg: TestConfig) {
     }
 
     // As a final step, we verify that all nodes have arrived at the same conclusion.
-    // Removed nodes can miss some batches while there were removed.
+    // Removed nodes can miss some batches while they were removed.
     let result: Vec<_> = state
         .net
         .correct_nodes()
@@ -463,7 +463,7 @@ where
     /// The epoch in which the removed nodes should go offline.
     shutdown_epoch: Option<u64>,
     /// The removed nodes which are to be restarted as soon as all remaining
-    /// validators agree to add their back.
+    /// validators agree to add them back.
     saved_nodes: Vec<Node<DHB>>,
     /// Whether the old subset of validators was applied back to the network.
     old_subset_applied: bool,
@@ -484,10 +484,10 @@ where
         }
     }
 
-    /// Selects random subset of validators which can be safely removed from the network
+    /// Selects random subset of validators which can be safely removed from the network.
     ///
-    /// The cluster always remain correct after removing this subset from the custer.
-    /// This method may select as correct nodes as malicious.
+    /// The cluster always remain correct after removing this subset from the cluster.
+    /// This method may select correct nodes as well as malicious ones.
     fn subset_for_remove<R>(&self, rng: &mut R) -> BTreeSet<usize>
     where
         R: rand::Rng,
@@ -503,15 +503,21 @@ where
             "the network is already captured by the faulty nodes"
         );
 
-        let max_number_correct_nodes_for_remove = n - (f * 3 + 1);
-        let remove_from_correct = rng.gen_range(0, max_number_correct_nodes_for_remove + 1);
-        let remove_from_faulty = if remove_from_correct == 0 && f > 0 {
-            // if we can't remove any correct node, because network will become in an
-            // incorrect state we have to remove at least 1 faulty node
+        let max_number_correct_nodes_for_remove = |n: usize, f: usize| n - (f * 3 + 1);
+
+        let remove_from_faulty = if max_number_correct_nodes_for_remove(n, f) == 0 && f > 0 {
+            // we can't remove any correct node now, because network will become in an incorrect state
+            // but we will be able to remove correct nodes after removing several malicious nodes,
+            // so at least one malicious node should be guaranteed removed
             rng.gen_range(1, f + 1)
         } else {
             rng.gen_range(0, f + 1)
         };
+
+        let new_f = f - remove_from_faulty;
+        let new_n = n - remove_from_faulty;
+        let remove_from_correct =
+            rng.gen_range(0, max_number_correct_nodes_for_remove(new_n, new_f) + 1);
 
         let result: BTreeSet<usize> = correct
             .choose_multiple(rng, remove_from_correct)
@@ -527,10 +533,13 @@ where
             !result.is_empty(),
             "subset for remove should have at least one node"
         );
-
+        assert!(
+            n - result.len() > 0,
+            "can't remove all nodes from the network, at least one node remain"
+        );
         println!(
             "Max number of nodes for removing is {}, was chosen {} nodes",
-            max_number_correct_nodes_for_remove + f,
+            max_number_correct_nodes_for_remove(new_n, new_f) + new_f,
             result.len()
         );
 
