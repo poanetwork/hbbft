@@ -192,7 +192,7 @@ fn do_drop_and_re_add(cfg: TestConfig) {
                     // The node has applied a new subset of nodes.
                     new_pub_keys.keys()
                 } else {
-                    // The node has applied the original (previous) subset of nodes back.
+                    // The node has applied the old (previous) subset of nodes back.
                     old_pub_keys.keys()
                 }
                 .collect();
@@ -220,7 +220,7 @@ fn do_drop_and_re_add(cfg: TestConfig) {
                 ChangeState::Complete(Change::NodeChange(ref pub_keys))
                     if *pub_keys == new_pub_keys =>
                 {
-                    println!("Node {} done applying the new subset.", node_id);
+                    println!("Node {} done applying a new subset.", node_id);
                     // Applying a new subset complete, tally:
                     awaiting_apply_new_subset.remove(&node_id);
                 }
@@ -320,8 +320,7 @@ fn do_drop_and_re_add(cfg: TestConfig) {
                         nodes_for_remove.iter().for_each(|id| {
                             expected_outputs
                                 .get_mut(&id)
-                                .expect(&format!("output set disappeared for node {}", id))
-                                .remove(tx);
+                                .map(|output| output.remove(tx));
                         });
                     }
                 }

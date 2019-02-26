@@ -662,8 +662,7 @@ where
     #[inline]
     pub fn remove_nodes(&mut self, ids: &BTreeSet<D::NodeId>) -> Vec<Node<D>> {
         ids.iter()
-            .map(|id| self.remove_node(id))
-            .filter_map(|x| x)
+            .filter_map(|id| self.remove_node(id))
             .collect()
     }
 
