@@ -499,7 +499,7 @@ where
         let n = correct.len() + f;
 
         assert!(
-            n >= f * 3 + 1,
+            n > f * 3,
             "the network is already captured by the faulty nodes"
         );
 
