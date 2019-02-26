@@ -661,9 +661,7 @@ where
     /// them. Returns the removed nodes if there were nodes with this IDs at the time of removal.
     #[inline]
     pub fn remove_nodes(&mut self, ids: &BTreeSet<D::NodeId>) -> Vec<Node<D>> {
-        ids.iter()
-            .filter_map(|id| self.remove_node(id))
-            .collect()
+        ids.iter().filter_map(|id| self.remove_node(id)).collect()
     }
 
     /// Retrieve a node by ID.
