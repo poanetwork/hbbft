@@ -12,6 +12,8 @@ use rand::{seq::SliceRandom, SeedableRng};
 use crate::net::adversary::{Adversary, ReorderingAdversary};
 use crate::net::proptest::{gen_seed, NetworkDimension, TestRng, TestRngSeed};
 use crate::net::{NetBuilder, NewNodeInfo, Node, VirtualNet};
+use hbbft::util;
+use threshold_crypto::PublicKey;
 
 type DHB = SenderQueue<DynamicHoneyBadger<Vec<usize>, usize>>;
 
@@ -72,15 +74,13 @@ prop_compose! {
     }
 }
 
-/// Proptest wrapper for `do_drop_and_readd`.
+/// Proptest wrapper for `do_drop_and_re_add`.
 proptest! {
-    #![proptest_config(ProptestConfig {
-        cases: 1, .. ProptestConfig::default()
-    })]
+    #![proptest_config(ProptestConfig::with_cases(1))]
     #[test]
     #[allow(clippy::unnecessary_operation)]
-    fn drop_and_readd(cfg in arb_config()) {
-        do_drop_and_readd(cfg)
+    fn drop_and_re_add(cfg in arb_config()) {
+        do_drop_and_re_add(cfg)
     }
 }
 
@@ -88,7 +88,7 @@ proptest! {
 /// running a regular honey badger network.
 // TODO: Add an observer node to the test network.
 #[allow(clippy::needless_pass_by_value, clippy::cyclomatic_complexity)]
-fn do_drop_and_readd(cfg: TestConfig) {
+fn do_drop_and_re_add(cfg: TestConfig) {
     let mut rng: TestRng = TestRng::from_seed(cfg.seed);
 
     // First, we create a new test network with Honey Badger instances.
@@ -119,15 +119,8 @@ fn do_drop_and_readd(cfg: TestConfig) {
 
     let mut state = TestState::new(net);
 
-    // We will use the first correct node as the node we will remove from and re-add to the network.
-    // Note: This should be randomized using proptest.
-    let pivot_node_id: usize = *(state
-        .net
-        .correct_nodes()
-        .nth(0)
-        .expect("expected at least one correct node")
-        .id());
-    println!("Will remove and readd node #{}", pivot_node_id);
+    let nodes_for_remove = state.subset_for_remove(&mut rng);
+    println!("Will remove and re-add nodes {:?}", nodes_for_remove);
 
     // We generate a list of transaction we want to propose, for each node. All nodes will propose
     // a number between 0..total_txs, chosen randomly.
@@ -149,48 +142,34 @@ fn do_drop_and_readd(cfg: TestConfig) {
             .expect("could not send initial transaction");
     }
 
-    // Afterwards, remove a specific node from the dynamic honey badger network.
-    let netinfo = state
-        .net
-        .get(pivot_node_id)
-        .expect("pivot node missing")
-        .algorithm()
-        .algo()
-        .netinfo()
-        .clone();
-    let pub_keys_add = netinfo.public_key_map().clone();
-    let mut pub_keys_rm = pub_keys_add.clone();
-    pub_keys_rm.remove(&pivot_node_id);
+    // Afterwards, remove specific nodes from the dynamic honey badger network.
+    let old_pub_keys = state.get_pub_keys();
+    let new_pub_keys: BTreeMap<usize, PublicKey> = old_pub_keys
+        .clone()
+        .into_iter()
+        .filter(|(id, _)| !nodes_for_remove.contains(id))
+        .collect();
     state
         .net
         .broadcast_input(
-            &Input::Change(Change::NodeChange(pub_keys_rm.clone())),
+            &Input::Change(Change::NodeChange(new_pub_keys.clone())),
             &mut rng,
         )
         .expect("broadcasting failed");
 
     // We are tracking (correct) nodes' state through the process by ticking them off individually.
-    let non_pivot_nodes: BTreeSet<_> = state
-        .net
-        .correct_nodes()
-        .map(|n| *n.id())
-        .filter(|id| *id != pivot_node_id)
-        .collect();
-    let mut awaiting_removal: BTreeSet<_> = state.net.correct_nodes().map(|n| *n.id()).collect();
-    let mut awaiting_addition_input: BTreeSet<_> = non_pivot_nodes.clone();
-    let mut awaiting_addition_in_progress: BTreeSet<_> = non_pivot_nodes.clone();
-    let mut awaiting_addition: BTreeSet<_> = awaiting_removal.clone();
-    let mut expected_outputs: BTreeMap<_, BTreeSet<_>> = state
-        .net
-        .correct_nodes()
-        .map(|n| (*n.id(), (0..10).collect()))
+    let correct_nodes: BTreeSet<_> = state.net.correct_nodes().map(|n| *n.id()).collect();
+    let non_rm_nodes = &correct_nodes - &nodes_for_remove;
+
+    let mut awaiting_apply_new_subset: BTreeSet<_> = correct_nodes.clone();
+    let mut awaiting_apply_old_subset: BTreeSet<_> = correct_nodes.clone();
+    let mut awaiting_apply_old_subset_input: BTreeSet<_> = non_rm_nodes.clone();
+    let mut awaiting_apply_old_subset_in_progress: BTreeSet<_> = non_rm_nodes.clone();
+    let mut expected_outputs: BTreeMap<_, BTreeSet<_>> = correct_nodes
+        .iter()
+        .map(|id| (id, (0..10).collect()))
         .collect();
     let mut received_batches: BTreeMap<u64, _> = BTreeMap::new();
-    // Whether node 0 was rejoined as a validator.
-    let mut rejoined_pivot_node = false;
-    // The removed pivot node which is to be restarted as soon as all remaining validators agree to
-    // add it back.
-    let mut saved_node: Option<Node<DHB>> = None;
 
     // Run the network:
     loop {
@@ -206,15 +185,16 @@ fn do_drop_and_readd(cfg: TestConfig) {
                         batch.epoch()
                     );
                 }
-                let expected_participants: Vec<_> = if awaiting_removal.contains(&node_id) {
-                    // The node hasn't removed the pivot node yet.
-                    pub_keys_add.keys()
-                } else if awaiting_addition.contains(&node_id) {
-                    // The node has removed the pivot node but hasn't added it back yet.
-                    pub_keys_rm.keys()
+                let expected_participants: Vec<_> = if awaiting_apply_new_subset.contains(&node_id)
+                {
+                    // The node hasn't applied a new subset of nodes yet.
+                    old_pub_keys.keys()
+                } else if awaiting_apply_old_subset.contains(&node_id) {
+                    // The node has applied a new subset of nodes.
+                    new_pub_keys.keys()
                 } else {
-                    // The node has added the pivot node back.
-                    pub_keys_add.keys()
+                    // The node has applied the old (previous) subset of nodes back.
+                    old_pub_keys.keys()
                 }
                 .collect();
                 assert!(
@@ -239,32 +219,34 @@ fn do_drop_and_readd(cfg: TestConfig) {
         for change in step.output.iter().map(|output| output.change()) {
             match change {
                 ChangeState::Complete(Change::NodeChange(ref pub_keys))
-                    if *pub_keys == pub_keys_rm =>
+                    if *pub_keys == new_pub_keys =>
                 {
-                    println!("Node {} done removing.", node_id);
-                    // Removal complete, tally:
-                    awaiting_removal.remove(&node_id);
+                    println!("Node {} done applying a new subset.", node_id);
+                    // Applying a new subset complete, tally:
+                    awaiting_apply_new_subset.remove(&node_id);
                 }
 
                 ChangeState::InProgress(Change::NodeChange(ref pub_keys))
-                    if *pub_keys == pub_keys_add =>
+                    if *pub_keys == old_pub_keys =>
                 {
-                    println!("Node {} is progressing with readding.", node_id);
-                    awaiting_addition_in_progress.remove(&node_id);
+                    println!(
+                        "Node {} is progressing for applying the old subset.",
+                        node_id
+                    );
+                    awaiting_apply_old_subset_in_progress.remove(&node_id);
                 }
 
                 ChangeState::Complete(Change::NodeChange(ref pub_keys))
-                    if *pub_keys == pub_keys_add =>
+                    if *pub_keys == old_pub_keys =>
                 {
-                    println!("Node {} done adding.", node_id);
-                    // Node added, ensure it has been removed first.
-                    if awaiting_removal.contains(&node_id) {
-                        panic!(
-                            "Node {} reported a success `Add({}, _)` before `Remove({})`",
-                            node_id, pivot_node_id, pivot_node_id
-                        );
-                    }
-                    awaiting_addition.remove(&node_id);
+                    println!("Node {} done applying the old subset back.", node_id);
+                    // Node has applied the old subset, ensure it has applied the new subset previously.
+                    assert!(
+                        !awaiting_apply_new_subset.contains(&node_id),
+                        "Node {} reported a success applying the old subset before applying the new subset.",
+                        node_id,
+                    );
+                    awaiting_apply_old_subset.remove(&node_id);
                 }
                 _ => {
                     println!("Unhandled change: {:?}", change);
@@ -273,23 +255,23 @@ fn do_drop_and_readd(cfg: TestConfig) {
         }
 
         let (era, hb_epoch) = state.net[node_id].algorithm().algo().epoch();
-        if node_id != pivot_node_id
-            && awaiting_addition_input.contains(&node_id)
+        if !nodes_for_remove.contains(&node_id)
+            && awaiting_apply_old_subset_input.contains(&node_id)
             && state.shutdown_epoch.is_some()
             && era + hb_epoch >= state.shutdown_epoch.unwrap()
         {
-            // Now we can add the node again. Public keys will be reused.
+            // Now we apply old subset of node back. Public keys will be reused.
             let step = state
                 .net
                 .send_input(
                     node_id,
-                    Input::Change(Change::NodeChange(pub_keys_add.clone())),
+                    Input::Change(Change::NodeChange(old_pub_keys.clone())),
                     &mut rng,
                 )
-                .expect("failed to send `Add` input");
+                .expect("failed to send `apply old subset` input");
             assert!(step.output.is_empty());
-            awaiting_addition_input.remove(&node_id);
-            println!("Node {} started readding.", node_id);
+            awaiting_apply_old_subset_input.remove(&node_id);
+            println!("Node {} started to apply old subset.", node_id);
         }
 
         // Record whether or not we received some output.
@@ -308,10 +290,10 @@ fn do_drop_and_readd(cfg: TestConfig) {
                 node_id,
             );
 
-            // If this is a batch removing the pivot node, record the epoch in which the pivot node
-            // will shut down.
+            // If this is a batch applying the new subset of nodes, record the epoch
+            // in which 'nodes_for_remove' will shut down.
             if let ChangeState::Complete(Change::NodeChange(ref pub_keys)) = batch.change() {
-                if *pub_keys == pub_keys_rm {
+                if *pub_keys == new_pub_keys {
                     state.shutdown_epoch = Some(batch.epoch() + 1);
                 }
             }
@@ -329,26 +311,29 @@ fn do_drop_and_readd(cfg: TestConfig) {
                         .get_mut(&node_id)
                         .expect("output set disappeared")
                         .remove(tx);
-                    // Also delete expected output from the pivot node if that node is currently
-                    // removed. It does not output any values in epochs in which it is not a
-                    // participant.
-                    if node_id != pivot_node_id
-                        && awaiting_removal.is_empty()
-                        && !rejoined_pivot_node
+                    // Also, delete expected output from the 'nodes_for_remove' if those nodes are
+                    // currently removed. They do not output any values in epochs in which theirs are
+                    // not a participant.
+                    if !nodes_for_remove.contains(&node_id)
+                        && awaiting_apply_new_subset.is_empty()
+                        && !state.old_subset_applied
                     {
-                        expected_outputs
-                            .get_mut(&pivot_node_id)
-                            .expect("pivot node output set disappeared")
-                            .remove(tx);
+                        nodes_for_remove.iter().for_each(|id| {
+                            expected_outputs
+                                .get_mut(&id)
+                                .map(|output| output.remove(tx));
+                        });
                     }
                 }
             }
-            // If this is the first batch from a correct node with a vote to add node 0 back, take
-            // the join plan of the batch and use it to restart node 0.
-            if !rejoined_pivot_node && !state.net[node_id].is_faulty() && state.join_plan.is_none()
+            // If this is the first batch from a correct node with a vote to apply the old subset
+            // back, take the join plan of the batch and use it to restart removed nodes.
+            if !state.old_subset_applied
+                && !state.net[node_id].is_faulty()
+                && state.join_plan.is_none()
             {
                 if let ChangeState::InProgress(Change::NodeChange(pub_keys)) = batch.change() {
-                    if *pub_keys == pub_keys_add {
+                    if *pub_keys == old_pub_keys {
                         state.join_plan = Some(
                             batch
                                 .join_plan()
@@ -357,31 +342,43 @@ fn do_drop_and_readd(cfg: TestConfig) {
                     }
                 }
             }
-            // Restart the pivot node having checked that it can be correctly restarted.
-            if !rejoined_pivot_node && awaiting_addition_in_progress.is_empty() {
+            // Restart removed nodes having checked that they can be correctly restarted.
+            if !state.old_subset_applied && awaiting_apply_old_subset_in_progress.is_empty() {
                 if let Some(join_plan) = state.join_plan.take() {
-                    let node = saved_node.take().expect("the pivot node wasn't saved");
-                    let step = restart_node_for_add(&mut state.net, node, join_plan, &mut rng);
-                    state
-                        .net
-                        .process_step(pivot_node_id, &step)
-                        .expect("processing a step failed");
-                    rejoined_pivot_node = true;
+                    let saved_nodes: Vec<_> = state.saved_nodes.drain(..).collect();
+
+                    assert!(!saved_nodes.is_empty(), "removed nodes wasn't saved");
+
+                    saved_nodes.into_iter().for_each(|node| {
+                        let node_id = *node.id();
+                        let step =
+                            restart_node_for_add(&mut state.net, node, join_plan.clone(), &mut rng);
+                        state
+                            .net
+                            .process_step(node_id, &step)
+                            .expect("processing a step failed");
+                    });
+                    state.old_subset_applied = true;
                 }
             }
         }
 
-        // Decide - from the point of view of the pivot node - whether it is ready to go offline.
-        if !rejoined_pivot_node
-            && saved_node.is_none()
-            && state.net[pivot_node_id].algorithm().is_removed()
+        let all_removed = |nodes: &BTreeSet<usize>| {
+            nodes
+                .iter()
+                .all(|id| state.net[*id].algorithm().is_removed())
+        };
+        // Decide - from the point of view of removed nodes - whether they are ready to go offline.
+        if !state.old_subset_applied
+            && state.saved_nodes.is_empty()
+            && all_removed(&nodes_for_remove)
         {
             println!(
-                "Removing the pivot node {} from the test network.",
-                pivot_node_id
+                "Removing nodes {:?} from the test network.",
+                nodes_for_remove
             );
-            saved_node = state.net.remove_node(&pivot_node_id);
-            if node_id == pivot_node_id {
+            state.saved_nodes = state.net.remove_nodes(&nodes_for_remove);
+            if nodes_for_remove.contains(&node_id) {
                 // Further operations on the cranked node are not possible. Continue with
                 // processing other nodes.
                 continue;
@@ -390,10 +387,11 @@ fn do_drop_and_readd(cfg: TestConfig) {
 
         // Check if we are done.
         if expected_outputs.values().all(|s| s.is_empty())
-            && awaiting_addition.is_empty()
-            && awaiting_removal.is_empty()
+            && awaiting_apply_old_subset.is_empty()
+            && awaiting_apply_new_subset.is_empty()
         {
-            // All outputs are empty and all nodes have removed and added the single pivot node.
+            // All outputs are empty, the old subset was applied back after that
+            // new subset was applied.
             break;
         }
 
@@ -410,18 +408,24 @@ fn do_drop_and_readd(cfg: TestConfig) {
         }
     }
 
-    // As a final step, we verify that all nodes have arrived at the same conclusion. The pivot node
-    // can miss some batches while it was removed.
-    let full_node = state
+    // As a final step, we verify that all nodes have arrived at the same conclusion.
+    // Removed nodes can miss some batches while they were removed.
+    let result: Vec<_> = state
         .net
         .correct_nodes()
-        .find(|node| *node.id() != pivot_node_id)
-        .expect("Could not find a full node");
-    state.net.verify_batches(&full_node);
-    println!("End result: {:?}", full_node.outputs());
+        .filter(|node| !nodes_for_remove.contains(node.id()))
+        .map(|node| {
+            state.net.verify_batches(&node);
+            node.outputs()
+        })
+        .collect();
+
+    assert!(!result.is_empty(), "Could not find a full node");
+
+    println!("End result: {:?}", result);
 }
 
-/// Restarts node 0 on the test network for adding it back as a validator.
+/// Restarts specified node on the test network for adding it back as a validator.
 fn restart_node_for_add<R, A>(
     net: &mut VirtualNet<DHB, A>,
     mut node: Node<DHB>,
@@ -443,7 +447,7 @@ where
     let step = node
         .algorithm_mut()
         .restart(join_plan, peer_ids.into_iter(), rng)
-        .expect("failed to restart pivot node");
+        .expect("failed to restart the node");
     net.insert_node(node);
     step
 }
@@ -455,10 +459,15 @@ where
 {
     /// The test network.
     net: VirtualNet<DHB, A>,
-    /// The join plan for readding the pivot node.
+    /// The join plan for adding nodes.
     join_plan: Option<JoinPlan<usize>>,
-    /// The epoch in which the pivot node should go offline.
+    /// The epoch in which the removed nodes should go offline.
     shutdown_epoch: Option<u64>,
+    /// The removed nodes which are to be restarted as soon as all remaining
+    /// validators agree to add them back.
+    saved_nodes: Vec<Node<DHB>>,
+    /// Whether the old subset of validators was applied back to the network.
+    old_subset_applied: bool,
 }
 
 impl<A> TestState<A>
@@ -471,6 +480,64 @@ where
             net,
             join_plan: None,
             shutdown_epoch: None,
+            saved_nodes: Vec::new(),
+            old_subset_applied: false,
         }
+    }
+
+    /// Selects random subset of validators which can be safely removed from the network.
+    ///
+    /// The cluster always remain correct after removing this subset from the cluster.
+    /// This method may select correct nodes as well as malicious ones.
+    fn subset_for_remove<R>(&self, rng: &mut R) -> BTreeSet<usize>
+    where
+        R: rand::Rng,
+    {
+        let net = &self.net;
+        let (faulty, correct): (Vec<_>, Vec<_>) = net.nodes().partition(|n| n.is_faulty());
+
+        let f = faulty.len();
+        let n = correct.len() + f;
+
+        assert!(
+            n > f * 3,
+            "the network is already captured by the faulty nodes"
+        );
+
+        let new_n = rng.gen_range(2, n); // new_n is between 2 and n-1
+        let new_f = rng.gen_range(0, f.min(util::max_faulty(new_n)) + 1);
+
+        let remove_from_faulty = f - new_f;
+        let remove_from_correct = n - new_n - remove_from_faulty;
+
+        let result: BTreeSet<usize> = correct
+            .choose_multiple(rng, remove_from_correct)
+            .map(|n| *n.id())
+            .chain(
+                faulty
+                    .choose_multiple(rng, remove_from_faulty)
+                    .map(|n| *n.id()),
+            )
+            .collect();
+
+        assert!(
+            !result.is_empty(),
+            "subset for remove should have at least one node"
+        );
+        println!("{} nodes were chosen for removing", result.len());
+
+        result
+    }
+
+    /// Returns clone of all public keys for this network.
+    fn get_pub_keys(&self) -> BTreeMap<usize, PublicKey> {
+        self.net
+            .get(0)
+            .expect("network should have at least one node")
+            .algorithm()
+            .algo()
+            .netinfo()
+            .public_key_map()
+            .clone()
     }
 }
