@@ -12,6 +12,7 @@ use rand::{seq::SliceRandom, SeedableRng};
 use crate::net::adversary::{Adversary, ReorderingAdversary};
 use crate::net::proptest::{gen_seed, NetworkDimension, TestRng, TestRngSeed};
 use crate::net::{NetBuilder, NewNodeInfo, Node, VirtualNet};
+use hbbft::util;
 use threshold_crypto::PublicKey;
 
 type DHB = SenderQueue<DynamicHoneyBadger<Vec<usize>, usize>>;
@@ -503,21 +504,13 @@ where
             "the network is already captured by the faulty nodes"
         );
 
-        let max_number_correct_nodes_for_remove = |n: usize, f: usize| n - (f * 3 + 1);
+        assert_ne!(n, 1, "Only one node left; nothing to remove");
 
-        let remove_from_faulty = if max_number_correct_nodes_for_remove(n, f) == 0 && f > 0 {
-            // we can't remove any correct node now, because network will become in an incorrect state
-            // but we will be able to remove correct nodes after removing several malicious nodes,
-            // so at least one malicious node should be guaranteed removed
-            rng.gen_range(1, f + 1)
-        } else {
-            rng.gen_range(0, f + 1)
-        };
+        let new_n = rng.gen_range(1, n); // new_n is between 1 and n-1
+        let new_f = rng.gen_range(0, f.min(util::max_faulty(new_n)) + 1);
 
-        let new_f = f - remove_from_faulty;
-        let new_n = n - remove_from_faulty;
-        let remove_from_correct =
-            rng.gen_range(0, max_number_correct_nodes_for_remove(new_n, new_f) + 1);
+        let remove_from_faulty = f - new_f;
+        let remove_from_correct = n - new_n - remove_from_faulty;
 
         let result: BTreeSet<usize> = correct
             .choose_multiple(rng, remove_from_correct)
@@ -533,15 +526,7 @@ where
             !result.is_empty(),
             "subset for remove should have at least one node"
         );
-        assert!(
-            n - result.len() > 0,
-            "can't remove all nodes from the network, at least one node remain"
-        );
-        println!(
-            "Max number of nodes for removing is {}, was chosen {} nodes",
-            max_number_correct_nodes_for_remove(new_n, new_f) + new_f,
-            result.len()
-        );
+        println!("Was chosen {} nodes for removing.", result.len());
 
         result
     }
