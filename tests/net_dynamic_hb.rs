@@ -504,9 +504,7 @@ where
             "the network is already captured by the faulty nodes"
         );
 
-        assert_ne!(n, 1, "Only one node left; nothing to remove");
-
-        let new_n = rng.gen_range(1, n); // new_n is between 1 and n-1
+        let new_n = rng.gen_range(2, n); // new_n is between 2 and n-1
         let new_f = rng.gen_range(0, f.min(util::max_faulty(new_n)) + 1);
 
         let remove_from_faulty = f - new_f;
@@ -526,7 +524,7 @@ where
             !result.is_empty(),
             "subset for remove should have at least one node"
         );
-        println!("Was chosen {} nodes for removing.", result.len());
+        println!("{} nodes were chosen for removing", result.len());
 
         result
     }
