@@ -1,46 +1,42 @@
 #![deny(unused_must_use)]
-//! Threshold signing tests
+//! Non-deterministic tests for the ThresholdSign protocol
 
-mod network;
-
-use std::iter::once;
+pub mod net;
 
 use log::info;
 use rand::Rng;
+use std::sync::Arc;
 
-use hbbft::{crypto::Signature, threshold_sign::ThresholdSign, util};
+use hbbft::{crypto::Signature, threshold_sign::ThresholdSign, util, ConsensusProtocol};
 
-use crate::network::{Adversary, MessageScheduler, NodeId, SilentAdversary, TestNetwork, TestNode};
+use crate::net::adversary::{Adversary, NodeOrderAdversary, ReorderingAdversary};
+use crate::net::{NetBuilder, NewNodeInfo, VirtualNet};
 
-/// Tests a network of threshold signing instances with an optional expected value. Outputs the
-/// computed signature if the test is successful.
-fn test_threshold_sign<A>(mut network: TestNetwork<A, ThresholdSign<NodeId>>) -> Signature
+type NodeId = u16;
+
+impl<A> VirtualNet<ThresholdSign<NodeId>, A>
 where
     A: Adversary<ThresholdSign<NodeId>>,
 {
-    let mut rng = rand::thread_rng();
+    /// Tests a network of threshold signing instances with an optional expected value. Outputs the
+    /// computed signature if the test is successful.
+    fn test_threshold_sign(&mut self) -> Signature {
+        let mut rng = rand::thread_rng();
+        self.broadcast_input(&(), &mut rng)
+            .expect("broadcast input failed");
 
-    network.input_all(());
-
-    network.observer.handle_input((), &mut rng); // Observer will only return after `input` was called.
-
-    // Handle messages until all good nodes have terminated.
-    while !network.nodes.values().all(TestNode::terminated) {
-        network.step();
-    }
-    let mut expected = None;
-    // Verify that all instances output the same value.
-    for node in network.nodes.values() {
-        if let Some(ref b) = expected {
-            assert!(once(b).eq(node.outputs()));
-        } else {
-            assert_eq!(1, node.outputs().len());
-            expected = Some(node.outputs()[0].clone());
+        // Handle messages until all good nodes have terminated.
+        while !self.nodes().all(|node| node.algorithm().terminated()) {
+            let _ = self.crank_expect(&mut rng);
         }
+
+        // Verify that all instances output the same value.
+        let first = self.correct_nodes().nth(0).unwrap().outputs();
+        assert!(!first.is_empty());
+        assert!(self.nodes().all(|node| node.outputs() == first));
+
+        first[0].clone()
     }
-    // Now `expected` is the unique output of all good nodes.
-    assert!(expected.iter().eq(network.observer.outputs()));
-    expected.unwrap()
 }
 
 const GOOD_SAMPLE_SET: f64 = 400.0;
@@ -67,7 +63,7 @@ fn check_coin_distribution(num_samples: usize, count_true: usize, count_false: u
 fn test_threshold_sign_different_sizes<A, F>(new_adversary: F, num_samples: usize)
 where
     A: Adversary<ThresholdSign<NodeId>>,
-    F: Fn(usize, usize) -> A,
+    F: Fn() -> A,
 {
     assert!(num_samples > 0);
 
@@ -86,24 +82,29 @@ where
 
     for size in sizes {
         let num_faulty_nodes = util::max_faulty(size);
-        let num_good_nodes = size - num_faulty_nodes;
         info!(
             "Network size: {} good nodes, {} faulty nodes",
-            num_good_nodes, num_faulty_nodes
+            size - num_faulty_nodes,
+            num_faulty_nodes
         );
         let unique_id: u64 = rng.gen();
         let mut count_true = 0;
         let mut count_false = 0;
         for i in 0..num_samples {
-            let adversary = |_| new_adversary(num_good_nodes, num_faulty_nodes);
             let nonce = format!("My very unique nonce {:x}:{}", unique_id, i);
             info!("Nonce: {}", nonce);
-            let new_coin = |netinfo: _| {
-                ThresholdSign::new_with_document(netinfo, nonce.clone())
-                    .expect("Failed to set the new coin's ID")
-            };
-            let network = TestNetwork::new(num_good_nodes, num_faulty_nodes, adversary, new_coin);
-            let coin = test_threshold_sign(network).parity();
+            let (mut net, _) = NetBuilder::new(0..size as u16)
+                .num_faulty(num_faulty_nodes as usize)
+                .message_limit(10_000 * size as usize)
+                .no_time_limit()
+                .adversary(new_adversary())
+                .using(move |node_info: NewNodeInfo<_>| {
+                    ThresholdSign::new_with_document(Arc::new(node_info.netinfo), nonce.clone())
+                        .expect("Failed to create a ThresholdSign instance.")
+                })
+                .build(&mut rng)
+                .expect("Could not construct test network.");
+            let coin = net.test_threshold_sign().parity();
             if coin {
                 count_true += 1;
             } else {
@@ -116,12 +117,12 @@ where
 
 #[test]
 fn test_threshold_sign_random_silent_200_samples() {
-    let new_adversary = |_: usize, _: usize| SilentAdversary::new(MessageScheduler::Random);
+    let new_adversary = || ReorderingAdversary::new();
     test_threshold_sign_different_sizes(new_adversary, 200);
 }
 
 #[test]
 fn test_threshold_sign_first_silent_50_samples() {
-    let new_adversary = |_: usize, _: usize| SilentAdversary::new(MessageScheduler::First);
+    let new_adversary = || NodeOrderAdversary::new();
     test_threshold_sign_different_sizes(new_adversary, 50);
 }
