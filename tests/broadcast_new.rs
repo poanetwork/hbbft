@@ -9,10 +9,68 @@ use rand::Rng;
 
 use hbbft::{broadcast::Broadcast, util, ConsensusProtocol};
 
-use crate::net::adversary::{Adversary, ReorderingAdversary, NodeOrderAdversary};
+use crate::net::adversary::{
+    sort_ascending, swap_random, Adversary, NetMutHandle, NodeOrderAdversary, ReorderingAdversary,
+};
 use crate::net::{NetBuilder, NewNodeInfo, VirtualNet};
 
 type NodeId = u16;
+
+/// A strategy for picking the next good node to handle a message.
+pub enum MessageSorting {
+    /// Swaps the first message with a random message in the queue
+    RandomSwap,
+    /// Sorts the message queue by receiving node id
+    SortAscending,
+}
+
+/// For each adversarial node does the following, but only once:
+///
+/// * creates a **new** instance of the Broadcast ConsensusProtocol,
+///   with the adversarial node ID as proposer
+/// * Let it handle a "Fake News" input
+/// * Take the returned step's messages
+/// * Converts the messages to be enqueued
+pub struct ProposeAdversary {
+    message_strategy: MessageSorting,
+    has_sent: bool,
+}
+
+impl ProposeAdversary {
+    /// Create a new `ProposeAdversary`.
+    #[inline]
+    pub fn new(message_strategy: MessageSorting) -> Self {
+        ProposeAdversary {
+            message_strategy,
+            has_sent: false,
+        }
+    }
+}
+
+impl<D> Adversary<D> for ProposeAdversary
+where
+    D: ConsensusProtocol,
+    D::Message: Clone,
+    D::Output: Clone,
+{
+    #[inline]
+    fn pre_crank<R: Rng>(&mut self, mut net: NetMutHandle<'_, D, Self>, rng: &mut R) {
+        if !self.has_sent {
+            self.has_sent = true;
+
+            // Get adversarial nodes
+            let _faulty_nodes = net.faulty_nodes_mut();
+
+            // Need to get netinfo from somewhere
+            // the binary_agreeement_mitm test has an approach, albeit not a pretty one
+        }
+
+        match self.message_strategy {
+            MessageSorting::RandomSwap => swap_random(net, rng),
+            MessageSorting::SortAscending => sort_ascending(net),
+        }
+    }
+}
 
 /// Broadcasts a value from node 0 and expects all good nodes to receive it.
 fn test_broadcast<A: Adversary<Broadcast<NodeId>>>(
@@ -95,13 +153,25 @@ fn test_8_broadcast_equal_leaves_silent_new() {
 }
 
 #[test]
-fn test_broadcast_random_delivery_silent() {
+fn test_broadcast_random_delivery_silent_new() {
     let new_adversary = || ReorderingAdversary::new();
     test_broadcast_different_sizes(new_adversary, b"Foo");
 }
 
 #[test]
-fn test_broadcast_first_delivery_silent() {
+fn test_broadcast_first_delivery_silent_new() {
     let new_adversary = || NodeOrderAdversary::new();
+    test_broadcast_different_sizes(new_adversary, b"Foo");
+}
+
+#[test]
+fn test_broadcast_random_delivery_adv_propose_new() {
+    let new_adversary = || ProposeAdversary::new(MessageSorting::RandomSwap);
+    test_broadcast_different_sizes(new_adversary, b"Foo");
+}
+
+#[test]
+fn test_broadcast_first_delivery_adv_propose_new() {
+    let new_adversary = || ProposeAdversary::new(MessageSorting::SortAscending);
     test_broadcast_different_sizes(new_adversary, b"Foo");
 }

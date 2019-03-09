@@ -360,6 +360,34 @@ where
     }
 }
 
+/// Utility function to sort messages in the given net handle ascending by receiving node id
+#[inline]
+pub fn sort_ascending<D, A>(mut net: NetMutHandle<'_, D, A>)
+where
+    D: ConsensusProtocol,
+    D::Message: Clone,
+    D::Output: Clone,
+    A: Adversary<D>,
+{
+    net.sort_messages_by(|a, b| a.to().cmp(&b.to()))
+}
+
+/// Utility function to swap the topmost message with a random message in the queue
+#[inline]
+pub fn swap_random<R, D, A>(mut net: NetMutHandle<'_, D, A>, rng: &mut R)
+where
+    R: Rng,
+    D: ConsensusProtocol,
+    D::Message: Clone,
+    D::Output: Clone,
+    A: Adversary<D>,
+{
+    let l = net.get_messages().len();
+    if l > 0 {
+        net.swap_messages(0, rng.gen_range(0, l));
+    }
+}
+
 /// Passive adversary.
 ///
 /// The `NullAdversary` does not interfere with operation in any way, it neither reorders messages
@@ -407,9 +435,9 @@ where
     D::Output: Clone,
 {
     #[inline]
-    fn pre_crank<R: Rng>(&mut self, mut net: NetMutHandle<'_, D, Self>, _rng: &mut R) {
+    fn pre_crank<R: Rng>(&mut self, net: NetMutHandle<'_, D, Self>, _rng: &mut R) {
         // Message are sorted by NodeID on each step.
-        net.sort_messages_by(|a, b| a.to.cmp(&b.to))
+        sort_ascending(net);
     }
 }
 
@@ -434,10 +462,7 @@ where
     D::Output: Clone,
 {
     #[inline]
-    fn pre_crank<R: Rng>(&mut self, mut net: NetMutHandle<'_, D, Self>, rng: &mut R) {
-        let l = net.0.messages_len();
-        if l > 0 {
-            net.swap_messages(0, rng.gen_range(0, l));
-        }
+    fn pre_crank<R: Rng>(&mut self, net: NetMutHandle<'_, D, Self>, rng: &mut R) {
+        swap_random(net, rng);
     }
 }
