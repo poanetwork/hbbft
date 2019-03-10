@@ -297,6 +297,12 @@ where
         NodeMutHandle(inner)
     }
 
+    /// Return node ID.
+    #[inline]
+    pub fn id(&self) -> D::NodeId {
+        self.0.id().clone()
+    }
+
     /// Returns a mutable reference to the faulty node.
     ///
     /// # Panics
