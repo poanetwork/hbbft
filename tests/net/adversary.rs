@@ -396,6 +396,7 @@ where
 }
 
 /// Selects a random node and returns its id
+#[inline]
 pub fn random_node<R, D, A>(net: &mut NetMutHandle<'_, D, A>, rng: &mut R) -> Option<D::NodeId>
 where
     R: Rng,
