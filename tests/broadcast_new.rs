@@ -8,21 +8,23 @@ use log::info;
 use rand::rngs::ThreadRng;
 use rand::Rng;
 
-use hbbft::{broadcast::Broadcast, util, ConsensusProtocol, NetworkInfo, Target, TargetedMessage};
+use hbbft::{broadcast::Broadcast, util, ConsensusProtocol, CpStep, NetworkInfo};
 
 use crate::net::adversary::{
-    sort_ascending, swap_random, Adversary, NetMutHandle, NodeOrderAdversary, QueuePosition,
+    pick_random_node, sort_ascending, Adversary, NetMutHandle, NodeOrderAdversary,
     ReorderingAdversary,
 };
-use crate::net::{NetBuilder, NetworkMessage, NewNodeInfo, VirtualNet};
+use crate::net::{CrankError, NetBuilder, NetMessage, NewNodeInfo, VirtualNet};
 
 type NodeId = u16;
 type NetworkInfoMap = BTreeMap<NodeId, Arc<NetworkInfo<NodeId>>>;
 
-/// A strategy for picking the next good node to handle a message.
+/// A strategy for picking the next node to handle a message.
+/// The sorting algorithm used is stable - preserves message
+/// order relative to the node id.
 pub enum MessageSorting {
-    /// Swaps the first message with a random message in the queue
-    RandomSwap,
+    /// Picks a random node and swaps its messages to the front of the queue
+    RandomPick,
     /// Sorts the message queue by receiving node id
     SortAscending,
 }
@@ -64,62 +66,48 @@ impl Adversary<Broadcast<NodeId>> for ProposeAdversary {
     fn pre_crank<R: Rng>(
         &mut self,
         mut net: NetMutHandle<'_, Broadcast<NodeId>, Self>,
-        mut rng: &mut R,
+        rng: &mut R,
     ) {
+        match self.message_strategy {
+            MessageSorting::RandomPick => pick_random_node(&mut net, rng),
+            MessageSorting::SortAscending => sort_ascending(&mut net),
+        }
+    }
+
+    fn tamper<R: Rng>(
+        &mut self,
+        mut net: NetMutHandle<'_, Broadcast<NodeId>, Self>,
+        msg: NetMessage<Broadcast<NodeId>>,
+        mut rng: &mut R,
+    ) -> Result<CpStep<Broadcast<NodeId>>, CrankError<Broadcast<NodeId>>> {
+        let mut step = net.dispatch_message(msg, rng)?;
+
         if !self.has_sent {
             self.has_sent = true;
 
             // Get adversarial nodes
             let faulty_nodes = net.faulty_nodes_mut();
 
-            // Collect adversarial proposer messages
-            // Using a tupple since we need the sender's NodeId to inject messages
-            let msgs: Vec<(NodeId, TargetedMessage<_, _>)> = faulty_nodes
-                .flat_map(|node| {
-                    let netinfo = self
-                        .netinfo_mutex
-                        .lock()
-                        .unwrap()
-                        .get(node.id())
-                        .cloned()
-                        .expect("Adversary netinfo mutex not populated");
+            // Instantiate a temporary broadcast consensus protocol for each faulty node
+            // and add the generated messages to the current step.
+            for faulty_node in faulty_nodes {
+                let netinfo = self
+                    .netinfo_mutex
+                    .lock()
+                    .unwrap()
+                    .get(faulty_node.id())
+                    .cloned()
+                    .expect("Adversary netinfo mutex not populated");
 
-                    Broadcast::new(netinfo, *node.id())
-                        .expect("broadcast instance")
-                        .handle_input(b"Fake news".to_vec(), &mut rng)
-                        .expect("propose")
-                        .messages
-                        .into_iter()
-                        .map(move |msg| (*node.id(), msg))
-                })
-                .collect();
+                let fake_step = Broadcast::new(netinfo, *faulty_node.id())
+                    .expect("broadcast instance")
+                    .handle_input(b"Fake news".to_vec(), &mut rng)
+                    .expect("propose");
 
-            // Inject recorded messages
-            let all_node_ids: Vec<NodeId> = net.nodes_mut().map(|node| node.id()).collect();
-            for m in &msgs {
-                match m.1.target {
-                    Target::Node(idx) => net.inject_message(
-                        QueuePosition::Back,
-                        NetworkMessage::new(m.0, m.1.message.clone(), idx),
-                    ),
-                    Target::All => {
-                        for id in &all_node_ids {
-                            if *id != m.0 {
-                                net.inject_message(
-                                    QueuePosition::Front,
-                                    NetworkMessage::new(m.0, m.1.message.clone(), *id),
-                                )
-                            }
-                        }
-                    }
-                }
+                step.messages.extend(fake_step.messages);
             }
         }
-
-        match self.message_strategy {
-            MessageSorting::RandomSwap => swap_random(net, rng),
-            MessageSorting::SortAscending => sort_ascending(net),
-        }
+        Ok(step)
     }
 }
 
@@ -229,5 +217,13 @@ fn test_broadcast_first_delivery_adv_propose_new() {
     let adversary_netinfo: Arc<Mutex<NetworkInfoMap>> = Default::default();
     let new_adversary =
         || ProposeAdversary::new(MessageSorting::SortAscending, adversary_netinfo.clone());
+    test_broadcast_different_sizes(new_adversary, b"Foo", adversary_netinfo.clone());
+}
+
+#[test]
+fn test_broadcast_random_delivery_adv_propose_new() {
+    let adversary_netinfo: Arc<Mutex<NetworkInfoMap>> = Default::default();
+    let new_adversary =
+        || ProposeAdversary::new(MessageSorting::RandomPick, adversary_netinfo.clone());
     test_broadcast_different_sizes(new_adversary, b"Foo", adversary_netinfo.clone());
 }

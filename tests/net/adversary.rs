@@ -368,7 +368,7 @@ where
 
 /// Utility function to sort messages in the given net handle ascending by receiving node id
 #[inline]
-pub fn sort_ascending<D, A>(mut net: NetMutHandle<'_, D, A>)
+pub fn sort_ascending<D, A>(net: &mut NetMutHandle<'_, D, A>)
 where
     D: ConsensusProtocol,
     D::Message: Clone,
@@ -380,7 +380,7 @@ where
 
 /// Utility function to swap the topmost message with a random message in the queue
 #[inline]
-pub fn swap_random<R, D, A>(mut net: NetMutHandle<'_, D, A>, rng: &mut R)
+pub fn swap_random<R, D, A>(net: &mut NetMutHandle<'_, D, A>, rng: &mut R)
 where
     R: Rng,
     D: ConsensusProtocol,
@@ -391,6 +391,46 @@ where
     let l = net.get_messages().len();
     if l > 0 {
         net.swap_messages(0, rng.gen_range(0, l));
+    }
+}
+
+/// Utility function to sweep the messages for a randomly chosen node to the top
+/// of the message queue. Relative message order is preserved by using
+/// the available stable sort algorithm.
+#[inline]
+pub fn pick_random_node<R, D, A>(net: &mut NetMutHandle<'_, D, A>, rng: &mut R)
+where
+    R: Rng,
+    D: ConsensusProtocol,
+    D::Message: Clone,
+    D::Output: Clone,
+    A: Adversary<D>,
+{
+    let l = net.nodes_mut().count();
+    if l > 0 {
+        // Pick a node id at random
+        let picked_node = net
+            .nodes_mut()
+            .nth(rng.gen_range(0, l))
+            .expect("nodes list changed since last call")
+            .id();
+
+        // To make the picked node's messages sorted to the top of the queue
+        // it always has to be less than the others, regardless of its actual id.
+        net.sort_messages_by(|a, b| {
+            let a = a.to().clone();
+            let b = b.to().clone();
+
+            if a == b {
+                cmp::Ordering::Equal
+            } else if a == picked_node {
+                cmp::Ordering::Less
+            } else if b == picked_node {
+                cmp::Ordering::Greater
+            } else {
+                a.cmp(&b)
+            }
+        });
     }
 }
 
@@ -441,9 +481,9 @@ where
     D::Output: Clone,
 {
     #[inline]
-    fn pre_crank<R: Rng>(&mut self, net: NetMutHandle<'_, D, Self>, _rng: &mut R) {
+    fn pre_crank<R: Rng>(&mut self, mut net: NetMutHandle<'_, D, Self>, _rng: &mut R) {
         // Message are sorted by NodeID on each step.
-        sort_ascending(net);
+        sort_ascending(&mut net);
     }
 }
 
@@ -468,7 +508,7 @@ where
     D::Output: Clone,
 {
     #[inline]
-    fn pre_crank<R: Rng>(&mut self, net: NetMutHandle<'_, D, Self>, rng: &mut R) {
-        swap_random(net, rng);
+    fn pre_crank<R: Rng>(&mut self, mut net: NetMutHandle<'_, D, Self>, rng: &mut R) {
+        swap_random(&mut net, rng);
     }
 }
