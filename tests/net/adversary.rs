@@ -40,7 +40,8 @@ use rand::Rng;
 
 use hbbft::{ConsensusProtocol, CpStep};
 
-use crate::net::{CrankError, NetMessage, Node, VirtualNet};
+use crate::net::util::randomly;
+use crate::net::{CrankError, NetMessage, NetworkMessage, Node, VirtualNet};
 
 /// Immutable network handle.
 ///
@@ -394,11 +395,8 @@ where
     }
 }
 
-/// Utility function to sweep the messages for a randomly chosen node to the top
-/// of the message queue. Relative message order is preserved by using
-/// the available stable sort algorithm.
-#[inline]
-pub fn pick_random_node<R, D, A>(net: &mut NetMutHandle<'_, D, A>, rng: &mut R)
+/// Selects a random node and returns its id
+pub fn random_node<R, D, A>(net: &mut NetMutHandle<'_, D, A>, rng: &mut R) -> Option<D::NodeId>
 where
     R: Rng,
     D: ConsensusProtocol,
@@ -409,12 +407,29 @@ where
     let l = net.nodes_mut().count();
     if l > 0 {
         // Pick a node id at random
-        let picked_node = net
-            .nodes_mut()
-            .nth(rng.gen_range(0, l))
-            .expect("nodes list changed since last call")
-            .id();
+        return Some(
+            net.nodes_mut()
+                .nth(rng.gen_range(0, l))
+                .expect("nodes list changed since last call")
+                .id(),
+        );
+    }
+    None
+}
 
+/// Utility function to sweep the messages for a randomly chosen node to the top
+/// of the message queue. Relative message order is preserved by using
+/// the available stable sort algorithm.
+#[inline]
+pub fn sort_by_random_node<R, D, A>(net: &mut NetMutHandle<'_, D, A>, rng: &mut R)
+where
+    R: Rng,
+    D: ConsensusProtocol,
+    D::Message: Clone,
+    D::Output: Clone,
+    A: Adversary<D>,
+{
+    if let Some(picked_node) = random_node(net, rng) {
         // To make the picked node's messages sorted to the top of the queue
         // it always has to be less than the others, regardless of its actual id.
         net.sort_messages_by(|a, b| {
@@ -510,5 +525,82 @@ where
     #[inline]
     fn pre_crank<R: Rng>(&mut self, mut net: NetMutHandle<'_, D, Self>, rng: &mut R) {
         swap_random(&mut net, rng);
+    }
+}
+
+/// An adversary that performs naive replay attacks.
+///
+/// The adversary will randomly take a message that is sent to one of its nodes
+/// and re-send it to a different node.
+///
+/// Additionally it will broadcast unrelated random messages,
+/// and the message queue by a random node id.
+#[derive(Copy, Clone, Debug, Default)]
+pub struct RandomAdversary {
+    /// Probability of a message replay
+    p_replay: f32,
+    /// Probability of a message injection
+    p_inject: f32,
+}
+
+impl RandomAdversary {
+    pub fn new(p_replay: f32, p_inject: f32) -> Self {
+        RandomAdversary { p_replay, p_inject }
+    }
+}
+
+impl<D> Adversary<D> for RandomAdversary
+where
+    D: ConsensusProtocol,
+    D::Message: Clone,
+    D::Output: Clone,
+    rand::distributions::Standard:
+        rand::distributions::Distribution<<D as ConsensusProtocol>::Message>,
+{
+    #[inline]
+    fn pre_crank<R: Rng>(&mut self, mut net: NetMutHandle<'_, D, Self>, rng: &mut R) {
+        sort_by_random_node(&mut net, rng);
+    }
+
+    #[inline]
+    fn tamper<R: Rng>(
+        &mut self,
+        mut net: NetMutHandle<'_, D, Self>,
+        msg: NetMessage<D>,
+        rng: &mut R,
+    ) -> Result<CpStep<D>, CrankError<D>> {
+        // only replay a message in some cases
+        if randomly(self.p_replay) {
+            // randomly choose a target to send the message to
+            if let Some(picked_node) = random_node(&mut net, rng) {
+                let mut new_msg = msg.clone();
+                new_msg.from = new_msg.to;
+                new_msg.to = picked_node;
+                net.inject_message(QueuePosition::Back, new_msg);
+            }
+        }
+
+        // Possibly inject more messages
+        while randomly(self.p_inject) {
+            // Messages must originate from the current node
+            let sender = msg.to.clone();
+            // Generate a random message
+            let message: D::Message = rand::random();
+
+            // Collect receivers
+            let node_ids: Vec<<D as ConsensusProtocol>::NodeId> = net
+                .nodes_mut()
+                .map(|node| node.id())
+                .filter(|node_id| *node_id != sender)
+                .collect();
+
+            // Broadcast message
+            for node_id in node_ids {
+                let new_msg = NetworkMessage::new(sender.clone(), message.clone(), node_id);
+                net.inject_message(QueuePosition::Back, new_msg);
+            }
+        }
+
+        net.dispatch_message(msg, rng)
     }
 }

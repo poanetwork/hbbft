@@ -11,8 +11,8 @@ use rand::Rng;
 use hbbft::{broadcast::Broadcast, util, ConsensusProtocol, CpStep, NetworkInfo};
 
 use crate::net::adversary::{
-    pick_random_node, sort_ascending, Adversary, NetMutHandle, NodeOrderAdversary,
-    ReorderingAdversary,
+    sort_ascending, sort_by_random_node, Adversary, NetMutHandle, NodeOrderAdversary,
+    RandomAdversary, ReorderingAdversary,
 };
 use crate::net::{CrankError, NetBuilder, NetMessage, NewNodeInfo, VirtualNet};
 
@@ -69,11 +69,12 @@ impl Adversary<Broadcast<NodeId>> for ProposeAdversary {
         rng: &mut R,
     ) {
         match self.message_strategy {
-            MessageSorting::RandomPick => pick_random_node(&mut net, rng),
+            MessageSorting::RandomPick => sort_by_random_node(&mut net, rng),
             MessageSorting::SortAscending => sort_ascending(&mut net),
         }
     }
 
+    #[inline]
     fn tamper<R: Rng>(
         &mut self,
         mut net: NetMutHandle<'_, Broadcast<NodeId>, Self>,
@@ -226,4 +227,10 @@ fn test_broadcast_random_delivery_adv_propose_new() {
     let new_adversary =
         || ProposeAdversary::new(MessageSorting::RandomPick, adversary_netinfo.clone());
     test_broadcast_different_sizes(new_adversary, b"Foo", adversary_netinfo.clone());
+}
+
+#[test]
+fn test_broadcast_random_adversary_new() {
+    let new_adversary = || RandomAdversary::new(0.2, 0.2);
+    test_broadcast_different_sizes(new_adversary, b"RandomFoo", Default::default());
 }
