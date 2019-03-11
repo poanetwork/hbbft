@@ -95,7 +95,7 @@ where
             info!("Nonce: {}", nonce);
             let (mut net, _) = NetBuilder::new(0..size as u16)
                 .num_faulty(num_faulty_nodes as usize)
-                .message_limit(10_000 * size as usize)
+                .message_limit(size * (size - 1))
                 .no_time_limit()
                 .adversary(new_adversary())
                 .using(move |node_info: NewNodeInfo<_>| {
