@@ -151,7 +151,7 @@ fn test_broadcast_different_sizes<A, F>(
         .chain(once(rng.gen_range(30, 50)));
     for size in sizes {
         // cloning since it gets moved into a closure
-        let cloned_netinfo = adversary_netinfo.clone();
+        let cloned_netinfo_map = adversary_netinfo.clone();
         let num_faulty_nodes = util::max_faulty(size);
         info!(
             "Network size: {} good nodes, {} faulty nodes",
@@ -166,7 +166,7 @@ fn test_broadcast_different_sizes<A, F>(
             .adversary(new_adversary())
             .using(move |info| {
                 let netinfo = Arc::new(info.netinfo);
-                cloned_netinfo
+                cloned_netinfo_map
                     .lock()
                     .unwrap()
                     .insert(info.id, netinfo.clone());
