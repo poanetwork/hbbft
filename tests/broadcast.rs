@@ -130,7 +130,7 @@ fn test_broadcast<A: Adversary<Broadcast<NodeId>>>(
     // This returns an error in all but the first test.
     let _ = env_logger::try_init();
 
-    let proposer_is_faulty = net.get(proposer_id).unwrap().is_faulty();;
+    let proposer_is_faulty = net.get(proposer_id).unwrap().is_faulty();
 
     // Make node 0 propose the value.
     let _step = net
