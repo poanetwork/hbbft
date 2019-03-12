@@ -11,8 +11,8 @@ use rand::Rng;
 use hbbft::{broadcast::Broadcast, util, ConsensusProtocol, CpStep, NetworkInfo};
 
 use crate::net::adversary::{
-    sort_ascending, sort_by_random_node, Adversary, NetMutHandle, NodeOrderAdversary,
-    RandomAdversary, ReorderingAdversary,
+    sort_ascending, swap_random, Adversary, NetMutHandle, NodeOrderAdversary, RandomAdversary,
+    ReorderingAdversary,
 };
 use crate::net::{CrankError, NetBuilder, NetMessage, NewNodeInfo, VirtualNet};
 
@@ -72,7 +72,7 @@ impl Adversary<Broadcast<NodeId>> for ProposeAdversary {
         rng: &mut R,
     ) {
         match self.message_strategy {
-            MessageSorting::RandomPick => sort_by_random_node(&mut net, rng),
+            MessageSorting::RandomPick => swap_random(&mut net, rng),
             MessageSorting::SortAscending => sort_ascending(&mut net),
         }
     }
@@ -125,24 +125,48 @@ fn test_broadcast<A: Adversary<Broadcast<NodeId>>>(
     mut net: VirtualNet<Broadcast<NodeId>, A>,
     proposed_value: &[u8],
     rng: &mut ThreadRng,
+    proposer_id: NodeId,
 ) {
     // This returns an error in all but the first test.
     let _ = env_logger::try_init();
 
+    let proposer_is_faulty = net.get(proposer_id).unwrap().is_faulty();;
+
     // Make node 0 propose the value.
     let _step = net
-        .send_input(0, proposed_value.to_vec(), rng)
+        .send_input(proposer_id, proposed_value.to_vec(), rng)
         .expect("Setting input failed");
 
     // Handle messages until all good nodes have terminated.
+    // If the proposer is faulty it is legal for the queue to starve
     while !net.nodes().all(|node| node.algorithm().terminated()) {
+        if proposer_is_faulty && net.messages_len() == 0 {
+            info!("Expected starvation of messages with a faulty proposer");
+            // The output of all correct nodes needs to be empty in this case.
+            // We check the for the output of the first node to be empty
+            // and rely on the general identity checking to verify
+            // that all other correct nodes have empty output as well.
+            let first = net
+                .correct_nodes()
+                .nth(0)
+                .expect("At least one correct node needs to exist");
+            assert!(first.outputs().is_empty());
+            break;
+        }
+
         let _ = net.crank_expect(rng);
     }
 
-    // Verify that all instances output the proposed value.
-    assert!(net
-        .nodes()
-        .all(|node| once(&proposed_value.to_vec()).eq(node.outputs())));
+    if proposer_is_faulty {
+        // If the proposer was faulty it is sufficient for all correct nodes having the same value.
+        let first = net.correct_nodes().nth(0).unwrap().outputs();
+        assert!(net.nodes().all(|node| node.outputs() == first));
+    } else {
+        // In the case where the proposer was valid it must be the value it proposed.
+        assert!(net
+            .nodes()
+            .all(|node| once(&proposed_value.to_vec()).eq(node.outputs())));
+    }
 }
 
 fn test_broadcast_different_sizes<A, F>(
@@ -167,6 +191,8 @@ fn test_broadcast_different_sizes<A, F>(
             num_faulty_nodes
         );
 
+        let proposer_id = rng.gen_range(0, size) as NodeId;
+
         let (net, _) = NetBuilder::new(0..size as u16)
             .num_faulty(num_faulty_nodes as usize)
             .message_limit(10_000 * size as usize)
@@ -178,12 +204,13 @@ fn test_broadcast_different_sizes<A, F>(
                     .lock()
                     .unwrap()
                     .insert(info.id, netinfo.clone());
-                Broadcast::new(netinfo, 0).expect("Failed to create a Broadcast instance.")
+                Broadcast::new(netinfo, proposer_id)
+                    .expect("Failed to create a Broadcast instance.")
             })
             .build(&mut rng)
             .expect("Could not construct test network.");
 
-        test_broadcast(net, proposed_value, &mut rng);
+        test_broadcast(net, proposed_value, &mut rng, proposer_id);
     }
 }
 
@@ -192,13 +219,16 @@ fn test_8_broadcast_equal_leaves_silent() {
     let new_adversary = || ReorderingAdversary::new();
     let mut rng = rand::thread_rng();
     let size = 8;
+
+    let num_faulty = 0;
+    let proposer_id = rng.gen_range(0, size);
     let (net, _) = NetBuilder::new(0..size as u16)
-        .num_faulty(0 as usize)
+        .num_faulty(num_faulty as usize)
         .message_limit(10_000 * size as usize)
         .no_time_limit()
         .adversary(new_adversary())
         .using(move |node_info: NewNodeInfo<_>| {
-            Broadcast::new(Arc::new(node_info.netinfo), 0)
+            Broadcast::new(Arc::new(node_info.netinfo), proposer_id)
                 .expect("Failed to create a Broadcast instance.")
         })
         .build(&mut rng)
@@ -206,7 +236,7 @@ fn test_8_broadcast_equal_leaves_silent() {
 
     // Space is ASCII character 32. So 32 spaces will create shards that are all equal, even if the
     // length of the value is inserted.
-    test_broadcast(net, &[b' '; 32], &mut rng);
+    test_broadcast(net, &[b' '; 32], &mut rng, proposer_id);
 }
 
 #[test]
