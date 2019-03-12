@@ -39,6 +39,7 @@ pub enum MessageSorting {
 pub struct ProposeAdversary {
     message_strategy: MessageSorting,
     has_sent: bool,
+    drop_messages: bool,
     // TODO this is really hacky but there's no better way to get this value
     // Solution taken from binary_agreement_mitm test - ideally the new network simulator
     // should be altered to store the netinfo structure alongside nodes similar to
@@ -52,10 +53,12 @@ impl ProposeAdversary {
     pub fn new(
         message_strategy: MessageSorting,
         netinfo_mutex: Arc<Mutex<NetworkInfoMap>>,
+        drop_messages: bool,
     ) -> Self {
         ProposeAdversary {
             message_strategy,
             has_sent: false,
+            drop_messages,
             netinfo_mutex,
         }
     }
@@ -82,6 +85,12 @@ impl Adversary<Broadcast<NodeId>> for ProposeAdversary {
         mut rng: &mut R,
     ) -> Result<CpStep<Broadcast<NodeId>>, CrankError<Broadcast<NodeId>>> {
         let mut step = net.dispatch_message(msg, rng)?;
+
+        // optionally drop all messages other than the fake broadcasts
+        if self.drop_messages {
+            step.messages.clear();
+        }
+
         if !self.has_sent {
             self.has_sent = true;
 
@@ -213,8 +222,13 @@ fn test_broadcast_first_delivery_silent() {
 #[test]
 fn test_broadcast_first_delivery_adv_propose() {
     let adversary_netinfo: Arc<Mutex<NetworkInfoMap>> = Default::default();
-    let new_adversary =
-        || ProposeAdversary::new(MessageSorting::SortAscending, adversary_netinfo.clone());
+    let new_adversary = || {
+        ProposeAdversary::new(
+            MessageSorting::SortAscending,
+            adversary_netinfo.clone(),
+            false,
+        )
+    };
     test_broadcast_different_sizes(new_adversary, b"Foo", &adversary_netinfo);
 }
 
@@ -222,7 +236,15 @@ fn test_broadcast_first_delivery_adv_propose() {
 fn test_broadcast_random_delivery_adv_propose() {
     let adversary_netinfo: Arc<Mutex<NetworkInfoMap>> = Default::default();
     let new_adversary =
-        || ProposeAdversary::new(MessageSorting::RandomPick, adversary_netinfo.clone());
+        || ProposeAdversary::new(MessageSorting::RandomPick, adversary_netinfo.clone(), false);
+    test_broadcast_different_sizes(new_adversary, b"Foo", &adversary_netinfo);
+}
+
+#[test]
+fn test_broadcast_random_delivery_adv_propose_and_drop() {
+    let adversary_netinfo: Arc<Mutex<NetworkInfoMap>> = Default::default();
+    let new_adversary =
+        || ProposeAdversary::new(MessageSorting::RandomPick, adversary_netinfo.clone(), true);
     test_broadcast_different_sizes(new_adversary, b"Foo", &adversary_netinfo);
 }
 
