@@ -71,7 +71,10 @@ fn test_subset<A>(
             assert_eq!(&inputs[id], value);
         }
 
-        assert_eq!(outputs.iter().cloned().collect::<BTreeSet<_>>(), expected_value);
+        assert_eq!(
+            outputs.iter().cloned().collect::<BTreeSet<_>>(),
+            expected_value
+        );
     }
 }
 
@@ -125,8 +128,7 @@ fn test_subset_5_nodes_different_proposed_values() {
         Vec::from("Delta"),
         Vec::from("Echo"),
     ];
-    let proposals: BTreeMap<NodeId, ProposedValue> =
-        (0..5).zip(proposed_values).collect();
+    let proposals: BTreeMap<NodeId, ProposedValue> = (0..5).zip(proposed_values).collect();
     let net = new_network(5, 0, ReorderingAdversary::new);
     test_subset(net, &proposals);
 }

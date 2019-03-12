@@ -82,7 +82,6 @@ impl Adversary<Broadcast<NodeId>> for ProposeAdversary {
         mut rng: &mut R,
     ) -> Result<CpStep<Broadcast<NodeId>>, CrankError<Broadcast<NodeId>>> {
         let mut step = net.dispatch_message(msg, rng)?;
-
         if !self.has_sent {
             self.has_sent = true;
 
@@ -216,7 +215,7 @@ fn test_broadcast_first_delivery_adv_propose() {
     let adversary_netinfo: Arc<Mutex<NetworkInfoMap>> = Default::default();
     let new_adversary =
         || ProposeAdversary::new(MessageSorting::SortAscending, adversary_netinfo.clone());
-    test_broadcast_different_sizes(new_adversary, b"Foo", &Default::default());
+    test_broadcast_different_sizes(new_adversary, b"Foo", &adversary_netinfo);
 }
 
 #[test]
