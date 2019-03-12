@@ -35,8 +35,10 @@ fn test_subset<A>(
         let _ = net.crank_expect(&mut rng);
     }
 
-    // Get reference value
-    let observer: BTreeSet<_> = net
+    // Get reference value from the first correct node.
+    // TODO: Revisit when observers are available in the new net simulator
+    //       or drop this TODO if we decide to abandon that concept.
+    let expected_value: BTreeSet<_> = net
         .correct_nodes()
         .nth(0)
         .unwrap()
@@ -69,7 +71,7 @@ fn test_subset<A>(
             assert_eq!(&inputs[id], value);
         }
 
-        assert_eq!(outputs.iter().cloned().collect::<BTreeSet<_>>(), observer);
+        assert_eq!(outputs.iter().cloned().collect::<BTreeSet<_>>(), expected_value);
     }
 }
 
@@ -105,13 +107,12 @@ where
 #[test]
 fn test_subset_3_out_of_4_nodes_propose() {
     let proposed_value = Vec::from("Fake news");
-    let proposing_ids: BTreeSet<NodeId> = (0..3).map(|node_id| node_id).collect();
+    let proposing_ids: BTreeSet<NodeId> = (0..3).collect();
     let proposals: BTreeMap<NodeId, ProposedValue> = proposing_ids
         .iter()
         .map(|id| (*id, proposed_value.clone()))
         .collect();
-    let adversary = || NodeOrderAdversary::new();
-    let net = new_network(3, 1, adversary);
+    let net = new_network(3, 1, NodeOrderAdversary::new);
     test_subset(net, &proposals);
 }
 
@@ -125,9 +126,8 @@ fn test_subset_5_nodes_different_proposed_values() {
         Vec::from("Echo"),
     ];
     let proposals: BTreeMap<NodeId, ProposedValue> =
-        (0..5).map(|node_id| node_id).zip(proposed_values).collect();
-    let adversary = || ReorderingAdversary::new();
-    let net = new_network(5, 0, adversary);
+        (0..5).zip(proposed_values).collect();
+    let net = new_network(5, 0, ReorderingAdversary::new);
     test_subset(net, &proposals);
 }
 
@@ -135,7 +135,6 @@ fn test_subset_5_nodes_different_proposed_values() {
 fn test_subset_1_node() {
     let proposals: BTreeMap<NodeId, ProposedValue> =
         once((0, Vec::from("Node 0 is the greatest!"))).collect();
-    let adversary = || ReorderingAdversary::new();
-    let net = new_network(1, 0, adversary);
+    let net = new_network(1, 0, ReorderingAdversary::new);
     test_subset(net, &proposals);
 }

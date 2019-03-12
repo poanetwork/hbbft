@@ -31,11 +31,11 @@ pub enum MessageSorting {
 
 /// For each adversarial node does the following, but only once:
 ///
-/// * creates a **new** instance of the Broadcast ConsensusProtocol,
+/// * Creates a *new* instance of the Broadcast ConsensusProtocol,
 ///   with the adversarial node ID as proposer
-/// * Let it handle a "Fake News" input
-/// * Record the returned step's messages
-/// * Inject the messages to the queue
+/// * Lets it handle a "Fake News" input
+/// * Records the returned step's messages
+/// * Injects the messages to the queue
 pub struct ProposeAdversary {
     message_strategy: MessageSorting,
     has_sent: bool,
@@ -47,7 +47,7 @@ pub struct ProposeAdversary {
 }
 
 impl ProposeAdversary {
-    /// Create a new `ProposeAdversary`.
+    /// Creates a new `ProposeAdversary`.
     #[inline]
     pub fn new(
         message_strategy: MessageSorting,
@@ -170,7 +170,7 @@ fn test_broadcast_different_sizes<A, F>(
                     .lock()
                     .unwrap()
                     .insert(info.id, netinfo.clone());
-                Broadcast::new(netinfo, 0).expect("Failed to create a ThresholdSign instance.")
+                Broadcast::new(netinfo, 0).expect("Failed to create a Broadcast instance.")
             })
             .build(&mut rng)
             .expect("Could not construct test network.");
@@ -191,7 +191,7 @@ fn test_8_broadcast_equal_leaves_silent() {
         .adversary(new_adversary())
         .using(move |node_info: NewNodeInfo<_>| {
             Broadcast::new(Arc::new(node_info.netinfo), 0)
-                .expect("Failed to create a ThresholdSign instance.")
+                .expect("Failed to create a Broadcast instance.")
         })
         .build(&mut rng)
         .expect("Could not construct test network.");
@@ -203,14 +203,12 @@ fn test_8_broadcast_equal_leaves_silent() {
 
 #[test]
 fn test_broadcast_random_delivery_silent() {
-    let new_adversary = || ReorderingAdversary::new();
-    test_broadcast_different_sizes(new_adversary, b"Foo", &Default::default());
+    test_broadcast_different_sizes(ReorderingAdversary::new, b"Foo", &Default::default());
 }
 
 #[test]
 fn test_broadcast_first_delivery_silent() {
-    let new_adversary = || NodeOrderAdversary::new();
-    test_broadcast_different_sizes(new_adversary, b"Foo", &Default::default());
+    test_broadcast_different_sizes(NodeOrderAdversary::new, b"Foo", &Default::default());
 }
 
 #[test]
@@ -218,7 +216,7 @@ fn test_broadcast_first_delivery_adv_propose() {
     let adversary_netinfo: Arc<Mutex<NetworkInfoMap>> = Default::default();
     let new_adversary =
         || ProposeAdversary::new(MessageSorting::SortAscending, adversary_netinfo.clone());
-    test_broadcast_different_sizes(new_adversary, b"Foo", &adversary_netinfo);
+    test_broadcast_different_sizes(new_adversary, b"Foo", &Default::default());
 }
 
 #[test]

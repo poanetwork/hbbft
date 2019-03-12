@@ -222,13 +222,11 @@ fn test_honey_badger_different_sizes<A, F>(
             num_good_nodes, num_adv_nodes
         );
 
-        let adversary = || new_adversary();
-
         let (net, _) = NetBuilder::new(0..size as u16)
             .num_faulty(num_adv_nodes as usize)
             .message_limit(10_000 * size as usize)
             .no_time_limit()
-            .adversary(adversary())
+            .adversary(new_adversary())
             .using_step(move |info: NewNodeInfo<_>| {
                 let netinfo = Arc::new(info.netinfo);
                 cloned_netinfo_map
@@ -246,14 +244,12 @@ fn test_honey_badger_different_sizes<A, F>(
 
 #[test]
 fn test_honey_badger_random_delivery_silent() {
-    let new_adversary = || ReorderingAdversary::new();
-    test_honey_badger_different_sizes(new_adversary, 30, &Default::default());
+    test_honey_badger_different_sizes(ReorderingAdversary::new, 30, &Default::default());
 }
 
 #[test]
 fn test_honey_badger_first_delivery_silent() {
-    let new_adversary = || NodeOrderAdversary::new();
-    test_honey_badger_different_sizes(new_adversary, 30, &Default::default());
+    test_honey_badger_different_sizes(NodeOrderAdversary::new, 30, &Default::default());
 }
 
 #[test]

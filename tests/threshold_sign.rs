@@ -23,7 +23,7 @@ where
     fn test_threshold_sign(&mut self) -> Signature {
         let mut rng = rand::thread_rng();
         self.broadcast_input(&(), &mut rng)
-            .expect("broadcast input failed");
+            .expect("threshold sign input failed");
 
         // Handle messages until all good nodes have terminated.
         while !self.nodes().all(|node| node.algorithm().terminated()) {
@@ -32,6 +32,7 @@ where
 
         // Verify that all instances output the same value.
         let first = self.correct_nodes().nth(0).unwrap().outputs();
+        // TODO: Verify if signature is valid
         assert!(!first.is_empty());
         assert!(self.nodes().all(|node| node.outputs() == first));
 
