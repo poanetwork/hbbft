@@ -73,7 +73,6 @@ impl Adversary<UsizeHoneyBadger> for FaultyShareAdversary {
 
         let mut step = net.dispatch_message(msg, rng)?;
 
-
         let fake_proposal = &Vec::from("X marks the spot");
         // For each untriggered epoch, send fake shares
         for (epoch, trigger_set) in &mut self.share_triggers {
@@ -202,7 +201,7 @@ fn new_honey_badger(
 fn test_honey_badger_different_sizes<A, F>(
     new_adversary: F,
     num_txs: usize,
-    adversary_netinfo: Arc<Mutex<NetworkInfoMap>>,
+    adversary_netinfo: &Arc<Mutex<NetworkInfoMap>>,
 ) where
     A: Adversary<UsizeHoneyBadger>,
     F: Fn() -> A,
@@ -248,20 +247,20 @@ fn test_honey_badger_different_sizes<A, F>(
 #[test]
 fn test_honey_badger_random_delivery_silent() {
     let new_adversary = || ReorderingAdversary::new();
-    test_honey_badger_different_sizes(new_adversary, 30, Default::default());
+    test_honey_badger_different_sizes(new_adversary, 30, &Default::default());
 }
 
 #[test]
 fn test_honey_badger_first_delivery_silent() {
     let new_adversary = || NodeOrderAdversary::new();
-    test_honey_badger_different_sizes(new_adversary, 30, Default::default());
+    test_honey_badger_different_sizes(new_adversary, 30, &Default::default());
 }
 
 #[test]
 fn test_honey_badger_faulty_share() {
     let adversary_netinfo: Arc<Mutex<NetworkInfoMap>> = Default::default();
     let new_adversary = || FaultyShareAdversary::new(adversary_netinfo.clone());
-    test_honey_badger_different_sizes(new_adversary, 8, adversary_netinfo.clone());
+    test_honey_badger_different_sizes(new_adversary, 8, &adversary_netinfo);
 }
 
 #[test]
@@ -270,5 +269,5 @@ fn test_honey_badger_random_adversary() {
         // A 10% injection chance is roughly ~13k extra messages added.
         RandomAdversary::new(0.1, 0.1)
     };
-    test_honey_badger_different_sizes(new_adversary, 8, Default::default());
+    test_honey_badger_different_sizes(new_adversary, 8, &Default::default());
 }

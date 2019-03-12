@@ -140,7 +140,7 @@ fn test_broadcast<A: Adversary<Broadcast<NodeId>>>(
 fn test_broadcast_different_sizes<A, F>(
     new_adversary: F,
     proposed_value: &[u8],
-    adversary_netinfo: Arc<Mutex<NetworkInfoMap>>,
+    adversary_netinfo: &Arc<Mutex<NetworkInfoMap>>,
 ) where
     A: Adversary<Broadcast<NodeId>>,
     F: Fn() -> A,
@@ -204,13 +204,13 @@ fn test_8_broadcast_equal_leaves_silent() {
 #[test]
 fn test_broadcast_random_delivery_silent() {
     let new_adversary = || ReorderingAdversary::new();
-    test_broadcast_different_sizes(new_adversary, b"Foo", Default::default());
+    test_broadcast_different_sizes(new_adversary, b"Foo", &Default::default());
 }
 
 #[test]
 fn test_broadcast_first_delivery_silent() {
     let new_adversary = || NodeOrderAdversary::new();
-    test_broadcast_different_sizes(new_adversary, b"Foo", Default::default());
+    test_broadcast_different_sizes(new_adversary, b"Foo", &Default::default());
 }
 
 #[test]
@@ -218,7 +218,7 @@ fn test_broadcast_first_delivery_adv_propose() {
     let adversary_netinfo: Arc<Mutex<NetworkInfoMap>> = Default::default();
     let new_adversary =
         || ProposeAdversary::new(MessageSorting::SortAscending, adversary_netinfo.clone());
-    test_broadcast_different_sizes(new_adversary, b"Foo", adversary_netinfo.clone());
+    test_broadcast_different_sizes(new_adversary, b"Foo", &adversary_netinfo);
 }
 
 #[test]
@@ -226,11 +226,11 @@ fn test_broadcast_random_delivery_adv_propose() {
     let adversary_netinfo: Arc<Mutex<NetworkInfoMap>> = Default::default();
     let new_adversary =
         || ProposeAdversary::new(MessageSorting::RandomPick, adversary_netinfo.clone());
-    test_broadcast_different_sizes(new_adversary, b"Foo", adversary_netinfo.clone());
+    test_broadcast_different_sizes(new_adversary, b"Foo", &adversary_netinfo);
 }
 
 #[test]
 fn test_broadcast_random_adversary() {
     let new_adversary = || RandomAdversary::new(0.2, 0.2);
-    test_broadcast_different_sizes(new_adversary, b"RandomFoo", Default::default());
+    test_broadcast_different_sizes(new_adversary, b"RandomFoo", &Default::default());
 }
