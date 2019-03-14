@@ -265,7 +265,6 @@ proptest! {
 }
 
 fn do_test_8_broadcast_equal_leaves_silent(seed: TestRngSeed) {
-    let new_adversary = || ReorderingAdversary::new();
     let mut rng: TestRng = TestRng::from_seed(seed);
     let size = 8;
 
@@ -275,7 +274,7 @@ fn do_test_8_broadcast_equal_leaves_silent(seed: TestRngSeed) {
         .num_faulty(num_faulty as usize)
         .message_limit(10_000 * size as usize)
         .no_time_limit()
-        .adversary(new_adversary())
+        .adversary(ReorderingAdversary::new())
         .using(move |node_info: NewNodeInfo<_>| {
             Broadcast::new(Arc::new(node_info.netinfo), proposer_id)
                 .expect("Failed to create a Broadcast instance.")
