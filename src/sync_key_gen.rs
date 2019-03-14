@@ -487,7 +487,7 @@ impl<N: NodeIdT> SyncKeyGen<N> {
             return Err(PartFault::RowCount);
         }
         if let Some(state) = self.parts.get(&sender_idx) {
-            if *state != ProposalState::new(commit) {
+            if state.commit != commit {
                 return Err(PartFault::MultipleParts);
             }
             return Ok(None); // We already handled this `Part` before.
