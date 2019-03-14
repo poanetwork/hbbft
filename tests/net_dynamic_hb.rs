@@ -248,6 +248,7 @@ fn do_drop_and_re_add(cfg: TestConfig) {
                     );
                     awaiting_apply_old_subset.remove(&node_id);
                 }
+                ChangeState::None => (),
                 _ => {
                     println!("Unhandled change: {:?}", change);
                 }
@@ -257,8 +258,8 @@ fn do_drop_and_re_add(cfg: TestConfig) {
         let (era, hb_epoch) = state.net[node_id].algorithm().algo().epoch();
         if !nodes_for_remove.contains(&node_id)
             && awaiting_apply_old_subset_input.contains(&node_id)
-            && state.shutdown_epoch.is_some()
-            && era + hb_epoch >= state.shutdown_epoch.unwrap()
+            && state.re_add_epoch.is_some()
+            && era + hb_epoch >= state.re_add_epoch.unwrap()
         {
             // Now we apply old subset of node back. Public keys will be reused.
             let step = state
@@ -294,7 +295,7 @@ fn do_drop_and_re_add(cfg: TestConfig) {
             // in which 'nodes_for_remove' will shut down.
             if let ChangeState::Complete(Change::NodeChange(ref pub_keys)) = batch.change() {
                 if *pub_keys == new_pub_keys {
-                    state.shutdown_epoch = Some(batch.epoch() + 1);
+                    state.re_add_epoch = Some(batch.epoch() + 1);
                 }
             }
 
@@ -312,8 +313,8 @@ fn do_drop_and_re_add(cfg: TestConfig) {
                         .expect("output set disappeared")
                         .remove(tx);
                     // Also, delete expected output from the 'nodes_for_remove' if those nodes are
-                    // currently removed. They do not output any values in epochs in which theirs are
-                    // not a participant.
+                    // currently removed. They do not output any values in epochs in which they
+                    // are not a participant.
                     if !nodes_for_remove.contains(&node_id)
                         && awaiting_apply_new_subset.is_empty()
                         && !state.old_subset_applied
@@ -462,7 +463,7 @@ where
     /// The join plan for adding nodes.
     join_plan: Option<JoinPlan<usize>>,
     /// The epoch in which the removed nodes should go offline.
-    shutdown_epoch: Option<u64>,
+    re_add_epoch: Option<u64>,
     /// The removed nodes which are to be restarted as soon as all remaining
     /// validators agree to add them back.
     saved_nodes: Vec<Node<DHB>>,
@@ -479,7 +480,7 @@ where
         TestState {
             net,
             join_plan: None,
-            shutdown_epoch: None,
+            re_add_epoch: None,
             saved_nodes: Vec::new(),
             old_subset_applied: false,
         }
@@ -499,13 +500,15 @@ where
         let f = faulty.len();
         let n = correct.len() + f;
 
+        assert!(n > 2, "cannot remove any more nodes");
         assert!(
             n > f * 3,
             "the network is already captured by the faulty nodes"
         );
 
         let new_n = rng.gen_range(2, n); // new_n is between 2 and n-1
-        let new_f = rng.gen_range(0, f.min(util::max_faulty(new_n)) + 1);
+        let min_new_f = f.saturating_sub(n - new_n);
+        let new_f = rng.gen_range(min_new_f, f.min(util::max_faulty(new_n)) + 1);
 
         let remove_from_faulty = f - new_f;
         let remove_from_correct = n - new_n - remove_from_faulty;
