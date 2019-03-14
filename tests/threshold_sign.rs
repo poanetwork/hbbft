@@ -1,46 +1,46 @@
 #![deny(unused_must_use)]
-//! Threshold signing tests
+//! Non-deterministic tests for the ThresholdSign protocol
 
-mod network;
+pub mod net;
 
-use std::iter::once;
+use std::sync::Arc;
 
 use log::info;
-use rand::Rng;
+use proptest::{prelude::ProptestConfig, proptest, proptest_helper};
+use rand::{Rng, SeedableRng};
 
-use hbbft::{crypto::Signature, threshold_sign::ThresholdSign, util};
+use hbbft::{crypto::Signature, threshold_sign::ThresholdSign, util, ConsensusProtocol};
 
-use crate::network::{Adversary, MessageScheduler, NodeId, SilentAdversary, TestNetwork, TestNode};
+use crate::net::adversary::{Adversary, NodeOrderAdversary, ReorderingAdversary};
+use crate::net::proptest::{gen_seed, TestRng, TestRngSeed};
+use crate::net::{NetBuilder, NewNodeInfo, VirtualNet};
+
+type NodeId = u16;
 
 /// Tests a network of threshold signing instances with an optional expected value. Outputs the
 /// computed signature if the test is successful.
-fn test_threshold_sign<A>(mut network: TestNetwork<A, ThresholdSign<NodeId>>) -> Signature
+fn test_threshold_sign<A>(
+    mut net: VirtualNet<ThresholdSign<NodeId>, A>,
+    mut rng: &mut TestRng,
+) -> Signature
 where
     A: Adversary<ThresholdSign<NodeId>>,
 {
-    let mut rng = rand::thread_rng();
-
-    network.input_all(());
-
-    network.observer.handle_input((), &mut rng); // Observer will only return after `input` was called.
+    net.broadcast_input(&(), &mut rng)
+        .expect("threshold sign input failed");
 
     // Handle messages until all good nodes have terminated.
-    while !network.nodes.values().all(TestNode::terminated) {
-        network.step();
+    while !net.nodes().all(|node| node.algorithm().terminated()) {
+        let _ = net.crank_expect(&mut rng);
     }
-    let mut expected = None;
+
     // Verify that all instances output the same value.
-    for node in network.nodes.values() {
-        if let Some(ref b) = expected {
-            assert!(once(b).eq(node.outputs()));
-        } else {
-            assert_eq!(1, node.outputs().len());
-            expected = Some(node.outputs()[0].clone());
-        }
-    }
-    // Now `expected` is the unique output of all good nodes.
-    assert!(expected.iter().eq(network.observer.outputs()));
-    expected.unwrap()
+    let first = net.correct_nodes().nth(0).unwrap().outputs();
+    // TODO: Verify if signature is valid
+    assert!(!first.is_empty());
+    assert!(net.nodes().all(|node| node.outputs() == first));
+
+    first[0].clone()
 }
 
 const GOOD_SAMPLE_SET: f64 = 400.0;
@@ -50,7 +50,7 @@ const GOOD_SAMPLE_SET: f64 = 400.0;
 /// size.
 fn check_coin_distribution(num_samples: usize, count_true: usize, count_false: usize) {
     // Maximum 40% expectation in case of 400 samples or more.
-    const EXPECTED_SHARE: f64 = 0.4;
+    const EXPECTED_SHARE: f64 = 0.33;
     let max_gain = GOOD_SAMPLE_SET.log2();
     let num_samples_f64 = num_samples as f64;
     let gain = num_samples_f64.log2().min(max_gain);
@@ -64,17 +64,20 @@ fn check_coin_distribution(num_samples: usize, count_true: usize, count_false: u
     assert!(count_false > min_throws);
 }
 
-fn test_threshold_sign_different_sizes<A, F>(new_adversary: F, num_samples: usize)
-where
+fn test_threshold_sign_different_sizes<A, F>(
+    new_adversary: F,
+    num_samples: usize,
+    seed: TestRngSeed,
+) where
     A: Adversary<ThresholdSign<NodeId>>,
-    F: Fn(usize, usize) -> A,
+    F: Fn() -> A,
 {
     assert!(num_samples > 0);
 
     // This returns an error in all but the first test.
     let _ = env_logger::try_init();
 
-    let mut rng = rand::thread_rng();
+    let mut rng: TestRng = TestRng::from_seed(seed);
 
     let mut last_size = 1;
     let mut sizes = vec![last_size];
@@ -86,24 +89,29 @@ where
 
     for size in sizes {
         let num_faulty_nodes = util::max_faulty(size);
-        let num_good_nodes = size - num_faulty_nodes;
         info!(
             "Network size: {} good nodes, {} faulty nodes",
-            num_good_nodes, num_faulty_nodes
+            size - num_faulty_nodes,
+            num_faulty_nodes
         );
         let unique_id: u64 = rng.gen();
         let mut count_true = 0;
         let mut count_false = 0;
         for i in 0..num_samples {
-            let adversary = |_| new_adversary(num_good_nodes, num_faulty_nodes);
             let nonce = format!("My very unique nonce {:x}:{}", unique_id, i);
             info!("Nonce: {}", nonce);
-            let new_coin = |netinfo: _| {
-                ThresholdSign::new_with_document(netinfo, nonce.clone())
-                    .expect("Failed to set the new coin's ID")
-            };
-            let network = TestNetwork::new(num_good_nodes, num_faulty_nodes, adversary, new_coin);
-            let coin = test_threshold_sign(network).parity();
+            let (net, _) = NetBuilder::new(0..size as u16)
+                .num_faulty(num_faulty_nodes as usize)
+                .message_limit(size * (size - 1))
+                .no_time_limit()
+                .adversary(new_adversary())
+                .using(move |node_info: NewNodeInfo<_>| {
+                    ThresholdSign::new_with_document(Arc::new(node_info.netinfo), nonce.clone())
+                        .expect("Failed to create a ThresholdSign instance.")
+                })
+                .build(&mut rng)
+                .expect("Could not construct test network.");
+            let coin = test_threshold_sign(net, &mut rng).parity();
             if coin {
                 count_true += 1;
             } else {
@@ -114,14 +122,30 @@ where
     }
 }
 
-#[test]
-fn test_threshold_sign_random_silent_200_samples() {
-    let new_adversary = |_: usize, _: usize| SilentAdversary::new(MessageScheduler::Random);
-    test_threshold_sign_different_sizes(new_adversary, 200);
+proptest! {
+    #![proptest_config(ProptestConfig {
+        cases: 1, .. ProptestConfig::default()
+    })]
+
+    #[test]
+    #[allow(clippy::unnecessary_operation)]
+    fn test_threshold_sign_random_silent_200_samples(seed in gen_seed()) {
+        do_test_threshold_sign_random_silent_200_samples(seed)
+    }
+
+    #[test]
+    #[allow(clippy::unnecessary_operation)]
+    fn test_threshold_sign_first_silent_50_samples(seed in gen_seed()) {
+        do_test_threshold_sign_first_silent_50_samples(seed)
+    }
 }
 
-#[test]
-fn test_threshold_sign_first_silent_50_samples() {
-    let new_adversary = |_: usize, _: usize| SilentAdversary::new(MessageScheduler::First);
-    test_threshold_sign_different_sizes(new_adversary, 50);
+fn do_test_threshold_sign_random_silent_200_samples(seed: TestRngSeed) {
+    let new_adversary = || ReorderingAdversary::new();
+    test_threshold_sign_different_sizes(new_adversary, 200, seed);
+}
+
+fn do_test_threshold_sign_first_silent_50_samples(seed: TestRngSeed) {
+    let new_adversary = || NodeOrderAdversary::new();
+    test_threshold_sign_different_sizes(new_adversary, 50, seed);
 }
