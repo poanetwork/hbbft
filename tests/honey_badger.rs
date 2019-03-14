@@ -8,7 +8,8 @@ use std::sync::{Arc, Mutex};
 
 use itertools::Itertools;
 use log::info;
-use rand::{seq::SliceRandom, Rng};
+use proptest::{prelude::ProptestConfig, proptest, proptest_helper};
+use rand::{seq::SliceRandom, Rng, SeedableRng};
 
 use hbbft::honey_badger::{Batch, EncryptionSchedule, HoneyBadger, MessageContent};
 use hbbft::sender_queue::{self, SenderQueue, Step};
@@ -19,6 +20,7 @@ use crate::net::adversary::{
     sort_by_random_node, Adversary, NetMutHandle, NodeOrderAdversary, RandomAdversary,
     ReorderingAdversary,
 };
+use crate::net::proptest::{gen_seed, TestRng, TestRngSeed};
 use crate::net::{CrankError, NetBuilder, NetMessage, NewNodeInfo, Node, VirtualNet};
 
 type NodeId = u16;
@@ -128,16 +130,17 @@ impl Adversary<UsizeHoneyBadger> for FaultyShareAdversary {
 }
 
 /// Proposes `num_txs` values and expects nodes to output and order them.
-fn test_honey_badger<A>(mut net: VirtualNet<UsizeHoneyBadger, A>, num_txs: usize)
-where
+fn test_honey_badger<A>(
+    mut net: VirtualNet<UsizeHoneyBadger, A>,
+    num_txs: usize,
+    mut rng: &mut TestRng,
+) where
     A: Adversary<UsizeHoneyBadger>,
 {
     let mut queues: BTreeMap<_, _> = net
         .correct_nodes()
         .map(|node| (*node.id(), (0..num_txs).collect::<Vec<usize>>()))
         .collect();
-
-    let mut rng = rand::thread_rng();
 
     // Returns `true` if the node has not output all transactions yet.
     // If it has, and has advanced another epoch, it clears all messages for later epochs.
@@ -201,6 +204,7 @@ fn new_honey_badger(
 fn test_honey_badger_different_sizes<A, F>(
     new_adversary: F,
     num_txs: usize,
+    seed: TestRngSeed,
     adversary_netinfo: &Arc<Mutex<NetworkInfoMap>>,
 ) where
     A: Adversary<UsizeHoneyBadger>,
@@ -209,7 +213,7 @@ fn test_honey_badger_different_sizes<A, F>(
     // This returns an error in all but the first test.
     let _ = env_logger::try_init();
 
-    let mut rng = rand::thread_rng();
+    let mut rng: TestRng = TestRng::from_seed(seed);
     let sizes = vec![1, 2, 3, 5, rng.gen_range(6, 10)];
     for size in sizes {
         // cloning since it gets moved into a closure
@@ -238,32 +242,58 @@ fn test_honey_badger_different_sizes<A, F>(
             .build(&mut rng)
             .expect("Could not construct test network.");
 
-        test_honey_badger(net, num_txs);
+        test_honey_badger(net, num_txs, &mut rng);
     }
 }
 
-#[test]
-fn test_honey_badger_random_delivery_silent() {
-    test_honey_badger_different_sizes(ReorderingAdversary::new, 30, &Default::default());
+proptest! {
+    #![proptest_config(ProptestConfig {
+        cases: 1, .. ProptestConfig::default()
+    })]
+
+    #[test]
+    #[allow(clippy::unnecessary_operation)]
+    fn test_honey_badger_random_delivery_silent(seed in gen_seed()) {
+        do_test_honey_badger_random_delivery_silent(seed)
+    }
+
+    #[test]
+    #[allow(clippy::unnecessary_operation)]
+    fn test_honey_badger_first_delivery_silent(seed in gen_seed()) {
+        do_test_honey_badger_first_delivery_silent(seed)
+    }
+
+    #[test]
+    #[allow(clippy::unnecessary_operation)]
+    fn test_honey_badger_faulty_share(seed in gen_seed()) {
+        do_test_honey_badger_faulty_share(seed)
+    }
+
+    #[test]
+    #[allow(clippy::unnecessary_operation)]
+    fn test_honey_badger_random_adversary(seed in gen_seed()) {
+        do_test_honey_badger_random_adversary(seed)
+    }
 }
 
-#[test]
-fn test_honey_badger_first_delivery_silent() {
-    test_honey_badger_different_sizes(NodeOrderAdversary::new, 30, &Default::default());
+fn do_test_honey_badger_random_delivery_silent(seed: TestRngSeed) {
+    test_honey_badger_different_sizes(ReorderingAdversary::new, 30, seed, &Default::default());
 }
 
-#[test]
-fn test_honey_badger_faulty_share() {
+fn do_test_honey_badger_first_delivery_silent(seed: TestRngSeed) {
+    test_honey_badger_different_sizes(NodeOrderAdversary::new, 30, seed, &Default::default());
+}
+
+fn do_test_honey_badger_faulty_share(seed: TestRngSeed) {
     let adversary_netinfo: Arc<Mutex<NetworkInfoMap>> = Default::default();
     let new_adversary = || FaultyShareAdversary::new(adversary_netinfo.clone());
-    test_honey_badger_different_sizes(new_adversary, 8, &adversary_netinfo);
+    test_honey_badger_different_sizes(new_adversary, 8, seed, &adversary_netinfo);
 }
 
-#[test]
-fn test_honey_badger_random_adversary() {
+fn do_test_honey_badger_random_adversary(seed: TestRngSeed) {
     let new_adversary = || {
         // A 10% injection chance is roughly ~13k extra messages added.
         RandomAdversary::new(0.1, 0.1)
     };
-    test_honey_badger_different_sizes(new_adversary, 8, &Default::default());
+    test_honey_badger_different_sizes(new_adversary, 8, seed, &Default::default());
 }

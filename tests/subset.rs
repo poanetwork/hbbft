@@ -5,10 +5,14 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::iter::once;
 use std::sync::Arc;
 
+use proptest::{prelude::ProptestConfig, proptest, proptest_helper};
+use rand::SeedableRng;
+
 use hbbft::subset::{Subset, SubsetOutput};
 use hbbft::ConsensusProtocol;
 
 use crate::net::adversary::{Adversary, NodeOrderAdversary, ReorderingAdversary};
+use crate::net::proptest::{gen_seed, TestRng, TestRngSeed};
 use crate::net::{NetBuilder, NewNodeInfo, VirtualNet};
 
 type NodeId = u16;
@@ -17,12 +21,11 @@ type ProposedValue = Vec<u8>;
 fn test_subset<A>(
     mut net: VirtualNet<Subset<NodeId, u8>, A>,
     inputs: &BTreeMap<NodeId, ProposedValue>,
+    mut rng: &mut TestRng,
 ) where
     A: Adversary<Subset<NodeId, u8>>,
 {
     let ids: Vec<NodeId> = net.nodes().map(|node| *node.id()).collect();
-
-    let mut rng = rand::thread_rng();
 
     for id in ids {
         if let Some(value) = inputs.get(&id) {
@@ -81,6 +84,7 @@ fn test_subset<A>(
 fn new_network<A, F>(
     good_num: usize,
     bad_num: usize,
+    mut rng: &mut TestRng,
     adversary: F,
 ) -> VirtualNet<Subset<NodeId, u8>, A>
 where
@@ -89,8 +93,6 @@ where
 {
     // This returns an error in all but the first test.
     let _ = env_logger::try_init();
-
-    let mut rng = rand::thread_rng();
 
     let size = good_num + bad_num;
 
@@ -107,20 +109,43 @@ where
     net
 }
 
-#[test]
-fn test_subset_3_out_of_4_nodes_propose() {
+proptest! {
+    #![proptest_config(ProptestConfig {
+        cases: 1, .. ProptestConfig::default()
+    })]
+
+    #[test]
+    #[allow(clippy::unnecessary_operation)]
+    fn test_subset_3_out_of_4_nodes_propose(seed in gen_seed()) {
+        do_test_subset_3_out_of_4_nodes_propose(seed)
+    }
+
+    #[test]
+    #[allow(clippy::unnecessary_operation)]
+    fn test_subset_5_nodes_different_proposed_values(seed in gen_seed()) {
+        do_test_subset_5_nodes_different_proposed_values(seed)
+    }
+
+    #[test]
+    #[allow(clippy::unnecessary_operation)]
+    fn test_subset_1_node(seed in gen_seed()) {
+        do_test_subset_1_node(seed)
+    }
+}
+
+fn do_test_subset_3_out_of_4_nodes_propose(seed: TestRngSeed) {
     let proposed_value = Vec::from("Fake news");
     let proposing_ids: BTreeSet<NodeId> = (0..3).collect();
     let proposals: BTreeMap<NodeId, ProposedValue> = proposing_ids
         .iter()
         .map(|id| (*id, proposed_value.clone()))
         .collect();
-    let net = new_network(3, 1, NodeOrderAdversary::new);
-    test_subset(net, &proposals);
+    let mut rng: TestRng = TestRng::from_seed(seed);
+    let net = new_network(3, 1, &mut rng, NodeOrderAdversary::new);
+    test_subset(net, &proposals, &mut rng);
 }
 
-#[test]
-fn test_subset_5_nodes_different_proposed_values() {
+fn do_test_subset_5_nodes_different_proposed_values(seed: TestRngSeed) {
     let proposed_values = vec![
         Vec::from("Alpha"),
         Vec::from("Bravo"),
@@ -129,14 +154,15 @@ fn test_subset_5_nodes_different_proposed_values() {
         Vec::from("Echo"),
     ];
     let proposals: BTreeMap<NodeId, ProposedValue> = (0..5).zip(proposed_values).collect();
-    let net = new_network(5, 0, ReorderingAdversary::new);
-    test_subset(net, &proposals);
+    let mut rng: TestRng = TestRng::from_seed(seed);
+    let net = new_network(5, 0, &mut rng, ReorderingAdversary::new);
+    test_subset(net, &proposals, &mut rng);
 }
 
-#[test]
-fn test_subset_1_node() {
+fn do_test_subset_1_node(seed: TestRngSeed) {
     let proposals: BTreeMap<NodeId, ProposedValue> =
         once((0, Vec::from("Node 0 is the greatest!"))).collect();
-    let net = new_network(1, 0, ReorderingAdversary::new);
-    test_subset(net, &proposals);
+    let mut rng: TestRng = TestRng::from_seed(seed);
+    let net = new_network(1, 0, &mut rng, ReorderingAdversary::new);
+    test_subset(net, &proposals, &mut rng);
 }

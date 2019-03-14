@@ -5,8 +5,8 @@ use std::iter::once;
 use std::sync::{Arc, Mutex};
 
 use log::info;
-use rand::rngs::ThreadRng;
-use rand::Rng;
+use proptest::{prelude::ProptestConfig, proptest, proptest_helper};
+use rand::{Rng, SeedableRng};
 
 use hbbft::{broadcast::Broadcast, util, ConsensusProtocol, CpStep, NetworkInfo};
 
@@ -14,6 +14,7 @@ use crate::net::adversary::{
     sort_ascending, swap_random, Adversary, NetMutHandle, NodeOrderAdversary, RandomAdversary,
     ReorderingAdversary,
 };
+use crate::net::proptest::{gen_seed, TestRng, TestRngSeed};
 use crate::net::{CrankError, NetBuilder, NetMessage, NewNodeInfo, VirtualNet};
 
 type NodeId = u16;
@@ -124,7 +125,7 @@ impl Adversary<Broadcast<NodeId>> for ProposeAdversary {
 fn test_broadcast<A: Adversary<Broadcast<NodeId>>>(
     mut net: VirtualNet<Broadcast<NodeId>, A>,
     proposed_value: &[u8],
-    rng: &mut ThreadRng,
+    rng: &mut TestRng,
     proposer_id: NodeId,
 ) {
     // This returns an error in all but the first test.
@@ -143,9 +144,9 @@ fn test_broadcast<A: Adversary<Broadcast<NodeId>>>(
         if proposer_is_faulty && net.messages_len() == 0 {
             info!("Expected starvation of messages with a faulty proposer");
             // The output of all correct nodes needs to be empty in this case.
-            // We check the for the output of the first node to be empty
-            // and rely on the general identity checking to verify
-            // that all other correct nodes have empty output as well.
+            // We check for the output of the first node to be empty and
+            // rely on the identity checks at the end of this function to
+            // verify that all other correct nodes have empty output as well.
             let first = net
                 .correct_nodes()
                 .nth(0)
@@ -172,12 +173,13 @@ fn test_broadcast<A: Adversary<Broadcast<NodeId>>>(
 fn test_broadcast_different_sizes<A, F>(
     new_adversary: F,
     proposed_value: &[u8],
+    seed: TestRngSeed,
     adversary_netinfo: &Arc<Mutex<NetworkInfoMap>>,
 ) where
     A: Adversary<Broadcast<NodeId>>,
     F: Fn() -> A,
 {
-    let mut rng = rand::thread_rng();
+    let mut rng: TestRng = TestRng::from_seed(seed);
     let sizes = (1..6)
         .chain(once(rng.gen_range(6, 20)))
         .chain(once(rng.gen_range(30, 50)));
@@ -214,10 +216,57 @@ fn test_broadcast_different_sizes<A, F>(
     }
 }
 
-#[test]
-fn test_8_broadcast_equal_leaves_silent() {
+proptest! {
+    #![proptest_config(ProptestConfig {
+        cases: 1, .. ProptestConfig::default()
+    })]
+
+    #[test]
+    #[allow(clippy::unnecessary_operation)]
+    fn test_8_broadcast_equal_leaves_silent(seed in gen_seed()) {
+        do_test_8_broadcast_equal_leaves_silent(seed)
+    }
+
+    #[test]
+    #[allow(clippy::unnecessary_operation)]
+    fn test_broadcast_random_delivery_silent(seed in gen_seed()) {
+        do_test_broadcast_random_delivery_silent(seed)
+    }
+
+    #[test]
+    #[allow(clippy::unnecessary_operation)]
+    fn test_broadcast_first_delivery_silent(seed in gen_seed()) {
+        do_test_broadcast_first_delivery_silent(seed)
+    }
+
+    #[test]
+    #[allow(clippy::unnecessary_operation)]
+    fn test_broadcast_first_delivery_adv_propose(seed in gen_seed()) {
+        do_test_broadcast_first_delivery_adv_propose(seed)
+    }
+
+    #[test]
+    #[allow(clippy::unnecessary_operation)]
+    fn test_broadcast_random_delivery_adv_propose(seed in gen_seed()) {
+        do_test_broadcast_random_delivery_adv_propose(seed)
+    }
+
+    #[test]
+    #[allow(clippy::unnecessary_operation)]
+    fn test_broadcast_random_delivery_adv_propose_and_drop(seed in gen_seed()) {
+        do_test_broadcast_random_delivery_adv_propose_and_drop(seed)
+    }
+
+    #[test]
+    #[allow(clippy::unnecessary_operation)]
+    fn test_broadcast_random_adversary(seed in gen_seed()) {
+        do_test_broadcast_random_adversary(seed)
+    }
+}
+
+fn do_test_8_broadcast_equal_leaves_silent(seed: TestRngSeed) {
     let new_adversary = || ReorderingAdversary::new();
-    let mut rng = rand::thread_rng();
+    let mut rng: TestRng = TestRng::from_seed(seed);
     let size = 8;
 
     let num_faulty = 0;
@@ -239,18 +288,15 @@ fn test_8_broadcast_equal_leaves_silent() {
     test_broadcast(net, &[b' '; 32], &mut rng, proposer_id);
 }
 
-#[test]
-fn test_broadcast_random_delivery_silent() {
-    test_broadcast_different_sizes(ReorderingAdversary::new, b"Foo", &Default::default());
+fn do_test_broadcast_random_delivery_silent(seed: TestRngSeed) {
+    test_broadcast_different_sizes(ReorderingAdversary::new, b"Foo", seed, &Default::default());
 }
 
-#[test]
-fn test_broadcast_first_delivery_silent() {
-    test_broadcast_different_sizes(NodeOrderAdversary::new, b"Foo", &Default::default());
+fn do_test_broadcast_first_delivery_silent(seed: TestRngSeed) {
+    test_broadcast_different_sizes(NodeOrderAdversary::new, b"Foo", seed, &Default::default());
 }
 
-#[test]
-fn test_broadcast_first_delivery_adv_propose() {
+fn do_test_broadcast_first_delivery_adv_propose(seed: TestRngSeed) {
     let adversary_netinfo: Arc<Mutex<NetworkInfoMap>> = Default::default();
     let new_adversary = || {
         ProposeAdversary::new(
@@ -259,27 +305,24 @@ fn test_broadcast_first_delivery_adv_propose() {
             false,
         )
     };
-    test_broadcast_different_sizes(new_adversary, b"Foo", &adversary_netinfo);
+    test_broadcast_different_sizes(new_adversary, b"Foo", seed, &adversary_netinfo);
 }
 
-#[test]
-fn test_broadcast_random_delivery_adv_propose() {
+fn do_test_broadcast_random_delivery_adv_propose(seed: TestRngSeed) {
     let adversary_netinfo: Arc<Mutex<NetworkInfoMap>> = Default::default();
     let new_adversary =
         || ProposeAdversary::new(MessageSorting::RandomPick, adversary_netinfo.clone(), false);
-    test_broadcast_different_sizes(new_adversary, b"Foo", &adversary_netinfo);
+    test_broadcast_different_sizes(new_adversary, b"Foo", seed, &adversary_netinfo);
 }
 
-#[test]
-fn test_broadcast_random_delivery_adv_propose_and_drop() {
+fn do_test_broadcast_random_delivery_adv_propose_and_drop(seed: TestRngSeed) {
     let adversary_netinfo: Arc<Mutex<NetworkInfoMap>> = Default::default();
     let new_adversary =
         || ProposeAdversary::new(MessageSorting::RandomPick, adversary_netinfo.clone(), true);
-    test_broadcast_different_sizes(new_adversary, b"Foo", &adversary_netinfo);
+    test_broadcast_different_sizes(new_adversary, b"Foo", seed, &adversary_netinfo);
 }
 
-#[test]
-fn test_broadcast_random_adversary() {
+fn do_test_broadcast_random_adversary(seed: TestRngSeed) {
     let new_adversary = || RandomAdversary::new(0.2, 0.2);
-    test_broadcast_different_sizes(new_adversary, b"RandomFoo", &Default::default());
+    test_broadcast_different_sizes(new_adversary, b"RandomFoo", seed, &Default::default());
 }

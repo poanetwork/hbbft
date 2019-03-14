@@ -571,7 +571,7 @@ where
         rng: &mut R,
     ) -> Result<CpStep<D>, CrankError<D>> {
         // only replay a message in some cases
-        if randomly(self.p_replay) {
+        if randomly(self.p_replay, rng) {
             // randomly choose a target to send the message to
             if let Some(picked_node) = random_node(&mut net, rng) {
                 let mut new_msg = msg.clone();
@@ -582,7 +582,7 @@ where
         }
 
         // Possibly inject more messages
-        while randomly(self.p_inject) {
+        while randomly(self.p_inject, rng) {
             // Messages must originate from the current node
             let sender = msg.to.clone();
             // Generate a random message

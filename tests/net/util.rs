@@ -20,10 +20,8 @@ macro_rules! try_some {
 }
 
 /// Return true with a certain `probability` ([0 .. 1.0]).
-pub fn randomly(probability: f32) -> bool {
+pub fn randomly<R: Rng>(probability: f32, rng: &mut R) -> bool {
     assert!(probability <= 1.0);
     assert!(probability >= 0.0);
-
-    let mut rng = rand::thread_rng();
     rng.gen_range(0.0, 1.0) <= probability
 }
