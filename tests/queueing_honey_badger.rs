@@ -1,56 +1,88 @@
 #![deny(unused_must_use)]
 //! Network tests for Queueing Honey Badger.
 
-mod network;
+pub mod net;
 
-use std::collections::{BTreeMap, BTreeSet};
-use std::iter;
+use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use log::info;
+use proptest::{prelude::ProptestConfig, proptest, proptest_helper};
 use rand::{Rng, SeedableRng};
-use rand_xorshift::XorShiftRng;
 
 use hbbft::dynamic_honey_badger::{DynamicHoneyBadger, JoinPlan};
 use hbbft::queueing_honey_badger::{Change, ChangeState, Input, QueueingHoneyBadger};
 use hbbft::sender_queue::{Message, SenderQueue, Step};
 use hbbft::{util, NetworkInfo};
 
-use crate::network::{Adversary, MessageScheduler, NodeId, SilentAdversary, TestNetwork, TestNode};
+use crate::net::adversary::{Adversary, NodeOrderAdversary, ReorderingAdversary};
+use crate::net::proptest::{gen_seed, TestRng, TestRngSeed};
+use crate::net::{NetBuilder, NewNodeInfo, Node, VirtualNet};
 
+type NodeId = u16;
 type QHB = SenderQueue<QueueingHoneyBadger<usize, NodeId, Vec<usize>>>;
 
+// Send the second half of the transactions to the specified node.
+fn input_second_half<A>(
+    net: &mut VirtualNet<QHB, A>,
+    id: NodeId,
+    num_txs: usize,
+    mut rng: &mut TestRng,
+) where
+    A: Adversary<QHB>,
+{
+    for tx in (num_txs / 2)..num_txs {
+        let _ = net.send_input(id, Input::User(tx), &mut rng);
+    }
+}
+
 /// Proposes `num_txs` values and expects nodes to output and order them.
-fn test_queueing_honey_badger<A>(mut network: TestNetwork<A, QHB>, num_txs: usize)
+fn test_queueing_honey_badger<A>(mut net: VirtualNet<QHB, A>, num_txs: usize, mut rng: &mut TestRng)
 where
     A: Adversary<QHB>,
 {
-    let netinfo = network.observer.instance().algo().netinfo().clone();
+    let netinfo = net
+        .correct_nodes()
+        .nth(0)
+        .expect("At least one correct node needs to exist")
+        .algorithm()
+        .algo()
+        .netinfo()
+        .clone();
+
+    // Make two copies of all public keys.
     let pub_keys_add = netinfo.public_key_map().clone();
     let mut pub_keys_rm = pub_keys_add.clone();
-    pub_keys_rm.remove(&NodeId(0));
-    network.input_all(Input::Change(Change::NodeChange(pub_keys_rm.clone())));
 
-    // The second half of the transactions will be input only after a node has been removed and
-    // readded.
+    // Get the first correct node id as candidate for removal/re-adding.
+    let first_correct_node = *net.correct_nodes().nth(0).unwrap().id();
+
+    // Remove the first correct node, which is to be removed.
+    pub_keys_rm.remove(&first_correct_node);
+
+    // Broadcast public keys of all nodes except for the node to be removed.
+    let _ = net.broadcast_input(
+        &Input::Change(Change::NodeChange(pub_keys_rm.clone())),
+        &mut rng,
+    );
+
+    // Broadcast the first half of the transactions.
     for tx in 0..(num_txs / 2) {
-        network.input_all(Input::User(tx));
+        let _ = net.broadcast_input(&Input::User(tx), &mut rng);
     }
 
-    let input_second_half = |network: &mut TestNetwork<_, _>, id: NodeId| {
-        for tx in (num_txs / 2)..num_txs {
-            network.input(id, Input::User(tx));
-        }
-    };
-
-    let has_remove = |node: &TestNode<QHB>| {
+    // Closure for checking the output of a node for ChangeSet completion containing
+    // all nodes but the removed node.
+    let has_remove = |node: &Node<QHB>| {
         node.outputs().iter().any(|batch| match batch.change() {
             ChangeState::Complete(Change::NodeChange(pub_keys)) => pub_keys == &pub_keys_rm,
             _ => false,
         })
     };
 
-    let has_add = |node: &TestNode<QHB>| {
+    // Closure for checking the output of a node for ChangeSet completion containing
+    // all nodes, including the previously removed node.
+    let has_add = |node: &Node<QHB>| {
         node.outputs().iter().any(|batch| match batch.change() {
             ChangeState::Complete(Change::NodeChange(pub_keys)) => pub_keys == &pub_keys_add,
             _ => false,
@@ -58,119 +90,135 @@ where
     };
 
     // Returns `true` if the node has not output all changes or transactions yet.
-    let node_busy = |node: &TestNode<QHB>| {
-        !has_remove(node) || !has_add(node) || !node.instance().algo().queue().is_empty()
+    let node_busy = |node: &Node<QHB>| {
+        !has_remove(node) || !has_add(node) || !node.algorithm().algo().queue().is_empty()
     };
 
-    let mut awaiting_removal: BTreeSet<_> = network.nodes.iter().map(|(id, _)| *id).collect();
-    let mut awaiting_addition: BTreeSet<_> = network
-        .nodes
-        .iter()
-        .map(|(id, _)| *id)
-        .filter(|id| *id != NodeId(0))
+    // All nodes await removal.
+    let mut awaiting_removal: BTreeSet<_> = net.correct_nodes().map(|node| *node.id()).collect();
+
+    // All nodes but the removed node await addition.
+    let mut awaiting_addition: BTreeSet<_> = net
+        .correct_nodes()
+        .map(|node| *node.id())
+        .filter(|id| *id != first_correct_node)
         .collect();
-    // The set of nodes awaiting the second half of user transactions.
+
+    // All, including the previously removed node, await the second half of transactions.
     let mut awaiting_second_half: BTreeSet<_> = awaiting_removal.clone();
-    // Whether node 0 was rejoined as a validator.
-    let mut rejoined_node0 = false;
-    // The removed node 0 which is to be restarted as soon as all remaining validators agree to add
-    // it back.
-    let mut saved_node0: Option<TestNode<QHB>> = None;
+    // Whether the first correct node was rejoined as a validator.
+    let mut rejoined_first_correct = false;
+    // The removed first correct node which is to be restarted as soon as all remaining
+    // validators agreed to add it back.
+    let mut saved_first_correct: Option<Node<QHB>> = None;
 
     // Handle messages in random order until all nodes have output all transactions.
-    while network.nodes.values().any(node_busy) || !has_add(&network.observer) {
-        let stepped_id = network.step();
-        if awaiting_removal.contains(&stepped_id) && has_remove(&network.nodes[&stepped_id]) {
+    while net.correct_nodes().any(node_busy) {
+        let stepped_id = net.crank_expect(&mut rng).0;
+        if awaiting_removal.contains(&stepped_id) && has_remove(&net.get(stepped_id).unwrap()) {
             awaiting_removal.remove(&stepped_id);
             info!(
                 "{:?} has finished waiting for node removal; still waiting: {:?}",
                 stepped_id, awaiting_removal
             );
+
             if awaiting_removal.is_empty() {
-                info!("Removing node 0 from the test network");
-                saved_node0 = network.nodes.remove(&NodeId(0));
+                info!("Removing first correct node from the test network");
+                saved_first_correct = net.remove_node(&first_correct_node);
             }
-            // Vote to add node 0 back.
-            if stepped_id != NodeId(0) {
-                network.input(
+            // Vote to add the first correct node back.
+            if stepped_id != first_correct_node {
+                let _ = net.send_input(
                     stepped_id,
                     Input::Change(Change::NodeChange(pub_keys_add.clone())),
+                    rng,
                 );
                 info!(
-                    "Input the vote to add node 0 into {:?} with netinfo {:?}",
+                    "Input the vote to add the first correct node into {:?} with netinfo {:?}",
                     stepped_id,
-                    network.nodes[&stepped_id].instance().algo().netinfo()
+                    net.get(stepped_id).unwrap().algorithm().algo().netinfo()
                 );
             }
         }
+
         if awaiting_removal.is_empty() && awaiting_addition.contains(&stepped_id) {
-            // If the stepped node started voting to add node 0 back, take a note of that and rejoin
-            // node 0.
-            if let Some(join_plan) = network.nodes[&stepped_id]
-                .outputs()
-                .iter()
-                .find_map(|batch| match batch.change() {
-                    ChangeState::InProgress(Change::NodeChange(pub_keys))
-                        if pub_keys == &pub_keys_add =>
-                    {
-                        batch.join_plan()
-                    }
-                    _ => None,
-                })
+            // If the stepped node started voting to add the first correct node back,
+            // take a note of that and rejoin it.
+            if let Some(join_plan) =
+                net.get(stepped_id)
+                    .unwrap()
+                    .outputs()
+                    .iter()
+                    .find_map(|batch| match batch.change() {
+                        ChangeState::InProgress(Change::NodeChange(pub_keys))
+                            if pub_keys == &pub_keys_add =>
+                        {
+                            batch.join_plan()
+                        }
+                        _ => None,
+                    })
             {
                 awaiting_addition.remove(&stepped_id);
                 info!(
                     "{:?} has finished waiting for node addition; still waiting: {:?}",
                     stepped_id, awaiting_addition
                 );
-                if awaiting_addition.is_empty() && !rejoined_node0 {
-                    let node = saved_node0.take().expect("node 0 wasn't saved");
-                    let step = restart_node_for_add(&mut network, node, join_plan);
-                    network.dispatch_messages(NodeId(0), step.messages);
-                    rejoined_node0 = true;
+                if awaiting_addition.is_empty() && !rejoined_first_correct {
+                    let node = saved_first_correct
+                        .take()
+                        .expect("first correct node wasn't saved");
+                    let step = restart_node_for_add(&mut net, node, join_plan, &mut rng);
+                    net.process_step(first_correct_node, &step)
+                        .expect("processing a step failed");
+                    rejoined_first_correct = true;
                 }
             }
         }
-        if rejoined_node0 && awaiting_second_half.contains(&stepped_id) {
+
+        if rejoined_first_correct && awaiting_second_half.contains(&stepped_id) {
             // Input the second half of user transactions into the stepped node.
-            input_second_half(&mut network, stepped_id);
+            input_second_half(&mut net, stepped_id, num_txs, &mut rng);
             awaiting_second_half.remove(&stepped_id);
         }
     }
-    let node1 = network.nodes.get(&NodeId(1)).expect("node 1 is missing");
-    network.verify_batches(&node1);
+    let node_1 = net
+        .correct_nodes()
+        .nth(1)
+        .expect("second correct node is missing");
+    net.verify_batches(node_1);
 }
 
-/// Restarts a stopped and removed node with a given join plan and adds the node back on the test
-/// network.
-fn restart_node_for_add<A>(
-    network: &mut TestNetwork<A, QHB>,
-    mut node: TestNode<QHB>,
+/// Restarts specified node on the test network for adding it back as a validator.
+fn restart_node_for_add<R, A>(
+    net: &mut VirtualNet<QHB, A>,
+    mut node: Node<QHB>,
     join_plan: JoinPlan<NodeId>,
+    mut rng: &mut R,
 ) -> Step<QueueingHoneyBadger<usize, NodeId, Vec<usize>>>
 where
+    R: rand::Rng,
     A: Adversary<QHB>,
 {
-    let our_id = node.id;
-    info!("Restarting {:?} with {:?}", our_id, join_plan);
-    let observer = network.observer.id;
-    let peer_ids: Vec<NodeId> = network
-        .nodes
-        .keys()
+    let our_id = *node.id();
+    println!("Restarting node {} with {:?}", node.id(), join_plan);
+
+    // TODO: When an observer node is added to the network, it should also be added to peer_ids.
+    let peer_ids: Vec<_> = net
+        .nodes()
+        .map(|node| node.id())
+        .filter(|id| *id != node.id())
         .cloned()
-        .filter(|id| *id != our_id)
-        .chain(iter::once(observer))
         .collect();
-    let secret_key = node.instance().algo().netinfo().secret_key().clone();
-    let mut rng = XorShiftRng::from_seed(rand::thread_rng().gen::<[u8; 16]>());
+
+    let secret_key = node.algorithm().algo().netinfo().secret_key().clone();
     let (qhb, qhb_step) =
         QueueingHoneyBadger::builder_joining(our_id, secret_key, join_plan, &mut rng)
             .and_then(|builder| builder.batch_size(3).build(&mut rng))
             .expect("failed to rebuild the node with a join plan");
     let (sq, mut sq_step) = SenderQueue::builder(qhb, peer_ids.into_iter()).build(our_id);
-    *node.instance_mut() = sq;
+    *node.algorithm_mut() = sq;
     sq_step.extend(qhb_step.map(|output| output, |fault| fault, Message::from));
-    network.nodes.insert(our_id, node);
+    net.insert_node(node);
     sq_step
 }
 
@@ -178,16 +226,12 @@ where
 #[allow(clippy::needless_pass_by_value)]
 fn new_queueing_hb(
     netinfo: Arc<NetworkInfo<NodeId>>,
+    seed: TestRngSeed,
 ) -> (QHB, Step<QueueingHoneyBadger<usize, NodeId, Vec<usize>>>) {
-    let observer = NodeId(netinfo.num_nodes());
+    let mut rng: TestRng = TestRng::from_seed(seed);
     let our_id = *netinfo.our_id();
-    let peer_ids = netinfo
-        .all_ids()
-        .filter(|&&them| them != our_id)
-        .cloned()
-        .chain(iter::once(observer));
+    let peer_ids = netinfo.all_ids().filter(|&&them| them != our_id).cloned();
     let dhb = DynamicHoneyBadger::builder().build((*netinfo).clone());
-    let mut rng = XorShiftRng::from_seed(rand::thread_rng().gen::<[u8; 16]>());
     let (qhb, qhb_step) = QueueingHoneyBadger::builder(dhb)
         .batch_size(3)
         .build(&mut rng)
@@ -198,15 +242,19 @@ fn new_queueing_hb(
     (sq, step)
 }
 
-fn test_queueing_honey_badger_different_sizes<A, F>(new_adversary: F, num_txs: usize)
-where
+fn test_queueing_honey_badger_different_sizes<A, F>(
+    new_adversary: F,
+    num_txs: usize,
+    seed: TestRngSeed,
+) where
     A: Adversary<QHB>,
-    F: Fn(usize, usize, BTreeMap<NodeId, Arc<NetworkInfo<NodeId>>>) -> A,
+    F: Fn() -> A,
 {
     // This returns an error in all but the first test.
     let _ = env_logger::try_init();
 
-    let mut rng = rand::thread_rng();
+    let mut rng: TestRng = TestRng::from_seed(seed);
+
     let sizes = vec![3, 5, rng.gen_range(6, 10)];
     for size in sizes {
         // The test is removing one correct node, so we allow fewer faulty ones.
@@ -216,21 +264,49 @@ where
             "Network size: {} good nodes, {} faulty nodes",
             num_good_nodes, num_adv_nodes
         );
-        let adversary = |adv_nodes| new_adversary(num_good_nodes, num_adv_nodes, adv_nodes);
-        let network =
-            TestNetwork::new_with_step(num_good_nodes, num_adv_nodes, adversary, new_queueing_hb);
-        test_queueing_honey_badger(network, num_txs);
+
+        let (net, _) = NetBuilder::new(0..size as u16)
+            .num_faulty(num_adv_nodes)
+            .message_limit(20_000 * size)
+            .no_time_limit()
+            .adversary(new_adversary())
+            .using_step(move |node_info: NewNodeInfo<_>| {
+                // Note: The "seed" variable is implicitly copied by the move closure.
+                // The "Copy" trait is *not* implemented for TestRng, which additionally
+                // needs to be mutable, while we are in a function which captures immutably.
+                // To avoid convoluted clone/borrow constructs we pass a TestRngSeed
+                // rather than a TestRng instance.
+                new_queueing_hb(Arc::new(node_info.netinfo), seed)
+            })
+            .build(&mut rng)
+            .expect("Could not construct test network.");
+
+        test_queueing_honey_badger(net, num_txs, &mut rng);
     }
 }
 
-#[test]
-fn test_queueing_honey_badger_random_delivery_silent() {
-    let new_adversary = |_: usize, _: usize, _| SilentAdversary::new(MessageScheduler::Random);
-    test_queueing_honey_badger_different_sizes(new_adversary, 30);
+proptest! {
+    #![proptest_config(ProptestConfig {
+        cases: 1, .. ProptestConfig::default()
+    })]
+
+    #[test]
+    #[allow(clippy::unnecessary_operation)]
+    fn test_queueing_honey_badger_random_delivery_silent(seed in gen_seed()) {
+        do_test_queueing_honey_badger_random_delivery_silent(seed)
+    }
+
+    #[test]
+    #[allow(clippy::unnecessary_operation)]
+    fn test_queueing_honey_badger_first_delivery_silent(seed in gen_seed()) {
+        do_test_queueing_honey_badger_first_delivery_silent(seed)
+    }
 }
 
-#[test]
-fn test_queueing_honey_badger_first_delivery_silent() {
-    let new_adversary = |_: usize, _: usize, _| SilentAdversary::new(MessageScheduler::First);
-    test_queueing_honey_badger_different_sizes(new_adversary, 30);
+fn do_test_queueing_honey_badger_random_delivery_silent(seed: TestRngSeed) {
+    test_queueing_honey_badger_different_sizes(ReorderingAdversary::new, 30, seed);
+}
+
+fn do_test_queueing_honey_badger_first_delivery_silent(seed: TestRngSeed) {
+    test_queueing_honey_badger_different_sizes(NodeOrderAdversary::new, 30, seed);
 }
