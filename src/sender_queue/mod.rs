@@ -287,6 +287,11 @@ where
                 for id in &next_participants {
                     if id != self.our_id() {
                         self.peer_epochs.entry(id.clone()).or_default();
+                        if let Some(&last) = self.last_epochs.get(id) {
+                            if last < batch.output_epoch() {
+                                self.last_epochs.remove(id);
+                            }
+                        }
                     }
                 }
                 debug!(
