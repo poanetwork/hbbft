@@ -17,7 +17,7 @@ use threshold_crypto::PublicKey;
 
 type DHB = SenderQueue<DynamicHoneyBadger<Vec<usize>, usize>>;
 
-/// Choose a node's contribution for an epoch.
+/// Chooses a node's contribution for an epoch.
 ///
 /// Selects randomly out of a slice, according to chosen batch and contribution sizes. The function
 /// will not fail to do so, even if the queue is empty, returning a smaller or empty slice
@@ -89,6 +89,9 @@ proptest! {
 // TODO: Add an observer node to the test network.
 #[allow(clippy::needless_pass_by_value, clippy::cyclomatic_complexity)]
 fn do_drop_and_re_add(cfg: TestConfig) {
+    // This returns an error in all but the first test.
+    let _ = env_logger::try_init();
+
     let mut rng: TestRng = TestRng::from_seed(cfg.seed);
 
     // First, we create a new test network with Honey Badger instances.
@@ -122,8 +125,7 @@ fn do_drop_and_re_add(cfg: TestConfig) {
     let nodes_for_remove = state.subset_for_remove(&mut rng);
     println!("Will remove and re-add nodes {:?}", nodes_for_remove);
 
-    // We generate a list of transaction we want to propose, for each node. All nodes will propose
-    // a number between 0..total_txs, chosen randomly.
+    // We generate a list of total_txs transactions we want to propose, for each node.
     let mut queues: BTreeMap<_, Vec<usize>> = state
         .net
         .nodes()
@@ -167,7 +169,7 @@ fn do_drop_and_re_add(cfg: TestConfig) {
     let mut awaiting_apply_old_subset_in_progress: BTreeSet<_> = non_rm_nodes.clone();
     let mut expected_outputs: BTreeMap<_, BTreeSet<_>> = correct_nodes
         .iter()
-        .map(|id| (id, (0..10).collect()))
+        .map(|id| (id, (0..cfg.total_txs).collect()))
         .collect();
     let mut received_batches: BTreeMap<u64, _> = BTreeMap::new();
 
@@ -202,7 +204,7 @@ fn do_drop_and_re_add(cfg: TestConfig) {
                     "The batch contains less than N - f contributions: {:?}",
                     batch
                 );
-                // Verify that only contributions from expected participants can be present in the
+                // Verify that only contributions from expected participants are present in the
                 // batch.
                 let batch_participants: Vec<_> = batch.contributions().map(|(id, _)| id).collect();
                 assert!(
