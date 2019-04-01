@@ -187,7 +187,7 @@ use crate::pairing::{CurveAffine, Field};
 use bincode;
 use failure::Fail;
 use rand;
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 
 use crate::{NetworkInfo, NodeIdT};
 

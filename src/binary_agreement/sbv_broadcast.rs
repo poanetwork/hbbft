@@ -13,7 +13,7 @@ use std::sync::Arc;
 
 use rand::distributions::{Distribution, Standard};
 use rand::{seq::SliceRandom, Rng};
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 
 use super::bool_multimap::BoolMultimap;
 use super::bool_set::{self, BoolSet};

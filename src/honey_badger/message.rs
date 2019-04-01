@@ -3,7 +3,7 @@
 
 use rand::distributions::{Distribution, Standard};
 use rand::{seq::SliceRandom, Rng};
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 
 use crate::subset;
 use crate::threshold_decrypt;

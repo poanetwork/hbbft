@@ -73,7 +73,7 @@ use failure::Fail;
 use rand::distributions::{Distribution, Standard};
 use rand::{seq::SliceRandom, Rng};
 use rand_derive::Rand;
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 
 use self::bool_set::BoolSet;
 use crate::threshold_sign;

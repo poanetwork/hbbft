@@ -7,9 +7,7 @@ use docopt::Docopt;
 use itertools::Itertools;
 use rand::{distributions::Standard, rngs::OsRng, seq::SliceRandom, Rng};
 use rand_derive::Rand;
-use serde::de::DeserializeOwned;
-use serde::Serialize;
-use serde_derive::{Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use signifix::{metric, TryFrom};
 
 use hbbft::dynamic_honey_badger::DynamicHoneyBadger;

@@ -75,7 +75,7 @@ mod votes;
 use std::collections::BTreeMap;
 
 use crate::crypto::{PublicKey, PublicKeySet, Signature};
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 
 use self::votes::{SignedVote, VoteCounter};
 use crate::honey_badger::{EncryptionSchedule, Message as HbMessage, Params};

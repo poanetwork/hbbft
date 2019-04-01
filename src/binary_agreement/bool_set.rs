@@ -1,7 +1,7 @@
 //! A single-byte representation of a set of boolean values.
 
 use rand_derive::Rand;
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 
 /// The empty set of boolean values.
 pub const NONE: BoolSet = BoolSet(0b00);
