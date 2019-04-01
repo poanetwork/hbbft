@@ -24,7 +24,7 @@ use failure::Fail;
 use log::debug;
 use rand::Rng;
 use rand_derive::Rand;
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 
 use crate::fault_log::{Fault, FaultLog};
 use crate::{ConsensusProtocol, NetworkInfo, NodeIdT, Target};

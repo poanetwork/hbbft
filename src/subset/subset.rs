@@ -5,7 +5,7 @@ use std::{fmt, result};
 use derivative::Derivative;
 use hex_fmt::HexFmt;
 use log::debug;
-use serde_derive::Serialize;
+use serde::Serialize;
 
 use super::proposal_state::{ProposalState, Step as ProposalStep};
 use super::{Error, FaultKind, Message, MessageContent, Result};

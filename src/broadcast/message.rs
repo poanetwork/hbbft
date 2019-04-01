@@ -3,7 +3,7 @@ use std::fmt::{self, Debug};
 use hex_fmt::HexFmt;
 use rand::distributions::{Distribution, Standard};
 use rand::{self, seq::SliceRandom, Rng};
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 
 use super::merkle::{Digest, MerkleTree, Proof};
 

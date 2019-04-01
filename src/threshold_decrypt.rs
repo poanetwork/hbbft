@@ -18,7 +18,7 @@ use crate::crypto::{self, Ciphertext, DecryptionShare};
 use failure::Fail;
 use rand::Rng;
 use rand_derive::Rand;
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 
 use crate::fault_log::{self, Fault};
 use crate::{ConsensusProtocol, NetworkInfo, NodeIdT, Target};

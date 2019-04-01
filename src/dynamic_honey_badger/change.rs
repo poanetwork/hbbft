@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
 use crate::crypto::PublicKey;
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 
 use super::EncryptionSchedule;
 

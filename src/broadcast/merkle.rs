@@ -1,6 +1,6 @@
 use std::mem;
 
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use tiny_keccak::sha3_256;
 
 pub type Digest = [u8; 32];
