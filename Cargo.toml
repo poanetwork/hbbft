@@ -33,8 +33,7 @@ rand = "0.6.5"
 rand_derive = "0.5.0"
 reed-solomon-erasure = "3.1.1"
 serde = { version = "1.0.89", features = ["derive"] }
-# FIXME: update to threshold_crypto = "0.3.1" as soon as that is uploaded to crates.io
-threshold_crypto = { git = "https://github.com/poanetwork/threshold_crypto.git", branch = "vk-serde-derive-feature" }
+threshold_crypto = "0.3.1"
 tiny-keccak = "1.4"
 
 [dev-dependencies]
