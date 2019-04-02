@@ -112,12 +112,10 @@ impl<N: NodeIdT> SbvBroadcast<N> {
     /// Upon receiving _f + 1_ `BVal(b)`, multicasts `BVal(b)`. Upon receiving _2 f + 1_ `BVal(b)`,
     /// updates `bin_values`. When `bin_values` gets its first entry, multicasts `Aux(b)`.
     pub fn handle_bval(&mut self, sender_id: &N, b: bool) -> Result<Step<N>> {
-        let count_bval = {
-            if !self.received_bval[b].insert(sender_id.clone()) {
-                return Ok(Fault::new(sender_id.clone(), FaultKind::DuplicateBVal).into());
-            }
-            self.received_bval[b].len()
-        };
+        if !self.received_bval[b].insert(sender_id.clone()) {
+            return Ok(Fault::new(sender_id.clone(), FaultKind::DuplicateBVal).into());
+        }
+        let count_bval = self.received_bval[b].len();
 
         let mut step = Step::default();
 
