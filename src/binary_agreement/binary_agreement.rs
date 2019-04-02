@@ -258,9 +258,11 @@ impl<N: NodeIdT, S: SessionIdT> BinaryAgreement<N, S> {
             let received = epoch_state
                 .entry(sender_id.clone())
                 .or_insert_with(ReceivedMessages::new);
-            Ok(received.insert(content).map_or(Step::default(), |fault| {
-                Fault::new(sender_id.clone(), fault).into()
-            }))
+            Ok(received
+                .insert(content)
+                .map_or_else(Step::default, |fault| {
+                    Fault::new(sender_id.clone(), fault).into()
+                }))
         } else {
             self.handle_message_content(sender_id, content)
         }
@@ -504,15 +506,12 @@ impl<N: NodeIdT, S: SessionIdT> BinaryAgreement<N, S> {
         self.estimated = Some(b);
         let sbvb_step = self.sbv_broadcast.send_bval(b)?;
         let mut step = self.handle_sbvb_step(sbvb_step)?;
-        let epoch_state = self
-            .incoming_queue
-            .remove(&self.epoch)
-            .into_iter()
-            .flatten();
+        let epoch = self.epoch;
+        let epoch_state = self.incoming_queue.remove(&epoch).into_iter().flatten();
         for (sender_id, received) in epoch_state {
             for m in received.messages() {
                 step.extend(self.handle_message_content(&sender_id, m)?);
-                if self.decision.is_some() {
+                if self.decision.is_some() || self.epoch > epoch {
                     return Ok(step);
                 }
             }
