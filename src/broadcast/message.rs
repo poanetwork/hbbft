@@ -17,13 +17,17 @@ pub enum Message {
     Echo(Proof<Vec<u8>>),
     /// Indicates that the sender knows that every node will eventually be able to decode.
     Ready(Digest),
+    /// Indicates that this node has enough shares to decode the message with given merkle root.
+    CanDecode(Digest),
+    /// Indicates that sender can send an Echo for given merkle root.
+    EchoHash(Digest),
 }
 
 // A random generation impl is provided for test cases. Unfortunately `#[cfg(test)]` does not work
 // for integration tests.
 impl Distribution<Message> for Standard {
     fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> Message {
-        let message_type = *["value", "echo", "ready"].choose(rng).unwrap();
+        let message_type = *["value", "echo", "ready", "can_decode", "echo_hash"].choose(rng).unwrap();
 
         // Create a random buffer for our proof.
         let mut buffer: [u8; 32] = [0; 32];
@@ -37,6 +41,8 @@ impl Distribution<Message> for Standard {
             "value" => Message::Value(proof),
             "echo" => Message::Echo(proof),
             "ready" => Message::Ready([b'r'; 32]),
+            "can_decode" => Message::Ready([b'r'; 32]),
+            "echo_hash" => Message::Ready([b'r'; 32]),
             _ => unreachable!(),
         }
     }
@@ -48,6 +54,8 @@ impl Debug for Message {
             Message::Value(ref v) => f.debug_tuple("Value").field(&HexProof(v)).finish(),
             Message::Echo(ref v) => f.debug_tuple("Echo").field(&HexProof(v)).finish(),
             Message::Ready(ref b) => write!(f, "Ready({:0.10})", HexFmt(b)),
+            Message::CanDecode(ref b) => write!(f, "CanDecode({:0.10})", HexFmt(b)),
+            Message::EchoHash(ref b) => write!(f, "EchoHash({:0.10})", HexFmt(b)),
         }
     }
 }

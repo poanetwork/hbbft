@@ -92,6 +92,7 @@ impl<N: NodeIdT> Broadcast<N> {
             decided: false,
             echos: BTreeMap::new(),
             readys: BTreeMap::new(),
+
         })
     }
 
@@ -123,6 +124,8 @@ impl<N: NodeIdT> Broadcast<N> {
             Message::Value(p) => self.handle_value(sender_id, p),
             Message::Echo(p) => self.handle_echo(sender_id, p),
             Message::Ready(ref hash) => self.handle_ready(sender_id, hash),
+            Message::CanDecode(ref hash) => self.handle_can_decode(sender_id, hash),
+            Message::EchoHash(ref hash) => self.handle_echo_hash(sender_id, hash),
         }
     }
 
@@ -286,6 +289,15 @@ impl<N: NodeIdT> Broadcast<N> {
         }
         Ok(step.join(self.compute_output(hash)?))
     }
+
+    fn handle_can_decode(&mut self, sender_id: &N, hash: &Digest) -> Result<Step<N>> {
+        unimplemented!()
+    }
+
+    fn handle_echo_hash(&mut self, sender_id: &N, hash: &Digest) -> Result<Step<N>> {
+        unimplemented!()
+    }
+
 
     /// Sends an `Echo` message and handles it. Does nothing if we are only an observer.
     fn send_echo(&mut self, p: Proof<Vec<u8>>) -> Result<Step<N>> {
