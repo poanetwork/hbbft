@@ -28,12 +28,18 @@ pub struct Broadcast<N> {
     coding: Coding,
     /// If we are the proposer: whether we have already sent the `Value` messages with the shards.
     value_sent: bool,
-    /// Whether we have already multicast `Echo`.
+    /// Whether we have already multicast `Echo` to our left nodes.
     echo_sent: bool,
     /// Whether we have already multicast `Ready`.
     ready_sent: bool,
+    /// Whether we have already multicast `EchoHash` to the right nodes.
+    echo_hash_sent: bool,
+    /// Whether we have already multicast `CanDecode`.
+    can_decode_sent: bool,
     /// Whether we have already output a value.
     decided: bool,
+    /// Pessimissm factor
+    pessimissm_factor: usize,
     /// The proofs we have received via `Echo` messages, by sender ID.
     echos: BTreeMap<N, Proof<Vec<u8>>>,
     /// The root hashes we received via `Ready` messages, by sender ID.
@@ -81,6 +87,7 @@ impl<N: NodeIdT> Broadcast<N> {
         let data_shard_num = netinfo.num_nodes() - parity_shard_num;
         let coding =
             Coding::new(data_shard_num, parity_shard_num).map_err(|_| Error::InvalidNodeCount)?;
+        let g = netinfo.num_faulty();
 
         Ok(Broadcast {
             netinfo,
@@ -89,7 +96,10 @@ impl<N: NodeIdT> Broadcast<N> {
             value_sent: false,
             echo_sent: false,
             ready_sent: false,
+            echo_hash_sent: false,
+            can_decode_sent: false,
             decided: false,
+            pessimissm_factor: g,
             echos: BTreeMap::new(),
             readys: BTreeMap::new(),
 
@@ -306,9 +316,55 @@ impl<N: NodeIdT> Broadcast<N> {
             return Ok(Step::default());
         }
         let echo_msg = Message::Echo(p.clone());
-        let step: Step<_> = Target::All.message(echo_msg).into();
+        let mut step = Step::default();
+        // TODO: iterator not correctly describing right of our_id. Use cycle method on
+        // iterator to correctly specify.
+        let right = self.netinfo.all_ids().skip(self.netinfo.num_correct()+self.pessimissm_factor);
+        for id in right {
+            let msg = Target::Node(id.clone()).message(echo_msg.clone());
+            step.messages.push(msg);
+        }
         let our_id = &self.our_id().clone();
         Ok(step.join(self.handle_echo(our_id, p)?))
+    }
+
+    /// Sends an `EchoHash` message and handles it. Does nothing if we are only an observer.
+    fn send_echo_hash(&mut self, hash: &Digest) -> Result<Step<N>> {
+        self.echo_hash_sent = true;
+        if !self.netinfo.is_validator() {
+            return Ok(Step::default());
+        }
+        let echo_hash_msg = Message::EchoHash(*hash);
+        let mut step = Step::default();
+        // TODO: iterator not correctly describing left of our_id. Use cycle method on
+        // iterator to correctly specify.
+        let left = self.netinfo.all_ids().take(self.netinfo.num_correct()+self.pessimissm_factor);
+        for id in left {
+            let msg = Target::Node(id.clone()).message(echo_hash_msg.clone());
+            step.messages.push(msg);
+        }
+        let our_id = &self.our_id().clone();
+        Ok(step.join(self.handle_echo_hash(our_id, hash)?))
+    }
+
+    /// Sends a `CanDecode` message and handles it. Does nothing if we are only an observer.
+    fn send_can_decode(&mut self, hash: &Digest) -> Result<Step<N>> {
+        self.can_decode_sent = true;
+        if !self.netinfo.is_validator() {
+            return Ok(Step::default());
+        }
+
+        let can_decode_msg = Message::CanDecode(*hash);
+        let mut step = Step::default();
+
+        for id in self.netinfo.all_ids() {
+            if self.echos.contains_key(id) {
+                let msg = Target::Node(id.clone()).message(can_decode_msg.clone());
+                step.messages.push(msg);
+            }
+        }
+        let our_id = &self.our_id().clone();
+        Ok(step.join(self.handle_can_decode(our_id, hash)?))
     }
 
     /// Sends a `Ready` message and handles it. Does nothing if we are only an observer.
