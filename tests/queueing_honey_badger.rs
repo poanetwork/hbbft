@@ -1,23 +1,19 @@
 #![deny(unused_must_use)]
 //! Network tests for Queueing Honey Badger.
 
-pub mod net;
-
 use std::collections::BTreeSet;
 use std::sync::Arc;
-
-use log::info;
-use proptest::{prelude::ProptestConfig, proptest, proptest_helper};
-use rand::{Rng, SeedableRng};
 
 use hbbft::dynamic_honey_badger::{DynamicHoneyBadger, JoinPlan};
 use hbbft::queueing_honey_badger::{Change, ChangeState, Input, QueueingHoneyBadger};
 use hbbft::sender_queue::{Message, SenderQueue, Step};
 use hbbft::{util, NetworkInfo};
-
-use crate::net::adversary::{Adversary, NodeOrderAdversary, ReorderingAdversary};
-use crate::net::proptest::{gen_seed, TestRng, TestRngSeed};
-use crate::net::{NetBuilder, NewNodeInfo, Node, VirtualNet};
+use hbbft_testing::adversary::{Adversary, NodeOrderAdversary, ReorderingAdversary};
+use hbbft_testing::proptest::{gen_seed, TestRng, TestRngSeed};
+use hbbft_testing::{NetBuilder, NewNodeInfo, Node, VirtualNet};
+use log::info;
+use proptest::{prelude::ProptestConfig, proptest};
+use rand::{Rng, SeedableRng};
 
 type NodeId = u16;
 type QHB = SenderQueue<QueueingHoneyBadger<usize, NodeId, Vec<usize>>>;
@@ -205,7 +201,7 @@ where
     // TODO: When an observer node is added to the network, it should also be added to peer_ids.
     let peer_ids: Vec<_> = net
         .nodes()
-        .map(|node| node.id())
+        .map(Node::id)
         .filter(|id| *id != node.id())
         .cloned()
         .collect();

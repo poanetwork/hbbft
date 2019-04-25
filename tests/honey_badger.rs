@@ -1,27 +1,23 @@
 #![deny(unused_must_use)]
 //! Network tests for Honey Badger.
 
-pub mod net;
-
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
-
-use itertools::Itertools;
-use log::info;
-use proptest::{prelude::ProptestConfig, proptest, proptest_helper};
-use rand::{seq::SliceRandom, Rng, SeedableRng};
 
 use hbbft::honey_badger::{Batch, EncryptionSchedule, HoneyBadger, MessageContent};
 use hbbft::sender_queue::{self, SenderQueue, Step};
 use hbbft::transaction_queue::TransactionQueue;
 use hbbft::{threshold_decrypt, util, CpStep, NetworkInfo, Target};
-
-use crate::net::adversary::{
+use hbbft_testing::adversary::{
     sort_by_random_node, Adversary, NetMutHandle, NodeOrderAdversary, RandomAdversary,
     ReorderingAdversary,
 };
-use crate::net::proptest::{gen_seed, TestRng, TestRngSeed};
-use crate::net::{CrankError, NetBuilder, NetMessage, NewNodeInfo, Node, VirtualNet};
+use hbbft_testing::proptest::{gen_seed, TestRng, TestRngSeed};
+use hbbft_testing::{CrankError, NetBuilder, NetMessage, NewNodeInfo, Node, VirtualNet};
+use itertools::Itertools;
+use log::info;
+use proptest::{prelude::ProptestConfig, proptest};
+use rand::{seq::SliceRandom, Rng, SeedableRng};
 
 type NodeId = u16;
 type NetworkInfoMap = BTreeMap<NodeId, Arc<NetworkInfo<NodeId>>>;

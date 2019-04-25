@@ -19,6 +19,9 @@ pub mod err;
 pub mod proptest;
 pub mod util;
 
+#[cfg(test)]
+mod util_tests;
+
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::io::Write;
 use std::{cmp, env, fmt, fs, io, ops, process, time};
@@ -28,8 +31,6 @@ use rand::{self, Rng};
 use hbbft::dynamic_honey_badger::Batch;
 use hbbft::sender_queue::SenderQueueableOutput;
 use hbbft::{self, ConsensusProtocol, Contribution, CpStep, Fault, NetworkInfo, NodeIdT, Step};
-
-use crate::try_some;
 
 pub use self::adversary::Adversary;
 pub use self::err::CrankError;
@@ -534,7 +535,7 @@ where
 
         // If the trace setting is not overriden, we use the setting from the environment.
         let trace = self.trace.unwrap_or_else(|| {
-            match env::var("HBBFT_TEST_TRACE").as_ref().map(|s| s.as_str()) {
+            match env::var("HBBFT_TEST_TRACE").as_ref().map(String::as_str) {
                 Ok("true") | Ok("1") => true,
                 _ => false,
             }
@@ -1070,8 +1071,7 @@ where
         }
         for node in self.correct_nodes().filter(|n| n.id() != full_node.id()) {
             let id = node.id();
-            let actual_epochs: BTreeSet<_> =
-                node.outputs.iter().map(|batch| batch.epoch()).collect();
+            let actual_epochs: BTreeSet<_> = node.outputs.iter().map(Batch::epoch).collect();
             let expected_epochs: BTreeSet<_> =
                 expected[id].iter().map(|batch| batch.epoch()).collect();
             assert_eq!(

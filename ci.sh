@@ -18,3 +18,10 @@ cargo test --features=use-insecure-test-only-mock-crypto --release
 cargo doc
 cargo deadlinks --dir target/doc/hbbft/
 cargo audit
+
+cd hbbft_testing
+cargo clippy --all-targets -- --deny clippy::all
+cargo fmt -- --check
+cargo test --release
+cargo audit
+cd ..

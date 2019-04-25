@@ -1,21 +1,18 @@
 #![deny(unused_must_use)]
 //! Tests the BinaryAgreement protocol with a MTIM adversary.
 
-pub mod net;
-
 use std::iter;
 use std::sync::{Arc, Mutex};
 
 use hbbft::binary_agreement::{BinaryAgreement, MessageContent, SbvMessage};
 use hbbft::threshold_sign::ThresholdSign;
 use hbbft::{ConsensusProtocol, CpStep, NetworkInfo};
-use proptest::{proptest, proptest_helper};
+use hbbft_testing::adversary::{NetMutHandle, QueuePosition};
+use hbbft_testing::err::CrankError;
+use hbbft_testing::proptest::{gen_seed, TestRng, TestRngSeed};
+use hbbft_testing::{Adversary, NetBuilder, NetMessage};
+use proptest::proptest;
 use rand::{Rng, SeedableRng};
-
-use crate::net::adversary::{NetMutHandle, QueuePosition};
-use crate::net::err::CrankError;
-use crate::net::proptest::{gen_seed, TestRng, TestRngSeed};
-use crate::net::{Adversary, NetBuilder, NetMessage};
 
 type NodeId = usize;
 type SessionId = u8;

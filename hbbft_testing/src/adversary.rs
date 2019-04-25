@@ -40,8 +40,8 @@ use rand::Rng;
 
 use hbbft::{ConsensusProtocol, CpStep};
 
-use crate::net::util::randomly;
-use crate::net::{CrankError, NetMessage, NetworkMessage, Node, VirtualNet};
+use crate::util::randomly;
+use crate::{CrankError, NetMessage, NetworkMessage, Node, VirtualNet};
 
 /// Immutable network handle.
 ///

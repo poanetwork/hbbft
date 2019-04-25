@@ -13,22 +13,18 @@
 //! - Validity: If any correct node outputs `b`, then at least one correct node received `b` as
 //! input.
 
-pub mod net;
-
 use std::iter::once;
 use std::sync::Arc;
 use std::time;
 
-use proptest::arbitrary::any;
-use proptest::{prelude::ProptestConfig, prop_compose, proptest, proptest_helper};
-use rand::{Rng, SeedableRng};
-
 use hbbft::binary_agreement::BinaryAgreement;
 use hbbft::ConsensusProtocol;
-
-use crate::net::adversary::{Adversary, ReorderingAdversary};
-use crate::net::proptest::{gen_seed, NetworkDimension, TestRng, TestRngSeed};
-use crate::net::{NetBuilder, NewNodeInfo, VirtualNet};
+use hbbft_testing::adversary::{Adversary, ReorderingAdversary};
+use hbbft_testing::proptest::{gen_seed, NetworkDimension, TestRng, TestRngSeed};
+use hbbft_testing::{NetBuilder, NewNodeInfo, VirtualNet};
+use proptest::arbitrary::any;
+use proptest::{prelude::ProptestConfig, prop_compose, proptest};
+use rand::{Rng, SeedableRng};
 
 /// Test configuration for Binary Agreement tests.
 #[derive(Debug)]
@@ -72,36 +68,35 @@ proptest! {
 
 type NodeId = u16;
 
-impl<A> VirtualNet<BinaryAgreement<NodeId, u8>, A>
-where
+fn test_binary_agreement<A, R>(
+    net: &mut VirtualNet<BinaryAgreement<NodeId, u8>, A>,
+    input: Option<bool>,
+    mut rng: R,
+) where
+    R: Rng + 'static,
     A: Adversary<BinaryAgreement<NodeId, u8>>,
 {
-    fn test_binary_agreement<R>(&mut self, input: Option<bool>, mut rng: R)
-    where
-        R: Rng + 'static,
-    {
-        let ids: Vec<NodeId> = self.nodes().map(|n| *n.id()).collect();
-        for id in ids {
-            let _ = self.send_input(id, input.unwrap_or_else(|| rng.gen::<bool>()), &mut rng);
-        }
-
-        // Handle messages in random order until all nodes have output the proposed value.
-        while !self.nodes().all(|node| node.algorithm().terminated()) {
-            let _ = self.crank_expect(&mut rng);
-        }
-        // Verify that all instances output the same value.
-        let mut expected = input;
-        for node in self.nodes() {
-            if let Some(b) = expected {
-                assert!(once(&b).eq(node.outputs()));
-            } else {
-                assert_eq!(1, node.outputs().len());
-                expected = Some(node.outputs()[0]);
-            }
-        }
-        // TODO: As soon as observers are added to the test framework, compare the expected output
-        // against the output of observers.
+    let ids: Vec<NodeId> = net.nodes().map(|n| *n.id()).collect();
+    for id in ids {
+        let _ = net.send_input(id, input.unwrap_or_else(|| rng.gen::<bool>()), &mut rng);
     }
+
+    // Handle messages in random order until all nodes have output the proposed value.
+    while !net.nodes().all(|node| node.algorithm().terminated()) {
+        let _ = net.crank_expect(&mut rng);
+    }
+    // Verify that all instances output the same value.
+    let mut expected = input;
+    for node in net.nodes() {
+        if let Some(b) = expected {
+            assert!(once(&b).eq(node.outputs()));
+        } else {
+            assert_eq!(1, node.outputs().len());
+            expected = Some(node.outputs()[0]);
+        }
+    }
+    // TODO: As soon as observers are added to the test framework, compare the expected output
+    // against the output of observers.
 }
 
 /// Tests Binary Agreement on a given configuration.
@@ -127,7 +122,11 @@ fn binary_agreement(cfg: TestConfig) {
         })
         .build(&mut rng)
         .expect("Could not construct test network.");
-    net.test_binary_agreement(cfg.input, TestRng::from_seed(rng.gen::<TestRngSeed>()));
+    test_binary_agreement(
+        &mut net,
+        cfg.input,
+        TestRng::from_seed(rng.gen::<TestRngSeed>()),
+    );
     println!(
         "Test success: {} good nodes and {} faulty nodes, input: {:?}",
         num_good_nodes, num_faulty_nodes, cfg.input

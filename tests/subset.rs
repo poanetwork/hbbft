@@ -1,19 +1,16 @@
 #![deny(unused_must_use)]
-pub mod net;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::iter::once;
 use std::sync::Arc;
 
-use proptest::{prelude::ProptestConfig, proptest, proptest_helper};
-use rand::SeedableRng;
-
 use hbbft::subset::{Subset, SubsetOutput};
 use hbbft::ConsensusProtocol;
-
-use crate::net::adversary::{Adversary, NodeOrderAdversary, ReorderingAdversary};
-use crate::net::proptest::{gen_seed, TestRng, TestRngSeed};
-use crate::net::{NetBuilder, NewNodeInfo, VirtualNet};
+use hbbft_testing::adversary::{Adversary, NodeOrderAdversary, ReorderingAdversary};
+use hbbft_testing::proptest::{gen_seed, TestRng, TestRngSeed};
+use hbbft_testing::{NetBuilder, NewNodeInfo, VirtualNet};
+use proptest::{prelude::ProptestConfig, proptest};
+use rand::SeedableRng;
 
 type NodeId = u16;
 type ProposedValue = Vec<u8>;

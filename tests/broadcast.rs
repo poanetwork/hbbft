@@ -1,21 +1,17 @@
-pub mod net;
-
 use std::collections::BTreeMap;
 use std::iter::once;
 use std::sync::{Arc, Mutex};
 
-use log::info;
-use proptest::{prelude::ProptestConfig, proptest, proptest_helper};
-use rand::{Rng, SeedableRng};
-
 use hbbft::{broadcast::Broadcast, util, ConsensusProtocol, CpStep, NetworkInfo};
-
-use crate::net::adversary::{
+use hbbft_testing::adversary::{
     sort_ascending, swap_random, Adversary, NetMutHandle, NodeOrderAdversary, RandomAdversary,
     ReorderingAdversary,
 };
-use crate::net::proptest::{gen_seed, TestRng, TestRngSeed};
-use crate::net::{CrankError, NetBuilder, NetMessage, NewNodeInfo, VirtualNet};
+use hbbft_testing::proptest::{gen_seed, TestRng, TestRngSeed};
+use hbbft_testing::{CrankError, NetBuilder, NetMessage, NewNodeInfo, VirtualNet};
+use log::info;
+use proptest::{prelude::ProptestConfig, proptest};
+use rand::{Rng, SeedableRng};
 
 type NodeId = u16;
 type NetworkInfoMap = BTreeMap<NodeId, Arc<NetworkInfo<NodeId>>>;

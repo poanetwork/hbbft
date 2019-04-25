@@ -1,18 +1,16 @@
-pub mod net;
-
 use std::collections::{BTreeMap, BTreeSet};
 use std::time;
 
-use hbbft::dynamic_honey_badger::{Change, ChangeState, DynamicHoneyBadger, Input, JoinPlan};
+use hbbft::dynamic_honey_badger::{
+    Batch, Change, ChangeState, DynamicHoneyBadger, Input, JoinPlan,
+};
 use hbbft::sender_queue::{SenderQueue, Step};
-use hbbft::Epoched;
-use proptest::{prelude::ProptestConfig, prop_compose, proptest, proptest_helper};
+use hbbft::{util, Epoched};
+use hbbft_testing::adversary::{Adversary, ReorderingAdversary};
+use hbbft_testing::proptest::{gen_seed, NetworkDimension, TestRng, TestRngSeed};
+use hbbft_testing::{NetBuilder, NewNodeInfo, Node, VirtualNet};
+use proptest::{prelude::ProptestConfig, prop_compose, proptest};
 use rand::{seq::SliceRandom, SeedableRng};
-
-use crate::net::adversary::{Adversary, ReorderingAdversary};
-use crate::net::proptest::{gen_seed, NetworkDimension, TestRng, TestRngSeed};
-use crate::net::{NetBuilder, NewNodeInfo, Node, VirtualNet};
-use hbbft::util;
 use threshold_crypto::PublicKey;
 
 type DHB = SenderQueue<DynamicHoneyBadger<Vec<usize>, usize>>;
@@ -218,7 +216,7 @@ fn do_drop_and_re_add(cfg: TestConfig) {
                 );
             }
         }
-        for change in step.output.iter().map(|output| output.change()) {
+        for change in step.output.iter().map(Batch::change) {
             match change {
                 ChangeState::Complete(Change::NodeChange(ref pub_keys))
                     if *pub_keys == new_pub_keys =>
@@ -389,7 +387,7 @@ fn do_drop_and_re_add(cfg: TestConfig) {
         }
 
         // Check if we are done.
-        if expected_outputs.values().all(|s| s.is_empty())
+        if expected_outputs.values().all(BTreeSet::is_empty)
             && awaiting_apply_old_subset.is_empty()
             && awaiting_apply_new_subset.is_empty()
         {
@@ -443,7 +441,7 @@ where
     // TODO: When an observer node is added to the network, it should also be added to peer_ids.
     let peer_ids: Vec<_> = net
         .nodes()
-        .map(|node| node.id())
+        .map(Node::id)
         .filter(|id| *id != node.id())
         .cloned()
         .collect();
