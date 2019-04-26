@@ -1,12 +1,10 @@
-pub mod net;
-
 use proptest::arbitrary::any;
+use proptest::proptest;
 use proptest::strategy::{Strategy, ValueTree};
-use proptest::{proptest, proptest_helper};
 use rand::SeedableRng;
 use rand_xorshift::XorShiftRng;
 
-use crate::net::proptest::{max_sum, NetworkDimension, NetworkDimensionTree};
+use crate::proptest::{max_sum, NetworkDimension, NetworkDimensionTree};
 
 proptest! {
     /// Ensures all generated network dimensions are actually sane.

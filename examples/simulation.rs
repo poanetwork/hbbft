@@ -1,4 +1,5 @@
 use std::collections::{BTreeMap, VecDeque};
+use std::convert::TryFrom;
 use std::time::{Duration, Instant};
 use std::{cmp, u64};
 
@@ -8,7 +9,7 @@ use itertools::Itertools;
 use rand::{distributions::Standard, rngs::OsRng, seq::SliceRandom, Rng};
 use rand_derive::Rand;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
-use signifix::{metric, TryFrom};
+use signifix::metric;
 
 use hbbft::dynamic_honey_badger::DynamicHoneyBadger;
 use hbbft::queueing_honey_badger::{Batch, QueueingHoneyBadger};

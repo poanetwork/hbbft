@@ -294,7 +294,9 @@ where
         let kgs = match self.key_gen_state {
             Some(ref mut kgs) => kgs,
             None => {
-                return Ok(Fault::new(sender_id.clone(), FaultKind::UnexpectedKeyGenMessage).into());
+                return Ok(
+                    Fault::new(sender_id.clone(), FaultKind::UnexpectedKeyGenMessage).into(),
+                );
             }
         };
 

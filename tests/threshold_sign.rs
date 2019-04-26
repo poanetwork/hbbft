@@ -1,19 +1,15 @@
 #![deny(unused_must_use)]
 //! Non-deterministic tests for the ThresholdSign protocol
 
-pub mod net;
-
 use std::sync::Arc;
 
-use log::info;
-use proptest::{prelude::ProptestConfig, proptest, proptest_helper};
-use rand::{Rng, SeedableRng};
-
 use hbbft::{crypto::Signature, threshold_sign::ThresholdSign, util, ConsensusProtocol};
-
-use crate::net::adversary::{Adversary, NodeOrderAdversary, ReorderingAdversary};
-use crate::net::proptest::{gen_seed, TestRng, TestRngSeed};
-use crate::net::{NetBuilder, NewNodeInfo, VirtualNet};
+use hbbft_testing::adversary::{Adversary, NodeOrderAdversary, ReorderingAdversary};
+use hbbft_testing::proptest::{gen_seed, TestRng, TestRngSeed};
+use hbbft_testing::{NetBuilder, NewNodeInfo, VirtualNet};
+use log::info;
+use proptest::{prelude::ProptestConfig, proptest};
+use rand::{Rng, SeedableRng};
 
 type NodeId = u16;
 
