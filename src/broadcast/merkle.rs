@@ -69,7 +69,7 @@ impl<T: AsRef<[u8]> + Clone> MerkleTree<T> {
 }
 
 /// A proof that a value is at a particular index in the Merkle tree specified by its root hash.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub struct Proof<T> {
     value: T,
     index: usize,

@@ -26,6 +26,8 @@ pub struct Broadcast<N> {
     proposer_id: N,
     /// The Reed-Solomon erasure coding configuration.
     coding: Coding,
+    /// Original value message received from proposer.
+    value_message: Proof<Vec<u8>>,
     /// If we are the proposer: whether we have already sent the `Value` messages with the shards.
     value_sent: bool,
     /// Whether we have already multicast `Echo` to our left nodes.
@@ -93,6 +95,7 @@ impl<N: NodeIdT> Broadcast<N> {
             netinfo,
             proposer_id,
             coding,
+            value_message: Proof::default(),
             value_sent: false,
             echo_sent: false,
             ready_sent: false,
@@ -232,6 +235,8 @@ impl<N: NodeIdT> Broadcast<N> {
             return Ok(Fault::new(sender_id.clone(), FaultKind::InvalidProof).into());
         }
 
+        // Store value received to send back at later stage.
+        self.value_message = p.clone();
         // Otherwise multicast the proof in an `Echo` message, and handle it ourselves.
         self.send_echo(p)
     }
