@@ -31,7 +31,9 @@ pub struct Broadcast<N> {
     /// If we are the proposer: whether we have already sent the `Value` messages with the shards.
     value_sent: bool,
     /// Whether we have already multicast `Echo` to our left nodes.
-    echo_sent: bool,
+    echo_sent_partial: bool,
+    /// Whether we have already multicast `Echo` to our right nodes who haven't sent `CanDecode`.
+    echo_sent_full: bool,
     /// Whether we have already multicast `Ready`.
     ready_sent: bool,
     /// Whether we have already multicast `EchoHash` to the right nodes.
@@ -101,7 +103,8 @@ impl<N: NodeIdT> Broadcast<N> {
             coding,
             value_message: Proof::default(),
             value_sent: false,
-            echo_sent: false,
+            echo_sent_partial: false,
+            echo_sent_full: false,
             ready_sent: false,
             echo_hash_sent: false,
             can_decode_sent: false,
@@ -222,7 +225,7 @@ impl<N: NodeIdT> Broadcast<N> {
             let fault_kind = FaultKind::ReceivedValueFromNonProposer;
             return Ok(Fault::new(sender_id.clone(), fault_kind).into());
         }
-        if self.echo_sent {
+        if self.echo_sent_partial {
             if self.echos.get(self.our_id()) == Some(&p) {
                 warn!(
                     "Node {:?} received Value({:?}) multiple times from {:?}.",
@@ -362,13 +365,19 @@ impl<N: NodeIdT> Broadcast<N> {
             // Enqueue a broadcast of a Ready message.
             step.extend(self.send_ready(hash)?);
         }
+        // Upon receiving 2f + 1 matching Ready(h) messages, send full
+        // `Echo` message to every node who hasn't sent us a `CanDecode`
+        if self.count_readys(hash) == 2 * self.netinfo.num_faulty() + 1 {
+            // `send_echo` function should take care of which nodes to send the message
+            step.extend(self.send_echo(self.value_message.clone())?);
+        }
+
         Ok(step.join(self.compute_output(hash)?))
     }
 
     /// Sends an `Echo` message and handles it. Does nothing if we are only an observer.
     fn send_echo(&mut self, p: Proof<Vec<u8>>) -> Result<Step<N>> {
-        self.echo_sent = true;
-        if !self.netinfo.is_validator() {
+       if !self.netinfo.is_validator() {
             return Ok(Step::default());
         }
         let echo_msg = Message::Echo(p.clone());
@@ -376,9 +385,24 @@ impl<N: NodeIdT> Broadcast<N> {
         // TODO: iterator not correctly describing right of our_id. Use cycle method on
         // iterator to correctly specify.
         let right = self.netinfo.all_ids().skip(self.netinfo.num_correct()+self.pessimissm_factor);
-        for id in right {
-            let msg = Target::Node(id.clone()).message(echo_msg.clone());
-            step.messages.push(msg);
+
+        // Send `Echo` to all left nodes.
+        if !self.echo_sent_partial {
+            self.echo_sent_partial = true;
+            for id in right {
+                let msg = Target::Node(id.clone()).message(echo_msg.clone());
+                step.messages.push(msg);
+            }
+        }
+        // Send `Echo` to remaining right nodes who haven't sent us `CanDecode`.
+        else {
+            self.echo_sent_full = true;
+            for id in right {
+                if !self.can_decodes.contains_key(id) {
+                    let msg = Target::Node(id.clone()).message(echo_msg.clone());
+                    step.messages.push(msg);
+                }
+            }
         }
         let our_id = &self.our_id().clone();
         Ok(step.join(self.handle_echo(our_id, p)?))
