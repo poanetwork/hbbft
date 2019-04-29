@@ -46,6 +46,8 @@ pub struct Broadcast<N> {
     echos: BTreeMap<N, Proof<Vec<u8>>>,
     /// The hashes we have received via `EchoHash` messages, by sender ID.
     echo_hashes: BTreeMap<N, Digest>,
+    /// The hashes we have received via `CanDecode` messages, by sender ID.
+    can_decodes: BTreeMap<N, Digest>,
     /// The root hashes we received via `Ready` messages, by sender ID.
     readys: BTreeMap<N, Vec<u8>>,
 }
@@ -107,6 +109,7 @@ impl<N: NodeIdT> Broadcast<N> {
             pessimissm_factor: g,
             echos: BTreeMap::new(),
             echo_hashes: BTreeMap::new(),
+            can_decodes: BTreeMap::new(),
             readys: BTreeMap::new(),
 
         })
@@ -311,6 +314,28 @@ impl<N: NodeIdT> Broadcast<N> {
         self.send_ready(&hash)
     }
 
+    /// Handles a received `CanDecode` message.
+    fn handle_can_decode(&mut self, sender_id: &N, hash: &Digest) -> Result<Step<N>> {
+        // If the sender has already sent `CanDecode`, ignore.
+        if let Some(old_hash) = self.can_decodes.get(sender_id) {
+            if old_hash == hash {
+                warn!(
+                    "Node {:?} received CanDecode({:?}) multiple times from {:?}.",
+                    self.our_id(),
+                    hash,
+                    sender_id,
+                );
+                return Ok(Step::default());
+            } else {
+                return Ok(Fault::new(sender_id.clone(), FaultKind::MultipleCanDecodes).into());
+            }
+        }
+        // Save the hash for counting later.
+        self.can_decodes.insert(sender_id.clone(), *hash);
+
+        Ok(Step::default())
+    }
+
     /// Handles a received `Ready` message.
     fn handle_ready(&mut self, sender_id: &N, hash: &Digest) -> Result<Step<N>> {
         // If the sender has already sent a `Ready` before, ignore.
@@ -338,10 +363,6 @@ impl<N: NodeIdT> Broadcast<N> {
             step.extend(self.send_ready(hash)?);
         }
         Ok(step.join(self.compute_output(hash)?))
-    }
-
-    fn handle_can_decode(&mut self, sender_id: &N, hash: &Digest) -> Result<Step<N>> {
-        unimplemented!()
     }
 
     /// Sends an `Echo` message and handles it. Does nothing if we are only an observer.
