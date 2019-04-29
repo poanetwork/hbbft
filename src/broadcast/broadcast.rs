@@ -44,6 +44,8 @@ pub struct Broadcast<N> {
     pessimissm_factor: usize,
     /// The proofs we have received via `Echo` messages, by sender ID.
     echos: BTreeMap<N, Proof<Vec<u8>>>,
+    /// The hashes we have received via `EchoHash` messages, by sender ID.
+    echo_hashes: BTreeMap<N, Digest>,
     /// The root hashes we received via `Ready` messages, by sender ID.
     readys: BTreeMap<N, Vec<u8>>,
 }
@@ -104,6 +106,7 @@ impl<N: NodeIdT> Broadcast<N> {
             decided: false,
             pessimissm_factor: g,
             echos: BTreeMap::new(),
+            echo_hashes: BTreeMap::new(),
             readys: BTreeMap::new(),
 
         })
@@ -270,7 +273,12 @@ impl<N: NodeIdT> Broadcast<N> {
         // Save the proof for reconstructing the tree later.
         self.echos.insert(sender_id.clone(), p);
 
-        if self.ready_sent || self.count_echos(&hash) < self.netinfo.num_correct() {
+        // Upon receiving `N - 2f` `Echo`s with this root hash, multicast `CanDecode`
+        if !self.can_decode_sent && self.count_echos(&hash) >= self.netinfo.num_correct() - self.netinfo.num_faulty() {
+            return self.send_can_decode(&hash);
+        }
+
+        if self.ready_sent || self.count_echos(&hash) + self.count_echo_hashes(&hash) < self.netinfo.num_correct() {
             return self.compute_output(&hash);
         }
 
@@ -472,6 +480,14 @@ impl<N: NodeIdT> Broadcast<N> {
         self.echos
             .values()
             .filter(|p| p.root_hash() == hash)
+            .count()
+    }
+
+    /// Returns the number of nodes that have sent us an `EchoHash` message with this hash.
+    fn count_echo_hashes(&self, hash: &Digest) -> usize {
+        self.echo_hashes
+            .values()
+            .filter(|h| *h == hash)
             .count()
     }
 
