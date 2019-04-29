@@ -234,11 +234,13 @@ impl<N: NodeIdT> Broadcast<N> {
         if !self.validate_proof(&p, &self.our_id()) {
             return Ok(Fault::new(sender_id.clone(), FaultKind::InvalidProof).into());
         }
-
         // Store value received to send back at later stage.
         self.value_message = p.clone();
-        // Otherwise multicast the proof in an `Echo` message, and handle it ourselves.
-        self.send_echo(p)
+        // Multicast the proof in an `Echo` message to left nodes
+        // and `EchoHash` message to right nodes and handle the response.
+        let echo_steps = self.send_echo(p.clone())?;
+        let echo_hash_steps = self.send_echo_hash(p.root_hash())?;
+        Ok(echo_steps.join(echo_hash_steps))
     }
 
     /// Handles a received `Echo` message.
