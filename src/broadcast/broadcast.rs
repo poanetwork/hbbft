@@ -286,6 +286,31 @@ impl<N: NodeIdT> Broadcast<N> {
         self.send_ready(&hash)
     }
 
+    fn handle_echo_hash(&mut self, sender_id: &N, hash: &Digest) -> Result<Step<N>> {
+        // If the sender has already sent `EchoHash`, ignore.
+        if let Some(old_hash) = self.echo_hashes.get(sender_id) {
+            if old_hash == hash {
+                warn!(
+                    "Node {:?} received EchoHash({:?}) multiple times from {:?}.",
+                    self.our_id(),
+                    hash,
+                    sender_id,
+                );
+                return Ok(Step::default());
+            } else {
+                return Ok(Fault::new(sender_id.clone(), FaultKind::MultipleEchoHashes).into());
+            }
+        }
+        // Save the hash for counting later.
+        self.echo_hashes.insert(sender_id.clone(), *hash);
+
+        if self.ready_sent || self.count_echos(&hash) + self.count_echo_hashes(&hash) < self.netinfo.num_correct() {
+            return self.compute_output(&hash);
+        }
+        // Upon receiving `N - f` `Echo`s with this root hash, multicast `Ready`.
+        self.send_ready(&hash)
+    }
+
     /// Handles a received `Ready` message.
     fn handle_ready(&mut self, sender_id: &N, hash: &Digest) -> Result<Step<N>> {
         // If the sender has already sent a `Ready` before, ignore.
@@ -318,11 +343,6 @@ impl<N: NodeIdT> Broadcast<N> {
     fn handle_can_decode(&mut self, sender_id: &N, hash: &Digest) -> Result<Step<N>> {
         unimplemented!()
     }
-
-    fn handle_echo_hash(&mut self, sender_id: &N, hash: &Digest) -> Result<Step<N>> {
-        unimplemented!()
-    }
-
 
     /// Sends an `Echo` message and handles it. Does nothing if we are only an observer.
     fn send_echo(&mut self, p: Proof<Vec<u8>>) -> Result<Step<N>> {
