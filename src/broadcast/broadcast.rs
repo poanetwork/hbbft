@@ -26,24 +26,22 @@ pub struct Broadcast<N> {
     proposer_id: N,
     /// The Reed-Solomon erasure coding configuration.
     coding: Coding,
-    /// Original value message received from proposer.
-    value_message: Proof<Vec<u8>>,
     /// If we are the proposer: whether we have already sent the `Value` messages with the shards.
     value_sent: bool,
-    /// Whether we have already multicast `Echo` to our left nodes.
+    /// Whether we have already send `Echo` to our left nodes.
     echo_sent_partial: bool,
-    /// Whether we have already multicast `Echo` to our right nodes who haven't sent `CanDecode`.
+    /// Whether we have already send `Echo` to our right nodes who haven't sent `CanDecode`.
     echo_sent_full: bool,
     /// Whether we have already multicast `Ready`.
     ready_sent: bool,
-    /// Whether we have already multicast `EchoHash` to the right nodes.
+    /// Whether we have already sent `EchoHash` to the right nodes.
     echo_hash_sent: bool,
-    /// Whether we have already multicast `CanDecode`.
+    /// Whether we have already sent `CanDecode`.
     can_decode_sent: bool,
     /// Whether we have already output a value.
     decided: bool,
     /// Pessimissm factor
-    pessimissm_factor: usize,
+    pessimism_factor: usize,
     /// The proofs we have received via `Echo` messages, by sender ID.
     echos: BTreeMap<N, Proof<Vec<u8>>>,
     /// The hashes we have received via `EchoHash` messages, by sender ID.
@@ -101,7 +99,6 @@ impl<N: NodeIdT> Broadcast<N> {
             netinfo,
             proposer_id,
             coding,
-            value_message: Proof::default(),
             value_sent: false,
             echo_sent_partial: false,
             echo_sent_full: false,
@@ -109,7 +106,7 @@ impl<N: NodeIdT> Broadcast<N> {
             echo_hash_sent: false,
             can_decode_sent: false,
             decided: false,
-            pessimissm_factor: g,
+            pessimism_factor: g,
             echos: BTreeMap::new(),
             echo_hashes: BTreeMap::new(),
             can_decodes: BTreeMap::new(),
@@ -243,9 +240,7 @@ impl<N: NodeIdT> Broadcast<N> {
         if !self.validate_proof(&p, &self.our_id()) {
             return Ok(Fault::new(sender_id.clone(), FaultKind::InvalidProof).into());
         }
-        // Store value received to send back at later stage.
-        self.value_message = p.clone();
-        // Multicast the proof in an `Echo` message to left nodes
+        // Send the proof in an `Echo` message to left nodes
         // and `EchoHash` message to right nodes and handle the response.
         let echo_steps = self.send_echo(p.clone())?;
         let echo_hash_steps = self.send_echo_hash(p.root_hash())?;
@@ -279,7 +274,7 @@ impl<N: NodeIdT> Broadcast<N> {
         // Save the proof for reconstructing the tree later.
         self.echos.insert(sender_id.clone(), p);
 
-        // Upon receiving `N - 2f` `Echo`s with this root hash, multicast `CanDecode`
+        // Upon receiving `N - 2f` `Echo`s with this root hash, send `CanDecode`
         if !self.can_decode_sent && self.count_echos(&hash) >= self.netinfo.num_correct() - self.netinfo.num_faulty() {
             return self.send_can_decode(&hash);
         }
@@ -367,9 +362,10 @@ impl<N: NodeIdT> Broadcast<N> {
         }
         // Upon receiving 2f + 1 matching Ready(h) messages, send full
         // `Echo` message to every node who hasn't sent us a `CanDecode`
+        let our_value = self.echos.get(self.our_id()).unwrap();
         if self.count_readys(hash) == 2 * self.netinfo.num_faulty() + 1 {
             // `send_echo` function should take care of which nodes to send the message
-            step.extend(self.send_echo(self.value_message.clone())?);
+            step.extend(self.send_echo(our_value)?);
         }
 
         Ok(step.join(self.compute_output(hash)?))
@@ -384,7 +380,7 @@ impl<N: NodeIdT> Broadcast<N> {
         let mut step = Step::default();
         // TODO: iterator not correctly describing right of our_id. Use cycle method on
         // iterator to correctly specify.
-        let right = self.netinfo.all_ids().skip(self.netinfo.num_correct()+self.pessimissm_factor);
+        let right = self.netinfo.all_ids().skip(self.netinfo.num_correct()+self.pessimism_factor);
 
         // Send `Echo` to all left nodes.
         if !self.echo_sent_partial {
@@ -418,7 +414,7 @@ impl<N: NodeIdT> Broadcast<N> {
         let mut step = Step::default();
         // TODO: iterator not correctly describing left of our_id. Use cycle method on
         // iterator to correctly specify.
-        let left = self.netinfo.all_ids().take(self.netinfo.num_correct()+self.pessimissm_factor);
+        let left = self.netinfo.all_ids().take(self.netinfo.num_correct()+self.pessimism_factor);
         for id in left {
             let msg = Target::Node(id.clone()).message(echo_hash_msg.clone());
             step.messages.push(msg);
