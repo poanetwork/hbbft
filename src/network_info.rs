@@ -86,6 +86,18 @@ impl<N: NodeIdT> NetworkInfo<N> {
         self.public_keys.keys()
     }
 
+    /// ID of all nodes in the network except passed id.
+    #[inline]
+    pub fn all_ids_except<'a>(&'a self, id: &'a N) -> impl Iterator<Item = &'a N> {
+        self.all_ids().filter(move |&x| x != id)
+    }
+
+    /// ID of all nodes in the network except our id.
+    #[inline]
+    pub fn other_ids(&self) -> impl Iterator<Item = &N> {
+        self.all_ids_except(self.our_id())
+    }
+
     /// The total number _N_ of nodes.
     #[inline]
     pub fn num_nodes(&self) -> usize {
