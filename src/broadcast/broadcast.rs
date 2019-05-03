@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::collections::BTreeSet;
 use std::sync::Arc;
 use std::{fmt, result};
 
@@ -43,7 +44,8 @@ pub struct Broadcast<N> {
     /// The hashes and proofs we have received via `Echo` and `EchoHash` messages, by sender ID.
     echos: BTreeMap<N, (Digest, Option<Proof<Vec<u8>>>)>,
     /// The hashes we have received via `CanDecode` messages, by sender ID.
-    can_decodes: BTreeMap<N, Digest>,
+    /// A node can receive conflicting `CanDecode`s from the same node.
+    can_decodes: BTreeSet<(N, Digest)>,
     /// The root hashes we received via `Ready` messages, by sender ID.
     readys: BTreeMap<N, Vec<u8>>,
 }
@@ -103,7 +105,7 @@ impl<N: NodeIdT> Broadcast<N> {
             decided: false,
             fault_estimate: g,
             echos: BTreeMap::new(),
-            can_decodes: BTreeMap::new(),
+            can_decodes: BTreeSet::new(),
             readys: BTreeMap::new(),
 
         })
@@ -318,23 +320,16 @@ impl<N: NodeIdT> Broadcast<N> {
 
     /// Handles a received `CanDecode` message.
     fn handle_can_decode(&mut self, sender_id: &N, hash: &Digest) -> Result<Step<N>> {
-        // If the sender has already sent `CanDecode`, ignore.
-        if let Some(old_hash) = self.can_decodes.get(sender_id) {
-            if old_hash == hash {
-                warn!(
-                    "Node {:?} received CanDecode({:?}) multiple times from {:?}.",
-                    self.our_id(),
-                    hash,
-                    sender_id,
-                );
-                return Ok(Step::default());
-            } else {
-                return Ok(Fault::new(sender_id.clone(), FaultKind::MultipleCanDecodes).into());
-            }
-        }
-        // Save the hash for counting later.
-        self.can_decodes.insert(sender_id.clone(), *hash);
 
+        // Save the hash for counting later. If tuple already exists, emit a warning.
+        if !self.can_decodes.insert((sender_id.clone(), *hash)) {
+            warn!(
+                "Node {:?} received CanDecode({:?}) multiple times from {:?}.",
+                self.our_id(),
+                hash,
+                sender_id,
+            );
+        }
         Ok(Step::default())
     }
 
@@ -412,7 +407,7 @@ impl<N: NodeIdT> Broadcast<N> {
         // iterator to correctly specify.
         let right = self.netinfo.all_ids_except(self.proposer_id()).skip(self.netinfo.num_correct()+self.fault_estimate);
         for id in right {
-            if !self.can_decodes.contains_key(id) {
+            if !self.can_decodes.contains(&(id.clone(), *p.root_hash())) {
                 let msg = Target::Node(id.clone()).message(echo_msg.clone());
                 step.messages.push(msg);
             }
