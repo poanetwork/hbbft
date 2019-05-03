@@ -40,8 +40,8 @@ pub struct Broadcast<N> {
     can_decode_sent: bool,
     /// Whether we have already output a value.
     decided: bool,
-    /// Pessimissm factor
-    pessimism_factor: usize,
+    /// /// Estimate as to how many nodes we think are faulty.
+    fault_estimate: usize,
     /// The proofs we have received via `Echo` messages, by sender ID.
     echos: BTreeMap<N, Proof<Vec<u8>>>,
     /// The hashes we have received via `EchoHash` messages, by sender ID.
@@ -106,7 +106,7 @@ impl<N: NodeIdT> Broadcast<N> {
             echo_hash_sent: false,
             can_decode_sent: false,
             decided: false,
-            pessimism_factor: g,
+            fault_estimate: g,
             echos: BTreeMap::new(),
             echo_hashes: BTreeMap::new(),
             can_decodes: BTreeMap::new(),
@@ -381,7 +381,7 @@ impl<N: NodeIdT> Broadcast<N> {
         let mut step = Step::default();
         // TODO: iterator not correctly describing left of our_id. Use cycle method on
         // iterator to correctly specify.
-        let left = self.netinfo.all_ids_except(self.proposer_id()).take(self.netinfo.num_correct()+self.pessimism_factor);
+        let left = self.netinfo.all_ids_except(self.proposer_id()).take(self.netinfo.num_correct()+self.fault_estimate);
         for id in left {
             let msg = Target::Node(id.clone()).message(echo_msg.clone());
             step.messages.push(msg);
@@ -403,7 +403,7 @@ impl<N: NodeIdT> Broadcast<N> {
         let mut step = Step::default();
         // TODO: iterator not correctly describing left of our_id. Use cycle method on
         // iterator to correctly specify.
-        let right = self.netinfo.all_ids_except(self.proposer_id()).skip(self.netinfo.num_correct()+self.pessimism_factor);
+        let right = self.netinfo.all_ids_except(self.proposer_id()).skip(self.netinfo.num_correct()+self.fault_estimate);
         for id in right {
             if !self.can_decodes.contains_key(id) {
                 let msg = Target::Node(id.clone()).message(echo_msg.clone());
@@ -425,7 +425,7 @@ impl<N: NodeIdT> Broadcast<N> {
         let mut step = Step::default();
         // TODO: iterator not correctly describing left of our_id. Use cycle method on
         // iterator to correctly specify.
-        let left = self.netinfo.all_ids().take(self.netinfo.num_correct()+self.pessimism_factor);
+        let left = self.netinfo.all_ids().take(self.netinfo.num_correct()+self.fault_estimate);
         for id in left {
             let msg = Target::Node(id.clone()).message(echo_hash_msg.clone());
             step.messages.push(msg);
