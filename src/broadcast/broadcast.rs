@@ -28,10 +28,8 @@ pub struct Broadcast<N> {
     coding: Coding,
     /// If we are the proposer: whether we have already sent the `Value` messages with the shards.
     value_sent: bool,
-    /// Whether we have already send `Echo` to our left nodes.
-    echo_sent_partial: bool,
-    /// Whether we have already send `Echo` to our right nodes who haven't sent `CanDecode`.
-    echo_sent_full: bool,
+    /// Whether we have already send `Echo` left nodes and right nodes who haven't sent `CanDecode`.
+    echo_sent: bool,
     /// Whether we have already multicast `Ready`.
     ready_sent: bool,
     /// Whether we have already sent `EchoHash` to the right nodes.
@@ -100,8 +98,7 @@ impl<N: NodeIdT> Broadcast<N> {
             proposer_id,
             coding,
             value_sent: false,
-            echo_sent_partial: false,
-            echo_sent_full: false,
+            echo_sent: false,
             ready_sent: false,
             echo_hash_sent: false,
             can_decode_sent: false,
@@ -222,7 +219,7 @@ impl<N: NodeIdT> Broadcast<N> {
             let fault_kind = FaultKind::ReceivedValueFromNonProposer;
             return Ok(Fault::new(sender_id.clone(), fault_kind).into());
         }
-        if self.echo_sent_partial {
+        if self.echos.contains_key(self.our_id()) {
             if self.echos.get(self.our_id()) == Some(&p) {
                 warn!(
                     "Node {:?} received Value({:?}) multiple times from {:?}.",
@@ -240,6 +237,11 @@ impl<N: NodeIdT> Broadcast<N> {
         if !self.validate_proof(&p, &self.our_id()) {
             return Ok(Fault::new(sender_id.clone(), FaultKind::InvalidProof).into());
         }
+
+        // Insert the value received into echos map before sending `Echo` and `EchoHash` to peers.
+        // Will get warning in `handle_echo` call for our_id.
+        self.echos.insert(sender_id.clone(), p.clone());
+
         // Send the proof in an `Echo` message to left nodes
         // and `EchoHash` message to right nodes and handle the response.
         let echo_steps = self.send_echo_left()?;
@@ -392,8 +394,7 @@ impl<N: NodeIdT> Broadcast<N> {
 
     /// Sends `Echo` message to remaining nodes who haven't sent `CanDecode`
     fn send_echo_remaining(&mut self) -> Result<Step<N>> {
-        // No need for echo_sent_partial check
-        self.echo_sent_full = true;
+        self.echo_sent = true;
         if !self.netinfo.is_validator() {
             return Ok(Step::default());
         }
@@ -401,7 +402,7 @@ impl<N: NodeIdT> Broadcast<N> {
         let p = self.echos.get(self.our_id()).unwrap().clone();
         let echo_msg = Message::Echo(p.clone());
         let mut step = Step::default();
-        // TODO: iterator not correctly describing left of our_id. Use cycle method on
+        // TODO: iterator not correctly describing right of our_id. Use cycle method on
         // iterator to correctly specify.
         let right = self.netinfo.all_ids_except(self.proposer_id()).skip(self.netinfo.num_correct()+self.fault_estimate);
         for id in right {
@@ -423,10 +424,10 @@ impl<N: NodeIdT> Broadcast<N> {
         }
         let echo_hash_msg = Message::EchoHash(*hash);
         let mut step = Step::default();
-        // TODO: iterator not correctly describing left of our_id. Use cycle method on
+        // TODO: iterator not correctly describing right of our_id. Use cycle method on
         // iterator to correctly specify.
-        let left = self.netinfo.all_ids().take(self.netinfo.num_correct()+self.fault_estimate);
-        for id in left {
+        let right = self.netinfo.all_ids_except(self.proposer_id()).skip(self.netinfo.num_correct()+self.fault_estimate);
+        for id in right {
             let msg = Target::Node(id.clone()).message(echo_hash_msg.clone());
             step.messages.push(msg);
         }
