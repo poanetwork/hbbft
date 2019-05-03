@@ -242,7 +242,7 @@ impl<N: NodeIdT> Broadcast<N> {
         }
         // Send the proof in an `Echo` message to left nodes
         // and `EchoHash` message to right nodes and handle the response.
-        let echo_steps = self.send_echo(p.clone())?;
+        let echo_steps = self.send_echo_left()?;
         let echo_hash_steps = self.send_echo_hash(p.root_hash())?;
         Ok(echo_steps.join(echo_hash_steps))
     }
@@ -362,44 +362,55 @@ impl<N: NodeIdT> Broadcast<N> {
         }
         // Upon receiving 2f + 1 matching Ready(h) messages, send full
         // `Echo` message to every node who hasn't sent us a `CanDecode`
-        let our_value = self.echos.get(self.our_id()).unwrap();
         if self.count_readys(hash) == 2 * self.netinfo.num_faulty() + 1 {
             // `send_echo` function should take care of which nodes to send the message
-            step.extend(self.send_echo(our_value)?);
+            step.extend(self.send_echo_remaining()?);
         }
 
         Ok(step.join(self.compute_output(hash)?))
     }
 
-    /// Sends an `Echo` message and handles it. Does nothing if we are only an observer.
-    fn send_echo(&mut self, p: Proof<Vec<u8>>) -> Result<Step<N>> {
-       if !self.netinfo.is_validator() {
+    /// Sends `Echo` message to all left nodes.
+    fn send_echo_left(&mut self) -> Result<Step<N>> {
+        if !self.netinfo.is_validator() {
             return Ok(Step::default());
         }
+        // Caller should make sure message is inserted. unwrap should never panic.
+        let p = self.echos.get(self.our_id()).unwrap().clone();
         let echo_msg = Message::Echo(p.clone());
         let mut step = Step::default();
-        // TODO: iterator not correctly describing right of our_id. Use cycle method on
+        // TODO: iterator not correctly describing left of our_id. Use cycle method on
         // iterator to correctly specify.
-        let right = self.netinfo.all_ids().skip(self.netinfo.num_correct()+self.pessimism_factor);
+        let left = self.netinfo.all_ids_except(self.proposer_id()).take(self.netinfo.num_correct()+self.pessimism_factor);
+        for id in left {
+            let msg = Target::Node(id.clone()).message(echo_msg.clone());
+            step.messages.push(msg);
+        }
+        let our_id = &self.our_id().clone();
+        Ok(step.join(self.handle_echo(our_id, p)?))
+    }
 
-        // Send `Echo` to all left nodes.
-        if !self.echo_sent_partial {
-            self.echo_sent_partial = true;
-            for id in right {
+    /// Sends `Echo` message to remaining nodes who haven't sent `CanDecode`
+    fn send_echo_remaining(&mut self) -> Result<Step<N>> {
+        // No need for echo_sent_partial check
+        self.echo_sent_full = true;
+        if !self.netinfo.is_validator() {
+            return Ok(Step::default());
+        }
+        // Caller should make sure message is inserted. unwrap should never panic.
+        let p = self.echos.get(self.our_id()).unwrap().clone();
+        let echo_msg = Message::Echo(p.clone());
+        let mut step = Step::default();
+        // TODO: iterator not correctly describing left of our_id. Use cycle method on
+        // iterator to correctly specify.
+        let right = self.netinfo.all_ids_except(self.proposer_id()).skip(self.netinfo.num_correct()+self.pessimism_factor);
+        for id in right {
+            if !self.can_decodes.contains_key(id) {
                 let msg = Target::Node(id.clone()).message(echo_msg.clone());
                 step.messages.push(msg);
             }
         }
-        // Send `Echo` to remaining right nodes who haven't sent us `CanDecode`.
-        else {
-            self.echo_sent_full = true;
-            for id in right {
-                if !self.can_decodes.contains_key(id) {
-                    let msg = Target::Node(id.clone()).message(echo_msg.clone());
-                    step.messages.push(msg);
-                }
-            }
-        }
+        // Is this required?!
         let our_id = &self.our_id().clone();
         Ok(step.join(self.handle_echo(our_id, p)?))
     }
