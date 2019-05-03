@@ -82,19 +82,19 @@ impl<N: NodeIdT> NetworkInfo<N> {
 
     /// ID of all nodes in the network.
     #[inline]
-    pub fn all_ids(&self) -> impl Iterator<Item = &N> {
+    pub fn all_ids(&self) -> impl Iterator<Item = &N> + Clone {
         self.public_keys.keys()
     }
 
     /// ID of all nodes in the network except passed id.
     #[inline]
-    pub fn all_ids_except<'a>(&'a self, id: &'a N) -> impl Iterator<Item = &'a N> {
+    pub fn all_ids_except<'a>(&'a self, id: &'a N) -> impl Iterator<Item = &'a N> + Clone {
         self.all_ids().filter(move |&x| x != id)
     }
 
     /// ID of all nodes in the network except our id.
     #[inline]
-    pub fn other_ids(&self) -> impl Iterator<Item = &N> {
+    pub fn other_ids(&self) -> impl Iterator<Item = &N> + Clone {
         self.all_ids_except(self.our_id())
     }
 

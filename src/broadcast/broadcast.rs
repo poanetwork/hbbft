@@ -380,9 +380,12 @@ impl<N: NodeIdT> Broadcast<N> {
         let p = p.clone().unwrap();
         let echo_msg = Message::Echo(p.clone());
         let mut step = Step::default();
-        // TODO: iterator not correctly describing left of our_id. Use cycle method on
-        // iterator to correctly specify.
-        let left = self.netinfo.all_ids_except(self.proposer_id()).take(self.netinfo.num_correct()+self.fault_estimate);
+        // `N - 2f + g` node ids to the left of our_id (including our_id)
+        // after arranging all node ids in a circular list.
+        let left = self.netinfo.all_ids_except(self.proposer_id())
+                               .cycle()
+                               .skip_while(|x| *x == self.our_id())
+                               .take(self.netinfo.num_correct() - self.netinfo.num_faulty()+self.fault_estimate);
         for id in left {
             let msg = Target::Node(id.clone()).message(echo_msg.clone());
             step.messages.push(msg);
@@ -403,9 +406,13 @@ impl<N: NodeIdT> Broadcast<N> {
         let p = p.clone().unwrap();
         let echo_msg = Message::Echo(p.clone());
         let mut step = Step::default();
-        // TODO: iterator not correctly describing right of our_id. Use cycle method on
-        // iterator to correctly specify.
-        let right = self.netinfo.all_ids_except(self.proposer_id()).skip(self.netinfo.num_correct()+self.fault_estimate);
+        // Remaining `2f - g` node ids to the right of our_id (including our_id)
+        // after arranging all node ids in a circular list.
+        let right = self.netinfo.all_ids_except(self.proposer_id())
+                               .cycle()
+                               .skip_while(|x| *x == self.our_id())
+                               .skip(self.netinfo.num_correct() - self.netinfo.num_faulty() + self.fault_estimate)
+                               .take_while(|x| *x == self.our_id());
         for id in right {
             if !self.can_decodes.contains(&(id.clone(), *p.root_hash())) {
                 let msg = Target::Node(id.clone()).message(echo_msg.clone());
@@ -425,9 +432,13 @@ impl<N: NodeIdT> Broadcast<N> {
         }
         let echo_hash_msg = Message::EchoHash(*hash);
         let mut step = Step::default();
-        // TODO: iterator not correctly describing right of our_id. Use cycle method on
-        // iterator to correctly specify.
-        let right = self.netinfo.all_ids_except(self.proposer_id()).skip(self.netinfo.num_correct()+self.fault_estimate);
+        // Remaining `2f - g` node ids to the right of our_id (including our_id)
+        // after arranging all node ids in a circular list.
+        let right = self.netinfo.all_ids_except(self.proposer_id())
+                               .cycle()
+                               .skip_while(|x| *x == self.our_id())
+                               .skip(self.netinfo.num_correct() - self.netinfo.num_faulty() + self.fault_estimate)
+                               .take_while(|x| *x == self.our_id());
         for id in right {
             let msg = Target::Node(id.clone()).message(echo_hash_msg.clone());
             step.messages.push(msg);
