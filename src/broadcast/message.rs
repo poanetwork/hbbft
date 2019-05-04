@@ -27,7 +27,9 @@ pub enum Message {
 // for integration tests.
 impl Distribution<Message> for Standard {
     fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> Message {
-        let message_type = *["value", "echo", "ready", "can_decode", "echo_hash"].choose(rng).unwrap();
+        let message_type = *["value", "echo", "ready", "can_decode", "echo_hash"]
+            .choose(rng)
+            .unwrap();
 
         // Create a random buffer for our proof.
         let mut buffer: [u8; 32] = [0; 32];
