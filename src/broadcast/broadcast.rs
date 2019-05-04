@@ -107,7 +107,6 @@ impl<N: NodeIdT> Broadcast<N> {
             echos: BTreeMap::new(),
             can_decodes: BTreeSet::new(),
             readys: BTreeMap::new(),
-
         })
     }
 
@@ -218,21 +217,18 @@ impl<N: NodeIdT> Broadcast<N> {
             let fault_kind = FaultKind::ReceivedValueFromNonProposer;
             return Ok(Fault::new(sender_id.clone(), fault_kind).into());
         }
-        // Don't need the first if statement. Check!
-        if self.echos.contains_key(self.our_id()) {
-            if let Some((_, Some(proof))) = self.echos.get(self.our_id()) {
-                if *proof == p {
-                    warn!(
-                        "Node {:?} received Value({:?}) multiple times from {:?}.",
-                        self.our_id(),
-                        HexProof(&p),
-                        sender_id
-                    );
-                    return Ok(Step::default());
-                }
-                else {
-                    return Ok(Fault::new(sender_id.clone(), FaultKind::MultipleValues).into());
-                }
+
+        if let Some((_, Some(proof))) = self.echos.get(self.our_id()) {
+            if *proof == p {
+                warn!(
+                    "Node {:?} received Value({:?}) multiple times from {:?}.",
+                    self.our_id(),
+                    HexProof(&p),
+                    sender_id
+                );
+                return Ok(Step::default());
+            } else {
+                return Ok(Fault::new(sender_id.clone(), FaultKind::MultipleValues).into());
             }
         }
 
@@ -241,14 +237,10 @@ impl<N: NodeIdT> Broadcast<N> {
             return Ok(Fault::new(sender_id.clone(), FaultKind::InvalidProof).into());
         }
 
-        // Insert the value received into echos map before sending `Echo` and `EchoHash` to peers.
-        // Will get warning in `handle_echo` call for our_id.
-        self.echos.insert(sender_id.clone(), (p.root_hash().clone(), Some(p.clone())));
-
         // Send the proof in an `Echo` message to left nodes
         // and `EchoHash` message to right nodes and handle the response.
-        let echo_steps = self.send_echo_left()?;
         let echo_hash_steps = self.send_echo_hash(p.root_hash())?;
+        let echo_steps = self.send_echo_left(p)?;
         Ok(echo_steps.join(echo_hash_steps))
     }
 
@@ -269,6 +261,12 @@ impl<N: NodeIdT> Broadcast<N> {
             }
         }
 
+        if let Some((hash, None)) = self.echos.get(sender_id) {
+            if hash != p.root_hash() {
+                return Ok(Fault::new(sender_id.clone(), FaultKind::MultipleEchos).into());
+            }
+        }
+
         // If the proof is invalid, log the faulty-node behavior, and ignore.
         if !self.validate_proof(&p, sender_id) {
             return Ok(Fault::new(sender_id.clone(), FaultKind::InvalidProof).into());
@@ -277,10 +275,11 @@ impl<N: NodeIdT> Broadcast<N> {
         let hash = *p.root_hash();
 
         // Save the proof for reconstructing the tree later.
-        self.echos.insert(sender_id.clone(), (hash.clone(), Some(p.clone())));
+        self.echos
+            .insert(sender_id.clone(), (hash, Some(p)));
 
         // Upon receiving `N - 2f` `Echo`s with this root hash, send `CanDecode`
-        if !self.can_decode_sent && self.count_echos_full(&hash) >= self.netinfo.num_correct() - self.netinfo.num_faulty() {
+        if !self.can_decode_sent && self.count_echos_full(&hash) >= self.coding.data_shard_count() {
             return self.send_can_decode(&hash);
         }
 
@@ -294,8 +293,7 @@ impl<N: NodeIdT> Broadcast<N> {
 
     fn handle_echo_hash(&mut self, sender_id: &N, hash: &Digest) -> Result<Step<N>> {
         // If the sender has already sent `EchoHash`, ignore.
-        // Should there be an error case for sending an `EchoHash` after an `Echo` (2nd element not None)
-        if let Some((old_hash, _)) = self.echos.get(sender_id) {
+        if let Some((old_hash, None)) = self.echos.get(sender_id) {
             if old_hash == hash {
                 warn!(
                     "Node {:?} received EchoHash({:?}) multiple times from {:?}.",
@@ -305,6 +303,16 @@ impl<N: NodeIdT> Broadcast<N> {
                 );
                 return Ok(Step::default());
             } else {
+                return Ok(Fault::new(sender_id.clone(), FaultKind::MultipleEchoHashes).into());
+            }
+        }
+
+        // If the sender has already sent an `Echo` for the same hash, ignore.
+        if let Some((_, Some(proof))) = self.echos.get(sender_id) {
+            if proof.root_hash() == hash {
+                return Ok(Step::default());
+            } else {
+                // Should be a new error? Conflicting Echo and EchoHashes.
                 return Ok(Fault::new(sender_id.clone(), FaultKind::MultipleEchoHashes).into());
             }
         }
@@ -320,7 +328,6 @@ impl<N: NodeIdT> Broadcast<N> {
 
     /// Handles a received `CanDecode` message.
     fn handle_can_decode(&mut self, sender_id: &N, hash: &Digest) -> Result<Step<N>> {
-
         // Save the hash for counting later. If tuple already exists, emit a warning.
         if !self.can_decodes.insert((sender_id.clone(), *hash)) {
             warn!(
@@ -369,29 +376,28 @@ impl<N: NodeIdT> Broadcast<N> {
         Ok(step.join(self.compute_output(hash)?))
     }
 
-    /// Sends `Echo` message to all left nodes.
-    fn send_echo_left(&mut self) -> Result<Step<N>> {
+    /// Sends `Echo` message to all left nodes and handles it.
+    fn send_echo_left(&mut self, p: Proof<Vec<u8>>) -> Result<Step<N>> {
         if !self.netinfo.is_validator() {
             return Ok(Step::default());
         }
-        // Caller should make sure message is inserted. unwrap should never panic.
-        // Could also have another error type if it panics.
-        let (_, p) = self.echos.get(self.our_id()).unwrap();
-        let p = p.clone().unwrap();
         let echo_msg = Message::Echo(p.clone());
         let mut step = Step::default();
-        // `N - 2f + g` node ids to the left of our_id (including our_id)
+        // `N - 2f + g` node ids to the left of our_id (excluding our_id and proposer_id)
         // after arranging all node ids in a circular list.
-        let left = self.netinfo.all_ids_except(self.proposer_id())
-                               .cycle()
-                               .skip_while(|x| *x == self.our_id())
-                               .take(self.netinfo.num_correct() - self.netinfo.num_faulty()+self.fault_estimate);
+        let left = self
+            .netinfo
+            .all_ids_except(self.proposer_id())
+            .cycle()
+            .skip_while(|x| *x != self.our_id())
+            .take(self.netinfo.num_correct() - self.netinfo.num_faulty() + self.fault_estimate)
+            .skip(1);
         for id in left {
             let msg = Target::Node(id.clone()).message(echo_msg.clone());
             step.messages.push(msg);
         }
         let our_id = &self.our_id().clone();
-        Ok(step.join(self.handle_echo(our_id, p.clone())?))
+        Ok(step.join(self.handle_echo(our_id, p)?))
     }
 
     /// Sends `Echo` message to remaining nodes who haven't sent `CanDecode`
@@ -400,28 +406,33 @@ impl<N: NodeIdT> Broadcast<N> {
         if !self.netinfo.is_validator() {
             return Ok(Step::default());
         }
-        // Caller should make sure message is inserted. unwrap should never panic.
-        // Could also have another error type for this case.
+
+        if !self.echos.contains_key(self.our_id()) {
+            return Ok(Step::default());
+        }
+        if let Some((_, None)) = self.echos.get(self.our_id()) {
+            return Ok(Step::default());
+        }
         let (_, p) = self.echos.get(self.our_id()).unwrap();
         let p = p.clone().unwrap();
         let echo_msg = Message::Echo(p.clone());
         let mut step = Step::default();
-        // Remaining `2f - g` node ids to the right of our_id (including our_id)
+        // Remaining node ids to the right of our_id
         // after arranging all node ids in a circular list.
-        let right = self.netinfo.all_ids_except(self.proposer_id())
-                               .cycle()
-                               .skip_while(|x| *x == self.our_id())
-                               .skip(self.netinfo.num_correct() - self.netinfo.num_faulty() + self.fault_estimate)
-                               .take_while(|x| *x == self.our_id());
+        let right = self
+            .netinfo
+            .all_ids_except(self.proposer_id())
+            .cycle()
+            .skip_while(|x| *x != self.our_id())
+            .skip(self.netinfo.num_correct() - self.netinfo.num_faulty() + self.fault_estimate)
+            .take_while(|x| *x != self.our_id());
         for id in right {
             if !self.can_decodes.contains(&(id.clone(), *p.root_hash())) {
                 let msg = Target::Node(id.clone()).message(echo_msg.clone());
                 step.messages.push(msg);
             }
         }
-        // Is this required?!
-        let our_id = &self.our_id().clone();
-        Ok(step.join(self.handle_echo(our_id, p.clone())?))
+        Ok(step)
     }
 
     /// Sends an `EchoHash` message and handles it. Does nothing if we are only an observer.
@@ -432,13 +443,15 @@ impl<N: NodeIdT> Broadcast<N> {
         }
         let echo_hash_msg = Message::EchoHash(*hash);
         let mut step = Step::default();
-        // Remaining `2f - g` node ids to the right of our_id (including our_id)
+        // Remaining node ids to the right of our_id
         // after arranging all node ids in a circular list.
-        let right = self.netinfo.all_ids_except(self.proposer_id())
-                               .cycle()
-                               .skip_while(|x| *x == self.our_id())
-                               .skip(self.netinfo.num_correct() - self.netinfo.num_faulty() + self.fault_estimate)
-                               .take_while(|x| *x == self.our_id());
+        let right = self
+            .netinfo
+            .all_ids_except(self.proposer_id())
+            .cycle()
+            .skip_while(|x| *x != self.our_id())
+            .skip(self.netinfo.num_correct() - self.netinfo.num_faulty() + self.fault_estimate)
+            .take_while(|x| *x != self.our_id());
         for id in right {
             let msg = Target::Node(id.clone()).message(echo_hash_msg.clone());
             step.messages.push(msg);
@@ -494,15 +507,16 @@ impl<N: NodeIdT> Broadcast<N> {
             .netinfo
             .all_ids()
             .map(|id| {
-                self.echos.get(id)
+                self.echos
+                    .get(id)
                     .and_then(|(_, x)| x.as_ref())
                     .and_then(|p| {
-                    if p.root_hash() == hash {
-                        Some(p.value().clone().into_boxed_slice())
-                    } else {
-                        None
-                    }
-                })
+                        if p.root_hash() == hash {
+                            Some(p.value().clone().into_boxed_slice())
+                        } else {
+                            None
+                        }
+                    })
             })
             .collect();
         if let Some(value) = self.decode_from_shards(&mut leaf_values, hash) {
@@ -574,10 +588,7 @@ impl<N: NodeIdT> Broadcast<N> {
 
     /// Returns the number of nodes that have sent us an `Echo` or `EchoHash` message with this hash.
     fn count_echos(&self, hash: &Digest) -> usize {
-        self.echos
-            .values()
-            .filter(|(h, _)| h == hash)
-            .count()
+        self.echos.values().filter(|(h, _)| h == hash).count()
     }
 
     /// Returns the number of nodes that have sent us a `Ready` message with this hash.
