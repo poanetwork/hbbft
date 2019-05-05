@@ -395,7 +395,7 @@ impl<N: NodeIdT> Broadcast<N> {
         // after arranging all node ids in a circular list.
         let left = self
             .netinfo
-            .all_ids_except(self.proposer_id())
+            .all_ids()
             .cycle()
             .skip_while(|x| *x != self.our_id())
             .take(self.netinfo.num_correct() - self.netinfo.num_faulty() + self.fault_estimate)
@@ -438,7 +438,7 @@ impl<N: NodeIdT> Broadcast<N> {
         // after arranging all node ids in a circular list.
         let right = self
             .netinfo
-            .all_ids_except(self.proposer_id())
+            .all_ids()
             .cycle()
             .skip_while(|x| *x != self.our_id())
             .skip(self.netinfo.num_correct() - self.netinfo.num_faulty() + self.fault_estimate)
@@ -466,7 +466,7 @@ impl<N: NodeIdT> Broadcast<N> {
         // after arranging all node ids in a circular list.
         let right = self
             .netinfo
-            .all_ids_except(self.proposer_id())
+            .all_ids()
             .cycle()
             .skip_while(|x| *x != self.our_id())
             .skip(self.netinfo.num_correct() - self.netinfo.num_faulty() + self.fault_estimate)
