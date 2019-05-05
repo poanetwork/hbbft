@@ -17,7 +17,7 @@ use crate::fault_log::Fault;
 use crate::{ConsensusProtocol, NetworkInfo, NodeIdT, Target};
 
 type RseResult<T> = result::Result<T, rse::Error>;
-
+type EchoMessage = Option<Proof<Vec<u8>>>;
 /// Broadcast algorithm instance.
 #[derive(Debug)]
 pub struct Broadcast<N> {
@@ -42,7 +42,7 @@ pub struct Broadcast<N> {
     /// /// Estimate as to how many nodes we think are faulty.
     fault_estimate: usize,
     /// The hashes and proofs we have received via `Echo` and `EchoHash` messages, by sender ID.
-    echos: BTreeMap<N, (Digest, Option<Proof<Vec<u8>>>)>,
+    echos: BTreeMap<N, (Digest, EchoMessage)>,
     /// The hashes we have received from nodes via `CanDecode` messages, by hash.
     /// A node can receive conflicting `CanDecode`s from the same node.
     can_decodes: BTreeMap<Digest, BTreeSet<N>>,
@@ -261,6 +261,8 @@ impl<N: NodeIdT> Broadcast<N> {
             }
         }
 
+        // Case where we have received an earlier `EchoHash`
+        // messages from sender_id with different root_hash.
         if let Some((hash, None)) = self.echos.get(sender_id) {
             if hash != p.root_hash() {
                 return Ok(Fault::new(sender_id.clone(), FaultKind::MultipleEchos).into());
@@ -307,11 +309,10 @@ impl<N: NodeIdT> Broadcast<N> {
         }
 
         // If the sender has already sent an `Echo` for the same hash, ignore.
-        if let Some((_, Some(proof))) = self.echos.get(sender_id) {
-            if proof.root_hash() == hash {
+        if let Some((_, Some(p))) = self.echos.get(sender_id) {
+            if p.root_hash() == hash {
                 return Ok(Step::default());
             } else {
-                // Should be a new error? Conflicting Echo and EchoHashes.
                 return Ok(Fault::new(sender_id.clone(), FaultKind::MultipleEchoHashes).into());
             }
         }
@@ -331,7 +332,7 @@ impl<N: NodeIdT> Broadcast<N> {
         if let Some(nodes) = self.can_decodes.get(hash) {
             if nodes.contains(sender_id) {
                 warn!(
-                    "Node {:?} received CanDecode({:?}) multiple times from {:?}.",
+                    "Node {:?} received same CanDecode({:?}) multiple times from {:?}.",
                     self.our_id(),
                     hash,
                     sender_id,
@@ -377,7 +378,6 @@ impl<N: NodeIdT> Broadcast<N> {
         // Upon receiving 2f + 1 matching Ready(h) messages, send full
         // `Echo` message to every node who hasn't sent us a `CanDecode`
         if self.count_readys(hash) == 2 * self.netinfo.num_faulty() + 1 {
-            // `send_echo` function should take care of which nodes to send the message
             step.extend(self.send_echo_remaining()?);
         }
 
@@ -415,13 +415,15 @@ impl<N: NodeIdT> Broadcast<N> {
             return Ok(Step::default());
         }
 
+        // Simply return as we can decode the message anyway as we have N - 2f shards.
         if !self.echos.contains_key(self.our_id()) {
             return Ok(Step::default());
         }
+
         if let Some((_, None)) = self.echos.get(self.our_id()) {
             return Ok(Step::default());
         }
-        let (_, p) = self.echos.get(self.our_id()).unwrap();
+        let (_, p) = &self.echos[self.our_id()];
         let p = p.clone().unwrap();
         let echo_msg = Message::Echo(p.clone());
         let mut step = Step::default();
