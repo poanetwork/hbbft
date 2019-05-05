@@ -378,7 +378,7 @@ impl<N: NodeIdT> Broadcast<N> {
         // Upon receiving 2f + 1 matching Ready(h) messages, send full
         // `Echo` message to every node who hasn't sent us a `CanDecode`
         if self.count_readys(hash) == 2 * self.netinfo.num_faulty() + 1 {
-            step.extend(self.send_echo_remaining()?);
+            step.extend(self.send_echo_remaining(hash)?);
         }
 
         Ok(step.join(self.compute_output(hash)?))
@@ -409,7 +409,7 @@ impl<N: NodeIdT> Broadcast<N> {
     }
 
     /// Sends `Echo` message to remaining nodes who haven't sent `CanDecode`
-    fn send_echo_remaining(&mut self) -> Result<Step<N>> {
+    fn send_echo_remaining(&mut self, hash: &Digest) -> Result<Step<N>> {
         self.echo_sent = true;
         if !self.netinfo.is_validator() {
             return Ok(Step::default());
@@ -418,6 +418,13 @@ impl<N: NodeIdT> Broadcast<N> {
         // Simply return as we can decode the message anyway as we have N - 2f shards.
         if !self.echos.contains_key(self.our_id()) {
             return Ok(Step::default());
+        }
+
+        // Can't send `Echo` if we haven't received a `Value` message for that hash from Proposer.
+        if let Some((h, _)) = self.echos.get(self.our_id()) {
+            if h != hash {
+                return Ok(Step::default());
+            }
         }
 
         if let Some((_, None)) = self.echos.get(self.our_id()) {
