@@ -279,17 +279,22 @@ impl<N: NodeIdT> Broadcast<N> {
         // Save the proof for reconstructing the tree later.
         self.echos.insert(sender_id.clone(), (hash, Some(p)));
 
+        let mut step = Step::default();
+
         // Upon receiving `N - 2f` `Echo`s with this root hash, send `CanDecode`
         if !self.can_decode_sent && self.count_echos_full(&hash) >= self.coding.data_shard_count() {
-            return self.send_can_decode(&hash);
-        }
-
-        if self.ready_sent || self.count_echos(&hash) < self.netinfo.num_correct() {
-            return self.compute_output(&hash);
+            step.extend(self.send_can_decode(&hash)?);
         }
 
         // Upon receiving `N - f` `Echo`s with this root hash, multicast `Ready`.
-        self.send_ready(&hash)
+        if !self.ready_sent && self.count_echos(&hash) >= self.netinfo.num_correct() {
+            step.extend(self.send_ready(&hash)?);
+        }
+
+        if self.ready_sent {
+            step.extend(self.compute_output(&hash)?);
+        }
+        Ok(step)
     }
 
     fn handle_echo_hash(&mut self, sender_id: &N, hash: &Digest) -> Result<Step<N>> {
@@ -516,7 +521,7 @@ impl<N: NodeIdT> Broadcast<N> {
     fn compute_output(&mut self, hash: &Digest) -> Result<Step<N>> {
         if self.decided
             || self.count_readys(hash) <= 2 * self.netinfo.num_faulty()
-            || self.count_echos(hash) < self.coding.data_shard_count()
+            || self.count_echos_full(hash) < self.coding.data_shard_count()
         {
             return Ok(Step::default());
         }
