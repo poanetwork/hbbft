@@ -523,13 +523,16 @@ impl<N: NodeIdT> Broadcast<N> {
             .netinfo
             .all_ids()
             .map(|id| {
-                self.echos.get(id).and_then(EchoContent::proof).and_then(|p| {
-                    if p.root_hash() == hash {
-                        Some(p.value().clone().into_boxed_slice())
-                    } else {
-                        None
-                    }
-                })
+                self.echos
+                    .get(id)
+                    .and_then(EchoContent::proof)
+                    .and_then(|p| {
+                        if p.root_hash() == hash {
+                            Some(p.value().clone().into_boxed_slice())
+                        } else {
+                            None
+                        }
+                    })
             })
             .collect();
         if let Some(value) = self.decode_from_shards(&mut leaf_values, hash) {
