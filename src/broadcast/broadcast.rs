@@ -232,8 +232,8 @@ impl<N: NodeIdT> Broadcast<N> {
                     sender_id
                 );
                 return Ok(Step::default());
-            },
-            _ => ()
+            }
+            _ => (),
         };
 
         // If the proof is invalid, log the faulty node behavior and ignore.
@@ -413,6 +413,12 @@ impl<N: NodeIdT> Broadcast<N> {
             let msg = Target::Node(id.clone()).message(echo_msg.clone());
             step.messages.push(msg);
         }
+        // Send `Echo` message to all non-validating nodes.
+        step.extend(
+            Target::AllExcept(self.netinfo.all_ids().cloned().collect::<BTreeSet<_>>())
+                .message(echo_msg)
+                .into(),
+        );
         let our_id = &self.our_id().clone();
         Ok(step.join(self.handle_echo(our_id, p)?))
     }

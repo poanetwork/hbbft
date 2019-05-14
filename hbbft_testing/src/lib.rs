@@ -264,6 +264,22 @@ where
                     ));
                 }
             }
+            hbbft::Target::AllExcept(known) => {
+                for to in nodes
+                    .keys()
+                    .filter(|&to| to != &stepped_id && !known.contains(to))
+                {
+                    if !faulty {
+                        message_count = message_count.saturating_add(1);
+                    }
+
+                    dest.push_back(NetworkMessage::new(
+                        stepped_id.clone(),
+                        tmsg.message.clone(),
+                        to.clone(),
+                    ));
+                }
+            }
         }
     }
 
