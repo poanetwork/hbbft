@@ -29,7 +29,7 @@ pub struct Broadcast<N> {
     coding: Coding,
     /// If we are the proposer: whether we have already sent the `Value` messages with the shards.
     value_sent: bool,
-    /// Whether we have already send `Echo` left nodes and right nodes who haven't sent `CanDecode`.
+    /// Whether we have already sent `Echo` to all nodes who haven't sent `CanDecode`.
     echo_sent: bool,
     /// Whether we have already multicast `Ready`.
     ready_sent: bool,
@@ -39,7 +39,7 @@ pub struct Broadcast<N> {
     can_decode_sent: bool,
     /// Whether we have already output a value.
     decided: bool,
-    /// /// Estimate as to how many nodes we think are faulty.
+    /// Number of faulty nodes to optimize performance for.
     fault_estimate: usize,
     /// The hashes and proofs we have received via `Echo` and `EchoHash` messages, by sender ID.
     echos: BTreeMap<N, EchoContent>,
@@ -91,7 +91,7 @@ impl<N: NodeIdT> Broadcast<N> {
         let data_shard_num = netinfo.num_nodes() - parity_shard_num;
         let coding =
             Coding::new(data_shard_num, parity_shard_num).map_err(|_| Error::InvalidNodeCount)?;
-        let g = netinfo.num_faulty();
+        let fault_estimate = netinfo.num_faulty();
 
         Ok(Broadcast {
             netinfo,
@@ -103,7 +103,7 @@ impl<N: NodeIdT> Broadcast<N> {
             echo_hash_sent: false,
             can_decode_sent: false,
             decided: false,
-            fault_estimate: g,
+            fault_estimate,
             echos: BTreeMap::new(),
             can_decodes: BTreeMap::new(),
             readys: BTreeMap::new(),
@@ -218,8 +218,13 @@ impl<N: NodeIdT> Broadcast<N> {
             return Ok(Fault::new(sender_id.clone(), fault_kind).into());
         }
 
-        if let Some(EchoContent::Full(proof)) = self.echos.get(self.our_id()) {
-            if *proof == p {
+        match self.echos.get(self.our_id()) {
+            // Multiple values from proposer.
+            Some(val) if val.hash() != p.root_hash() => {
+                return Ok(Fault::new(sender_id.clone(), FaultKind::MultipleValues).into())
+            }
+            // Already received proof.
+            Some(EchoContent::Full(proof)) if *proof == p => {
                 warn!(
                     "Node {:?} received Value({:?}) multiple times from {:?}.",
                     self.our_id(),
@@ -227,10 +232,9 @@ impl<N: NodeIdT> Broadcast<N> {
                     sender_id
                 );
                 return Ok(Step::default());
-            } else {
-                return Ok(Fault::new(sender_id.clone(), FaultKind::MultipleValues).into());
-            }
-        }
+            },
+            _ => ()
+        };
 
         // If the proof is invalid, log the faulty node behavior and ignore.
         if !self.validate_proof(&p, &self.our_id()) {
@@ -347,13 +351,10 @@ impl<N: NodeIdT> Broadcast<N> {
                 );
             }
         }
-        let mut values = self
-            .can_decodes
-            .get(hash)
-            .unwrap_or(&BTreeSet::new())
-            .clone();
-        values.insert(sender_id.clone());
-        self.can_decodes.insert(*hash, values);
+        self.can_decodes
+            .entry(*hash)
+            .or_default()
+            .insert(sender_id.clone());
         Ok(Step::default())
     }
 
@@ -399,7 +400,7 @@ impl<N: NodeIdT> Broadcast<N> {
         }
         let echo_msg = Message::Echo(p.clone());
         let mut step = Step::default();
-        // `N - 2f + g` node ids to the left of our_id (excluding our_id and proposer_id)
+        // `N - 2f + g` node ids to the left of our_id (excluding our_id)
         // after arranging all node ids in a circular list.
         let left = self
             .netinfo
