@@ -264,10 +264,10 @@ where
                     ));
                 }
             }
-            hbbft::Target::AllExcept(known) => {
+            hbbft::Target::AllExcept(exclude) => {
                 for to in nodes
                     .keys()
-                    .filter(|&to| to != &stepped_id && !known.contains(to))
+                    .filter(|&to| to != &stepped_id && !exclude.contains(to))
                 {
                     if !faulty {
                         message_count = message_count.saturating_add(1);

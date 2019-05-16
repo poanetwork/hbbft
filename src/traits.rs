@@ -283,13 +283,13 @@ where
                         }
                     }
                 }
-                Target::AllExcept(known) => {
+                Target::AllExcept(exclude) => {
                     let is_accepted = |&them| msg.message.is_accepted(them, max_future_epochs);
                     let is_premature = |&them| msg.message.is_premature(them, max_future_epochs);
                     let is_obsolete = |&them| msg.message.is_obsolete(them);
                     let filtered_nodes: BTreeMap<_, _> = peer_epochs
                         .iter()
-                        .filter(|(id, _)| !known.contains(id))
+                        .filter(|(id, _)| !exclude.contains(id))
                         .map(|(k, v)| (k.clone(), *v))
                         .collect();
                     if filtered_nodes.values().all(is_accepted) {

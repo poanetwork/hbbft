@@ -281,8 +281,8 @@ where
                         }
                     }
                 }
-                Target::AllExcept(known) => {
-                    for node in self.nodes.values_mut().filter(|n| !known.contains(&n.id)) {
+                Target::AllExcept(exclude) => {
+                    for node in self.nodes.values_mut().filter(|n| !exclude.contains(&n.id)) {
                         if node.id != ts_msg.sender_id {
                             node.add_message(ts_msg.clone())
                         }

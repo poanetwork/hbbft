@@ -168,8 +168,8 @@
 //!                     on_step(*id, step, &mut messages, &mut finished_nodes);
 //!                 }
 //!             }
-//!             Target::AllExcept(known) => {
-//!                for (id, node) in nodes.iter_mut().filter(|&(id, _)| !known.contains(id)) {
+//!             Target::AllExcept(exclude) => {
+//!                for (id, node) in nodes.iter_mut().filter(|&(id, _)| !exclude.contains(id)) {
 //!                    let step = node.handle_message(&source, message.clone())?;
 //!                    on_step(*id, step, &mut messages, &mut finished_nodes);
 //!                }

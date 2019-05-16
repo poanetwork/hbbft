@@ -121,12 +121,12 @@ impl<M: Send> Messaging<M> {
                                             }
                                         }).map_err(Error::from);
                                 },
-                                Target::AllExcept(known) => {
-                                    // Send the message to all remote nodes not in `known`, stopping at the first
+                                Target::AllExcept(exclude) => {
+                                    // Send the message to all remote nodes not in `exclude`, stopping at the first
                                     // error.
                                     let filtered_txs: Vec<_> = (0..txs_to_comms.len())
                                         .collect::<BTreeSet<_>>()
-                                        .difference(known)
+                                        .difference(exclude)
                                         .cloned()
                                         .collect();
                                     result = filtered_txs.iter()
