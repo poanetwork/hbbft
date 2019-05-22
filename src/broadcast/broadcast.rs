@@ -495,9 +495,12 @@ impl<N: NodeIdT> Broadcast<N> {
         let mut step = Step::default();
 
         for id in self.netinfo.all_ids() {
-            if let Some(EchoContent::Hash(_)) = self.echos.get(id) {
-                let msg = Target::Node(id.clone()).message(can_decode_msg.clone());
-                step.messages.push(msg);
+            match self.echos.get(id) {
+                Some(EchoContent::Hash(_)) | None => {
+                    let msg = Target::Node(id.clone()).message(can_decode_msg.clone());
+                    step.messages.push(msg);
+                }
+                _ => ()
             }
         }
         let our_id = &self.our_id().clone();
