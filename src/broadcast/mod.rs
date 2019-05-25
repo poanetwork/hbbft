@@ -30,7 +30,8 @@
 //! `p[i] = (h, b[i], s[i])`, with which a third party can verify that `s[i]` is the `i`-th leaf of
 //! the Merkle tree with root hash `h`.
 //!
-//! The algorithm proceeds as follows:
+//!
+//! The original algorithm proceeds as follows:
 //! * The proposer sends `Value(p[i])` to each validator number `i`.
 //! * When validator `i` receives `Value(p[i])` from the proposer, it sends it on to everyone else
 //! as `Echo(p[i])`.
@@ -39,12 +40,40 @@
 //! * A node that has received _2 f + 1_ `Ready`s **and** _N - 2 f_ `Echo`s with root hash `h`
 //! decodes and outputs the value, and then terminates.
 //!
-//! Only the first valid `Value` from the proposer, and the first valid `Echo` message from every
-//! validator, is handled as above. Invalid messages (where the proof isn't correct), `Values`
-//! received from other nodes, and any further `Value`s and `Echo`s are ignored, and the sender is
-//! reported as faulty.
+//! We use a modified version of the algorithm to save on bandwith which provides the same
+//! security guarantees as the original. The main idea of the optimized algorithm is that in the
+//! optimisitic case, a node only needs _N - 2 f_ chunks to decode a value and every additional
+//! `Echo` message over that is wasteful.
+//! The modified algorithm introduces two new message types:
+//! * `CanDecode(h)` - Indicates node has enough shards to recover message with merkle root `h`.
+//! * `EchoHash(h)` - Indicates node can send an `Echo(p[i])` message upon request.
 //!
-//! In the `Valid(p[i])` messages, the proposer distributes the chunks of the value equally among
+//! Let `g` be the `fault_estimate` i.e. the estimate of number of faulty nodes in the network
+//! that we want to optimize for.
+//!
+//! Define the `left` nodes for any node `i` as the `N - 2f + g` nodes to the left side of `i` after
+//! arranging all nodes in a circular list.
+//!
+//! With the new message types and definitions, the modified algorithm works as follows:
+//! * The proposer sends `Value(p[i])` to each validator number `i`.
+//! * Upon receiving `Value(p[i])` from the proposer, the validator `i` sends `Echo(p[i])` to all nodes
+//! on its left, and `EchoHash(h)` to the remaining validators.
+//! * A validator that has received _N - f_ `Echo`s plus `EchoHash`s **or** _f + 1_ `Ready`s with root hash `h`,
+//! sends `Ready(h)` to everyone.
+//! * A validator that has received _N - 2 f_ `Echo`s with root hash `h`, sends `CanDecode(h)` to all nodes
+//! who haven't sent them a full `Echo` message.
+//! * A validator that has received _2 f + 1_ `Ready`s with root hash `h` sends a full  `Echo` message to the
+//! remaining nodes who haven't sent them `CanDecode(h)`.
+//! * A node that has received _2 f + 1_ `Ready`s **and** _N - 2 f_ `Echo`s with root hash `h`
+//! decodes and outputs the value, and then terminates.
+//!
+//!
+//! Only the first valid `Value` from the proposer, and the first valid `Echo` and `EchoHash` message from every
+//! validator, is handled as above. Invalid messages (where the proof isn't correct), `Values`
+//! received from other nodes, and any further `Value`s, `Echo`s and `EchoHash`s are ignored, and the sender is
+//! reported as faulty. A node may receive multiple `CanDecode`s with different root hash.
+//!
+//! In the `Value(p[i])` messages, the proposer distributes the chunks of the value equally among
 //! all validators, along with a proof to verify that all chunks are leaves of the same Merkle tree
 //! with root hash `h`.
 //!
@@ -53,11 +82,23 @@
 //! value when the algorithm completes: Every node that receives at least _N - 2 f_ valid `Echo`s
 //! with root hash `h` can decode the value.
 //!
+//! An `EchoHash(h)` indicates that the validator `i` has received its chunk of the value from the
+//! proposer and can provide the full `Echo` message later upon request. Since a node requires only
+//! _N - 2 f_ valid `Echo` messages to reconstruct the value, sending all the extra `Echo` messages
+//! in the optimistic case is wasteful since the `Echo` message is considerably larger than the
+//! constant sized `EchoHash` message.
+//!
+//! A `CanDecode(h)` indicates that validator `i` has enough chunks to reconstruct the value. This is
+//! to indicate to the nodes that have sent it only an `EchoHash` that they need not send the full `Echo`
+//! message. In the optimistic case, there need not be any additional `Echo` message. However, a delay
+//! in receiving the `CanDecode` message or not enough chunks available to decode may lead to additional
+//! `Echo` messages being sent.
+//!
 //! A validator sends `Ready(h)` as soon as it knows that everyone will eventually be able to
 //! decode the value with root hash `h`. Either of the two conditions in the third point above is
 //! sufficient for that:
-//! * If it has received _N - f_ `Echo`s with `h`, it knows that at least _N - 2 f_ **correct**
-//! validators have multicast an `Echo` with `h`, and therefore everyone will
+//! * If it has received _N - f_ `Echo`s or `EchoHash` with `h`, it knows that at least _N - 2 f_
+//! **correct** validators have multicast an `Echo` or `EchoHash` with `h`, and therefore everyone will
 //! eventually receive at least _N - 2 f_ valid ones. So it knows that everyone will be able to
 //! decode, and can send `Ready(h)`.
 //! Moreover, since every correct validator only sends one kind of `Echo` message, there is no
