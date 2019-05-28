@@ -500,7 +500,7 @@ impl<N: NodeIdT> Broadcast<N> {
                     let msg = Target::Node(id.clone()).message(can_decode_msg.clone());
                     step.messages.push(msg);
                 }
-                _ => ()
+                _ => (),
             }
         }
         let our_id = &self.our_id().clone();
