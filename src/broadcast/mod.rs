@@ -45,13 +45,14 @@
 //! optimisitic case, a node only needs _N - 2 f_ chunks to decode a value and every additional
 //! `Echo` message over that is wasteful.
 //! The modified algorithm introduces two new message types:
-//! * `CanDecode(h)` - Indicates node has enough shards to recover message with merkle root `h`.
+//! * `CanDecode(h)` - Indicates node has enough chunks to recover message with merkle root `h`.
 //! * `EchoHash(h)` - Indicates node can send an `Echo(p[i])` message upon request.
 //!
 //! Let `g` be the `fault_estimate` i.e. the estimate of number of faulty nodes in the network
 //! that we want to optimize for.
+//! Note that the algorithm is still correct when more than `g` nodes are faulty.
 //!
-//! Define the `left` nodes for any node `i` as the `N - 2f + g` nodes to the left side of `i` after
+//! Define the left nodes for any node `i` as the _N - 2 f + g_ nodes to the left side of `i` after
 //! arranging all nodes in a circular list.
 //!
 //! With the new message types and definitions, the modified algorithm works as follows:
@@ -66,7 +67,6 @@
 //! remaining nodes who haven't sent them `CanDecode(h)`.
 //! * A node that has received _2 f + 1_ `Ready`s **and** _N - 2 f_ `Echo`s with root hash `h`
 //! decodes and outputs the value, and then terminates.
-//!
 //!
 //! Only the first valid `Value` from the proposer, and the first valid `Echo` and `EchoHash` message from every
 //! validator, is handled as above. Invalid messages (where the proof isn't correct), `Values`
@@ -97,7 +97,7 @@
 //! A validator sends `Ready(h)` as soon as it knows that everyone will eventually be able to
 //! decode the value with root hash `h`. Either of the two conditions in the third point above is
 //! sufficient for that:
-//! * If it has received _N - f_ `Echo`s or `EchoHash` with `h`, it knows that at least _N - 2 f_
+//! * If it has received _N - f_ `Echo`s or `EchoHash`s with `h`, it knows that at least _N - 2 f_
 //! **correct** validators have multicast an `Echo` or `EchoHash` with `h`, and therefore everyone will
 //! eventually receive at least _N - 2 f_ valid ones. So it knows that everyone will be able to
 //! decode, and can send `Ready(h)`.
@@ -118,6 +118,13 @@
 //! In short: Once we satisfy the termination condition in the fourth point (we've received
 //! _2 f + 1_ `Ready`s **and** _N - 2 f_ `Echo`s with root hash `h`), we know that
 //! everyone else will eventually satisfy it, too. So at that point, we can output and terminate.
+//!
+//! In the improved algorithm, with _f = 0_ and _g = 0_, we can get almost 66% savings in bandwith.
+//! With `f` faulty nodes and _g = f_, we can get almost 33% reduction in bandwith.
+//! With `f` faulty nodes and _g = 2 f_, it is essentially the original algorithm plus the `CanDecode`
+//! messages. Note that the bandwith savings numbers are only upper bounds and can happen only in an ideal
+//! network where every node receives every `CanDecode` message before sending `Ready`. The practical
+//! savings in bandwith are much smaller but still significant.
 //!
 //!
 //! ## Example
