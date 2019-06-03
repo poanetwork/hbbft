@@ -295,7 +295,7 @@ where
                     if filtered_nodes.values().all(is_accepted) {
                         passed_msgs.push(msg);
                     } else {
-                        // The `Target::All` message is split into two sets of point messages: those
+                        // The `Target::AllExcept` message is split into two sets of point messages: those
                         // which can be sent without delay and those which should be postponed.
                         for (id, them) in &filtered_nodes {
                             if is_premature(them) {

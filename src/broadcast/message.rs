@@ -17,9 +17,9 @@ pub enum Message {
     Echo(Proof<Vec<u8>>),
     /// Indicates that the sender knows that every node will eventually be able to decode.
     Ready(Digest),
-    /// Indicates that this node has enough shares to decode the message with given merkle root.
+    /// Indicates that this node has enough shares to decode the message with given Merkle root.
     CanDecode(Digest),
-    /// Indicates that sender can send an Echo for given merkle root.
+    /// Indicates that sender can send an Echo for given Merkle root.
     EchoHash(Digest),
 }
 

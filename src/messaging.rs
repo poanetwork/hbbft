@@ -17,8 +17,8 @@ pub enum Target<N> {
     /// The message must be sent to the node with the given ID.
     Node(N),
     /// The message must be sent to all remote nodes except the passed nodes.
-    /// Useful for sending messages to Observer nodes that aren't
-    /// present in a node's all_ids() list.
+    /// Useful for sending messages to observer nodes that aren't
+    /// present in a node's `all_ids()` list.
     AllExcept(BTreeSet<N>),
 }
 

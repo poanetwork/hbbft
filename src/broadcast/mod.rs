@@ -48,7 +48,7 @@
 //! * `CanDecode(h)` - Indicates node has enough chunks to recover message with merkle root `h`.
 //! * `EchoHash(h)` - Indicates node can send an `Echo(p[i])` message upon request.
 //!
-//! Let `g` be the `fault_estimate` i.e. the estimate of number of faulty nodes in the network
+//! Let _g_ be the `fault_estimate` i.e. the estimate of number of faulty nodes in the network
 //! that we want to optimize for.
 //! Note that the algorithm is still correct when more than `g` nodes are faulty.
 //!
