@@ -35,8 +35,8 @@ pub struct Broadcast<N> {
     ready_sent: bool,
     /// Whether we have already sent `EchoHash` to the right nodes.
     echo_hash_sent: bool,
-    /// Whether we have already sent `CanDecode`.
-    can_decode_sent: bool,
+    /// Whether we have already sent `CanDecode` for the given hash.
+    can_decode_sent: BTreeSet<Digest>,
     /// Whether we have already output a value.
     decided: bool,
     /// Number of faulty nodes to optimize performance for.
@@ -101,7 +101,7 @@ impl<N: NodeIdT> Broadcast<N> {
             echo_sent: false,
             ready_sent: false,
             echo_hash_sent: false,
-            can_decode_sent: false,
+            can_decode_sent: BTreeSet::new(),
             decided: false,
             fault_estimate,
             echos: BTreeMap::new(),
@@ -286,7 +286,9 @@ impl<N: NodeIdT> Broadcast<N> {
         let mut step = Step::default();
 
         // Upon receiving `N - 2f` `Echo`s with this root hash, send `CanDecode`
-        if !self.can_decode_sent && self.count_echos_full(&hash) >= self.coding.data_shard_count() {
+        if !self.can_decode_sent.contains(&hash)
+            && self.count_echos_full(&hash) >= self.coding.data_shard_count()
+        {
             step.extend(self.send_can_decode(&hash)?);
         }
 
@@ -486,7 +488,7 @@ impl<N: NodeIdT> Broadcast<N> {
 
     /// Sends a `CanDecode` message and handles it. Does nothing if we are only an observer.
     fn send_can_decode(&mut self, hash: &Digest) -> Result<Step<N>> {
-        self.can_decode_sent = true;
+        self.can_decode_sent.insert(hash.clone());
         if !self.netinfo.is_validator() {
             return Ok(Step::default());
         }
