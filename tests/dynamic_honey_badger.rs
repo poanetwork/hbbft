@@ -72,7 +72,7 @@ prop_compose! {
     }
 }
 
-/// Proptest wrapper for `do_drop_and_re_add`.
+// Proptest wrapper for `do_drop_and_re_add`.
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(1))]
     #[test]
@@ -85,7 +85,7 @@ proptest! {
 /// Dynamic honey badger: Drop a validator node, demoting it to observer, then re-add it, all while
 /// running a regular honey badger network.
 // TODO: Add an observer node to the test network.
-#[allow(clippy::needless_pass_by_value, clippy::cyclomatic_complexity)]
+#[allow(clippy::needless_pass_by_value, clippy::cognitive_complexity)]
 fn do_drop_and_re_add(cfg: TestConfig) {
     // This returns an error in all but the first test.
     let _ = env_logger::try_init();

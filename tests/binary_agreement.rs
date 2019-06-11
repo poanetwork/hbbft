@@ -54,7 +54,7 @@ prop_compose! {
     }
 }
 
-/// Proptest wrapper for `binary_agreement` that runs the test function on generated configurations.
+// Proptest wrapper for `binary_agreement` that runs the test function on generated configurations.
 proptest! {
     #![proptest_config(ProptestConfig {
         cases: 1, .. ProptestConfig::default()
