@@ -133,7 +133,7 @@ fn network_to_u32_is_correct() {
 }
 
 #[test]
-#[allow(clippy::cyclomatic_complexity)]
+#[allow(clippy::cognitive_complexity)]
 fn network_from_u32_is_correct() {
     assert_eq!(NetworkDimension::new(1, 0), NetworkDimension::from(0u32));
     assert_eq!(NetworkDimension::new(2, 0), NetworkDimension::from(1u32));
