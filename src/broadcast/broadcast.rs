@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::collections::BTreeSet;
 use std::sync::Arc;
 use std::{fmt, result};
 
@@ -28,14 +29,23 @@ pub struct Broadcast<N> {
     coding: Coding,
     /// If we are the proposer: whether we have already sent the `Value` messages with the shards.
     value_sent: bool,
-    /// Whether we have already multicast `Echo`.
+    /// Whether we have already sent `Echo` to all nodes who haven't sent `CanDecode`.
     echo_sent: bool,
     /// Whether we have already multicast `Ready`.
     ready_sent: bool,
+    /// Whether we have already sent `EchoHash` to the right nodes.
+    echo_hash_sent: bool,
+    /// Whether we have already sent `CanDecode` for the given hash.
+    can_decode_sent: BTreeSet<Digest>,
     /// Whether we have already output a value.
     decided: bool,
-    /// The proofs we have received via `Echo` messages, by sender ID.
-    echos: BTreeMap<N, Proof<Vec<u8>>>,
+    /// Number of faulty nodes to optimize performance for.
+    fault_estimate: usize,
+    /// The hashes and proofs we have received via `Echo` and `EchoHash` messages, by sender ID.
+    echos: BTreeMap<N, EchoContent>,
+    /// The hashes we have received from nodes via `CanDecode` messages, by hash.
+    /// A node can receive conflicting `CanDecode`s from the same node.
+    can_decodes: BTreeMap<Digest, BTreeSet<N>>,
     /// The root hashes we received via `Ready` messages, by sender ID.
     readys: BTreeMap<N, Vec<u8>>,
 }
@@ -81,6 +91,7 @@ impl<N: NodeIdT> Broadcast<N> {
         let data_shard_num = netinfo.num_nodes() - parity_shard_num;
         let coding =
             Coding::new(data_shard_num, parity_shard_num).map_err(|_| Error::InvalidNodeCount)?;
+        let fault_estimate = netinfo.num_faulty();
 
         Ok(Broadcast {
             netinfo,
@@ -89,8 +100,12 @@ impl<N: NodeIdT> Broadcast<N> {
             value_sent: false,
             echo_sent: false,
             ready_sent: false,
+            echo_hash_sent: false,
+            can_decode_sent: BTreeSet::new(),
             decided: false,
+            fault_estimate,
             echos: BTreeMap::new(),
+            can_decodes: BTreeMap::new(),
             readys: BTreeMap::new(),
         })
     }
@@ -123,6 +138,8 @@ impl<N: NodeIdT> Broadcast<N> {
             Message::Value(p) => self.handle_value(sender_id, p),
             Message::Echo(p) => self.handle_echo(sender_id, p),
             Message::Ready(ref hash) => self.handle_ready(sender_id, hash),
+            Message::CanDecode(ref hash) => self.handle_can_decode(sender_id, hash),
+            Message::EchoHash(ref hash) => self.handle_echo_hash(sender_id, hash),
         }
     }
 
@@ -200,8 +217,14 @@ impl<N: NodeIdT> Broadcast<N> {
             let fault_kind = FaultKind::ReceivedValueFromNonProposer;
             return Ok(Fault::new(sender_id.clone(), fault_kind).into());
         }
-        if self.echo_sent {
-            if self.echos.get(self.our_id()) == Some(&p) {
+
+        match self.echos.get(self.our_id()) {
+            // Multiple values from proposer.
+            Some(val) if val.hash() != p.root_hash() => {
+                return Ok(Fault::new(sender_id.clone(), FaultKind::MultipleValues).into())
+            }
+            // Already received proof.
+            Some(EchoContent::Full(proof)) if *proof == p => {
                 warn!(
                     "Node {:?} received Value({:?}) multiple times from {:?}.",
                     self.our_id(),
@@ -209,24 +232,26 @@ impl<N: NodeIdT> Broadcast<N> {
                     sender_id
                 );
                 return Ok(Step::default());
-            } else {
-                return Ok(Fault::new(sender_id.clone(), FaultKind::MultipleValues).into());
             }
-        }
+            _ => (),
+        };
 
         // If the proof is invalid, log the faulty node behavior and ignore.
         if !self.validate_proof(&p, &self.our_id()) {
             return Ok(Fault::new(sender_id.clone(), FaultKind::InvalidProof).into());
         }
 
-        // Otherwise multicast the proof in an `Echo` message, and handle it ourselves.
-        self.send_echo(p)
+        // Send the proof in an `Echo` message to left nodes
+        // and `EchoHash` message to right nodes and handle the response.
+        let echo_hash_steps = self.send_echo_hash(p.root_hash())?;
+        let echo_steps = self.send_echo_left(p)?;
+        Ok(echo_steps.join(echo_hash_steps))
     }
 
     /// Handles a received `Echo` message.
     fn handle_echo(&mut self, sender_id: &N, p: Proof<Vec<u8>>) -> Result<Step<N>> {
         // If the sender has already sent `Echo`, ignore.
-        if let Some(old_p) = self.echos.get(sender_id) {
+        if let Some(EchoContent::Full(old_p)) = self.echos.get(sender_id) {
             if *old_p == p {
                 warn!(
                     "Node {:?} received Echo({:?}) multiple times from {:?}.",
@@ -240,6 +265,14 @@ impl<N: NodeIdT> Broadcast<N> {
             }
         }
 
+        // Case where we have received an earlier `EchoHash`
+        // message from sender_id with different root_hash.
+        if let Some(EchoContent::Hash(hash)) = self.echos.get(sender_id) {
+            if hash != p.root_hash() {
+                return Ok(Fault::new(sender_id.clone(), FaultKind::MultipleEchos).into());
+            }
+        }
+
         // If the proof is invalid, log the faulty-node behavior, and ignore.
         if !self.validate_proof(&p, sender_id) {
             return Ok(Fault::new(sender_id.clone(), FaultKind::InvalidProof).into());
@@ -248,14 +281,83 @@ impl<N: NodeIdT> Broadcast<N> {
         let hash = *p.root_hash();
 
         // Save the proof for reconstructing the tree later.
-        self.echos.insert(sender_id.clone(), p);
+        self.echos.insert(sender_id.clone(), EchoContent::Full(p));
+
+        let mut step = Step::default();
+
+        // Upon receiving `N - 2f` `Echo`s with this root hash, send `CanDecode`
+        if !self.can_decode_sent.contains(&hash)
+            && self.count_echos_full(&hash) >= self.coding.data_shard_count()
+        {
+            step.extend(self.send_can_decode(&hash)?);
+        }
+
+        // Upon receiving `N - f` `Echo`s with this root hash, multicast `Ready`.
+        if !self.ready_sent && self.count_echos(&hash) >= self.netinfo.num_correct() {
+            step.extend(self.send_ready(&hash)?);
+        }
+
+        // Computes output if we have required number of `Echo`s and `Ready`s
+        // Else returns Step::default()
+        if self.ready_sent {
+            step.extend(self.compute_output(&hash)?);
+        }
+        Ok(step)
+    }
+
+    fn handle_echo_hash(&mut self, sender_id: &N, hash: &Digest) -> Result<Step<N>> {
+        // If the sender has already sent `EchoHash`, ignore.
+        if let Some(EchoContent::Hash(old_hash)) = self.echos.get(sender_id) {
+            if old_hash == hash {
+                warn!(
+                    "Node {:?} received EchoHash({:?}) multiple times from {:?}.",
+                    self.our_id(),
+                    hash,
+                    sender_id,
+                );
+                return Ok(Step::default());
+            } else {
+                return Ok(Fault::new(sender_id.clone(), FaultKind::MultipleEchoHashes).into());
+            }
+        }
+
+        // If the sender has already sent an `Echo` for the same hash, ignore.
+        if let Some(EchoContent::Full(p)) = self.echos.get(sender_id) {
+            if p.root_hash() == hash {
+                return Ok(Step::default());
+            } else {
+                return Ok(Fault::new(sender_id.clone(), FaultKind::MultipleEchoHashes).into());
+            }
+        }
+        // Save the hash for counting later.
+        self.echos
+            .insert(sender_id.clone(), EchoContent::Hash(*hash));
 
         if self.ready_sent || self.count_echos(&hash) < self.netinfo.num_correct() {
             return self.compute_output(&hash);
         }
-
         // Upon receiving `N - f` `Echo`s with this root hash, multicast `Ready`.
         self.send_ready(&hash)
+    }
+
+    /// Handles a received `CanDecode` message.
+    fn handle_can_decode(&mut self, sender_id: &N, hash: &Digest) -> Result<Step<N>> {
+        // Save the hash for counting later. If hash from sender_id already exists, emit a warning.
+        if let Some(nodes) = self.can_decodes.get(hash) {
+            if nodes.contains(sender_id) {
+                warn!(
+                    "Node {:?} received same CanDecode({:?}) multiple times from {:?}.",
+                    self.our_id(),
+                    hash,
+                    sender_id,
+                );
+            }
+        }
+        self.can_decodes
+            .entry(*hash)
+            .or_default()
+            .insert(sender_id.clone());
+        Ok(Step::default())
     }
 
     /// Handles a received `Ready` message.
@@ -284,19 +386,126 @@ impl<N: NodeIdT> Broadcast<N> {
             // Enqueue a broadcast of a Ready message.
             step.extend(self.send_ready(hash)?);
         }
+        // Upon receiving 2f + 1 matching Ready(h) messages, send full
+        // `Echo` message to every node who hasn't sent us a `CanDecode`
+        if self.count_readys(hash) == 2 * self.netinfo.num_faulty() + 1 {
+            step.extend(self.send_echo_remaining(hash)?);
+        }
+
         Ok(step.join(self.compute_output(hash)?))
     }
 
-    /// Sends an `Echo` message and handles it. Does nothing if we are only an observer.
-    fn send_echo(&mut self, p: Proof<Vec<u8>>) -> Result<Step<N>> {
-        self.echo_sent = true;
+    /// Sends `Echo` message to all left nodes and handles it.
+    fn send_echo_left(&mut self, p: Proof<Vec<u8>>) -> Result<Step<N>> {
         if !self.netinfo.is_validator() {
             return Ok(Step::default());
         }
         let echo_msg = Message::Echo(p.clone());
-        let step: Step<_> = Target::All.message(echo_msg).into();
+        let mut step = Step::default();
+        // `N - 2f + g` node ids to the left of our_id (excluding our_id)
+        // after arranging all node ids in a circular list.
+        let left = self
+            .netinfo
+            .all_ids()
+            .cycle()
+            .skip_while(|x| *x != self.our_id())
+            .take(self.netinfo.num_correct() - self.netinfo.num_faulty() + self.fault_estimate)
+            .skip(1);
+        for id in left {
+            let msg = Target::Node(id.clone()).message(echo_msg.clone());
+            step.messages.push(msg);
+        }
+        // Send `Echo` message to all non-validating nodes.
+        step.extend(
+            Target::AllExcept(self.netinfo.all_ids().cloned().collect::<BTreeSet<_>>())
+                .message(echo_msg)
+                .into(),
+        );
         let our_id = &self.our_id().clone();
         Ok(step.join(self.handle_echo(our_id, p)?))
+    }
+
+    /// Sends `Echo` message to remaining nodes who haven't sent `CanDecode`
+    fn send_echo_remaining(&mut self, hash: &Digest) -> Result<Step<N>> {
+        self.echo_sent = true;
+        if !self.netinfo.is_validator() {
+            return Ok(Step::default());
+        }
+
+        let p = match self.echos.get(self.our_id()) {
+            // Haven't received `Echo`.
+            None | Some(EchoContent::Hash(_)) => return Ok(Step::default()),
+            // Received `Echo` for different hash.
+            Some(EchoContent::Full(p)) if p.root_hash() != hash => return Ok(Step::default()),
+            Some(EchoContent::Full(p)) => p.clone(),
+        };
+
+        let echo_msg = Message::Echo(p);
+        let mut step = Step::default();
+
+        let senders = self.can_decodes.get(hash);
+        // Remaining node ids to the right of our_id
+        // after arranging all node ids in a circular list.
+        let right = self
+            .netinfo
+            .all_ids()
+            .cycle()
+            .skip_while(|x| *x != self.our_id())
+            .skip(self.netinfo.num_correct() - self.netinfo.num_faulty() + self.fault_estimate)
+            .take_while(|x| *x != self.our_id());
+        let msgs = right
+            .filter(|id| senders.map_or(true, |s| !s.contains(id)))
+            .map(|id| Target::Node(id.clone()).message(echo_msg.clone()));
+        step.messages.extend(msgs);
+        Ok(step)
+    }
+
+    /// Sends an `EchoHash` message and handles it. Does nothing if we are only an observer.
+    fn send_echo_hash(&mut self, hash: &Digest) -> Result<Step<N>> {
+        self.echo_hash_sent = true;
+        if !self.netinfo.is_validator() {
+            return Ok(Step::default());
+        }
+        let echo_hash_msg = Message::EchoHash(*hash);
+        let mut step = Step::default();
+        // Remaining node ids to the right of our_id
+        // after arranging all node ids in a circular list.
+        let right = self
+            .netinfo
+            .all_ids()
+            .cycle()
+            .skip_while(|x| *x != self.our_id())
+            .skip(self.netinfo.num_correct() - self.netinfo.num_faulty() + self.fault_estimate)
+            .take_while(|x| *x != self.our_id());
+        for id in right {
+            let msg = Target::Node(id.clone()).message(echo_hash_msg.clone());
+            step.messages.push(msg);
+        }
+        let our_id = &self.our_id().clone();
+        Ok(step.join(self.handle_echo_hash(our_id, hash)?))
+    }
+
+    /// Sends a `CanDecode` message and handles it. Does nothing if we are only an observer.
+    fn send_can_decode(&mut self, hash: &Digest) -> Result<Step<N>> {
+        self.can_decode_sent.insert(hash.clone());
+        if !self.netinfo.is_validator() {
+            return Ok(Step::default());
+        }
+
+        let can_decode_msg = Message::CanDecode(*hash);
+        let mut step = Step::default();
+
+        for id in self.netinfo.all_ids() {
+            match self.echos.get(id) {
+                Some(EchoContent::Hash(_)) | None => {
+                    let msg = Target::Node(id.clone()).message(can_decode_msg.clone());
+                    step.messages.push(msg);
+                }
+                _ => (),
+            }
+        }
+        let our_id = &self.our_id().clone();
+        Ok(step.join(self.handle_can_decode(our_id, hash)?))
     }
 
     /// Sends a `Ready` message and handles it. Does nothing if we are only an observer.
@@ -316,7 +525,7 @@ impl<N: NodeIdT> Broadcast<N> {
     fn compute_output(&mut self, hash: &Digest) -> Result<Step<N>> {
         if self.decided
             || self.count_readys(hash) <= 2 * self.netinfo.num_faulty()
-            || self.count_echos(hash) < self.coding.data_shard_count()
+            || self.count_echos_full(hash) < self.coding.data_shard_count()
         {
             return Ok(Step::default());
         }
@@ -326,13 +535,16 @@ impl<N: NodeIdT> Broadcast<N> {
             .netinfo
             .all_ids()
             .map(|id| {
-                self.echos.get(id).and_then(|p| {
-                    if p.root_hash() == hash {
-                        Some(p.value().clone().into_boxed_slice())
-                    } else {
-                        None
-                    }
-                })
+                self.echos
+                    .get(id)
+                    .and_then(EchoContent::proof)
+                    .and_then(|p| {
+                        if p.root_hash() == hash {
+                            Some(p.value().clone().into_boxed_slice())
+                        } else {
+                            None
+                        }
+                    })
             })
             .collect();
         if let Some(value) = self.decode_from_shards(&mut leaf_values, hash) {
@@ -392,12 +604,18 @@ impl<N: NodeIdT> Broadcast<N> {
         self.netinfo.node_index(id) == Some(p.index()) && p.validate(self.netinfo.num_nodes())
     }
 
-    /// Returns the number of nodes that have sent us an `Echo` message with this hash.
-    fn count_echos(&self, hash: &Digest) -> usize {
+    /// Returns the number of nodes that have sent us a full `Echo` message with this hash.
+    fn count_echos_full(&self, hash: &Digest) -> usize {
         self.echos
             .values()
+            .filter_map(EchoContent::proof)
             .filter(|p| p.root_hash() == hash)
             .count()
+    }
+
+    /// Returns the number of nodes that have sent us an `Echo` or `EchoHash` message with this hash.
+    fn count_echos(&self, hash: &Digest) -> usize {
+        self.echos.values().filter(|v| v.hash() == hash).count()
     }
 
     /// Returns the number of nodes that have sent us a `Ready` message with this hash.
@@ -470,6 +688,33 @@ impl Coding {
                     Err(rse::Error::TooFewShardsPresent)
                 }
             }
+        }
+    }
+}
+
+/// Content for `EchoHash` and `Echo` messages.
+#[derive(Debug)]
+enum EchoContent {
+    /// `EchoHash` message.
+    Hash(Digest),
+    /// `Echo` message
+    Full(Proof<Vec<u8>>),
+}
+
+impl EchoContent {
+    /// Returns hash of the message from either message types.
+    pub fn hash(&self) -> &Digest {
+        match &self {
+            EchoContent::Hash(h) => h,
+            EchoContent::Full(p) => p.root_hash(),
+        }
+    }
+
+    /// Returns Proof if type is Full else returns None.
+    pub fn proof(&self) -> Option<&Proof<Vec<u8>>> {
+        match &self {
+            EchoContent::Hash(_) => None,
+            EchoContent::Full(p) => Some(p),
         }
     }
 }

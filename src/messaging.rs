@@ -1,3 +1,5 @@
+use std::collections::BTreeSet;
+
 /// Message sent by a given source.
 #[derive(Clone, Debug)]
 pub struct SourcedMessage<M, N> {
@@ -14,6 +16,10 @@ pub enum Target<N> {
     All,
     /// The message must be sent to the node with the given ID.
     Node(N),
+    /// The message must be sent to all remote nodes except the passed nodes.
+    /// Useful for sending messages to observer nodes that aren't
+    /// present in a node's `all_ids()` list.
+    AllExcept(BTreeSet<N>),
 }
 
 impl<N> Target<N> {

@@ -82,7 +82,7 @@ impl<N: NodeIdT> NetworkInfo<N> {
 
     /// ID of all nodes in the network.
     #[inline]
-    pub fn all_ids(&self) -> impl Iterator<Item = &N> {
+    pub fn all_ids(&self) -> impl Iterator<Item = &N> + Clone {
         self.public_keys.keys()
     }
 

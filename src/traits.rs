@@ -283,6 +283,30 @@ where
                         }
                     }
                 }
+                Target::AllExcept(exclude) => {
+                    let is_accepted = |&them| msg.message.is_accepted(them, max_future_epochs);
+                    let is_premature = |&them| msg.message.is_premature(them, max_future_epochs);
+                    let is_obsolete = |&them| msg.message.is_obsolete(them);
+                    let filtered_nodes: BTreeMap<_, _> = peer_epochs
+                        .iter()
+                        .filter(|(id, _)| !exclude.contains(id))
+                        .map(|(k, v)| (k.clone(), *v))
+                        .collect();
+                    if filtered_nodes.values().all(is_accepted) {
+                        passed_msgs.push(msg);
+                    } else {
+                        // The `Target::AllExcept` message is split into two sets of point messages: those
+                        // which can be sent without delay and those which should be postponed.
+                        for (id, them) in &filtered_nodes {
+                            if is_premature(them) {
+                                deferred_msgs.push((id.clone(), msg.message.clone()));
+                            } else if !is_obsolete(them) {
+                                passed_msgs
+                                    .push(Target::Node(id.clone()).message(msg.message.clone()));
+                            }
+                        }
+                    }
+                }
             }
         }
         self.messages.extend(passed_msgs);

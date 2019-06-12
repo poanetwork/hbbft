@@ -273,9 +273,16 @@ where
         Q: IntoIterator<Item = TimestampedMessage<D>>,
     {
         for ts_msg in msgs {
-            match ts_msg.target {
+            match &ts_msg.target {
                 Target::All => {
                     for node in self.nodes.values_mut() {
+                        if node.id != ts_msg.sender_id {
+                            node.add_message(ts_msg.clone())
+                        }
+                    }
+                }
+                Target::AllExcept(exclude) => {
+                    for node in self.nodes.values_mut().filter(|n| !exclude.contains(&n.id)) {
                         if node.id != ts_msg.sender_id {
                             node.add_message(ts_msg.clone())
                         }

@@ -35,6 +35,9 @@ pub enum FaultKind {
     /// `Broadcast` received multiple different `Echo`s from the same sender.
     #[fail(display = "`Broadcast` received multiple different `Echo`s from the same sender.")]
     MultipleEchos,
+    /// `Broadcast` received multiple different `EchoHash`s from the same sender.
+    #[fail(display = "`Broadcast` received multiple different `EchoHash`s from the same sender.")]
+    MultipleEchoHashes,
     /// `Broadcast` received multiple different `Ready`s from the same sender.
     #[fail(display = "`Broadcast` received multiple different `Ready`s from the same sender.")]
     MultipleReadys,
