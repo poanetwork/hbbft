@@ -443,21 +443,20 @@ impl<N: NodeIdT> Broadcast<N> {
         let echo_msg = Message::Echo(p);
         let mut step = Step::default();
 
-        if let Some(senders) = self.can_decodes.get(hash) {
-            // Remaining node ids to the right of our_id
-            // after arranging all node ids in a circular list.
-            let right = self
-                .netinfo
-                .all_ids()
-                .cycle()
-                .skip_while(|x| *x != self.our_id())
-                .skip(self.netinfo.num_correct() - self.netinfo.num_faulty() + self.fault_estimate)
-                .take_while(|x| *x != self.our_id());
-            let msgs = right
-                .filter(|id| !senders.contains(id))
-                .map(|id| Target::Node(id.clone()).message(echo_msg.clone()));
-            step.messages.extend(msgs);
-        }
+        let senders = self.can_decodes.get(hash);
+        // Remaining node ids to the right of our_id
+        // after arranging all node ids in a circular list.
+        let right = self
+            .netinfo
+            .all_ids()
+            .cycle()
+            .skip_while(|x| *x != self.our_id())
+            .skip(self.netinfo.num_correct() - self.netinfo.num_faulty() + self.fault_estimate)
+            .take_while(|x| *x != self.our_id());
+        let msgs = right
+            .filter(|id| senders.map_or(true, |s| !s.contains(id)))
+            .map(|id| Target::Node(id.clone()).message(echo_msg.clone()));
+        step.messages.extend(msgs);
         Ok(step)
     }
 
