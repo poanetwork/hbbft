@@ -237,9 +237,8 @@ where
 
     // Queue all messages for processing.
     for tmsg in &step.messages {
-        match &tmsg.target {
-            // Single target message.
-            hbbft::Target::Node(to) => {
+        for to in nodes.keys() {
+            if tmsg.target.contains(to) && to != &stepped_id {
                 if !faulty {
                     message_count = message_count.saturating_add(1);
                 }
@@ -249,36 +248,6 @@ where
                     tmsg.message.clone(),
                     to.clone(),
                 ));
-            }
-            // Broadcast messages get expanded into multiple direct messages.
-            hbbft::Target::All => {
-                for to in nodes.keys().filter(|&to| to != &stepped_id) {
-                    if !faulty {
-                        message_count = message_count.saturating_add(1);
-                    }
-
-                    dest.push_back(NetworkMessage::new(
-                        stepped_id.clone(),
-                        tmsg.message.clone(),
-                        to.clone(),
-                    ));
-                }
-            }
-            hbbft::Target::AllExcept(exclude) => {
-                for to in nodes
-                    .keys()
-                    .filter(|&to| to != &stepped_id && !exclude.contains(to))
-                {
-                    if !faulty {
-                        message_count = message_count.saturating_add(1);
-                    }
-
-                    dest.push_back(NetworkMessage::new(
-                        stepped_id.clone(),
-                        tmsg.message.clone(),
-                        to.clone(),
-                    ));
-                }
             }
         }
     }

@@ -108,7 +108,7 @@ impl Adversary<UsizeHoneyBadger> for FaultyShareAdversary {
                     // Send the share to remote nodes.
                     for proposer_id in &all_node_ids {
                         step.messages.push(
-                            Target::All.message(sender_queue::Message::Algo(
+                            Target::all().message(sender_queue::Message::Algo(
                                 MessageContent::DecryptionShare {
                                     proposer_id: *proposer_id,
                                     share: threshold_decrypt::Message(share.clone()),

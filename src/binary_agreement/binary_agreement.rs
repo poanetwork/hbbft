@@ -386,7 +386,7 @@ impl<N: NodeIdT, S: SessionIdT> BinaryAgreement<N, S> {
         if !self.netinfo.is_validator() {
             return Ok(Step::default());
         }
-        let step: Step<N> = Target::All
+        let step: Step<N> = Target::all()
             .message(content.clone().with_epoch(self.epoch))
             .into();
         let our_id = &self.our_id().clone();
@@ -462,7 +462,7 @@ impl<N: NodeIdT, S: SessionIdT> BinaryAgreement<N, S> {
         debug!("{}: decision: {}", self, b);
         if self.netinfo.is_validator() {
             let msg = MessageContent::Term(b).with_epoch(self.epoch + 1);
-            step.messages.push(Target::All.message(msg));
+            step.messages.push(Target::all().message(msg));
         }
         step
     }
