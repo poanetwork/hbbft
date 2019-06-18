@@ -258,7 +258,7 @@ where
             .filter_map(|key| queue.remove(&key))
             .flatten()
             .filter(|msg| !msg.is_obsolete(epoch))
-            .map(|msg| Target::Node(sender_id.clone()).message(Message::Algo(msg)))
+            .map(|msg| Target::node(sender_id.clone()).message(Message::Algo(msg)))
             .into()
     }
 
@@ -318,9 +318,8 @@ where
         }
         if !self.is_removed || send_last_epoch_started {
             // Announce the new epoch.
-            Target::All
-                .message(Message::EpochStarted(self.algo.epoch()))
-                .into()
+            let msg = Message::EpochStarted(self.algo.epoch());
+            Target::all().message(msg).into()
         } else {
             // If removed, do not announce the new epoch to prevent peers from sending messages to
             // this node.
@@ -329,7 +328,7 @@ where
     }
 
     /// Removes any messages to nodes at earlier epochs from the given `Step`. This may involve
-    /// decomposing a `Target::All` message into `Target::Node` messages and sending some of the
+    /// decomposing a `Target::all()` message into `Target::Nodes` messages and sending some of the
     /// resulting messages while placing onto the queue those remaining messages whose recipient is
     /// currently at an earlier epoch.
     fn defer_messages(&mut self, step: &mut CpStep<D>) {
@@ -444,7 +443,7 @@ where
             participants_after_change: BTreeSet::new(),
             is_removed: false,
         };
-        let step = Target::All.message(Message::EpochStarted(epoch)).into();
+        let step = Target::all().message(Message::EpochStarted(epoch)).into();
         (sq, step)
     }
 }

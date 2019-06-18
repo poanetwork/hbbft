@@ -172,7 +172,7 @@ where
         }
         let signed_vote = self.vote_counter.sign_vote_for(change)?.clone();
         let msg = Message::SignedVote(signed_vote);
-        Ok(Target::All.message(msg).into())
+        Ok(Target::all().message(msg).into())
     }
 
     /// Casts a vote to add a node as a validator.
@@ -494,7 +494,7 @@ where
             self.key_gen_msg_buffer.push(signed_msg);
         }
         let msg = Message::KeyGen(self.era, kg_msg, sig);
-        Ok(Target::All.message(msg).into())
+        Ok(Target::all().message(msg).into())
     }
 
     /// If the current Key Generation process is ready, returns the `KeyGenState`.

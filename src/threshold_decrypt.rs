@@ -162,7 +162,7 @@ impl<N: NodeIdT> ThresholdDecrypt<N> {
             (_, _) => return Ok(step.join(self.try_output()?)), // Not a validator.
         };
         let our_id = self.our_id().clone();
-        let msg = Target::All.message(Message(share.clone()));
+        let msg = Target::all().message(Message(share.clone()));
         step.messages.push(msg);
         self.shares.insert(our_id, (idx, share));
         step.extend(self.try_output()?);
