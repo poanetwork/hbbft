@@ -34,6 +34,8 @@ Please see the following posts for more details:
 
 - [POA Network: How Honey Badger BFT Consensus Works](https://medium.com/poa-network/poa-network-how-honey-badger-bft-consensus-works-4b16c0f1ff94)
 
+- [POA Network: Honey Badger BFT and Threshold Cryptography](https://medium.com/poa-network/poa-network-honey-badger-bft-and-threshold-cryptography-c43e10fadd87)
+
 ## Algorithms
 
 - **[Honey Badger](src/honey_badger/honey_badger.rs):** Each node inputs transactions. The protocol outputs a sequence of batches of transactions.
