@@ -434,11 +434,7 @@ fn main() {
 
     let new_honey_badger = |netinfo: NetworkInfo<NodeId>, rng: &mut OsRng| {
         let our_id = *netinfo.our_id();
-        let peer_ids: Vec<_> = netinfo
-            .all_ids()
-            .filter(|&&them| them != our_id)
-            .cloned()
-            .collect();
+        let peer_ids: Vec<_> = netinfo.other_ids().cloned().collect();
         let dhb = DynamicHoneyBadger::builder().build(netinfo);
         let (qhb, qhb_step) = QueueingHoneyBadger::builder(dhb)
             .batch_size(args.flag_b)

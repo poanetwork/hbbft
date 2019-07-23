@@ -225,13 +225,13 @@ fn new_queueing_hb(
     seed: TestRngSeed,
 ) -> (QHB, Step<QueueingHoneyBadger<usize, NodeId, Vec<usize>>>) {
     let mut rng: TestRng = TestRng::from_seed(seed);
-    let our_id = *netinfo.our_id();
-    let peer_ids = netinfo.all_ids().filter(|&&them| them != our_id).cloned();
+    let peer_ids = netinfo.other_ids().cloned();
     let dhb = DynamicHoneyBadger::builder().build((*netinfo).clone());
     let (qhb, qhb_step) = QueueingHoneyBadger::builder(dhb)
         .batch_size(3)
         .build(&mut rng)
         .expect("failed to build QueueingHoneyBadger");
+    let our_id = *netinfo.our_id();
     let (sq, mut step) = SenderQueue::builder(qhb, peer_ids).build(our_id);
     let output = step.extend_with(qhb_step, |fault| fault, Message::from);
     assert!(output.is_empty());
