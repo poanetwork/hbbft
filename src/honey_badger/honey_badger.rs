@@ -131,6 +131,16 @@ where
         self.epoch
     }
 
+    /// Skips all epochs before the specified one.
+    ///
+    /// This must only be called if it is guaranteed to be called in all instances that have not
+    /// progressed to that epoch yet. Otherwise an instance can be left behind in a skipped epoch.
+    pub fn skip_to_epoch(&mut self, epoch: u64) {
+        while self.epoch < epoch {
+            self.update_epoch();
+        }
+    }
+
     /// Returns the number of validators from which we have already received a proposal for the
     /// current epoch.
     ///
