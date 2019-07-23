@@ -1,14 +1,14 @@
 //! Functionality for logging faulty node behavior encountered by each
 //! algorithm.
 //!
-//! Each algorithm can propogate their faulty node logs upwards to a calling algorithm via
+//! Each algorithm can propagate their faulty node logs upwards to a calling algorithm via
 //! `ConsensusProtocol`'s `.handle_input()` and `.handle_message()` trait methods.
 
 pub use failure::Fail;
 
 /// A structure representing the context of a faulty node. This structure
 /// describes which node is faulty (`node_id`) and which faulty behavior
-/// that the node exhibited ('kind').
+/// that the node exhibited (`kind`).
 #[derive(Clone, Debug, PartialEq)]
 pub struct Fault<N, F: Fail> {
     /// The faulty node's ID.

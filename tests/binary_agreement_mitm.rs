@@ -476,7 +476,7 @@ fn do_reordering_attack(seed: TestRngSeed) {
     }
 
     while !net.nodes().skip(1).all(|n| n.algorithm().terminated()) {
-        net.crank_expect(&mut rng);
+        let _ = net.crank_expect(&mut rng);
     }
 
     // Verify that all instances output the same value.
