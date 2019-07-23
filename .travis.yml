@@ -3,7 +3,7 @@ rust:
     - 1.36.0
 cache:
   cargo: true
-  timeout: 1200
+  timeout: 2400
 addons:
   apt:
     packages:
@@ -21,4 +21,4 @@ before_install:
 #   # causing a CI slowdown, so this option is commented out by default. It can
 #   # be enabled per-branch to debug issues.
 #   - sudo tail -n 250 /var/log/syslog
-script: ./ci.sh
+script: travis_wait 40 ./ci.sh
