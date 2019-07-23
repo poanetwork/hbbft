@@ -14,13 +14,13 @@ impl<N: Ord> Default for BoolMultimap<N> {
 impl<N: Ord> Index<bool> for BoolMultimap<N> {
     type Output = BTreeSet<N>;
 
-    fn index(&self, index: bool) -> &BTreeSet<N> {
+    fn index(&self, index: bool) -> &Self::Output {
         &self.0[if index { 1 } else { 0 }]
     }
 }
 
 impl<N: Ord> IndexMut<bool> for BoolMultimap<N> {
-    fn index_mut(&mut self, index: bool) -> &mut BTreeSet<N> {
+    fn index_mut(&mut self, index: bool) -> &mut Self::Output {
         &mut self.0[if index { 1 } else { 0 }]
     }
 }
@@ -29,7 +29,7 @@ impl<'a, N: Ord> IntoIterator for &'a BoolMultimap<N> {
     type Item = (bool, &'a N);
     type IntoIter = Iter<'a, N>;
 
-    fn into_iter(self) -> Iter<'a, N> {
+    fn into_iter(self) -> Self::IntoIter {
         Iter::new(self)
     }
 }
@@ -53,7 +53,7 @@ impl<'a, N: 'a + Ord> Iter<'a, N> {
 impl<'a, N: 'a + Ord> Iterator for Iter<'a, N> {
     type Item = (bool, &'a N);
 
-    fn next(&mut self) -> Option<(bool, &'a N)> {
+    fn next(&mut self) -> Option<Self::Item> {
         if let Some(n) = self.set_iter.next() {
             Some((self.key, n))
         } else if self.key {
