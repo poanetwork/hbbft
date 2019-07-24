@@ -71,7 +71,7 @@ _**Note:** Additional examples are currently in progress._
 
 ### Build
 
-Requires Rust 1.30 or higher and `cargo`: [installation instructions.](https://www.rust-lang.org/en-US/install.html) The library is tested against the `stable` release channel.
+Requires Rust 1.36 or higher and `cargo`: [installation instructions.](https://www.rust-lang.org/en-US/install.html) The library is tested against the `stable` release channel.
 
     $ cargo build [--release]
 

@@ -109,11 +109,7 @@ fn do_drop_and_re_add(cfg: TestConfig) {
                 id
             );
             let dhb = DynamicHoneyBadger::builder().build(node.netinfo.clone());
-            SenderQueue::builder(
-                dhb,
-                node.netinfo.all_ids().filter(|&&them| them != id).cloned(),
-            )
-            .build(node.id)
+            SenderQueue::builder(dhb, node.netinfo.other_ids().cloned()).build(node.id)
         })
         .build(&mut rng)
         .expect("could not construct test network");

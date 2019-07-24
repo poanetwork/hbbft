@@ -17,11 +17,13 @@ cargo fmt -- --check
 cargo test --features=use-insecure-test-only-mock-crypto --release
 cargo doc
 cargo deadlinks --dir target/doc/hbbft/
-cargo audit
+# TODO: Remove exception once https://github.com/poanetwork/hbbft/issues/415 is fixed.
+cargo audit --ignore RUSTSEC-2019-0011
 
 cd hbbft_testing
 cargo clippy --all-targets -- --deny clippy::all
 cargo fmt -- --check
 cargo test --release
-cargo audit
+# TODO: Remove exception once https://github.com/poanetwork/hbbft/issues/415 is fixed.
+cargo audit --ignore RUSTSEC-2019-0011
 cd ..

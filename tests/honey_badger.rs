@@ -188,12 +188,12 @@ where
 fn new_honey_badger(
     netinfo: Arc<NetworkInfo<NodeId>>,
 ) -> (UsizeHoneyBadger, Step<HoneyBadger<Vec<usize>, NodeId>>) {
-    let our_id = *netinfo.our_id();
     let nc = netinfo.clone();
-    let peer_ids = nc.all_ids().filter(|&&them| them != our_id).cloned();
+    let peer_ids = nc.other_ids().cloned();
     let hb = HoneyBadger::builder(netinfo)
         .encryption_schedule(EncryptionSchedule::EveryNthEpoch(2))
         .build();
+    let our_id = *nc.our_id();
     SenderQueue::builder(hb, peer_ids).build(our_id)
 }
 

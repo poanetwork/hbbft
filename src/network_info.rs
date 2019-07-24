@@ -86,6 +86,13 @@ impl<N: NodeIdT> NetworkInfo<N> {
         self.public_keys.keys()
     }
 
+    /// ID of all nodes in the network except this one.
+    #[inline]
+    pub fn other_ids(&self) -> impl Iterator<Item = &N> + Clone {
+        let our_id = self.our_id.clone();
+        self.public_keys.keys().filter(move |id| **id != our_id)
+    }
+
     /// The total number _N_ of nodes.
     #[inline]
     pub fn num_nodes(&self) -> usize {
