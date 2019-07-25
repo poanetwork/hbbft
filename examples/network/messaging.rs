@@ -85,6 +85,8 @@ impl<M: Send> Messaging<M> {
     }
 
     /// Spawns the message delivery thread in a given thread scope.
+    // TODO: Remove this once https://github.com/crossbeam-rs/crossbeam/issues/404 is resolved.
+    #[allow(clippy::drop_copy, clippy::zero_ptr)]
     pub fn spawn<'a, 'scope>(
         &self,
         scope: &'scope Scope<'a>,
