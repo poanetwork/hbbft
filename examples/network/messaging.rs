@@ -2,7 +2,6 @@
 use crossbeam::thread::{Scope, ScopedJoinHandle};
 use crossbeam_channel::{self, bounded, select, unbounded, Receiver, Sender};
 use hbbft::{SourcedMessage, Target, TargetedMessage};
-use std::collections::BTreeSet;
 
 /// The queue functionality for messages sent between algorithm instances.
 /// The messaging struct allows for targeted message exchange between comms
@@ -86,6 +85,8 @@ impl<M: Send> Messaging<M> {
     }
 
     /// Spawns the message delivery thread in a given thread scope.
+    // TODO: Remove this once https://github.com/crossbeam-rs/crossbeam/issues/404 is resolved.
+    #[allow(clippy::drop_copy, clippy::zero_ptr)]
     pub fn spawn<'a, 'scope>(
         &self,
         scope: &'scope Scope<'a>,
@@ -108,43 +109,15 @@ impl<M: Send> Messaging<M> {
                 select! {
                     recv(rx_from_algo) -> tm => {
                         if let Ok(tm) = tm {
-                            match &tm.target {
-                                Target::All => {
-                                    // Send the message to all remote nodes, stopping at the first
-                                    // error.
-                                    result = txs_to_comms.iter()
-                                        .fold(Ok(()), |result, tx| {
-                                            if result.is_ok() {
-                                                tx.send(tm.message.clone())
-                                            } else {
-                                                result
-                                            }
-                                        }).map_err(Error::from);
-                                },
-                                Target::AllExcept(exclude) => {
-                                    // Send the message to all remote nodes not in `exclude`, stopping at the first
-                                    // error.
-                                    let filtered_txs: Vec<_> = (0..txs_to_comms.len())
-                                        .collect::<BTreeSet<_>>()
-                                        .difference(exclude)
-                                        .cloned()
-                                        .collect();
-                                    result = filtered_txs.iter()
-                                        .fold(Ok(()), |result, i| {
-                                            if result.is_ok() {
-                                                txs_to_comms[*i].send(tm.message.clone())
-                                            } else {
-                                                result
-                                            }
-                                        }).map_err(Error::from);
-                                },
-                                Target::Node(i) => {
-                                    result = if *i < txs_to_comms.len() {
-                                        txs_to_comms[*i].send(tm.message)
-                                            .map_err(Error::from)
-                                    } else {
-                                        Err(Error::NoSuchTarget)
-                                    };
+                            if match tm.target {
+                                Target::AllExcept(ref ids) => ids,
+                                Target::Nodes(ref ids) => ids,
+                            }.iter().any(|i| *i >= txs_to_comms.len()) {
+                                return Err(Error::NoSuchTarget);
+                            }
+                            for (i, tx) in txs_to_comms.iter().enumerate() {
+                                if tm.target.contains(&i) {
+                                    tx.send(tm.message.clone())?;
                                 }
                             }
                         }

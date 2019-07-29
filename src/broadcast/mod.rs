@@ -209,27 +209,10 @@
 //!         message: TargetedMessage { target, message },
 //!     }) = messages.pop_front()
 //!     {
-//!         match target {
-//!             Target::All => {
-//!                 for (id, node) in &mut nodes {
-//!                     let step = node.handle_message(&source, message.clone())?;
-//!                     on_step(*id, step, &mut messages, &mut finished_nodes);
-//!                 }
-//!             }
-//!             Target::AllExcept(exclude) => {
-//!                for (id, node) in nodes.iter_mut().filter(|&(id, _)| !exclude.contains(id)) {
-//!                    let step = node.handle_message(&source, message.clone())?;
-//!                    on_step(*id, step, &mut messages, &mut finished_nodes);
-//!                }
-//!            }
-//!             Target::Node(id) => {
-//!                 let step = {
-//!                     let node = nodes.get_mut(&id).unwrap();
-//!                     node.handle_message(&source, message)?
-//!                 };
-//!                 on_step(id, step, &mut messages, &mut finished_nodes);
-//!             }
-//!         };
+//!         for (id, node) in nodes.iter_mut().filter(|&(id, _)| target.contains(id)) {
+//!             let step = node.handle_message(&source, message.clone())?;
+//!             on_step(*id, step, &mut messages, &mut finished_nodes);
+//!         }
 //!     }
 //!     // Every node should output exactly once. Here we check the second half of this statement,
 //!     // namely that every node outputs.

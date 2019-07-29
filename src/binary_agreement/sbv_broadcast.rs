@@ -141,7 +141,7 @@ impl<N: NodeIdT> SbvBroadcast<N> {
         if !self.netinfo.is_validator() {
             return self.try_output();
         }
-        let step: Step<_> = Target::All.message(msg.clone()).into();
+        let step: Step<_> = Target::all().message(msg.clone()).into();
         let our_id = &self.netinfo.our_id().clone();
         Ok(step.join(self.handle_message(our_id, &msg)?))
     }

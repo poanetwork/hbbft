@@ -255,57 +255,37 @@ where
         let mut passed_msgs: Vec<_> = Vec::new();
         for msg in self.messages.drain(..) {
             match msg.target.clone() {
-                Target::Node(id) => {
-                    if let Some(&them) = peer_epochs.get(&id) {
-                        if msg.message.is_premature(them, max_future_epochs) {
-                            deferred_msgs.push((id, msg.message));
-                        } else if !msg.message.is_obsolete(them) {
-                            passed_msgs.push(msg);
-                        }
-                    }
-                }
-                Target::All => {
-                    let is_accepted = |&them| msg.message.is_accepted(them, max_future_epochs);
+                Target::Nodes(mut ids) => {
                     let is_premature = |&them| msg.message.is_premature(them, max_future_epochs);
                     let is_obsolete = |&them| msg.message.is_obsolete(them);
-                    if peer_epochs.values().all(is_accepted) {
-                        passed_msgs.push(msg);
-                    } else {
-                        // The `Target::All` message is split into two sets of point messages: those
-                        // which can be sent without delay and those which should be postponed.
-                        for (id, them) in peer_epochs {
+                    for (id, them) in peer_epochs {
+                        if ids.contains(id) {
                             if is_premature(them) {
                                 deferred_msgs.push((id.clone(), msg.message.clone()));
-                            } else if !is_obsolete(them) {
-                                passed_msgs
-                                    .push(Target::Node(id.clone()).message(msg.message.clone()));
+                                ids.remove(id);
+                            } else if is_obsolete(them) {
+                                ids.remove(id);
                             }
                         }
                     }
+                    if !ids.is_empty() {
+                        passed_msgs.push(Target::Nodes(ids).message(msg.message));
+                    }
                 }
-                Target::AllExcept(exclude) => {
-                    let is_accepted = |&them| msg.message.is_accepted(them, max_future_epochs);
+                Target::AllExcept(mut exclude) => {
                     let is_premature = |&them| msg.message.is_premature(them, max_future_epochs);
                     let is_obsolete = |&them| msg.message.is_obsolete(them);
-                    let filtered_nodes: BTreeMap<_, _> = peer_epochs
-                        .iter()
-                        .filter(|(id, _)| !exclude.contains(id))
-                        .map(|(k, v)| (k.clone(), *v))
-                        .collect();
-                    if filtered_nodes.values().all(is_accepted) {
-                        passed_msgs.push(msg);
-                    } else {
-                        // The `Target::AllExcept` message is split into two sets of point messages: those
-                        // which can be sent without delay and those which should be postponed.
-                        for (id, them) in &filtered_nodes {
+                    for (id, them) in peer_epochs {
+                        if !exclude.contains(id) {
                             if is_premature(them) {
                                 deferred_msgs.push((id.clone(), msg.message.clone()));
-                            } else if !is_obsolete(them) {
-                                passed_msgs
-                                    .push(Target::Node(id.clone()).message(msg.message.clone()));
+                                exclude.insert(id.clone());
+                            } else if is_obsolete(them) {
+                                exclude.insert(id.clone());
                             }
                         }
                     }
+                    passed_msgs.push(Target::AllExcept(exclude).message(msg.message));
                 }
             }
         }

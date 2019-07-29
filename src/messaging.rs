@@ -1,4 +1,5 @@
 use std::collections::BTreeSet;
+use std::iter;
 
 /// Message sent by a given source.
 #[derive(Clone, Debug)]
@@ -12,22 +13,39 @@ pub struct SourcedMessage<M, N> {
 /// The intended recipient(s) of a message.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Target<N> {
-    /// The message must be sent to all remote nodes.
-    All,
-    /// The message must be sent to the node with the given ID.
-    Node(N),
+    /// The message must be sent to the nodes with the given IDs.
+    /// It is _not_ automatically sent to observers.
+    Nodes(BTreeSet<N>),
     /// The message must be sent to all remote nodes except the passed nodes.
     /// Useful for sending messages to observer nodes that aren't
     /// present in a node's `all_ids()` list.
     AllExcept(BTreeSet<N>),
 }
 
-impl<N> Target<N> {
+impl<N: Ord> Target<N> {
+    /// Creates a new `Target` addressing all peers, including observers.
+    pub fn all() -> Self {
+        Target::AllExcept(BTreeSet::new())
+    }
+
+    /// Creates a new `Target` addressing a single peer.
+    pub fn node(node_id: N) -> Self {
+        Target::Nodes(iter::once(node_id).collect())
+    }
+
     /// Returns a `TargetedMessage` with this target, and the given message.
     pub fn message<M>(self, message: M) -> TargetedMessage<M, N> {
         TargetedMessage {
             target: self,
             message,
+        }
+    }
+
+    /// Returns whether `node_id` is included in this target.
+    pub fn contains(&self, node_id: &N) -> bool {
+        match self {
+            Target::Nodes(ids) => ids.contains(node_id),
+            Target::AllExcept(ids) => !ids.contains(node_id),
         }
     }
 }

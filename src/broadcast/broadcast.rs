@@ -202,7 +202,7 @@ impl<N: NodeIdT> Broadcast<N> {
                 result = Ok(proof);
             } else {
                 // Rest of the proofs are sent to remote nodes.
-                let msg = Target::Node(id.clone()).message(Message::Value(proof));
+                let msg = Target::node(id.clone()).message(Message::Value(proof));
                 step.messages.push(msg);
             }
         }
@@ -402,25 +402,10 @@ impl<N: NodeIdT> Broadcast<N> {
         }
         let echo_msg = Message::Echo(p.clone());
         let mut step = Step::default();
-        // `N - 2f + g` node ids to the left of our_id (excluding our_id)
-        // after arranging all node ids in a circular list.
-        let left = self
-            .netinfo
-            .all_ids()
-            .cycle()
-            .skip_while(|x| *x != self.our_id())
-            .take(self.netinfo.num_correct() - self.netinfo.num_faulty() + self.fault_estimate)
-            .skip(1);
-        for id in left {
-            let msg = Target::Node(id.clone()).message(echo_msg.clone());
-            step.messages.push(msg);
-        }
-        // Send `Echo` message to all non-validating nodes.
-        step.extend(
-            Target::AllExcept(self.netinfo.all_ids().cloned().collect::<BTreeSet<_>>())
-                .message(echo_msg)
-                .into(),
-        );
+        let right = self.right_nodes().cloned().collect();
+        // Send `Echo` message to all non-validating nodes and the ones on our left.
+        let msg = Target::AllExcept(right).message(echo_msg);
+        step.messages.push(msg);
         let our_id = &self.our_id().clone();
         Ok(step.join(self.handle_echo(our_id, p)?))
     }
@@ -444,19 +429,12 @@ impl<N: NodeIdT> Broadcast<N> {
         let mut step = Step::default();
 
         let senders = self.can_decodes.get(hash);
-        // Remaining node ids to the right of our_id
-        // after arranging all node ids in a circular list.
         let right = self
-            .netinfo
-            .all_ids()
-            .cycle()
-            .skip_while(|x| *x != self.our_id())
-            .skip(self.netinfo.num_correct() - self.netinfo.num_faulty() + self.fault_estimate)
-            .take_while(|x| *x != self.our_id());
-        let msgs = right
+            .right_nodes()
             .filter(|id| senders.map_or(true, |s| !s.contains(id)))
-            .map(|id| Target::Node(id.clone()).message(echo_msg.clone()));
-        step.messages.extend(msgs);
+            .cloned()
+            .collect();
+        step.messages.push(Target::Nodes(right).message(echo_msg));
         Ok(step)
     }
 
@@ -468,21 +446,28 @@ impl<N: NodeIdT> Broadcast<N> {
         }
         let echo_hash_msg = Message::EchoHash(*hash);
         let mut step = Step::default();
-        // Remaining node ids to the right of our_id
-        // after arranging all node ids in a circular list.
-        let right = self
-            .netinfo
-            .all_ids()
-            .cycle()
-            .skip_while(|x| *x != self.our_id())
-            .skip(self.netinfo.num_correct() - self.netinfo.num_faulty() + self.fault_estimate)
-            .take_while(|x| *x != self.our_id());
-        for id in right {
-            let msg = Target::Node(id.clone()).message(echo_hash_msg.clone());
-            step.messages.push(msg);
-        }
+        let right = self.right_nodes().cloned().collect();
+        let msg = Target::Nodes(right).message(echo_hash_msg);
+        step.messages.push(msg);
         let our_id = &self.our_id().clone();
         Ok(step.join(self.handle_echo_hash(our_id, hash)?))
+    }
+
+    /// Returns an iterator over all nodes to our right.
+    ///
+    /// The nodes are arranged in a circle according to their ID, starting with our own. The first
+    /// _N - 2 f + g_ nodes are considered "to our left" and the rest "to our right".
+    ///
+    /// These are the nodes to which we only send an `EchoHash` message in the beginning.
+    fn right_nodes(&self) -> impl Iterator<Item = &N> {
+        let our_id = self.our_id().clone();
+        let not_us = move |x: &&N| **x != our_id;
+        self.netinfo
+            .all_ids()
+            .cycle()
+            .skip_while(not_us.clone())
+            .skip(self.netinfo.num_correct() - self.netinfo.num_faulty() + self.fault_estimate)
+            .take_while(not_us)
     }
 
     /// Sends a `CanDecode` message and handles it. Does nothing if we are only an observer.
@@ -495,15 +480,17 @@ impl<N: NodeIdT> Broadcast<N> {
         let can_decode_msg = Message::CanDecode(*hash);
         let mut step = Step::default();
 
-        for id in self.netinfo.all_ids() {
-            match self.echos.get(id) {
-                Some(EchoContent::Hash(_)) | None => {
-                    let msg = Target::Node(id.clone()).message(can_decode_msg.clone());
-                    step.messages.push(msg);
-                }
-                _ => (),
-            }
-        }
+        let recipients = self
+            .netinfo
+            .all_ids()
+            .filter(|id| match self.echos.get(id) {
+                Some(EchoContent::Hash(_)) | None => true,
+                _ => false,
+            })
+            .cloned()
+            .collect();
+        let msg = Target::Nodes(recipients).message(can_decode_msg);
+        step.messages.push(msg);
         let our_id = &self.our_id().clone();
         Ok(step.join(self.handle_can_decode(our_id, hash)?))
     }
@@ -515,7 +502,7 @@ impl<N: NodeIdT> Broadcast<N> {
             return Ok(Step::default());
         }
         let ready_msg = Message::Ready(*hash);
-        let step: Step<_> = Target::All.message(ready_msg).into();
+        let step: Step<_> = Target::all().message(ready_msg).into();
         let our_id = &self.our_id().clone();
         Ok(step.join(self.handle_ready(our_id, hash)?))
     }

@@ -34,7 +34,7 @@
 //! New observers can only join the network after an epoch where `change` was not `None`. These
 //! epochs' batches contain a `JoinPlan`, which can be sent as an invitation to the new node: The
 //! `DynamicHoneyBadger` instance created from a `JoinPlan` will start as an observer in the
-//! following epoch. All `Target::All` messages from that and later epochs must be sent to the new
+//! following epoch. All `Target::all()` messages from that and later epochs must be sent to the new
 //! node.
 //!
 //! Observer nodes can leave the network at any time.

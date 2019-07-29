@@ -167,7 +167,7 @@ impl<N: NodeIdT> ThresholdSign<N> {
             Some(sks) => Message(sks.sign_g2(hash)),
             None => return Ok(step.join(self.try_output()?)), // Not a validator.
         };
-        step.messages.push(Target::All.message(msg.clone()));
+        step.messages.push(Target::all().message(msg.clone()));
         let id = self.our_id().clone();
         step.extend(self.handle_message(&id, msg)?);
         Ok(step)
