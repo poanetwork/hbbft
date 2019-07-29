@@ -285,9 +285,7 @@ where
                             }
                         }
                     }
-                    if exclude.len() < peer_epochs.len() {
-                        passed_msgs.push(Target::AllExcept(exclude).message(msg.message));
-                    }
+                    passed_msgs.push(Target::AllExcept(exclude).message(msg.message));
                 }
             }
         }
