@@ -86,7 +86,7 @@
 //!         pub_keys.clone(),
 //!         threshold,
 //!         &mut rng,
-//! ).unwrap_or_else(|_| panic!("Failed to create `SyncKeyGen` instance for node #{}", id));
+//!     ).unwrap_or_else(|_| panic!("Failed to create `SyncKeyGen` instance for node #{}", id));
 //!     nodes.insert(id, sync_key_gen);
 //!     parts.push((id, opt_part.unwrap())); // Would be `None` for observer nodes.
 //! }
