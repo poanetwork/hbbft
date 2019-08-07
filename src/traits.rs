@@ -90,19 +90,6 @@ impl<M, O, N, F> Step<M, O, N, F>
 where
     F: Fail,
 {
-    /// Creates a new `Step` from the given collections.
-    pub fn new(
-        output: Vec<O>,
-        fault_log: FaultLog<N, F>,
-        messages: Vec<TargetedMessage<M, N>>,
-    ) -> Self {
-        Step {
-            output,
-            fault_log,
-            messages,
-        }
-    }
-
     /// Returns the same step, with the given additional output.
     pub fn with_output<T: Into<Option<O>>>(mut self, output: T) -> Self {
         self.output.extend(output.into());
