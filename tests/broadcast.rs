@@ -1,8 +1,6 @@
-use std::collections::BTreeMap;
 use std::iter::once;
-use std::sync::{Arc, Mutex};
 
-use hbbft::{broadcast::Broadcast, util, ConsensusProtocol, CpStep, NetworkInfo};
+use hbbft::{broadcast::Broadcast, util, ConsensusProtocol, CpStep};
 use hbbft_testing::adversary::{
     sort_ascending, swap_random, Adversary, NetMutHandle, NodeOrderAdversary, RandomAdversary,
     ReorderingAdversary,
@@ -14,7 +12,6 @@ use proptest::{prelude::ProptestConfig, proptest};
 use rand::{Rng, SeedableRng};
 
 type NodeId = u16;
-type NetworkInfoMap = BTreeMap<NodeId, Arc<NetworkInfo<NodeId>>>;
 
 /// A strategy for picking the next node to handle a message.
 /// The sorting algorithm used is stable - preserves message
@@ -37,26 +34,16 @@ pub struct ProposeAdversary {
     message_strategy: MessageSorting,
     has_sent: bool,
     drop_messages: bool,
-    // TODO this is really hacky but there's no better way to get this value
-    // Solution taken from binary_agreement_mitm test - ideally the new network simulator
-    // should be altered to store the netinfo structure alongside nodes similar to
-    // the way the old network simulator did it.
-    netinfo_mutex: Arc<Mutex<NetworkInfoMap>>,
 }
 
 impl ProposeAdversary {
     /// Creates a new `ProposeAdversary`.
     #[inline]
-    pub fn new(
-        message_strategy: MessageSorting,
-        netinfo_mutex: Arc<Mutex<NetworkInfoMap>>,
-        drop_messages: bool,
-    ) -> Self {
+    pub fn new(message_strategy: MessageSorting, drop_messages: bool) -> Self {
         ProposeAdversary {
             message_strategy,
             has_sent: false,
             drop_messages,
-            netinfo_mutex,
         }
     }
 }
@@ -97,15 +84,8 @@ impl Adversary<Broadcast<NodeId>> for ProposeAdversary {
             // Instantiate a temporary broadcast consensus protocol for each faulty node
             // and add the generated messages to the current step.
             for faulty_node in faulty_nodes {
-                let netinfo = self
-                    .netinfo_mutex
-                    .lock()
-                    .unwrap()
-                    .get(faulty_node.id())
-                    .cloned()
-                    .expect("Adversary netinfo mutex not populated");
-
-                let fake_step = Broadcast::new(netinfo, *faulty_node.id())
+                let validators = faulty_node.algorithm().validator_set().clone();
+                let fake_step = Broadcast::new(*faulty_node.id(), validators, *faulty_node.id())
                     .expect("broadcast instance")
                     .handle_input(b"Fake news".to_vec(), &mut rng)
                     .expect("propose");
@@ -166,12 +146,8 @@ fn test_broadcast<A: Adversary<Broadcast<NodeId>>>(
     }
 }
 
-fn test_broadcast_different_sizes<A, F>(
-    new_adversary: F,
-    proposed_value: &[u8],
-    seed: TestRngSeed,
-    adversary_netinfo: &Arc<Mutex<NetworkInfoMap>>,
-) where
+fn test_broadcast_different_sizes<A, F>(new_adversary: F, proposed_value: &[u8], seed: TestRngSeed)
+where
     A: Adversary<Broadcast<NodeId>>,
     F: Fn() -> A,
 {
@@ -181,7 +157,6 @@ fn test_broadcast_different_sizes<A, F>(
         .chain(once(rng.gen_range(30, 50)));
     for size in sizes {
         // cloning since it gets moved into a closure
-        let cloned_netinfo_map = adversary_netinfo.clone();
         let num_faulty_nodes = util::max_faulty(size);
         info!(
             "Network size: {} good nodes, {} faulty nodes",
@@ -197,12 +172,9 @@ fn test_broadcast_different_sizes<A, F>(
             .no_time_limit()
             .adversary(new_adversary())
             .using(move |info| {
-                let netinfo = Arc::new(info.netinfo);
-                cloned_netinfo_map
-                    .lock()
-                    .unwrap()
-                    .insert(info.id, netinfo.clone());
-                Broadcast::new(netinfo, proposer_id)
+                let validators = info.netinfo.validator_set().clone();
+                let id = *info.netinfo.our_id();
+                Broadcast::new(id, validators, proposer_id)
                     .expect("Failed to create a Broadcast instance.")
             })
             .build(&mut rng)
@@ -272,7 +244,9 @@ fn do_test_8_broadcast_equal_leaves_silent(seed: TestRngSeed) {
         .no_time_limit()
         .adversary(ReorderingAdversary::new())
         .using(move |node_info: NewNodeInfo<_>| {
-            Broadcast::new(Arc::new(node_info.netinfo), proposer_id)
+            let id = *node_info.netinfo.our_id();
+            let validators = node_info.netinfo.validator_set().clone();
+            Broadcast::new(id, validators, proposer_id)
                 .expect("Failed to create a Broadcast instance.")
         })
         .build(&mut rng)
@@ -284,40 +258,29 @@ fn do_test_8_broadcast_equal_leaves_silent(seed: TestRngSeed) {
 }
 
 fn do_test_broadcast_random_delivery_silent(seed: TestRngSeed) {
-    test_broadcast_different_sizes(ReorderingAdversary::new, b"Foo", seed, &Default::default());
+    test_broadcast_different_sizes(ReorderingAdversary::new, b"Foo", seed);
 }
 
 fn do_test_broadcast_first_delivery_silent(seed: TestRngSeed) {
-    test_broadcast_different_sizes(NodeOrderAdversary::new, b"Foo", seed, &Default::default());
+    test_broadcast_different_sizes(NodeOrderAdversary::new, b"Foo", seed);
 }
 
 fn do_test_broadcast_first_delivery_adv_propose(seed: TestRngSeed) {
-    let adversary_netinfo: Arc<Mutex<NetworkInfoMap>> = Default::default();
-    let new_adversary = || {
-        ProposeAdversary::new(
-            MessageSorting::SortAscending,
-            adversary_netinfo.clone(),
-            false,
-        )
-    };
-    test_broadcast_different_sizes(new_adversary, b"Foo", seed, &adversary_netinfo);
+    let new_adversary = || ProposeAdversary::new(MessageSorting::SortAscending, false);
+    test_broadcast_different_sizes(new_adversary, b"Foo", seed);
 }
 
 fn do_test_broadcast_random_delivery_adv_propose(seed: TestRngSeed) {
-    let adversary_netinfo: Arc<Mutex<NetworkInfoMap>> = Default::default();
-    let new_adversary =
-        || ProposeAdversary::new(MessageSorting::RandomPick, adversary_netinfo.clone(), false);
-    test_broadcast_different_sizes(new_adversary, b"Foo", seed, &adversary_netinfo);
+    let new_adversary = || ProposeAdversary::new(MessageSorting::RandomPick, false);
+    test_broadcast_different_sizes(new_adversary, b"Foo", seed);
 }
 
 fn do_test_broadcast_random_delivery_adv_propose_and_drop(seed: TestRngSeed) {
-    let adversary_netinfo: Arc<Mutex<NetworkInfoMap>> = Default::default();
-    let new_adversary =
-        || ProposeAdversary::new(MessageSorting::RandomPick, adversary_netinfo.clone(), true);
-    test_broadcast_different_sizes(new_adversary, b"Foo", seed, &adversary_netinfo);
+    let new_adversary = || ProposeAdversary::new(MessageSorting::RandomPick, true);
+    test_broadcast_different_sizes(new_adversary, b"Foo", seed);
 }
 
 fn do_test_broadcast_random_adversary(seed: TestRngSeed) {
     let new_adversary = || RandomAdversary::new(0.2, 0.2);
-    test_broadcast_different_sizes(new_adversary, b"RandomFoo", seed, &Default::default());
+    test_broadcast_different_sizes(new_adversary, b"RandomFoo", seed);
 }

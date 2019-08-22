@@ -32,7 +32,7 @@
 //! the consensus `result` is not an error then every successfully terminated
 //! consensus node will be the same `result`.
 
-use std::collections::{BTreeSet, HashSet};
+use std::collections::HashSet;
 use std::fmt::Debug;
 use std::marker::{Send, Sync};
 use std::net::SocketAddr;
@@ -45,8 +45,7 @@ use log::{debug, error};
 use crate::network::messaging::Messaging;
 use crate::network::{commst, connection};
 use hbbft::broadcast::{Broadcast, Message};
-use hbbft::crypto::{poly::Poly, SecretKey, SecretKeySet};
-use hbbft::{ConsensusProtocol, NetworkInfo, SourcedMessage};
+use hbbft::{ConsensusProtocol, SourcedMessage};
 
 /// This is a structure to start a consensus node.
 pub struct Node<T> {
@@ -79,29 +78,14 @@ impl<T: Clone + Debug + AsRef<[u8]> + PartialEq + Send + Sync + From<Vec<u8>> + 
             .collect();
         node_strs.sort();
         let our_id = node_strs.binary_search(&our_str).unwrap();
-        let all_ids: BTreeSet<_> = (0..node_strs.len()).collect();
-
-        // FIXME: This example doesn't call algorithms that use cryptography. However the keys are
-        // required by the interface to all algorithms in Honey Badger. Therefore we set placeholder
-        // keys here. A fully-featured application would need to take appropriately initialized keys
-        // from elsewhere.
-        let secret_key_set = SecretKeySet::from(Poly::zero());
-        let sk_share = secret_key_set.secret_key_share(our_id);
-        let pub_key_set = secret_key_set.public_keys();
-        let sk = SecretKey::default();
-        let pub_keys = all_ids
-            .iter()
-            .map(|id| (*id, SecretKey::default().public_key()))
-            .collect();
-
-        let netinfo = NetworkInfo::new(our_id, sk_share, pub_key_set, sk, pub_keys);
+        let num_nodes = node_strs.len();
 
         if value.is_some() != (our_id == 0) {
             panic!("Exactly the first node must propose a value.");
         }
 
         // Initialise the message delivery system and obtain TX and RX handles.
-        let messaging: Messaging<Message> = Messaging::new(all_ids.len());
+        let messaging: Messaging<Message> = Messaging::new(num_nodes);
         let rxs_to_comms = messaging.rxs_to_comms();
         let tx_from_comms = messaging.tx_from_comms();
         let rx_to_algo = messaging.rx_to_algo();
@@ -120,8 +104,9 @@ impl<T: Clone + Debug + AsRef<[u8]> + PartialEq + Send + Sync + From<Vec<u8>> + 
             // corresponding to this instance, and no dedicated comms task. The
             // node index is 0.
             let broadcast_handle = scope.spawn(move |_| {
-                let mut broadcast =
-                    Broadcast::new(Arc::new(netinfo), 0).expect("failed to instantiate broadcast");
+                let validators = (0..num_nodes).into();
+                let mut broadcast = Broadcast::new(our_id, Arc::new(validators), 0)
+                    .expect("failed to instantiate broadcast");
 
                 if let Some(v) = value {
                     // FIXME: Use the output.

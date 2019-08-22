@@ -139,8 +139,8 @@
 //!
 //! ```
 //! use hbbft::broadcast::{Broadcast, Error, Step};
-//! use hbbft::{NetworkInfo, SourcedMessage, Target, TargetedMessage};
-//! use rand::{OsRng, Rng, RngCore};
+//! use hbbft::{ValidatorSet, SourcedMessage, Target, TargetedMessage};
+//! use rand::{rngs::OsRng, Rng, RngCore};
 //! use std::collections::{BTreeMap, BTreeSet, VecDeque};
 //! use std::iter::once;
 //! use std::sync::Arc;
@@ -152,14 +152,12 @@
 //!
 //!     let mut rng = OsRng::new().expect("Could not initialize OS random number generator.");
 //!
-//!     // Create a random set of keys for testing.
-//!     let netinfos = NetworkInfo::generate_map(0..NUM_NODES, &mut rng)
-//!         .expect("Failed to create `NetworkInfo` map");
+//!     let validators = Arc::new(ValidatorSet::from(0..NUM_NODES));
 //!
 //!     // Create initial nodes by instantiating a `Broadcast` for each.
 //!     let mut nodes = BTreeMap::new();
-//!     for (i, netinfo) in netinfos {
-//!         let bc = Broadcast::new(Arc::new(netinfo), PROPOSER_ID)?;
+//!     for i in 0..NUM_NODES {
+//!         let bc = Broadcast::new(i, validators.clone(), PROPOSER_ID)?;
 //!         nodes.insert(i, bc);
 //!     }
 //!

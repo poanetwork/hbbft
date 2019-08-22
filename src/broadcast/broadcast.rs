@@ -14,15 +14,18 @@ use super::merkle::{Digest, MerkleTree, Proof};
 use super::message::HexProof;
 use super::{Error, FaultKind, Message, Result};
 use crate::fault_log::Fault;
-use crate::{ConsensusProtocol, NetworkInfo, NodeIdT, Target};
+use crate::{ConsensusProtocol, NodeIdT, Target, ValidatorSet};
 
 type RseResult<T> = result::Result<T, rse::Error>;
 
 /// Broadcast algorithm instance.
 #[derive(Debug)]
 pub struct Broadcast<N> {
-    /// Shared network data.
-    netinfo: Arc<NetworkInfo<N>>,
+    /// Our ID.
+    // TODO: Make optional for observers?
+    our_id: N,
+    /// The set of validator IDs.
+    val_set: Arc<ValidatorSet<N>>,
     /// The ID of the sending node.
     proposer_id: N,
     /// The Reed-Solomon erasure coding configuration.
@@ -40,6 +43,7 @@ pub struct Broadcast<N> {
     /// Whether we have already output a value.
     decided: bool,
     /// Number of faulty nodes to optimize performance for.
+    // TODO: Make this configurable: Allow numbers between 0 and N/3?
     fault_estimate: usize,
     /// The hashes and proofs we have received via `Echo` and `EchoHash` messages, by sender ID.
     echos: BTreeMap<N, EchoContent>,
@@ -79,22 +83,27 @@ impl<N: NodeIdT> ConsensusProtocol for Broadcast<N> {
     }
 
     fn our_id(&self) -> &N {
-        self.netinfo.our_id()
+        &self.our_id
     }
 }
 
 impl<N: NodeIdT> Broadcast<N> {
     /// Creates a new broadcast instance to be used by node `our_id` which expects a value proposal
     /// from node `proposer_id`.
-    pub fn new(netinfo: Arc<NetworkInfo<N>>, proposer_id: N) -> Result<Self> {
-        let parity_shard_num = 2 * netinfo.num_faulty();
-        let data_shard_num = netinfo.num_nodes() - parity_shard_num;
+    pub fn new<V>(our_id: N, val_set: V, proposer_id: N) -> Result<Self>
+    where
+        V: Into<Arc<ValidatorSet<N>>>,
+    {
+        let val_set: Arc<ValidatorSet<N>> = val_set.into();
+        let parity_shard_num = 2 * val_set.num_faulty();
+        let data_shard_num = val_set.num() - parity_shard_num;
         let coding =
             Coding::new(data_shard_num, parity_shard_num).map_err(|_| Error::InvalidNodeCount)?;
-        let fault_estimate = netinfo.num_faulty();
+        let fault_estimate = val_set.num_faulty();
 
         Ok(Broadcast {
-            netinfo,
+            our_id,
+            val_set,
             proposer_id,
             coding,
             value_sent: false,
@@ -131,7 +140,7 @@ impl<N: NodeIdT> Broadcast<N> {
     ///
     /// This must be called with every message we receive from another node.
     pub fn handle_message(&mut self, sender_id: &N, message: Message) -> Result<Step<N>> {
-        if !self.netinfo.is_node_validator(sender_id) {
+        if !self.val_set.contains(sender_id) {
             return Err(Error::UnknownSender);
         }
         match message {
@@ -146,6 +155,11 @@ impl<N: NodeIdT> Broadcast<N> {
     /// Returns the proposer's node ID.
     pub fn proposer_id(&self) -> &N {
         &self.proposer_id
+    }
+
+    /// Returns the set of all validator IDs.
+    pub fn validator_set(&self) -> &Arc<ValidatorSet<N>> {
+        &self.val_set
     }
 
     /// Breaks the input value into shards of equal length and encodes them --
@@ -191,12 +205,12 @@ impl<N: NodeIdT> Broadcast<N> {
 
         // Default result in case of `proof` error.
         let mut result = Err(Error::ProofConstructionFailed);
-        assert_eq!(self.netinfo.num_nodes(), mtree.values().len());
+        assert_eq!(self.val_set.num(), mtree.values().len());
 
         let mut step = Step::default();
         // Send each proof to a node.
-        for (index, id) in self.netinfo.all_ids().enumerate() {
-            let proof = mtree.proof(index).ok_or(Error::ProofConstructionFailed)?;
+        for (id, index) in self.val_set.all_indices() {
+            let proof = mtree.proof(*index).ok_or(Error::ProofConstructionFailed)?;
             if *id == *self.our_id() {
                 // The proof is addressed to this node.
                 result = Ok(proof);
@@ -293,7 +307,7 @@ impl<N: NodeIdT> Broadcast<N> {
         }
 
         // Upon receiving `N - f` `Echo`s with this root hash, multicast `Ready`.
-        if !self.ready_sent && self.count_echos(&hash) >= self.netinfo.num_correct() {
+        if !self.ready_sent && self.count_echos(&hash) >= self.val_set.num_correct() {
             step.extend(self.send_ready(&hash)?);
         }
 
@@ -333,7 +347,7 @@ impl<N: NodeIdT> Broadcast<N> {
         self.echos
             .insert(sender_id.clone(), EchoContent::Hash(*hash));
 
-        if self.ready_sent || self.count_echos(&hash) < self.netinfo.num_correct() {
+        if self.ready_sent || self.count_echos(&hash) < self.val_set.num_correct() {
             return self.compute_output(&hash);
         }
         // Upon receiving `N - f` `Echo`s with this root hash, multicast `Ready`.
@@ -382,13 +396,13 @@ impl<N: NodeIdT> Broadcast<N> {
         let mut step = Step::default();
         // Upon receiving f + 1 matching Ready(h) messages, if Ready
         // has not yet been sent, multicast Ready(h).
-        if self.count_readys(hash) == self.netinfo.num_faulty() + 1 && !self.ready_sent {
+        if self.count_readys(hash) == self.val_set.num_faulty() + 1 && !self.ready_sent {
             // Enqueue a broadcast of a Ready message.
             step.extend(self.send_ready(hash)?);
         }
         // Upon receiving 2f + 1 matching Ready(h) messages, send full
         // `Echo` message to every node who hasn't sent us a `CanDecode`
-        if self.count_readys(hash) == 2 * self.netinfo.num_faulty() + 1 {
+        if self.count_readys(hash) == 2 * self.val_set.num_faulty() + 1 {
             step.extend(self.send_echo_remaining(hash)?);
         }
 
@@ -397,7 +411,7 @@ impl<N: NodeIdT> Broadcast<N> {
 
     /// Sends `Echo` message to all left nodes and handles it.
     fn send_echo_left(&mut self, p: Proof<Vec<u8>>) -> Result<Step<N>> {
-        if !self.netinfo.is_validator() {
+        if !self.val_set.contains(&self.our_id) {
             return Ok(Step::default());
         }
         let echo_msg = Message::Echo(p.clone());
@@ -413,7 +427,7 @@ impl<N: NodeIdT> Broadcast<N> {
     /// Sends `Echo` message to remaining nodes who haven't sent `CanDecode`
     fn send_echo_remaining(&mut self, hash: &Digest) -> Result<Step<N>> {
         self.echo_sent = true;
-        if !self.netinfo.is_validator() {
+        if !self.val_set.contains(&self.our_id) {
             return Ok(Step::default());
         }
 
@@ -441,7 +455,7 @@ impl<N: NodeIdT> Broadcast<N> {
     /// Sends an `EchoHash` message and handles it. Does nothing if we are only an observer.
     fn send_echo_hash(&mut self, hash: &Digest) -> Result<Step<N>> {
         self.echo_hash_sent = true;
-        if !self.netinfo.is_validator() {
+        if !self.val_set.contains(&self.our_id) {
             return Ok(Step::default());
         }
         let echo_hash_msg = Message::EchoHash(*hash);
@@ -462,18 +476,18 @@ impl<N: NodeIdT> Broadcast<N> {
     fn right_nodes(&self) -> impl Iterator<Item = &N> {
         let our_id = self.our_id().clone();
         let not_us = move |x: &&N| **x != our_id;
-        self.netinfo
+        self.val_set
             .all_ids()
             .cycle()
             .skip_while(not_us.clone())
-            .skip(self.netinfo.num_correct() - self.netinfo.num_faulty() + self.fault_estimate)
+            .skip(self.val_set.num_correct() - self.val_set.num_faulty() + self.fault_estimate)
             .take_while(not_us)
     }
 
     /// Sends a `CanDecode` message and handles it. Does nothing if we are only an observer.
     fn send_can_decode(&mut self, hash: &Digest) -> Result<Step<N>> {
         self.can_decode_sent.insert(hash.clone());
-        if !self.netinfo.is_validator() {
+        if !self.val_set.contains(&self.our_id) {
             return Ok(Step::default());
         }
 
@@ -481,7 +495,7 @@ impl<N: NodeIdT> Broadcast<N> {
         let mut step = Step::default();
 
         let recipients = self
-            .netinfo
+            .val_set
             .all_ids()
             .filter(|id| match self.echos.get(id) {
                 Some(EchoContent::Hash(_)) | None => true,
@@ -498,7 +512,7 @@ impl<N: NodeIdT> Broadcast<N> {
     /// Sends a `Ready` message and handles it. Does nothing if we are only an observer.
     fn send_ready(&mut self, hash: &Digest) -> Result<Step<N>> {
         self.ready_sent = true;
-        if !self.netinfo.is_validator() {
+        if !self.val_set.contains(&self.our_id) {
             return Ok(Step::default());
         }
         let ready_msg = Message::Ready(*hash);
@@ -511,7 +525,7 @@ impl<N: NodeIdT> Broadcast<N> {
     /// value.
     fn compute_output(&mut self, hash: &Digest) -> Result<Step<N>> {
         if self.decided
-            || self.count_readys(hash) <= 2 * self.netinfo.num_faulty()
+            || self.count_readys(hash) <= 2 * self.val_set.num_faulty()
             || self.count_echos_full(hash) < self.coding.data_shard_count()
         {
             return Ok(Step::default());
@@ -519,7 +533,7 @@ impl<N: NodeIdT> Broadcast<N> {
 
         // Upon receiving 2f + 1 matching Ready(h) messages, wait for N − 2f Echo messages.
         let mut leaf_values: Vec<Option<Box<[u8]>>> = self
-            .netinfo
+            .val_set
             .all_ids()
             .map(|id| {
                 self.echos
@@ -588,7 +602,7 @@ impl<N: NodeIdT> Broadcast<N> {
 
     /// Returns `true` if the proof is valid and has the same index as the node ID.
     fn validate_proof(&self, p: &Proof<Vec<u8>>, id: &N) -> bool {
-        self.netinfo.node_index(id) == Some(p.index()) && p.validate(self.netinfo.num_nodes())
+        self.val_set.index(id) == Some(p.index()) && p.validate(self.val_set.num())
     }
 
     /// Returns the number of nodes that have sent us a full `Echo` message with this hash.
