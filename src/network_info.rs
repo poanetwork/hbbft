@@ -1,19 +1,92 @@
+use std::borrow::Borrow;
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::Arc;
 
 use crate::crypto::{self, PublicKey, PublicKeySet, PublicKeyShare, SecretKey, SecretKeyShare};
 use rand;
 
 use crate::{util, NodeIdT};
 
+/// The set of all node IDs of the network's validators.
+#[derive(Debug, Clone)]
+pub struct ValidatorSet<N> {
+    num_faulty: usize,
+    indices: BTreeMap<N, usize>,
+}
+
+impl<I, N> From<I> for ValidatorSet<N>
+where
+    I: IntoIterator,
+    I::Item: Borrow<N>,
+    N: NodeIdT,
+{
+    fn from(i: I) -> Self {
+        let indices: BTreeMap<N, usize> = i
+            .into_iter()
+            .enumerate()
+            .map(|(n, id)| (id.borrow().clone(), n))
+            .collect();
+        let num_faulty = util::max_faulty(indices.len());
+        assert!(3 * num_faulty < indices.len(), "3 f >= N. This is a bug!");
+        ValidatorSet {
+            num_faulty,
+            indices,
+        }
+    }
+}
+
+impl<N: NodeIdT> ValidatorSet<N> {
+    /// Returns `true` if the given ID belongs to a known validator.
+    #[inline]
+    pub fn contains(&self, id: &N) -> bool {
+        self.indices.contains_key(id)
+    }
+
+    /// Returns the validators index in the ordered list of all IDs.
+    #[inline]
+    pub fn index(&self, id: &N) -> Option<usize> {
+        self.indices.get(id).cloned()
+    }
+
+    /// The total number _N_ of validators.
+    #[inline]
+    pub fn num(&self) -> usize {
+        self.indices.len()
+    }
+
+    /// The maximum number _f_ of faulty, Byzantine validators up to which Honey Badger is
+    /// guaranteed to be correct.
+    #[inline]
+    pub fn num_faulty(&self) -> usize {
+        self.num_faulty
+    }
+
+    /// The minimum number _N - f_ of correct validators with which Honey Badger is guaranteed to
+    /// be correct.
+    #[inline]
+    pub fn num_correct(&self) -> usize {
+        // As asserted in `new`, `num_faulty` is never greater than `num`.
+        self.num() - self.num_faulty
+    }
+
+    /// IDs of all validators in the network.
+    #[inline]
+    pub fn all_ids(&self) -> impl Iterator<Item = &N> + Clone {
+        self.indices.keys()
+    }
+
+    /// IDs and indices of all validators in the network.
+    #[inline]
+    pub fn all_indices(&self) -> impl Iterator<Item = (&N, &usize)> + Clone {
+        self.indices.iter()
+    }
+}
+
 /// Common data shared between algorithms: the nodes' IDs and key shares.
 #[derive(Debug, Clone)]
 pub struct NetworkInfo<N> {
     /// This node's ID.
     our_id: N,
-    /// The number _N_ of nodes in the network. Equal to the size of `public_keys`.
-    num_nodes: usize,
-    /// The number _f_ of faulty nodes that can be tolerated. Less than a third of _N_.
-    num_faulty: usize,
     /// Whether this node is a validator. This is true if `public_keys` contains our own ID.
     is_validator: bool,
     /// This node's secret key share. Only validators have one.
@@ -27,7 +100,7 @@ pub struct NetworkInfo<N> {
     /// The validators' public keys.
     public_keys: BTreeMap<N, PublicKey>,
     /// The indices in the list of sorted validator IDs.
-    node_indices: BTreeMap<N, usize>,
+    val_set: Arc<ValidatorSet<N>>,
 }
 
 impl<N: NodeIdT> NetworkInfo<N> {
@@ -47,29 +120,21 @@ impl<N: NodeIdT> NetworkInfo<N> {
         secret_key: SecretKey,
         public_keys: BTreeMap<N, PublicKey>,
     ) -> Self {
-        let num_nodes = public_keys.len();
-        let num_faulty = util::max_faulty(num_nodes);
-        assert!(3 * num_faulty < num_nodes, " 3 f >= N. This is a bug!");
-        let is_validator = public_keys.contains_key(&our_id);
-        let node_indices: BTreeMap<N, usize> = public_keys
+        let val_set = Arc::new(ValidatorSet::from(public_keys.keys()));
+        let is_validator = val_set.contains(&our_id);
+        let public_key_shares = public_keys
             .keys()
             .enumerate()
-            .map(|(n, id)| (id.clone(), n))
-            .collect();
-        let public_key_shares = node_indices
-            .iter()
-            .map(|(id, idx)| (id.clone(), public_key_set.public_key_share(*idx)))
+            .map(|(idx, id)| (id.clone(), public_key_set.public_key_share(idx)))
             .collect();
         NetworkInfo {
             our_id,
-            num_nodes,
-            num_faulty,
             is_validator,
             secret_key_share: secret_key_share.into(),
             secret_key,
             public_key_set,
             public_key_shares,
-            node_indices,
+            val_set,
             public_keys,
         }
     }
@@ -83,35 +148,34 @@ impl<N: NodeIdT> NetworkInfo<N> {
     /// ID of all nodes in the network.
     #[inline]
     pub fn all_ids(&self) -> impl Iterator<Item = &N> + Clone {
-        self.public_keys.keys()
+        self.val_set.all_ids()
     }
 
     /// ID of all nodes in the network except this one.
     #[inline]
     pub fn other_ids(&self) -> impl Iterator<Item = &N> + Clone {
         let our_id = self.our_id.clone();
-        self.public_keys.keys().filter(move |id| **id != our_id)
+        self.all_ids().filter(move |id| **id != our_id)
     }
 
     /// The total number _N_ of nodes.
     #[inline]
     pub fn num_nodes(&self) -> usize {
-        self.num_nodes
+        self.val_set.num()
     }
 
     /// The maximum number _f_ of faulty, Byzantine nodes up to which Honey Badger is guaranteed to
     /// be correct.
     #[inline]
     pub fn num_faulty(&self) -> usize {
-        self.num_faulty
+        self.val_set.num_faulty()
     }
 
     /// The minimum number _N - f_ of correct nodes with which Honey Badger is guaranteed to be
     /// correct.
     #[inline]
     pub fn num_correct(&self) -> usize {
-        // As asserted in `new`, `num_faulty` is never greater than `num_nodes`.
-        self.num_nodes - self.num_faulty
+        self.val_set.num_correct()
     }
 
     /// Returns our secret key share for threshold cryptography, or `None` if not a validator.
@@ -160,7 +224,7 @@ impl<N: NodeIdT> NetworkInfo<N> {
     /// node appears in `all_ids`.
     #[inline]
     pub fn node_index(&self, id: &N) -> Option<usize> {
-        self.node_indices.get(id).cloned()
+        self.val_set.index(id)
     }
 
     /// Returns `true` if this node takes part in the consensus itself. If not, it is only an
@@ -175,6 +239,11 @@ impl<N: NodeIdT> NetworkInfo<N> {
     #[inline]
     pub fn is_node_validator(&self, id: &N) -> bool {
         self.public_keys.contains_key(id)
+    }
+
+    /// Returns the set of validator IDs.
+    pub fn validator_set(&self) -> &Arc<ValidatorSet<N>> {
+        &self.val_set
     }
 
     /// Generates a map of matching `NetworkInfo`s for testing.

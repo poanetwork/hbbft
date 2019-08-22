@@ -30,8 +30,10 @@ pub enum ProposalState<N, S> {
 impl<N: NodeIdT, S: SessionIdT> ProposalState<N, S> {
     /// Creates a new `ProposalState::Ongoing`, with a fresh broadcast and agreement instance.
     pub fn new(netinfo: Arc<NetworkInfo<N>>, ba_id: BaSessionId<S>, prop_id: N) -> Result<Self> {
-        let agreement = BaInstance::new(netinfo.clone(), ba_id).map_err(Error::NewAgreement)?;
-        let broadcast = Broadcast::new(netinfo, prop_id).map_err(Error::NewBroadcast)?;
+        let our_id = netinfo.our_id().clone();
+        let validators = netinfo.validator_set().clone();
+        let agreement = BaInstance::new(netinfo, ba_id).map_err(Error::NewAgreement)?;
+        let broadcast = Broadcast::new(our_id, validators, prop_id).map_err(Error::NewBroadcast)?;
         Ok(ProposalState::Ongoing(broadcast, agreement))
     }
 
