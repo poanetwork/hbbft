@@ -112,7 +112,8 @@ impl<N: NodeIdT> NetworkInfo<N> {
     ///
     /// # Panics
     ///
-    /// Panics if `public_keys` is empty.
+    /// Panics if `public_keys` is empty or the requirement above is not satisfied, i.e. if the
+    /// secret key doesn't match the public key or is missing.
     pub fn new<SKS: Into<Option<SecretKeyShare>>>(
         our_id: N,
         secret_key_share: SKS,
@@ -122,15 +123,22 @@ impl<N: NodeIdT> NetworkInfo<N> {
     ) -> Self {
         let val_set = Arc::new(ValidatorSet::from(public_keys.keys()));
         let is_validator = val_set.contains(&our_id);
-        let public_key_shares = public_keys
-            .keys()
-            .enumerate()
-            .map(|(idx, id)| (id.clone(), public_key_set.public_key_share(idx)))
+        let secret_key_share = secret_key_share.into();
+        assert_eq!(is_validator, secret_key_share.is_some());
+        let public_key_shares: BTreeMap<N, PublicKeyShare> = val_set
+            .all_indices()
+            .map(|(id, idx)| (id.clone(), public_key_set.public_key_share(idx)))
             .collect();
+        if let Some(sks) = &secret_key_share {
+            assert_eq!(
+                Some(&sks.public_key_share()),
+                public_key_shares.get(&our_id)
+            );
+        }
         NetworkInfo {
             our_id,
             is_validator,
-            secret_key_share: secret_key_share.into(),
+            secret_key_share,
             secret_key,
             public_key_set,
             public_key_shares,
