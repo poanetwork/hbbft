@@ -143,6 +143,7 @@ pub use crate::crypto::pairing;
 pub use crate::fault_log::{Fault, FaultLog};
 pub use crate::messaging::{SourcedMessage, Target, TargetedMessage};
 pub use crate::network_info::{NetworkInfo, ValidatorSet};
+pub use crate::sync_key_gen::{to_pub_keys, PubKeyMap};
 pub use crate::traits::{
     ConsensusProtocol, Contribution, CpStep, Epoched, Message, NodeIdT, SessionIdT, Step,
 };

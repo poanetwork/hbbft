@@ -26,8 +26,7 @@ where
     fn participant_change(&self) -> Option<BTreeSet<N>> {
         if let ChangeState::InProgress(Change::NodeChange(pub_keys)) = self.change() {
             let candidates = pub_keys.keys();
-            let current_validators: BTreeSet<&N> =
-                self.network_info().public_key_map().keys().collect();
+            let current_validators: BTreeSet<&N> = self.public_keys().keys().collect();
             let participants = candidates.chain(current_validators).cloned().collect();
             Some(participants)
         } else if let ChangeState::Complete(Change::NodeChange(pub_keys)) = self.change() {
@@ -143,7 +142,7 @@ where
         if !self.is_removed {
             return Err(Error::DynamicHoneyBadgerNotRemoved);
         }
-        let secret_key = self.algo().netinfo().secret_key().clone();
+        let secret_key = self.algo().secret_key().clone();
         let id = self.algo().netinfo().our_id().clone();
         let (dhb, dhb_step) =
             DynamicHoneyBadger::new_joining(id.clone(), secret_key, join_plan, rng)

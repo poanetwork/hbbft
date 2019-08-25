@@ -1,9 +1,7 @@
-use std::collections::BTreeMap;
-
-use crate::crypto::PublicKey;
 use serde::{Deserialize, Serialize};
 
 use super::EncryptionSchedule;
+use crate::PubKeyMap;
 
 /// A node change action: adding or removing a node.
 #[derive(Clone, Eq, PartialEq, Serialize, Deserialize, Hash, Debug)]
@@ -11,7 +9,7 @@ pub enum Change<N: Ord> {
     /// Change the set of validators to the one in the provided map. There are no restrictions on
     /// the new set of validators. In particular, it can be disjoint with the current set of
     /// validators.
-    NodeChange(BTreeMap<N, PublicKey>),
+    NodeChange(PubKeyMap<N>),
     /// Change the threshold encryption schedule.
     /// Increase frequency to prevent censorship or decrease frequency for increased throughput.
     EncryptionSchedule(EncryptionSchedule),

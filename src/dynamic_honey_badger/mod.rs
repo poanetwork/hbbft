@@ -74,13 +74,13 @@ mod votes;
 
 use std::collections::BTreeMap;
 
-use crate::crypto::{PublicKey, PublicKeySet, Signature};
 use serde::{Deserialize, Serialize};
 
-use self::votes::{SignedVote, VoteCounter};
+use self::votes::SignedVote;
+use crate::crypto::{PublicKeySet, Signature};
 use crate::honey_badger::{EncryptionSchedule, Message as HbMessage, Params};
 use crate::sync_key_gen::{Ack, Part, SyncKeyGen};
-use crate::NodeIdT;
+use crate::{NodeIdT, PubKeyMap};
 
 pub use self::batch::Batch;
 pub use self::builder::DynamicHoneyBadgerBuilder;
@@ -135,16 +135,17 @@ impl<N: Ord> Message<N> {
 /// The information a new node requires to join the network as an observer. It contains the state
 /// of voting and key generation after a specific epoch, so that the new node will be in sync if it
 /// joins in the next one.
+// TODO: Remove serde "rc" feature and deduplicate `pub_keys` and `change`. Also: validate.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct JoinPlan<N: Ord> {
     /// The first epoch the new node will observe.
     era: u64,
     /// The current change. If `InProgress`, key generation for it is beginning at `epoch`.
     change: ChangeState<N>,
+    /// The current set of public keys.
+    pub_keys: PubKeyMap<N>,
     /// The current public key set for threshold cryptography.
     pub_key_set: PublicKeySet,
-    /// The public keys of the current validators.
-    pub_keys: BTreeMap<N, PublicKey>,
     /// Parameters controlling Honey Badger's behavior and performance.
     params: Params,
 }
@@ -181,7 +182,7 @@ impl<N: NodeIdT> KeyGenState<N> {
     }
 
     /// Returns the map of new validators and their public keys.
-    fn public_keys(&self) -> &BTreeMap<N, PublicKey> {
+    fn public_keys(&self) -> &PubKeyMap<N> {
         self.key_gen.public_keys()
     }
 

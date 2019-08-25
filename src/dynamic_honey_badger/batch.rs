@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use super::{ChangeState, JoinPlan, Params};
-use crate::{NetworkInfo, NodeIdT};
+use crate::{NetworkInfo, NodeIdT, PubKeyMap};
 
 /// A batch of transactions the algorithm has output.
 #[derive(Clone, Debug)]
@@ -16,6 +16,8 @@ pub struct Batch<C, N: Ord> {
     /// The current state of adding or removing a node: whether any is in progress, or completed
     /// this epoch.
     pub(super) change: ChangeState<N>,
+    /// The current set of public keys.
+    pub(super) pub_keys: PubKeyMap<N>,
     /// The network info that applies to the _next_ epoch.
     pub(super) netinfo: Arc<NetworkInfo<N>>,
     /// Parameters controlling Honey Badger's behavior and performance.
@@ -37,6 +39,11 @@ impl<C, N: NodeIdT> Batch<C, N> {
     /// completed in this epoch.
     pub fn change(&self) -> &ChangeState<N> {
         &self.change
+    }
+
+    /// Returns the map of public keys, by node ID.
+    pub fn public_keys(&self) -> &PubKeyMap<N> {
+        &self.pub_keys
     }
 
     /// Returns the `NetworkInfo` containing the information about the validators that will produce
@@ -98,8 +105,8 @@ impl<C, N: NodeIdT> Batch<C, N> {
         Some(JoinPlan {
             era: self.epoch + 1,
             change: self.change.clone(),
+            pub_keys: self.pub_keys.clone(),
             pub_key_set: self.netinfo.public_key_set().clone(),
-            pub_keys: self.netinfo.public_key_map().clone(),
             params: self.params.clone(),
         })
     }
@@ -114,8 +121,8 @@ impl<C, N: NodeIdT> Batch<C, N> {
             && self.era == other.era
             && self.contributions == other.contributions
             && self.change == other.change
+            && self.pub_keys == other.pub_keys
             && self.netinfo.public_key_set() == other.netinfo.public_key_set()
-            && self.netinfo.public_key_map() == other.netinfo.public_key_map()
             && self.params == other.params
     }
 }

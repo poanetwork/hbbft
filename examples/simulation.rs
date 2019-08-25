@@ -11,10 +11,11 @@ use rand_derive::Rand;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use signifix::metric;
 
+use hbbft::crypto::SecretKey;
 use hbbft::dynamic_honey_badger::DynamicHoneyBadger;
 use hbbft::queueing_honey_badger::{Batch, QueueingHoneyBadger};
 use hbbft::sender_queue::{Message, SenderQueue};
-use hbbft::{ConsensusProtocol, CpStep, NetworkInfo, Step, Target};
+use hbbft::{to_pub_keys, ConsensusProtocol, CpStep, NetworkInfo, PubKeyMap, Step, Target};
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 const USAGE: &str = "
@@ -247,13 +248,19 @@ where
         rng: &mut R,
     ) -> TestNetwork<D>
     where
-        F: Fn(NetworkInfo<NodeId>, &mut R) -> (D, CpStep<D>),
+        F: Fn(NetworkInfo<NodeId>, SecretKey, PubKeyMap<NodeId>, &mut R) -> (D, CpStep<D>),
     {
         let node_ids = (0..(good_num + adv_num)).map(NodeId);
-        let netinfos =
-            NetworkInfo::generate_map(node_ids, rng).expect("Failed to create `NetworkInfo` map");
+
+        // Generate keys for signing and encrypting messages, and for threshold cryptography.
+        let sec_keys: BTreeMap<_, SecretKey> = node_ids.map(|id| (id, rng.gen())).collect();
+        let pub_keys = to_pub_keys(&sec_keys);
+        let netinfos = NetworkInfo::generate_map(pub_keys.keys().cloned(), rng)
+            .expect("Failed to create `NetworkInfo` map");
+
         let new_node = |(id, netinfo): (NodeId, NetworkInfo<_>)| {
-            (id, TestNode::new(new_algo(netinfo, rng), hw_quality))
+            let algo = new_algo(netinfo, sec_keys[&id].clone(), pub_keys.clone(), rng);
+            (id, TestNode::new(algo, hw_quality))
         };
         let mut network = TestNetwork {
             nodes: netinfos.into_iter().map(new_node).collect(),
@@ -416,10 +423,10 @@ fn main() {
         .map(|_| rng.sample_iter(&Standard).take(args.flag_tx_size).collect())
         .collect();
 
-    let new_honey_badger = |netinfo: NetworkInfo<NodeId>, rng: &mut OsRng| {
+    let new_honey_badger = |netinfo: NetworkInfo<NodeId>, secret_key, pub_keys, rng: &mut OsRng| {
         let our_id = *netinfo.our_id();
         let peer_ids: Vec<_> = netinfo.other_ids().cloned().collect();
-        let dhb = DynamicHoneyBadger::builder().build(netinfo);
+        let dhb = DynamicHoneyBadger::builder().build(netinfo, secret_key, pub_keys);
         let (qhb, qhb_step) = QueueingHoneyBadger::builder(dhb)
             .batch_size(args.flag_b)
             .build_with_transactions(txs.clone(), rng)

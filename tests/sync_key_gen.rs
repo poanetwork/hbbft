@@ -3,18 +3,14 @@
 
 use std::collections::BTreeMap;
 
-use hbbft::crypto::{PublicKey, SecretKey};
-use hbbft::sync_key_gen::{PartOutcome, SyncKeyGen};
+use hbbft::crypto::SecretKey;
+use hbbft::sync_key_gen::{to_pub_keys, PartOutcome, SyncKeyGen};
 use hbbft::util;
 
 fn test_sync_key_gen_with(threshold: usize, node_num: usize) {
     // Generate individual key pairs for encryption. These are not suitable for threshold schemes.
     let sec_keys: Vec<SecretKey> = (0..node_num).map(|_| SecretKey::random()).collect();
-    let pub_keys: BTreeMap<usize, PublicKey> = sec_keys
-        .iter()
-        .map(SecretKey::public_key)
-        .enumerate()
-        .collect();
+    let pub_keys = to_pub_keys(sec_keys.iter().enumerate());
 
     // Create the `SyncKeyGen` instances and initial proposals.
     let mut nodes = Vec::new();

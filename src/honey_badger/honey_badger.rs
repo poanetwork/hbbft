@@ -131,6 +131,11 @@ where
         self.epoch
     }
 
+    /// Returns the information about the node IDs in the network, and the threshold key shares.
+    pub fn netinfo(&self) -> &Arc<NetworkInfo<N>> {
+        &self.netinfo
+    }
+
     /// Skips all epochs before the specified one.
     ///
     /// This must only be called if it is guaranteed to be called in all instances that have not

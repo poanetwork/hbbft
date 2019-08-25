@@ -1,13 +1,11 @@
 use std::collections::{BTreeMap, HashMap};
-use std::sync::Arc;
 
-use crate::crypto::Signature;
+use crate::crypto::{SecretKey, Signature};
 use bincode;
 use serde::{Deserialize, Serialize};
 
 use super::{Change, Error, FaultKind, Result};
-use crate::fault_log;
-use crate::{NetworkInfo, NodeIdT};
+use crate::{fault_log, util, NodeIdT, PubKeyMap};
 
 pub type FaultLog<N> = fault_log::FaultLog<N, FaultKind>;
 
@@ -17,8 +15,14 @@ pub type FaultLog<N> = fault_log::FaultLog<N, FaultKind>;
 /// the epochs since the last reset the current _era_.
 #[derive(Debug)]
 pub struct VoteCounter<N: Ord> {
-    /// Shared network data.
-    netinfo: Arc<NetworkInfo<N>>,
+    /// This node's ID.
+    // TODO: Make optional for observers?
+    our_id: N,
+    /// This node's secret key,
+    // TODO: Make optional for observers?
+    secret_key: SecretKey,
+    /// The map of public keys.
+    pub_keys: PubKeyMap<N>,
     /// The epoch when voting was reset.
     era: u64,
     /// Pending node transactions that we will propose in the next epoch.
@@ -33,10 +37,12 @@ where
     N: NodeIdT + Serialize,
 {
     /// Creates a new `VoteCounter` object with empty buffer and counter.
-    pub fn new(netinfo: Arc<NetworkInfo<N>>, era: u64) -> Self {
+    pub fn new(our_id: N, secret_key: SecretKey, pub_keys: PubKeyMap<N>, era: u64) -> Self {
         VoteCounter {
+            our_id,
+            secret_key,
+            pub_keys: pub_keys.clone(),
             era,
-            netinfo,
             pending: BTreeMap::new(),
             committed: BTreeMap::new(),
         }
@@ -44,7 +50,7 @@ where
 
     /// Creates a signed vote for the given change, and inserts it into the pending votes buffer.
     pub fn sign_vote_for(&mut self, change: Change<N>) -> Result<&SignedVote<N>> {
-        let voter = self.netinfo.our_id().clone();
+        let voter = self.our_id.clone();
         let vote = Vote {
             change,
             era: self.era,
@@ -54,7 +60,7 @@ where
         let signed_vote = SignedVote {
             vote,
             voter: voter.clone(),
-            sig: self.netinfo.secret_key().sign(ser_vote),
+            sig: self.secret_key.sign(ser_vote),
         };
         self.pending.remove(&voter);
         Ok(self.pending.entry(voter).or_insert(signed_vote))
@@ -141,7 +147,7 @@ where
             let change = &vote.change;
             let entry = vote_counts.entry(change).or_insert(0);
             *entry += 1;
-            if *entry > self.netinfo.num_faulty() {
+            if *entry > util::max_faulty(self.pub_keys.len()) {
                 return Some(change);
             }
         }
@@ -152,7 +158,7 @@ where
     fn validate(&self, signed_vote: &SignedVote<N>) -> Result<bool> {
         let ser_vote =
             bincode::serialize(&signed_vote.vote).map_err(|err| Error::SerializeVote(*err))?;
-        let pk_opt = self.netinfo.public_key(&signed_vote.voter);
+        let pk_opt = self.pub_keys.get(&signed_vote.voter);
         Ok(pk_opt.map_or(false, |pk| pk.verify(&signed_vote.sig, ser_vote)))
     }
 }
@@ -188,13 +194,14 @@ impl<N: Ord> SignedVote<N> {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
     use std::iter;
     use std::sync::Arc;
 
-    use super::{Change, FaultKind, SignedVote, VoteCounter};
-    use crate::fault_log::FaultLog;
-    use crate::NetworkInfo;
-    use rand;
+    use rand::{rngs, Rng};
+
+    use super::{Change, FaultKind, SecretKey, SignedVote, VoteCounter};
+    use crate::{fault_log::FaultLog, to_pub_keys};
 
     /// Returns a vector of `node_num` `VoteCounter`s, and some signed example votes.
     ///
@@ -202,21 +209,20 @@ mod tests {
     /// the vote by node `i` for making `j` the only validator. Each node signed this for nodes
     /// `0`, `1`, ... in order.
     fn setup(node_num: usize, era: u64) -> (Vec<VoteCounter<usize>>, Vec<Vec<SignedVote<usize>>>) {
-        let mut rng = rand::rngs::OsRng::new().expect("could not initialize OsRng");
-        // Create keys for threshold cryptography.
-        let netinfos = NetworkInfo::generate_map(0..node_num, &mut rng)
-            .expect("Failed to generate `NetworkInfo` map");
-        let pub_keys = netinfos[&0].public_key_map().clone();
+        let mut rng = rngs::OsRng::new().expect("could not initialize OsRng");
+
+        // Generate keys for signing and encrypting messages.
+        let sec_keys: BTreeMap<_, SecretKey> = (0..node_num).map(|id| (id, rng.gen())).collect();
+        let pub_keys = to_pub_keys(&sec_keys);
 
         // Create a `VoteCounter` instance for each node.
-        let create_counter =
-            |(_, netinfo): (_, NetworkInfo<_>)| VoteCounter::new(Arc::new(netinfo), era);
-        let mut counters: Vec<_> = netinfos.into_iter().map(create_counter).collect();
+        let create_counter = |(id, sk)| VoteCounter::new(id, sk, pub_keys.clone(), era);
+        let mut counters: Vec<_> = sec_keys.into_iter().map(create_counter).collect();
 
         // Sign a few votes.
         let sign_votes = |counter: &mut VoteCounter<usize>| {
             (0..node_num)
-                .map(|j| Change::NodeChange(iter::once((j, pub_keys[&j])).collect()))
+                .map(|j| Change::NodeChange(Arc::new(iter::once((j, pub_keys[&j])).collect())))
                 .map(|change| counter.sign_vote_for(change).expect("sign vote").clone())
                 .collect::<Vec<_>>()
         };
