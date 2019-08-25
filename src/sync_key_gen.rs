@@ -57,23 +57,20 @@
 //!
 //! ```
 //! use std::collections::BTreeMap;
+//! use std::sync::Arc;
 //!
-//! use threshold_crypto::{PublicKey, SecretKey, SignatureShare};
-//! use hbbft::sync_key_gen::{AckOutcome, PartOutcome, SyncKeyGen};
+//! use threshold_crypto::{SecretKey, SignatureShare};
+//! use hbbft::sync_key_gen::{to_pub_keys, AckOutcome, PartOutcome, PubKeyMap, SyncKeyGen};
 //!
 //! // Use the OS random number generator for any randomness:
-//! let mut rng = rand::OsRng::new().expect("Could not open OS random number generator.");
+//! let mut rng = rand::rngs::OsRng::new().expect("Could not open OS random number generator.");
 //!
 //! // Two out of four shares will suffice to sign or encrypt something.
 //! let (threshold, node_num) = (1, 4);
 //!
 //! // Generate individual key pairs for encryption. These are not suitable for threshold schemes.
 //! let sec_keys: Vec<SecretKey> = (0..node_num).map(|_| rand::random()).collect();
-//! let pub_keys: BTreeMap<usize, PublicKey> = sec_keys
-//!     .iter()
-//!     .map(SecretKey::public_key)
-//!     .enumerate()
-//!     .collect();
+//! let pub_keys = to_pub_keys(sec_keys.iter().enumerate());
 //!
 //! // Create the `SyncKeyGen` instances. The constructor also outputs the part that needs to
 //! // be sent to all other participants, so we save the parts together with their sender ID.
@@ -174,8 +171,15 @@
 //! method above. The sum of the secret keys we received from each node is then used as our secret
 //! key. No single node knows the secret master key.
 
+use std::borrow::Borrow;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::{self, Debug, Formatter};
+use std::sync::Arc;
+
+use bincode;
+use failure::Fail;
+use rand;
+use serde::{Deserialize, Serialize};
 
 use crate::crypto::{
     error::Error as CryptoError,
@@ -184,12 +188,22 @@ use crate::crypto::{
     Ciphertext, Fr, G1Affine, PublicKey, PublicKeySet, SecretKey, SecretKeyShare,
 };
 use crate::pairing::{CurveAffine, Field};
-use bincode;
-use failure::Fail;
-use rand;
-use serde::{Deserialize, Serialize};
+use crate::NodeIdT;
 
-use crate::{NetworkInfo, NodeIdT};
+/// A map assigning to each node ID a public key, wrapped in an `Arc`.
+pub type PubKeyMap<N> = Arc<BTreeMap<N, PublicKey>>;
+
+/// Returns a `PubKeyMap` corresponding to the given secret keys.
+///
+/// This is mostly useful for setting up test networks.
+pub fn to_pub_keys<'a, I, B, N: NodeIdT + 'a>(sec_keys: I) -> PubKeyMap<N>
+where
+    B: Borrow<N>,
+    I: IntoIterator<Item = (B, &'a SecretKey)>,
+{
+    let to_pub = |(id, sk): I::Item| (id.borrow().clone(), sk.public_key());
+    Arc::new(sec_keys.into_iter().map(to_pub).collect())
+}
 
 /// A local error while handling an `Ack` or `Part` message, that was not caused by that message
 /// being invalid.
@@ -307,7 +321,7 @@ pub struct SyncKeyGen<N> {
     /// Our secret key.
     sec_key: SecretKey,
     /// The public keys of all nodes, by node ID.
-    pub_keys: BTreeMap<N, PublicKey>,
+    pub_keys: PubKeyMap<N>,
     /// Proposed bivariate polynomials.
     parts: BTreeMap<u64, ProposalState>,
     /// The degree of the generated polynomial.
@@ -323,7 +337,7 @@ impl<N: NodeIdT> SyncKeyGen<N> {
     pub fn new<R: rand::Rng>(
         our_id: N,
         sec_key: SecretKey,
-        pub_keys: BTreeMap<N, PublicKey>,
+        pub_keys: PubKeyMap<N>,
         threshold: usize,
         rng: &mut R,
     ) -> Result<(SyncKeyGen<N>, Option<Part>), Error> {
@@ -359,7 +373,7 @@ impl<N: NodeIdT> SyncKeyGen<N> {
     }
 
     /// Returns the map of participating nodes and their public keys.
-    pub fn public_keys(&self) -> &BTreeMap<N, PublicKey> {
+    pub fn public_keys(&self) -> &PubKeyMap<N> {
         &self.pub_keys
     }
 
@@ -459,17 +473,6 @@ impl<N: NodeIdT> SyncKeyGen<N> {
             None
         };
         Ok((pk_commit.into(), opt_sk))
-    }
-
-    /// Consumes the instance, generates the key set and returns a new `NetworkInfo` with the new
-    /// keys.
-    ///
-    /// All participating nodes must have handled the exact same sequence of `Part` and `Ack`
-    /// messages before calling this method. Otherwise their key shares will not match.
-    pub fn into_network_info(self) -> Result<NetworkInfo<N>, Error> {
-        let (pk_set, sk_share) = self.generate()?;
-        let netinfo = NetworkInfo::new(self.our_id, sk_share, pk_set, self.sec_key, self.pub_keys);
-        Ok(netinfo)
     }
 
     /// Returns the number of nodes participating in the key generation.

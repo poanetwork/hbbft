@@ -1,17 +1,17 @@
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::Arc;
 use std::time;
 
 use hbbft::dynamic_honey_badger::{
     Batch, Change, ChangeState, DynamicHoneyBadger, Input, JoinPlan,
 };
 use hbbft::sender_queue::{SenderQueue, Step};
-use hbbft::{util, Epoched};
+use hbbft::{util, Epoched, PubKeyMap};
 use hbbft_testing::adversary::{Adversary, ReorderingAdversary};
 use hbbft_testing::proptest::{gen_seed, NetworkDimension, TestRng, TestRngSeed};
 use hbbft_testing::{NetBuilder, NewNodeInfo, Node, VirtualNet};
 use proptest::{prelude::ProptestConfig, prop_compose, proptest};
 use rand::{seq::SliceRandom, SeedableRng};
-use threshold_crypto::PublicKey;
 
 type DHB = SenderQueue<DynamicHoneyBadger<Vec<usize>, usize>>;
 
@@ -108,7 +108,8 @@ fn do_drop_and_re_add(cfg: TestConfig) {
                 if id < num_faulty { "faulty" } else { "correct" },
                 id
             );
-            let dhb = DynamicHoneyBadger::builder().build(node.netinfo.clone());
+            let netinfo = node.netinfo.clone();
+            let dhb = DynamicHoneyBadger::builder().build(netinfo, node.secret_key, node.pub_keys);
             SenderQueue::builder(dhb, node.netinfo.other_ids().cloned()).build(node.id)
         })
         .build(&mut rng)
@@ -140,17 +141,13 @@ fn do_drop_and_re_add(cfg: TestConfig) {
 
     // Afterwards, remove specific nodes from the dynamic honey badger network.
     let old_pub_keys = state.get_pub_keys();
-    let new_pub_keys: BTreeMap<usize, PublicKey> = old_pub_keys
-        .clone()
-        .into_iter()
-        .filter(|(id, _)| !nodes_for_remove.contains(id))
-        .collect();
+    let not_removed = |(id, _): &(usize, _)| !nodes_for_remove.contains(id);
+    let old_pub_keys_iter = (*old_pub_keys).clone().into_iter();
+    let new_pub_keys: PubKeyMap<usize> = Arc::new(old_pub_keys_iter.filter(not_removed).collect());
+    let change = Input::Change(Change::NodeChange(new_pub_keys.clone()));
     state
         .net
-        .broadcast_input(
-            &Input::Change(Change::NodeChange(new_pub_keys.clone())),
-            &mut rng,
-        )
+        .broadcast_input(&change, &mut rng)
         .expect("broadcasting failed");
 
     // We are tracking (correct) nodes' state through the process by ticking them off individually.
@@ -529,14 +526,13 @@ where
     }
 
     /// Returns clone of all public keys for this network.
-    fn get_pub_keys(&self) -> BTreeMap<usize, PublicKey> {
+    fn get_pub_keys(&self) -> PubKeyMap<usize> {
         self.net
             .get(0)
             .expect("network should have at least one node")
             .algorithm()
             .algo()
-            .netinfo()
-            .public_key_map()
+            .public_keys()
             .clone()
     }
 }

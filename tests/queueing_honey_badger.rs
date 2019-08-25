@@ -7,7 +7,7 @@ use std::sync::Arc;
 use hbbft::dynamic_honey_badger::{DynamicHoneyBadger, JoinPlan};
 use hbbft::queueing_honey_badger::{Change, ChangeState, Input, QueueingHoneyBadger};
 use hbbft::sender_queue::{Message, SenderQueue, Step};
-use hbbft::{util, NetworkInfo};
+use hbbft::util;
 use hbbft_testing::adversary::{Adversary, NodeOrderAdversary, ReorderingAdversary};
 use hbbft_testing::proptest::{gen_seed, TestRng, TestRngSeed};
 use hbbft_testing::{NetBuilder, NewNodeInfo, Node, VirtualNet};
@@ -16,16 +16,17 @@ use proptest::{prelude::ProptestConfig, proptest};
 use rand::{Rng, SeedableRng};
 
 type NodeId = u16;
-type QHB = SenderQueue<QueueingHoneyBadger<usize, NodeId, Vec<usize>>>;
+type QHB = QueueingHoneyBadger<usize, NodeId, Vec<usize>>;
+type SQ = SenderQueue<QHB>;
 
 // Send the second half of the transactions to the specified node.
 fn input_second_half<A>(
-    net: &mut VirtualNet<QHB, A>,
+    net: &mut VirtualNet<SQ, A>,
     id: NodeId,
     num_txs: usize,
     mut rng: &mut TestRng,
 ) where
-    A: Adversary<QHB>,
+    A: Adversary<SQ>,
 {
     for tx in (num_txs / 2)..num_txs {
         let _ = net.send_input(id, Input::User(tx), &mut rng);
@@ -33,28 +34,28 @@ fn input_second_half<A>(
 }
 
 /// Proposes `num_txs` values and expects nodes to output and order them.
-fn test_queueing_honey_badger<A>(mut net: VirtualNet<QHB, A>, num_txs: usize, mut rng: &mut TestRng)
+fn test_queueing_honey_badger<A>(mut net: VirtualNet<SQ, A>, num_txs: usize, mut rng: &mut TestRng)
 where
-    A: Adversary<QHB>,
+    A: Adversary<SQ>,
 {
-    let netinfo = net
+    // Make two copies of all public keys.
+    let pub_keys_add = net
         .correct_nodes()
         .nth(0)
         .expect("At least one correct node needs to exist")
         .algorithm()
         .algo()
-        .netinfo()
+        .dyn_hb()
+        .public_keys()
         .clone();
 
-    // Make two copies of all public keys.
-    let pub_keys_add = netinfo.public_key_map().clone();
     let mut pub_keys_rm = pub_keys_add.clone();
 
     // Get the first correct node id as candidate for removal/re-adding.
     let first_correct_node = *net.correct_nodes().nth(0).unwrap().id();
 
     // Remove the first correct node, which is to be removed.
-    pub_keys_rm.remove(&first_correct_node);
+    Arc::make_mut(&mut pub_keys_rm).remove(&first_correct_node);
 
     // Broadcast public keys of all nodes except for the node to be removed.
     let _ = net.broadcast_input(
@@ -69,7 +70,7 @@ where
 
     // Closure for checking the output of a node for ChangeSet completion containing
     // all nodes but the removed node.
-    let has_remove = |node: &Node<QHB>| {
+    let has_remove = |node: &Node<SQ>| {
         node.outputs().iter().any(|batch| match batch.change() {
             ChangeState::Complete(Change::NodeChange(pub_keys)) => pub_keys == &pub_keys_rm,
             _ => false,
@@ -78,7 +79,7 @@ where
 
     // Closure for checking the output of a node for ChangeSet completion containing
     // all nodes, including the previously removed node.
-    let has_add = |node: &Node<QHB>| {
+    let has_add = |node: &Node<SQ>| {
         node.outputs().iter().any(|batch| match batch.change() {
             ChangeState::Complete(Change::NodeChange(pub_keys)) => pub_keys == &pub_keys_add,
             _ => false,
@@ -86,7 +87,7 @@ where
     };
 
     // Returns `true` if the node has not output all changes or transactions yet.
-    let node_busy = |node: &Node<QHB>| {
+    let node_busy = |node: &Node<SQ>| {
         !has_remove(node) || !has_add(node) || !node.algorithm().algo().queue().is_empty()
     };
 
@@ -106,7 +107,7 @@ where
     let mut rejoined_first_correct = false;
     // The removed first correct node which is to be restarted as soon as all remaining
     // validators agreed to add it back.
-    let mut saved_first_correct: Option<Node<QHB>> = None;
+    let mut saved_first_correct: Option<Node<SQ>> = None;
 
     // Handle messages in random order until all nodes have output all transactions.
     while net.correct_nodes().any(node_busy) {
@@ -186,14 +187,14 @@ where
 
 /// Restarts specified node on the test network for adding it back as a validator.
 fn restart_node_for_add<R, A>(
-    net: &mut VirtualNet<QHB, A>,
-    mut node: Node<QHB>,
+    net: &mut VirtualNet<SQ, A>,
+    mut node: Node<SQ>,
     join_plan: JoinPlan<NodeId>,
     mut rng: &mut R,
 ) -> Step<QueueingHoneyBadger<usize, NodeId, Vec<usize>>>
 where
     R: rand::Rng,
-    A: Adversary<QHB>,
+    A: Adversary<SQ>,
 {
     let our_id = *node.id();
     println!("Restarting node {} with {:?}", node.id(), join_plan);
@@ -206,7 +207,7 @@ where
         .cloned()
         .collect();
 
-    let secret_key = node.algorithm().algo().netinfo().secret_key().clone();
+    let secret_key = node.algorithm().algo().dyn_hb().secret_key().clone();
     let (qhb, qhb_step) =
         QueueingHoneyBadger::builder_joining(our_id, secret_key, join_plan, &mut rng)
             .and_then(|builder| builder.batch_size(3).build(&mut rng))
@@ -220,18 +221,17 @@ where
 
 // Allow passing `netinfo` by value. `TestNetwork` expects this function signature.
 #[allow(clippy::needless_pass_by_value)]
-fn new_queueing_hb(
-    netinfo: Arc<NetworkInfo<NodeId>>,
-    seed: TestRngSeed,
-) -> (QHB, Step<QueueingHoneyBadger<usize, NodeId, Vec<usize>>>) {
+fn new_queueing_hb(node_info: NewNodeInfo<SQ>, seed: TestRngSeed) -> (SQ, Step<QHB>) {
     let mut rng: TestRng = TestRng::from_seed(seed);
-    let peer_ids = netinfo.other_ids().cloned();
-    let dhb = DynamicHoneyBadger::builder().build((*netinfo).clone());
+    let peer_ids = node_info.netinfo.other_ids().cloned();
+    let netinfo = node_info.netinfo.clone();
+    let dhb =
+        DynamicHoneyBadger::builder().build(netinfo, node_info.secret_key, node_info.pub_keys);
     let (qhb, qhb_step) = QueueingHoneyBadger::builder(dhb)
         .batch_size(3)
         .build(&mut rng)
         .expect("failed to build QueueingHoneyBadger");
-    let our_id = *netinfo.our_id();
+    let our_id = *node_info.netinfo.our_id();
     let (sq, mut step) = SenderQueue::builder(qhb, peer_ids).build(our_id);
     let output = step.extend_with(qhb_step, |fault| fault, Message::from);
     assert!(output.is_empty());
@@ -243,7 +243,7 @@ fn test_queueing_honey_badger_different_sizes<A, F>(
     num_txs: usize,
     seed: TestRngSeed,
 ) where
-    A: Adversary<QHB>,
+    A: Adversary<SQ>,
     F: Fn() -> A,
 {
     // This returns an error in all but the first test.
@@ -272,7 +272,7 @@ fn test_queueing_honey_badger_different_sizes<A, F>(
                 // needs to be mutable, while we are in a function which captures immutably.
                 // To avoid convoluted clone/borrow constructs we pass a TestRngSeed
                 // rather than a TestRng instance.
-                new_queueing_hb(Arc::new(node_info.netinfo), seed)
+                new_queueing_hb(node_info, seed)
             })
             .build(&mut rng)
             .expect("Could not construct test network.");

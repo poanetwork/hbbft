@@ -17,29 +17,29 @@ use super::{
 };
 use crate::fault_log::{Fault, FaultLog};
 use crate::honey_badger::{self, HoneyBadger, Message as HbMessage};
-
-use crate::sync_key_gen::{Ack, AckOutcome, Part, PartOutcome, SyncKeyGen};
-use crate::util;
-use crate::{ConsensusProtocol, Contribution, Epoched, NetworkInfo, NodeIdT, Target};
+use crate::sync_key_gen::{Ack, AckOutcome, Part, PartOutcome, PubKeyMap, SyncKeyGen};
+use crate::{util, ConsensusProtocol, Contribution, Epoched, NetworkInfo, NodeIdT, Target};
 
 /// A Honey Badger instance that can handle adding and removing nodes.
 #[derive(Derivative)]
 #[derivative(Debug)]
 pub struct DynamicHoneyBadger<C, N: Ord> {
-    /// Shared network data.
-    pub(super) netinfo: NetworkInfo<N>,
+    /// This node's secret key.
+    secret_key: SecretKey,
+    /// The validators' public keys.
+    pub_keys: PubKeyMap<N>,
     /// The maximum number of future epochs for which we handle messages simultaneously.
-    pub(super) max_future_epochs: u64,
+    max_future_epochs: u64,
     /// The first epoch after the latest node change.
-    pub(super) era: u64,
+    era: u64,
     /// The buffer and counter for the pending and committed change votes.
-    pub(super) vote_counter: VoteCounter<N>,
+    vote_counter: VoteCounter<N>,
     /// Pending node transactions that we will propose in the next epoch.
-    pub(super) key_gen_msg_buffer: Vec<SignedKeyGenMsg<N>>,
+    key_gen_msg_buffer: Vec<SignedKeyGenMsg<N>>,
     /// The `HoneyBadger` instance with the current set of nodes.
-    pub(super) honey_badger: HoneyBadger<InternalContrib<C, N>, N>,
+    honey_badger: HoneyBadger<InternalContrib<C, N>, N>,
     /// The current key generation process, and the change it applies to.
-    pub(super) key_gen_state: Option<KeyGenState<N>>,
+    key_gen_state: Option<KeyGenState<N>>,
 }
 
 impl<C, N> ConsensusProtocol for DynamicHoneyBadger<C, N>
@@ -77,7 +77,7 @@ where
     }
 
     fn our_id(&self) -> &N {
-        self.netinfo.our_id()
+        self.netinfo().our_id()
     }
 }
 
@@ -91,6 +91,35 @@ where
         DynamicHoneyBadgerBuilder::new()
     }
 
+    /// Creates a new `DynamicHoneyBadger`.
+    pub fn new(
+        secret_key: SecretKey,
+        pub_keys: PubKeyMap<N>,
+        netinfo: Arc<NetworkInfo<N>>,
+        params: Params,
+        era: u64,
+        epoch: u64,
+    ) -> Self {
+        let max_future_epochs = params.max_future_epochs;
+        let our_id = netinfo.our_id().clone();
+        let honey_badger = HoneyBadger::builder(netinfo)
+            .session_id(era)
+            .params(params)
+            .epoch(epoch)
+            .build();
+        let vote_counter = VoteCounter::new(our_id, secret_key.clone(), pub_keys.clone(), era);
+        DynamicHoneyBadger {
+            secret_key,
+            pub_keys,
+            max_future_epochs,
+            era,
+            vote_counter,
+            key_gen_msg_buffer: Vec::new(),
+            honey_badger,
+            key_gen_state: None,
+        }
+    }
+
     /// Creates a new `DynamicHoneyBadger` ready to join the network specified in the `JoinPlan`.
     pub fn new_joining<R: Rng>(
         our_id: N,
@@ -98,34 +127,22 @@ where
         join_plan: JoinPlan<N>,
         rng: &mut R,
     ) -> Result<(Self, Step<C, N>)> {
-        let netinfo = NetworkInfo::new(
-            our_id,
-            None,
-            join_plan.pub_key_set,
-            secret_key,
-            join_plan.pub_keys,
-        );
-        let max_future_epochs = join_plan.params.max_future_epochs;
-        let arc_netinfo = Arc::new(netinfo.clone());
-        let honey_badger = HoneyBadger::builder(arc_netinfo.clone())
-            .session_id(join_plan.era)
-            .params(join_plan.params)
-            .build();
-        let mut dhb = DynamicHoneyBadger {
-            netinfo,
-            max_future_epochs,
-            era: join_plan.era,
-            vote_counter: VoteCounter::new(arc_netinfo, join_plan.era),
-            key_gen_msg_buffer: Vec::new(),
-            honey_badger,
-            key_gen_state: None,
-        };
-        let step = match join_plan.change {
-            ChangeState::InProgress(ref change) => match change {
-                Change::NodeChange(change) => dhb.update_key_gen(join_plan.era, change, rng)?,
-                _ => Step::default(),
-            },
-            ChangeState::None | ChangeState::Complete(..) => Step::default(),
+        let JoinPlan {
+            era,
+            change,
+            pub_keys,
+            pub_key_set,
+            params,
+        } = join_plan;
+        let netinfo = Arc::new(NetworkInfo::new(our_id, None, pub_key_set, pub_keys.keys()));
+        let mut dhb = DynamicHoneyBadger::new(secret_key, pub_keys, netinfo, params, era, 0);
+        let step = match change {
+            ChangeState::InProgress(Change::NodeChange(new_pub_keys)) => {
+                dhb.update_key_gen(join_plan.era, new_pub_keys, rng)?
+            }
+            ChangeState::InProgress(Change::EncryptionSchedule(..))
+            | ChangeState::None
+            | ChangeState::Complete(..) => Step::default(),
         };
         Ok((dhb, step))
     }
@@ -167,7 +184,7 @@ where
     /// This stores a pending vote for the change. It will be included in some future batch, and
     /// once enough validators have been voted for the same change, it will take effect.
     pub fn vote_for(&mut self, change: Change<N>) -> Result<Step<C, N>> {
-        if !self.netinfo.is_validator() {
+        if !self.netinfo().is_validator() {
             return Ok(Step::default()); // TODO: Return an error?
         }
         let signed_vote = self.vote_counter.sign_vote_for(change)?.clone();
@@ -180,9 +197,9 @@ where
     /// This stores a pending vote for the change. It will be included in some future batch, and
     /// once enough validators have been voted for the same change, it will take effect.
     pub fn vote_to_add(&mut self, node_id: N, pub_key: PublicKey) -> Result<Step<C, N>> {
-        let mut pub_keys = self.netinfo.public_key_map().clone();
+        let mut pub_keys = (*self.pub_keys).clone();
         pub_keys.insert(node_id, pub_key);
-        self.vote_for(Change::NodeChange(pub_keys))
+        self.vote_for(Change::NodeChange(Arc::new(pub_keys)))
     }
 
     /// Casts a vote to demote a validator to observer.
@@ -190,9 +207,9 @@ where
     /// This stores a pending vote for the change. It will be included in some future batch, and
     /// once enough validators have been voted for the same change, it will take effect.
     pub fn vote_to_remove(&mut self, node_id: &N) -> Result<Step<C, N>> {
-        let mut pub_keys = self.netinfo.public_key_map().clone();
+        let mut pub_keys = (*self.pub_keys).clone();
         pub_keys.remove(node_id);
-        self.vote_for(Change::NodeChange(pub_keys))
+        self.vote_for(Change::NodeChange(Arc::new(pub_keys)))
     }
 
     /// Handles a message received from `sender_id`.
@@ -225,9 +242,19 @@ where
         }
     }
 
+    /// Returns the secret key used to sign votes and key generation messages.
+    pub fn secret_key(&self) -> &SecretKey {
+        &self.secret_key
+    }
+
+    /// Returns the map of public keys, by node ID.
+    pub fn public_keys(&self) -> &PubKeyMap<N> {
+        &self.pub_keys
+    }
+
     /// Returns the information about the node IDs in the network, and the cryptographic keys.
-    pub fn netinfo(&self) -> &NetworkInfo<N> {
-        &self.netinfo
+    pub fn netinfo(&self) -> &Arc<NetworkInfo<N>> {
+        &self.honey_badger.netinfo()
     }
 
     /// Returns a reference to the internal managed `HoneyBadger` instance.
@@ -245,7 +272,7 @@ where
         if self.has_input() {
             return false; // We have already proposed.
         }
-        if self.honey_badger.received_proposals() > self.netinfo.num_faulty() {
+        if self.honey_badger.received_proposals() > self.netinfo().num_faulty() {
             return true; // At least one correct node wants to move on to the next epoch.
         }
         let is_our_vote = |signed_vote: &SignedVote<_>| signed_vote.voter() == self.our_id();
@@ -268,7 +295,7 @@ where
         message: HbMessage<N>,
         rng: &mut R,
     ) -> Result<Step<C, N>> {
-        if !self.netinfo.is_node_validator(sender_id) {
+        if !self.netinfo().is_node_validator(sender_id) {
             return Err(Error::UnknownSender);
         }
         // Handle the message.
@@ -357,15 +384,19 @@ where
             let change = if let Some(kgs) = self.take_ready_key_gen() {
                 // If DKG completed, apply the change, restart Honey Badger, and inform the user.
                 debug!("{}: DKG for complete for: {:?}", self, kgs.public_keys());
-                self.netinfo = kgs.key_gen.into_network_info().map_err(Error::SyncKeyGen)?;
+                self.pub_keys = kgs.key_gen.public_keys().clone();
+                let (pk_set, sk_share) = kgs.key_gen.generate().map_err(Error::SyncKeyGen)?;
+                let our_id = self.our_id().clone();
+                let all_ids = self.pub_keys.keys();
+                let netinfo = Arc::new(NetworkInfo::new(our_id, sk_share, pk_set, all_ids));
                 let params = self.honey_badger.params().clone();
-                self.restart_honey_badger(batch_epoch + 1, params);
-                ChangeState::Complete(Change::NodeChange(self.netinfo.public_key_map().clone()))
+                self.restart_honey_badger(batch_epoch + 1, params, netinfo);
+                ChangeState::Complete(Change::NodeChange(self.pub_keys.clone()))
             } else if let Some(change) = self.vote_counter.compute_winner().cloned() {
                 // If there is a new change, restart DKG. Inform the user about the current change.
                 match change {
                     Change::NodeChange(ref pub_keys) => {
-                        step.extend(self.update_key_gen(batch_epoch + 1, pub_keys, rng)?);
+                        step.extend(self.update_key_gen(batch_epoch + 1, pub_keys.clone(), rng)?);
                     }
                     Change::EncryptionSchedule(schedule) => {
                         self.update_encryption_schedule(batch_epoch + 1, schedule);
@@ -382,7 +413,8 @@ where
                 epoch: batch_epoch,
                 era: batch_era,
                 change,
-                netinfo: Arc::new(self.netinfo.clone()),
+                pub_keys: self.pub_keys.clone(),
+                netinfo: self.netinfo().clone(),
                 contributions: batch_contributions,
                 params: self.honey_badger.params().clone(),
             });
@@ -394,7 +426,7 @@ where
     pub(super) fn update_encryption_schedule(&mut self, era: u64, schedule: EncryptionSchedule) {
         let mut params = self.honey_badger.params().clone();
         params.encryption_schedule = schedule;
-        self.restart_honey_badger(era, params);
+        self.restart_honey_badger(era, params, self.netinfo().clone());
     }
 
     /// If the winner of the vote has changed, restarts Key Generation for the set of nodes implied
@@ -402,20 +434,20 @@ where
     pub(super) fn update_key_gen<R: Rng>(
         &mut self,
         era: u64,
-        pub_keys: &BTreeMap<N, PublicKey>,
+        pub_keys: PubKeyMap<N>,
         rng: &mut R,
     ) -> Result<Step<C, N>> {
-        if self.key_gen_state.as_ref().map(KeyGenState::public_keys) == Some(pub_keys) {
+        if self.key_gen_state.as_ref().map(KeyGenState::public_keys) == Some(&pub_keys) {
             return Ok(Step::default()); // The change is the same as before. Continue DKG as is.
         }
         debug!("{}: Restarting DKG for {:?}.", self, pub_keys);
         let params = self.honey_badger.params().clone();
-        self.restart_honey_badger(era, params);
+        self.restart_honey_badger(era, params, self.netinfo().clone());
         let threshold = util::max_faulty(pub_keys.len());
-        let sk = self.netinfo.secret_key().clone();
+        let sk = self.secret_key.clone();
         let our_id = self.our_id().clone();
-        let (key_gen, part) = SyncKeyGen::new(our_id, sk, pub_keys.clone(), threshold, rng)
-            .map_err(Error::SyncKeyGen)?;
+        let (key_gen, part) =
+            SyncKeyGen::new(our_id, sk, pub_keys, threshold, rng).map_err(Error::SyncKeyGen)?;
         self.key_gen_state = Some(KeyGenState::new(key_gen));
         if let Some(part) = part {
             self.send_transaction(KeyGenMessage::Part(part))
@@ -425,11 +457,15 @@ where
     }
 
     /// Starts a new `HoneyBadger` instance and resets the vote counter.
-    fn restart_honey_badger(&mut self, era: u64, params: Params) {
+    fn restart_honey_badger(&mut self, era: u64, params: Params, netinfo: Arc<NetworkInfo<N>>) {
         self.era = era;
         self.key_gen_msg_buffer.retain(|kg_msg| kg_msg.0 >= era);
-        let netinfo = Arc::new(self.netinfo.clone());
-        self.vote_counter = VoteCounter::new(netinfo.clone(), era);
+        self.vote_counter = VoteCounter::new(
+            self.our_id().clone(),
+            self.secret_key.clone(),
+            self.pub_keys.clone(),
+            era,
+        );
         self.honey_badger = HoneyBadger::builder(netinfo)
             .session_id(era)
             .params(params)
@@ -487,8 +523,8 @@ where
     /// Signs and sends a `KeyGenMessage` and also tries to commit it.
     fn send_transaction(&mut self, kg_msg: KeyGenMessage) -> Result<Step<C, N>> {
         let ser = bincode::serialize(&kg_msg).map_err(|err| Error::SerializeKeyGen(*err))?;
-        let sig = Box::new(self.netinfo.secret_key().sign(ser));
-        if self.netinfo.is_validator() {
+        let sig = Box::new(self.secret_key.sign(ser));
+        if self.netinfo().is_validator() {
             let our_id = self.our_id().clone();
             let signed_msg = SignedKeyGenMsg(self.era, our_id, kg_msg.clone(), *sig.clone());
             self.key_gen_msg_buffer.push(signed_msg);
@@ -527,7 +563,7 @@ where
         let ser = bincode::serialize(kg_msg).map_err(|err| Error::SerializeKeyGen(*err))?;
         let verify = |opt_pk: Option<&PublicKey>| opt_pk.map_or(false, |pk| pk.verify(&sig, &ser));
         let kgs = self.key_gen_state.as_ref();
-        let current_key = self.netinfo.public_key(node_id);
+        let current_key = self.pub_keys.get(node_id);
         let candidate_key = kgs.and_then(|kgs| kgs.public_keys().get(node_id));
         Ok(verify(current_key) || verify(candidate_key))
     }

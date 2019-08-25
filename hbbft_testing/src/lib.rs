@@ -28,9 +28,13 @@ use std::{cmp, env, fmt, fs, io, ops, process, time};
 
 use rand::{self, Rng};
 
+use hbbft::crypto::SecretKey;
 use hbbft::dynamic_honey_badger::Batch;
 use hbbft::sender_queue::SenderQueueableOutput;
-use hbbft::{self, ConsensusProtocol, Contribution, CpStep, Fault, NetworkInfo, NodeIdT, Step};
+use hbbft::{
+    self, to_pub_keys, ConsensusProtocol, Contribution, CpStep, Fault, NetworkInfo, NodeIdT,
+    PubKeyMap, Step,
+};
 
 pub use self::adversary::Adversary;
 pub use self::err::CrankError;
@@ -281,6 +285,10 @@ where
 {
     /// The node ID for the new node.
     pub id: D::NodeId,
+    /// This node's secret key.
+    pub secret_key: SecretKey,
+    /// The validators' public keys.
+    pub pub_keys: PubKeyMap<D::NodeId>,
     /// Network info struct, containing keys and other information.
     pub netinfo: NetworkInfo<D::NodeId>,
     /// Whether or not the node is marked faulty.
@@ -749,8 +757,13 @@ where
         I: IntoIterator<Item = D::NodeId>,
         R: rand::Rng,
     {
+        // Generate keys for signing and encrypting messages.
+        let sec_keys: BTreeMap<_, SecretKey> =
+            node_ids.into_iter().map(|id| (id, rng.gen())).collect();
+        let pub_keys: PubKeyMap<D::NodeId> = to_pub_keys(sec_keys.iter());
+
         // Generate a new set of cryptographic keys for threshold cryptography.
-        let net_infos = NetworkInfo::generate_map(node_ids, &mut rng)
+        let net_infos = NetworkInfo::generate_map(pub_keys.keys().cloned(), &mut rng)
             .map_err(CrankError::InitialKeyGeneration)?;
 
         assert!(
@@ -769,6 +782,8 @@ where
 
                 let (algorithm, step) = cons(NewNodeInfo {
                     id: id.clone(),
+                    secret_key: sec_keys[&id].clone(),
+                    pub_keys: pub_keys.clone(),
                     netinfo,
                     faulty: is_faulty,
                 });

@@ -6,9 +6,9 @@ use std::sync::Arc;
 use crate::crypto::{SecretKey, SecretKeySet};
 use serde::{de::DeserializeOwned, Serialize};
 
-use super::{DynamicHoneyBadger, EncryptionSchedule, JoinPlan, Result, Step, VoteCounter};
-use crate::honey_badger::{HoneyBadger, Params, SubsetHandlingStrategy};
-use crate::{Contribution, NetworkInfo, NodeIdT};
+use super::{DynamicHoneyBadger, EncryptionSchedule, JoinPlan, Result, Step};
+use crate::honey_badger::{Params, SubsetHandlingStrategy};
+use crate::{to_pub_keys, Contribution, NetworkInfo, NodeIdT, PubKeyMap};
 
 /// A Dynamic Honey Badger builder, to configure the parameters and create new instances of
 /// `DynamicHoneyBadger`.
@@ -84,30 +84,20 @@ where
     }
 
     /// Creates a new Dynamic Honey Badger instance with an empty buffer.
-    pub fn build(&mut self, netinfo: NetworkInfo<N>) -> DynamicHoneyBadger<C, N> {
-        let DynamicHoneyBadgerBuilder {
-            era,
-            epoch,
-            params,
-            _phantom,
-        } = self;
-        let arc_netinfo = Arc::new(netinfo.clone());
-
-        let honey_badger = HoneyBadger::builder(arc_netinfo.clone())
-            .session_id(*era)
-            .epoch(*epoch)
-            .params(params.clone())
-            .build();
-
-        DynamicHoneyBadger {
-            netinfo,
-            max_future_epochs: params.max_future_epochs,
-            era: *era,
-            vote_counter: VoteCounter::new(arc_netinfo, 0),
-            key_gen_msg_buffer: Vec::new(),
-            honey_badger,
-            key_gen_state: None,
-        }
+    pub fn build(
+        &mut self,
+        netinfo: NetworkInfo<N>,
+        secret_key: SecretKey,
+        pub_keys: PubKeyMap<N>,
+    ) -> DynamicHoneyBadger<C, N> {
+        DynamicHoneyBadger::new(
+            secret_key,
+            pub_keys,
+            Arc::new(netinfo),
+            self.params.clone(),
+            self.era,
+            self.epoch,
+        )
     }
 
     /// Creates a new `DynamicHoneyBadger` configured to start a new network as a single validator.
@@ -120,9 +110,9 @@ where
         let pk_set = sk_set.public_keys();
         let sks = sk_set.secret_key_share(0);
         let sk = rng.gen::<SecretKey>();
-        let pub_keys = once((our_id.clone(), sk.public_key())).collect();
-        let netinfo = NetworkInfo::new(our_id, sks, pk_set, sk, pub_keys);
-        Ok(self.build(netinfo))
+        let pub_keys = to_pub_keys(once((&our_id, &sk)));
+        let netinfo = NetworkInfo::new(our_id.clone(), sks, pk_set, once(our_id));
+        Ok(self.build(netinfo, sk, pub_keys))
     }
 
     /// Creates a new `DynamicHoneyBadger` configured to join the network at the epoch specified in

@@ -2,7 +2,7 @@ use std::borrow::Borrow;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
-use crate::crypto::{self, PublicKey, PublicKeySet, PublicKeyShare, SecretKey, SecretKeyShare};
+use crate::crypto::{self, PublicKeySet, PublicKeyShare, SecretKeyShare};
 use rand;
 
 use crate::{util, NodeIdT};
@@ -91,14 +91,10 @@ pub struct NetworkInfo<N> {
     is_validator: bool,
     /// This node's secret key share. Only validators have one.
     secret_key_share: Option<SecretKeyShare>,
-    /// This node's secret key.
-    secret_key: SecretKey,
     /// The public key set for threshold cryptography. Each validator has a secret key share.
     public_key_set: PublicKeySet,
     /// The validators' public key shares, computed from `public_key_set`.
     public_key_shares: BTreeMap<N, PublicKeyShare>,
-    /// The validators' public keys.
-    public_keys: BTreeMap<N, PublicKey>,
     /// The indices in the list of sorted validator IDs.
     val_set: Arc<ValidatorSet<N>>,
 }
@@ -114,14 +110,13 @@ impl<N: NodeIdT> NetworkInfo<N> {
     ///
     /// Panics if `public_keys` is empty or the requirement above is not satisfied, i.e. if the
     /// secret key doesn't match the public key or is missing.
-    pub fn new<SKS: Into<Option<SecretKeyShare>>>(
+    pub fn new<SKS: Into<Option<SecretKeyShare>>, V: Into<ValidatorSet<N>>>(
         our_id: N,
         secret_key_share: SKS,
         public_key_set: PublicKeySet,
-        secret_key: SecretKey,
-        public_keys: BTreeMap<N, PublicKey>,
+        val_set: V,
     ) -> Self {
-        let val_set = Arc::new(ValidatorSet::from(public_keys.keys()));
+        let val_set = Arc::new(val_set.into());
         let is_validator = val_set.contains(&our_id);
         let secret_key_share = secret_key_share.into();
         assert_eq!(is_validator, secret_key_share.is_some());
@@ -139,11 +134,9 @@ impl<N: NodeIdT> NetworkInfo<N> {
             our_id,
             is_validator,
             secret_key_share,
-            secret_key,
             public_key_set,
             public_key_shares,
             val_set,
-            public_keys,
         }
     }
 
@@ -192,12 +185,6 @@ impl<N: NodeIdT> NetworkInfo<N> {
         self.secret_key_share.as_ref()
     }
 
-    /// Returns our secret key for encryption and signing.
-    #[inline]
-    pub fn secret_key(&self) -> &SecretKey {
-        &self.secret_key
-    }
-
     /// Returns the public key set for threshold cryptography.
     #[inline]
     pub fn public_key_set(&self) -> &PublicKeySet {
@@ -214,18 +201,6 @@ impl<N: NodeIdT> NetworkInfo<N> {
     #[inline]
     pub fn public_key_share_map(&self) -> &BTreeMap<N, PublicKeyShare> {
         &self.public_key_shares
-    }
-
-    /// Returns a map of all node IDs to their public keys.
-    #[inline]
-    pub fn public_key(&self, id: &N) -> Option<&PublicKey> {
-        self.public_keys.get(id)
-    }
-
-    /// Returns a map of all node IDs to their public keys.
-    #[inline]
-    pub fn public_key_map(&self) -> &BTreeMap<N, PublicKey> {
-        &self.public_keys
     }
 
     /// The index of a node in a canonical numbering of all nodes. This is the index where the
@@ -246,7 +221,7 @@ impl<N: NodeIdT> NetworkInfo<N> {
     /// observer.
     #[inline]
     pub fn is_node_validator(&self, id: &N) -> bool {
-        self.public_keys.contains_key(id)
+        self.val_set.contains(id)
     }
 
     /// Returns the set of validator IDs.
@@ -272,29 +247,12 @@ impl<N: NodeIdT> NetworkInfo<N> {
         let sk_set = SecretKeySet::random(num_faulty, rng);
         let pk_set = sk_set.public_keys();
 
-        // Generate keys for individually signing and encrypting messages.
-        let sec_keys: BTreeMap<_, SecretKey> =
-            all_ids.iter().map(|id| (id.clone(), rng.gen())).collect();
-        let pub_keys: BTreeMap<_, PublicKey> = sec_keys
-            .iter()
-            .map(|(id, sk)| (id.clone(), sk.public_key()))
-            .collect();
-
         // Create the corresponding `NetworkInfo` for each node.
-        let create_netinfo = |(i, id): (usize, N)| {
-            let netinfo = NetworkInfo::new(
-                id.clone(),
-                sk_set.secret_key_share(i),
-                pk_set.clone(),
-                sec_keys[&id].clone(),
-                pub_keys.clone(),
-            );
-            Ok((id, netinfo))
+        let create_netinfo = |(index, id): (usize, &N)| {
+            let sks = sk_set.secret_key_share(index);
+            let netinfo = NetworkInfo::new(id.clone(), sks, pk_set.clone(), &all_ids);
+            Ok((id.clone(), netinfo))
         };
-        all_ids
-            .into_iter()
-            .enumerate()
-            .map(create_netinfo)
-            .collect()
+        all_ids.iter().enumerate().map(create_netinfo).collect()
     }
 }
