@@ -100,6 +100,10 @@ where
         era: u64,
         epoch: u64,
     ) -> Self {
+        assert!(
+            netinfo.all_ids().eq(pub_keys.keys()),
+            "Every validator must have a public key."
+        );
         let max_future_epochs = params.max_future_epochs;
         let our_id = netinfo.our_id().clone();
         let honey_badger = HoneyBadger::builder(netinfo)
@@ -134,15 +138,25 @@ where
             pub_key_set,
             params,
         } = join_plan;
+        let new_pub_keys_opt = match change {
+            ChangeState::InProgress(Change::EncryptionSchedule(..)) | ChangeState::None => None,
+            ChangeState::InProgress(Change::NodeChange(pks)) => Some(pks.clone()),
+            ChangeState::Complete(change) => {
+                let valid = match change {
+                    Change::EncryptionSchedule(schedule) => schedule == params.encryption_schedule,
+                    Change::NodeChange(new_pub_keys) => new_pub_keys == pub_keys,
+                };
+                if !valid {
+                    return Err(Error::InvalidJoinPlan);
+                }
+                None
+            }
+        };
         let netinfo = Arc::new(NetworkInfo::new(our_id, None, pub_key_set, pub_keys.keys()));
         let mut dhb = DynamicHoneyBadger::new(secret_key, pub_keys, netinfo, params, era, 0);
-        let step = match change {
-            ChangeState::InProgress(Change::NodeChange(new_pub_keys)) => {
-                dhb.update_key_gen(join_plan.era, new_pub_keys, rng)?
-            }
-            ChangeState::InProgress(Change::EncryptionSchedule(..))
-            | ChangeState::None
-            | ChangeState::Complete(..) => Step::default(),
+        let step = match new_pub_keys_opt {
+            Some(new_pub_keys) => dhb.update_key_gen(era, new_pub_keys, rng)?,
+            None => Step::default(),
         };
         Ok((dhb, step))
     }

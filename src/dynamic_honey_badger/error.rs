@@ -22,6 +22,9 @@ pub enum Error {
     /// Failed to handle a `SyncKeyGen` message.
     #[fail(display = "Error handling SyncKeyGen message: {}", _0)]
     SyncKeyGen(sync_key_gen::Error),
+    /// The join plan contains contradictory information.
+    #[fail(display = "Invalid Join Plan")]
+    InvalidJoinPlan,
     /// Unknown sender
     #[fail(display = "Unknown sender")]
     UnknownSender,
