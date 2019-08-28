@@ -178,20 +178,58 @@ use std::sync::Arc;
 
 use bincode;
 use failure::Fail;
-use rand;
-use serde::{Deserialize, Serialize};
+use rand::{self, Rng};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
 use crate::crypto::{
+    self,
     error::Error as CryptoError,
     poly::{BivarCommitment, BivarPoly, Poly},
     serde_impl::FieldWrap,
-    Ciphertext, Fr, G1Affine, PublicKey, PublicKeySet, SecretKey, SecretKeyShare,
+    Fr, G1Affine, PublicKeySet, SecretKeyShare,
 };
 use crate::pairing::{CurveAffine, Field};
 use crate::NodeIdT;
 
+/// A cryptographic key that allows decrypting messages that were encrypted to the key's owner.
+pub trait SecretKey {
+    /// The encrypted form of a message in this cryptosystem.
+    type Ciphertext: Serialize + DeserializeOwned;
+
+    /// Decrypts a ciphertext; returns `None` if it was invalid.
+    fn decrypt(&self, ct: &Self::Ciphertext) -> Option<Vec<u8>>;
+}
+
+/// A cryptographic public key that allows encrypting messages to the key's owner.
+pub trait PublicKey {
+    /// The encrypted form of a message in this cryptosystem.
+    type Ciphertext: Serialize + DeserializeOwned;
+    /// The corresponding secret key type. The secret key is known only to the key's owner.
+    type SecretKey: SecretKey<Ciphertext = Self::Ciphertext>;
+
+    /// Encrypts a message to this key's owner and returns the ciphertext.
+    fn encrypt<M: AsRef<[u8]>, R: Rng>(&self, msg: M, rng: &mut R) -> Self::Ciphertext;
+}
+
+impl SecretKey for crypto::SecretKey {
+    type Ciphertext = crypto::Ciphertext;
+
+    fn decrypt(&self, ct: &crypto::Ciphertext) -> Option<Vec<u8>> {
+        self.decrypt(ct)
+    }
+}
+
+impl PublicKey for crypto::PublicKey {
+    type Ciphertext = crypto::Ciphertext;
+    type SecretKey = crypto::SecretKey;
+
+    fn encrypt<M: AsRef<[u8]>, R: Rng>(&self, msg: M, rng: &mut R) -> crypto::Ciphertext {
+        self.encrypt_with_rng(rng, msg)
+    }
+}
+
 /// A map assigning to each node ID a public key, wrapped in an `Arc`.
-pub type PubKeyMap<N> = Arc<BTreeMap<N, PublicKey>>;
+pub type PubKeyMap<N, PK = crypto::PublicKey> = Arc<BTreeMap<N, PK>>;
 
 /// Returns a `PubKeyMap` corresponding to the given secret keys.
 ///
@@ -199,7 +237,7 @@ pub type PubKeyMap<N> = Arc<BTreeMap<N, PublicKey>>;
 pub fn to_pub_keys<'a, I, B, N: NodeIdT + 'a>(sec_keys: I) -> PubKeyMap<N>
 where
     B: Borrow<N>,
-    I: IntoIterator<Item = (B, &'a SecretKey)>,
+    I: IntoIterator<Item = (B, &'a crypto::SecretKey)>,
 {
     let to_pub = |(id, sk): I::Item| (id.borrow().clone(), sk.public_key());
     Arc::new(sec_keys.into_iter().map(to_pub).collect())
@@ -236,9 +274,9 @@ impl From<bincode::Error> for Error {
 /// row of values. If this message receives enough `Ack`s, it will be used as summand to produce
 /// the the key set in the end.
 #[derive(Deserialize, Serialize, Clone, Hash, Eq, PartialEq)]
-pub struct Part(BivarCommitment, Vec<Ciphertext>);
+pub struct Part<C = crypto::Ciphertext>(BivarCommitment, Vec<C>);
 
-impl Debug for Part {
+impl<C> Debug for Part<C> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_tuple("Part")
             .field(&format!("<degree {}>", self.0.degree()))
@@ -253,9 +291,9 @@ impl Debug for Part {
 /// The message is only produced after we verified our row against the commitment in the `Part`.
 /// For each node, it contains one encrypted value of that row.
 #[derive(Deserialize, Serialize, Clone, Hash, Eq, PartialEq)]
-pub struct Ack(u64, Vec<Ciphertext>);
+pub struct Ack<C = crypto::Ciphertext>(u64, Vec<C>);
 
-impl Debug for Ack {
+impl<C> Debug for Ack<C> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_tuple("Ack")
             .field(&self.0)
@@ -292,11 +330,11 @@ impl ProposalState {
 }
 
 /// The outcome of handling and verifying a `Part` message.
-pub enum PartOutcome {
+pub enum PartOutcome<C> {
     /// The message was valid: the part of it that was encrypted to us matched the public
     /// commitment, so we can multicast an `Ack` message for it. If we are an observer or we have
     /// already handled the same `Part` before, this contains `None` instead.
-    Valid(Option<Ack>),
+    Valid(Option<Ack<C>>),
     /// The message was invalid: We now know that the proposer is faulty, and dont' send an `Ack`.
     Invalid(PartFault),
 }
@@ -309,26 +347,29 @@ pub enum AckOutcome {
     Invalid(AckFault),
 }
 
+/// Either `None`, or a `Part` that can be used with the `PK` key type.
+pub type OptPart<PK> = Option<Part<<PK as PublicKey>::Ciphertext>>;
+
 /// A synchronous algorithm for dealerless distributed key generation.
 ///
 /// It requires that all nodes handle all messages in the exact same order.
 #[derive(Debug)]
-pub struct SyncKeyGen<N> {
+pub struct SyncKeyGen<N, PK: PublicKey = crypto::PublicKey> {
     /// Our node ID.
     our_id: N,
     /// Our node index.
     our_idx: Option<u64>,
     /// Our secret key.
-    sec_key: SecretKey,
+    sec_key: PK::SecretKey,
     /// The public keys of all nodes, by node ID.
-    pub_keys: PubKeyMap<N>,
+    pub_keys: PubKeyMap<N, PK>,
     /// Proposed bivariate polynomials.
     parts: BTreeMap<u64, ProposalState>,
     /// The degree of the generated polynomial.
     threshold: usize,
 }
 
-impl<N: NodeIdT> SyncKeyGen<N> {
+impl<N: NodeIdT, PK: PublicKey> SyncKeyGen<N, PK> {
     /// Creates a new `SyncKeyGen` instance, together with the `Part` message that should be
     /// multicast to all nodes.
     ///
@@ -336,11 +377,11 @@ impl<N: NodeIdT> SyncKeyGen<N> {
     /// messages need to be sent.
     pub fn new<R: rand::Rng>(
         our_id: N,
-        sec_key: SecretKey,
-        pub_keys: PubKeyMap<N>,
+        sec_key: PK::SecretKey,
+        pub_keys: PubKeyMap<N, PK>,
         threshold: usize,
         rng: &mut R,
-    ) -> Result<(SyncKeyGen<N>, Option<Part>), Error> {
+    ) -> Result<(Self, OptPart<PK>), Error> {
         let our_idx = pub_keys
             .keys()
             .position(|id| *id == our_id)
@@ -359,9 +400,9 @@ impl<N: NodeIdT> SyncKeyGen<N> {
 
         let our_part = BivarPoly::random(threshold, rng);
         let commit = our_part.commitment();
-        let encrypt = |(i, pk): (usize, &PublicKey)| {
+        let encrypt = |(i, pk): (usize, &PK)| {
             let row = our_part.row(i + 1);
-            Ok(pk.encrypt_with_rng(rng, &bincode::serialize(&row)?))
+            Ok(pk.encrypt(&bincode::serialize(&row)?, rng))
         };
         let rows = key_gen
             .pub_keys
@@ -373,7 +414,7 @@ impl<N: NodeIdT> SyncKeyGen<N> {
     }
 
     /// Returns the map of participating nodes and their public keys.
-    pub fn public_keys(&self) -> &PubKeyMap<N> {
+    pub fn public_keys(&self) -> &PubKeyMap<N, PK> {
         &self.pub_keys
     }
 
@@ -386,9 +427,9 @@ impl<N: NodeIdT> SyncKeyGen<N> {
     pub fn handle_part<R: rand::Rng>(
         &mut self,
         sender_id: &N,
-        part: Part,
+        part: Part<PK::Ciphertext>,
         rng: &mut R,
-    ) -> Result<PartOutcome, Error> {
+    ) -> Result<PartOutcome<PK::Ciphertext>, Error> {
         let sender_idx = self.node_index(sender_id).ok_or(Error::UnknownSender)?;
         let row = match self.handle_part_or_fault(sender_idx, part) {
             Ok(Some(row)) => row,
@@ -400,7 +441,7 @@ impl<N: NodeIdT> SyncKeyGen<N> {
         for (idx, pk) in self.pub_keys.values().enumerate() {
             let val = row.evaluate(idx + 1);
             let ser_val = bincode::serialize(&FieldWrap(val))?;
-            values.push(pk.encrypt_with_rng(rng, ser_val));
+            values.push(pk.encrypt(ser_val, rng));
         }
         Ok(PartOutcome::Valid(Some(Ack(sender_idx, values))))
     }
@@ -409,7 +450,11 @@ impl<N: NodeIdT> SyncKeyGen<N> {
     ///
     /// All participating nodes must handle the exact same sequence of messages.
     /// Note that `handle_ack` also needs to explicitly be called with this instance's own `Ack`s.
-    pub fn handle_ack(&mut self, sender_id: &N, ack: Ack) -> Result<AckOutcome, Error> {
+    pub fn handle_ack(
+        &mut self,
+        sender_id: &N,
+        ack: Ack<PK::Ciphertext>,
+    ) -> Result<AckOutcome, Error> {
         let sender_idx = self.node_index(sender_id).ok_or(Error::UnknownSender)?;
         Ok(match self.handle_ack_or_fault(sender_idx, ack) {
             Ok(()) => AckOutcome::Valid,
@@ -484,7 +529,7 @@ impl<N: NodeIdT> SyncKeyGen<N> {
     fn handle_part_or_fault(
         &mut self,
         sender_idx: u64,
-        Part(commit, rows): Part,
+        Part(commit, rows): Part<PK::Ciphertext>,
     ) -> Result<Option<Poly>, PartFault> {
         if rows.len() != self.pub_keys.len() {
             return Err(PartFault::RowCount);
@@ -518,7 +563,7 @@ impl<N: NodeIdT> SyncKeyGen<N> {
     fn handle_ack_or_fault(
         &mut self,
         sender_idx: u64,
-        Ack(proposer_idx, values): Ack,
+        Ack(proposer_idx, values): Ack<PK::Ciphertext>,
     ) -> Result<(), AckFault> {
         if values.len() != self.pub_keys.len() {
             return Err(AckFault::ValueCount);
