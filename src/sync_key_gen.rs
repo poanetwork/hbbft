@@ -174,12 +174,13 @@
 use std::borrow::Borrow;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::{self, Debug, Formatter};
+use std::string::ToString;
 use std::sync::Arc;
 
 use bincode;
 use failure::Fail;
 use rand::{self, Rng};
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 
 use crate::crypto::{
     self,
@@ -193,38 +194,43 @@ use crate::NodeIdT;
 
 /// A cryptographic key that allows decrypting messages that were encrypted to the key's owner.
 pub trait SecretKey {
-    /// The encrypted form of a message in this cryptosystem.
-    type Ciphertext: Serialize + DeserializeOwned;
+    /// The decryption error type.
+    type Error: ToString;
 
-    /// Decrypts a ciphertext; returns `None` if it was invalid.
-    fn decrypt(&self, ct: &Self::Ciphertext) -> Option<Vec<u8>>;
+    /// Decrypts a ciphertext.
+    fn decrypt(&self, ct: &[u8]) -> Result<Vec<u8>, Self::Error>;
 }
 
 /// A cryptographic public key that allows encrypting messages to the key's owner.
 pub trait PublicKey {
-    /// The encrypted form of a message in this cryptosystem.
-    type Ciphertext: Serialize + DeserializeOwned;
+    /// The encryption error type.
+    type Error: ToString;
     /// The corresponding secret key type. The secret key is known only to the key's owner.
-    type SecretKey: SecretKey<Ciphertext = Self::Ciphertext>;
+    type SecretKey: SecretKey;
 
     /// Encrypts a message to this key's owner and returns the ciphertext.
-    fn encrypt<M: AsRef<[u8]>, R: Rng>(&self, msg: M, rng: &mut R) -> Self::Ciphertext;
+    fn encrypt<M: AsRef<[u8]>, R: Rng>(&self, msg: M, rng: &mut R) -> Result<Vec<u8>, Self::Error>;
 }
 
 impl SecretKey for crypto::SecretKey {
-    type Ciphertext = crypto::Ciphertext;
+    type Error = bincode::Error;
 
-    fn decrypt(&self, ct: &crypto::Ciphertext) -> Option<Vec<u8>> {
-        self.decrypt(ct)
+    fn decrypt(&self, ct: &[u8]) -> Result<Vec<u8>, bincode::Error> {
+        self.decrypt(&bincode::deserialize(ct)?)
+            .ok_or_else(|| bincode::ErrorKind::Custom("Invalid ciphertext.".to_string()).into())
     }
 }
 
 impl PublicKey for crypto::PublicKey {
-    type Ciphertext = crypto::Ciphertext;
+    type Error = bincode::Error;
     type SecretKey = crypto::SecretKey;
 
-    fn encrypt<M: AsRef<[u8]>, R: Rng>(&self, msg: M, rng: &mut R) -> crypto::Ciphertext {
-        self.encrypt_with_rng(rng, msg)
+    fn encrypt<M: AsRef<[u8]>, R: Rng>(
+        &self,
+        msg: M,
+        rng: &mut R,
+    ) -> Result<Vec<u8>, bincode::Error> {
+        bincode::serialize(&self.encrypt_with_rng(rng, msg))
     }
 }
 
@@ -259,11 +265,20 @@ pub enum Error {
     /// Failed to serialize message.
     #[fail(display = "Serialization error: {}", _0)]
     Serialize(String),
+    /// Failed to encrypt message parts for a peer.
+    #[fail(display = "Encryption error: {}", _0)]
+    Encrypt(String),
 }
 
 impl From<bincode::Error> for Error {
     fn from(err: bincode::Error) -> Error {
         Error::Serialize(format!("{:?}", err))
+    }
+}
+
+impl Error {
+    fn encrypt<E: ToString>(err: E) -> Error {
+        Error::Encrypt(err.to_string())
     }
 }
 
@@ -274,9 +289,9 @@ impl From<bincode::Error> for Error {
 /// row of values. If this message receives enough `Ack`s, it will be used as summand to produce
 /// the the key set in the end.
 #[derive(Deserialize, Serialize, Clone, Hash, Eq, PartialEq)]
-pub struct Part<C = crypto::Ciphertext>(BivarCommitment, Vec<C>);
+pub struct Part(BivarCommitment, Vec<Vec<u8>>);
 
-impl<C> Debug for Part<C> {
+impl Debug for Part {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_tuple("Part")
             .field(&format!("<degree {}>", self.0.degree()))
@@ -291,9 +306,9 @@ impl<C> Debug for Part<C> {
 /// The message is only produced after we verified our row against the commitment in the `Part`.
 /// For each node, it contains one encrypted value of that row.
 #[derive(Deserialize, Serialize, Clone, Hash, Eq, PartialEq)]
-pub struct Ack<C = crypto::Ciphertext>(u64, Vec<C>);
+pub struct Ack(u64, Vec<Vec<u8>>);
 
-impl<C> Debug for Ack<C> {
+impl Debug for Ack {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_tuple("Ack")
             .field(&self.0)
@@ -330,11 +345,11 @@ impl ProposalState {
 }
 
 /// The outcome of handling and verifying a `Part` message.
-pub enum PartOutcome<C> {
+pub enum PartOutcome {
     /// The message was valid: the part of it that was encrypted to us matched the public
     /// commitment, so we can multicast an `Ack` message for it. If we are an observer or we have
     /// already handled the same `Part` before, this contains `None` instead.
-    Valid(Option<Ack<C>>),
+    Valid(Option<Ack>),
     /// The message was invalid: We now know that the proposer is faulty, and dont' send an `Ack`.
     Invalid(PartFault),
 }
@@ -346,9 +361,6 @@ pub enum AckOutcome {
     /// The message was invalid: The sender is faulty.
     Invalid(AckFault),
 }
-
-/// Either `None`, or a `Part` that can be used with the `PK` key type.
-pub type OptPart<PK> = Option<Part<<PK as PublicKey>::Ciphertext>>;
 
 /// A synchronous algorithm for dealerless distributed key generation.
 ///
@@ -381,7 +393,7 @@ impl<N: NodeIdT, PK: PublicKey> SyncKeyGen<N, PK> {
         pub_keys: PubKeyMap<N, PK>,
         threshold: usize,
         rng: &mut R,
-    ) -> Result<(Self, OptPart<PK>), Error> {
+    ) -> Result<(Self, Option<Part>), Error> {
         let our_idx = pub_keys
             .keys()
             .position(|id| *id == our_id)
@@ -401,15 +413,15 @@ impl<N: NodeIdT, PK: PublicKey> SyncKeyGen<N, PK> {
         let our_part = BivarPoly::random(threshold, rng);
         let commit = our_part.commitment();
         let encrypt = |(i, pk): (usize, &PK)| {
-            let row = our_part.row(i + 1);
-            Ok(pk.encrypt(&bincode::serialize(&row)?, rng))
+            let row = bincode::serialize(&our_part.row(i + 1))?;
+            Ok(pk.encrypt(&row, rng).map_err(Error::encrypt)?)
         };
         let rows = key_gen
             .pub_keys
             .values()
             .enumerate()
             .map(encrypt)
-            .collect::<Result<Vec<_>, Error>>()?;
+            .collect::<Result<Vec<Vec<u8>>, Error>>()?;
         Ok((key_gen, Some(Part(commit, rows))))
     }
 
@@ -427,9 +439,9 @@ impl<N: NodeIdT, PK: PublicKey> SyncKeyGen<N, PK> {
     pub fn handle_part<R: rand::Rng>(
         &mut self,
         sender_id: &N,
-        part: Part<PK::Ciphertext>,
+        part: Part,
         rng: &mut R,
-    ) -> Result<PartOutcome<PK::Ciphertext>, Error> {
+    ) -> Result<PartOutcome, Error> {
         let sender_idx = self.node_index(sender_id).ok_or(Error::UnknownSender)?;
         let row = match self.handle_part_or_fault(sender_idx, part) {
             Ok(Some(row)) => row,
@@ -441,7 +453,7 @@ impl<N: NodeIdT, PK: PublicKey> SyncKeyGen<N, PK> {
         for (idx, pk) in self.pub_keys.values().enumerate() {
             let val = row.evaluate(idx + 1);
             let ser_val = bincode::serialize(&FieldWrap(val))?;
-            values.push(pk.encrypt(ser_val, rng));
+            values.push(pk.encrypt(ser_val, rng).map_err(Error::encrypt)?);
         }
         Ok(PartOutcome::Valid(Some(Ack(sender_idx, values))))
     }
@@ -450,11 +462,7 @@ impl<N: NodeIdT, PK: PublicKey> SyncKeyGen<N, PK> {
     ///
     /// All participating nodes must handle the exact same sequence of messages.
     /// Note that `handle_ack` also needs to explicitly be called with this instance's own `Ack`s.
-    pub fn handle_ack(
-        &mut self,
-        sender_id: &N,
-        ack: Ack<PK::Ciphertext>,
-    ) -> Result<AckOutcome, Error> {
+    pub fn handle_ack(&mut self, sender_id: &N, ack: Ack) -> Result<AckOutcome, Error> {
         let sender_idx = self.node_index(sender_id).ok_or(Error::UnknownSender)?;
         Ok(match self.handle_ack_or_fault(sender_idx, ack) {
             Ok(()) => AckOutcome::Valid,
@@ -529,7 +537,7 @@ impl<N: NodeIdT, PK: PublicKey> SyncKeyGen<N, PK> {
     fn handle_part_or_fault(
         &mut self,
         sender_idx: u64,
-        Part(commit, rows): Part<PK::Ciphertext>,
+        Part(commit, rows): Part,
     ) -> Result<Option<Poly>, PartFault> {
         if rows.len() != self.pub_keys.len() {
             return Err(PartFault::RowCount);
@@ -551,7 +559,7 @@ impl<N: NodeIdT, PK: PublicKey> SyncKeyGen<N, PK> {
         let ser_row = self
             .sec_key
             .decrypt(&rows[our_idx as usize])
-            .ok_or(PartFault::DecryptRow)?;
+            .map_err(|_| PartFault::DecryptRow)?;
         let row: Poly = bincode::deserialize(&ser_row).map_err(|_| PartFault::DeserializeRow)?;
         if row.commitment() != commit_row {
             return Err(PartFault::RowCommitment);
@@ -563,7 +571,7 @@ impl<N: NodeIdT, PK: PublicKey> SyncKeyGen<N, PK> {
     fn handle_ack_or_fault(
         &mut self,
         sender_idx: u64,
-        Ack(proposer_idx, values): Ack<PK::Ciphertext>,
+        Ack(proposer_idx, values): Ack,
     ) -> Result<(), AckFault> {
         if values.len() != self.pub_keys.len() {
             return Err(AckFault::ValueCount);
@@ -583,7 +591,7 @@ impl<N: NodeIdT, PK: PublicKey> SyncKeyGen<N, PK> {
         let ser_val = self
             .sec_key
             .decrypt(&values[our_idx as usize])
-            .ok_or(AckFault::DecryptValue)?;
+            .map_err(|_| AckFault::DecryptValue)?;
         let val = bincode::deserialize::<FieldWrap<Fr>>(&ser_val)
             .map_err(|_| AckFault::DeserializeValue)?
             .into_inner();
