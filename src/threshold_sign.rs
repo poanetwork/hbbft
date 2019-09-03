@@ -268,6 +268,11 @@ impl<N: NodeIdT> ThresholdSign<N> {
             Ok(sig)
         }
     }
+
+    /// Returns the information about the node IDs in the network, and the cryptographic keys.
+    pub fn netinfo(&self) -> &Arc<NetworkInfo<N>> {
+        &self.netinfo
+    }
 }
 
 impl<N: NodeIdT> fmt::Display for ThresholdSign<N> {
