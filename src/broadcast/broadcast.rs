@@ -494,18 +494,18 @@ impl<N: NodeIdT> Broadcast<N> {
         let can_decode_msg = Message::CanDecode(*hash);
         let mut step = Step::default();
 
+        let our_id = &self.our_id().clone();
         let recipients = self
             .val_set
             .all_ids()
             .filter(|id| match self.echos.get(id) {
-                Some(EchoContent::Hash(_)) | None => true,
+                Some(EchoContent::Hash(_)) | None => *id != our_id,
                 _ => false,
             })
             .cloned()
             .collect();
         let msg = Target::Nodes(recipients).message(can_decode_msg);
         step.messages.push(msg);
-        let our_id = &self.our_id().clone();
         Ok(step.join(self.handle_can_decode(our_id, hash)?))
     }
 
