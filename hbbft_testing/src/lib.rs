@@ -33,7 +33,7 @@ use hbbft::dynamic_honey_badger::Batch;
 use hbbft::sender_queue::SenderQueueableOutput;
 use hbbft::{
     self, to_pub_keys, ConsensusProtocol, Contribution, CpStep, Fault, NetworkInfo, NodeIdT,
-    PubKeyMap, Step,
+    PubKeyMap, Step, Target,
 };
 
 pub use self::adversary::Adversary;
@@ -241,6 +241,13 @@ where
 
     // Queue all messages for processing.
     for tmsg in &step.messages {
+        // Message targets never explicitly mention ourselves.
+        if !faulty {
+            match &tmsg.target {
+                Target::AllExcept(nodes) => assert!(!nodes.contains(&stepped_id)),
+                Target::Nodes(nodes) => assert!(!nodes.contains(&stepped_id)),
+            }
+        }
         for to in nodes.keys() {
             if tmsg.target.contains(to) && to != &stepped_id {
                 if !faulty {
