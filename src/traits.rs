@@ -102,18 +102,22 @@ where
         self,
         f_out: FO,
         f_fail: FF,
-        f_msg: FM,
+        mut f_msg: FM,
     ) -> Step<M2, O2, N, F2>
     where
         F2: Fail,
-        FO: Fn(O) -> O2,
-        FF: Fn(F) -> F2,
-        FM: Fn(M) -> M2,
+        FO: FnMut(O) -> O2,
+        FF: FnMut(F) -> F2,
+        FM: FnMut(M) -> M2,
     {
         Step {
             output: self.output.into_iter().map(f_out).collect(),
             fault_log: self.fault_log.map(f_fail),
-            messages: self.messages.into_iter().map(|tm| tm.map(&f_msg)).collect(),
+            messages: self
+                .messages
+                .into_iter()
+                .map(|tm| tm.map(&mut f_msg))
+                .collect(),
         }
     }
 
@@ -123,16 +127,16 @@ where
         &mut self,
         other: Step<M2, O2, N, F2>,
         f_fail: FF,
-        f_msg: FM,
+        mut f_msg: FM,
     ) -> Vec<O2>
     where
         F2: Fail,
-        FF: Fn(F2) -> F,
-        FM: Fn(M2) -> M,
+        FF: FnMut(F2) -> F,
+        FM: FnMut(M2) -> M,
     {
         let fails = other.fault_log.map(f_fail);
         self.fault_log.extend(fails);
-        let msgs = other.messages.into_iter().map(|tm| tm.map(&f_msg));
+        let msgs = other.messages.into_iter().map(|tm| tm.map(&mut f_msg));
         self.messages.extend(msgs);
         other.output
     }
