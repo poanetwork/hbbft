@@ -61,7 +61,7 @@ pub struct TargetedMessage<M, N> {
 
 impl<M, N> TargetedMessage<M, N> {
     /// Applies the given transformation of messages, preserving the target.
-    pub fn map<T, F: Fn(M) -> T>(self, f: F) -> TargetedMessage<T, N> {
+    pub fn map<T, F: FnOnce(M) -> T>(self, f: F) -> TargetedMessage<T, N> {
         TargetedMessage {
             target: self.target,
             message: f(self.message),

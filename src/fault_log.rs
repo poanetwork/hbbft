@@ -30,7 +30,7 @@ where
     pub fn map<F2, FF>(self, f_fault: FF) -> Fault<N, F2>
     where
         F2: Fail,
-        FF: Fn(F) -> F2,
+        FF: FnOnce(F) -> F2,
     {
         Fault {
             node_id: self.node_id,
@@ -94,12 +94,12 @@ where
     }
 
     /// Applies `f_fault` to each element in log, modifying its `kind` only
-    pub fn map<F2, FF>(self, f_fault: FF) -> FaultLog<N, F2>
+    pub fn map<F2, FF>(self, mut f_fault: FF) -> FaultLog<N, F2>
     where
         F2: Fail,
-        FF: Fn(F) -> F2,
+        FF: FnMut(F) -> F2,
     {
-        FaultLog(self.into_iter().map(|f| f.map(&f_fault)).collect())
+        FaultLog(self.into_iter().map(|f| f.map(&mut f_fault)).collect())
     }
 }
 
