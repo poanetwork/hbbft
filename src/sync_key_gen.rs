@@ -425,6 +425,11 @@ impl<N: NodeIdT, PK: PublicKey> SyncKeyGen<N, PK> {
         Ok((key_gen, Some(Part(commit, rows))))
     }
 
+    /// Returns the id of this node.
+    pub fn our_id(&self) -> &N {
+        &self.our_id
+    }
+
     /// Returns the map of participating nodes and their public keys.
     pub fn public_keys(&self) -> &PubKeyMap<N, PK> {
         &self.pub_keys
