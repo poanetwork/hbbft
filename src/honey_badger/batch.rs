@@ -17,7 +17,7 @@ impl<C, N: NodeIdT> Batch<C, N> {
     where
         &'a C: IntoIterator,
     {
-        self.contributions.values().flat_map(|item| item)
+        self.contributions.values().flatten()
     }
 
     /// Returns an iterator over all transactions included in the batch. Consumes the batch.
