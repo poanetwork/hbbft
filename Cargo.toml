@@ -33,7 +33,7 @@ rand = "0.6.5"
 rand_derive = "0.5.0"
 reed-solomon-erasure = "3.1.1"
 serde = { version = "1.0.102", features = ["derive", "rc"] }
-threshold_crypto = { git = "https://github.com/kigawas/threshold_crypto", branch = "cleanup-and-codec"}
+threshold_crypto = { branch = "master", git = "https://github.com/poanetwork/threshold_crypto" }
 tiny-keccak = "1.5.0"
 
 [dev-dependencies]
