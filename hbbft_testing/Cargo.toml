@@ -28,7 +28,7 @@ integer-sqrt = "0.1.2"
 proptest = "0.9.4"
 rand = "0.6.5"
 rand_xorshift = "0.1.1"
-threshold_crypto = { git = "https://github.com/kigawas/threshold_crypto", branch = "cleanup-and-codec"}
+threshold_crypto = { branch = "master", git = "https://github.com/poanetwork/threshold_crypto" }
 
 [features]
 use-insecure-test-only-mock-crypto = ["hbbft/use-insecure-test-only-mock-crypto"]
