@@ -140,7 +140,7 @@ where
         } = join_plan;
         let new_pub_keys_opt = match change {
             ChangeState::InProgress(Change::EncryptionSchedule(..)) | ChangeState::None => None,
-            ChangeState::InProgress(Change::NodeChange(pks)) => Some(pks.clone()),
+            ChangeState::InProgress(Change::NodeChange(pks)) => Some(pks),
             ChangeState::Complete(change) => {
                 let valid = match change {
                     Change::EncryptionSchedule(schedule) => schedule == params.encryption_schedule,

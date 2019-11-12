@@ -272,7 +272,7 @@ where
         for fault in &step.fault_log.0 {
             if nodes.get(&fault.node_id).map_or(false, |n| !n.is_faulty()) {
                 return Err(CrankError::Fault {
-                    reported_by: stepped_id.clone(),
+                    reported_by: stepped_id,
                     faulty_id: fault.node_id.clone(),
                     fault_kind: fault.kind.clone(),
                 });

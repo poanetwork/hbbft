@@ -140,7 +140,7 @@ impl<N: NodeIdT> ThresholdDecrypt<N> {
             return Err(Error::MultipleInputs(Box::new(ct)));
         }
         if !ct.verify() {
-            return Err(Error::InvalidCiphertext(Box::new(ct.clone())));
+            return Err(Error::InvalidCiphertext(Box::new(ct)));
         }
         self.ciphertext = Some(ct);
         Ok(())
