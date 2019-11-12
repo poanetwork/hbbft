@@ -40,7 +40,7 @@ pub fn make(
             } else {
                 TcpStream::connect(address).expect("failed to connect")
             };
-            Connection::new(tcp_conn, there_str.to_string())
+            Connection::new(tcp_conn, there_str)
         })
         .collect();
     (here_str, connections)

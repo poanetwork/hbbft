@@ -157,7 +157,7 @@ fn do_drop_and_re_add(cfg: TestConfig) {
     let mut awaiting_apply_new_subset: BTreeSet<_> = correct_nodes.clone();
     let mut awaiting_apply_old_subset: BTreeSet<_> = correct_nodes.clone();
     let mut awaiting_apply_old_subset_input: BTreeSet<_> = non_rm_nodes.clone();
-    let mut awaiting_apply_old_subset_in_progress: BTreeSet<_> = non_rm_nodes.clone();
+    let mut awaiting_apply_old_subset_in_progress: BTreeSet<_> = non_rm_nodes;
     let mut expected_outputs: BTreeMap<_, BTreeSet<_>> = correct_nodes
         .iter()
         .map(|id| (id, (0..cfg.total_txs).collect()))

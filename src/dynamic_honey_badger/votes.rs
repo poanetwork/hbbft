@@ -41,7 +41,7 @@ where
         VoteCounter {
             our_id,
             secret_key,
-            pub_keys: pub_keys.clone(),
+            pub_keys,
             era,
             pending: BTreeMap::new(),
             committed: BTreeMap::new(),
