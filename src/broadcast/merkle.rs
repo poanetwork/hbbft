@@ -1,7 +1,7 @@
 use std::mem;
 
 use serde::{Deserialize, Serialize};
-use tiny_keccak::sha3_256;
+use tiny_keccak::{Hasher, Sha3};
 
 pub type Digest = [u8; 32];
 
@@ -141,7 +141,12 @@ fn hash_pair<T0: AsRef<[u8]>, T1: AsRef<[u8]>>(v0: &T0, v1: &T1) -> Digest {
 
 /// Returns the SHA-256 hash of the value's `[u8]` representation.
 fn hash<T: AsRef<[u8]>>(value: T) -> Digest {
-    sha3_256(value.as_ref())
+    let mut sha3 = Sha3::v256();
+    sha3.update(value.as_ref());
+
+    let mut out = [0u8; 32];
+    sha3.finalize(&mut out);
+    out
 }
 
 #[cfg(test)]
