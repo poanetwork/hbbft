@@ -21,7 +21,9 @@ where
     N: NodeIdT,
 {
     fn from(i: I) -> Self {
-        let indices: BTreeMap<N, usize> = i
+        let mut ids: Vec<N> = i.into_iter().map(|id| id.borrow().clone()).collect();
+        ids.sort();
+        let indices: BTreeMap<N, usize> = ids
             .into_iter()
             .enumerate()
             .map(|(n, id)| (id.borrow().clone(), n))
