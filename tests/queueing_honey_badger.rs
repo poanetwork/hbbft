@@ -251,7 +251,7 @@ fn test_queueing_honey_badger_different_sizes<A, F>(
 
     let mut rng: TestRng = TestRng::from_seed(seed);
 
-    let sizes = vec![3, 5, rng.gen_range(6, 10)];
+    let sizes = vec![2, 3, 5, rng.gen_range(6, 10)];
     for size in sizes {
         // The test is removing one correct node, so we allow fewer faulty ones.
         let num_adv_nodes = util::max_faulty(size - 1);

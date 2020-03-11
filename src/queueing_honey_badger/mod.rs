@@ -343,11 +343,13 @@ where
         while self.can_propose() {
             let amount = cmp::max(1, self.batch_size / self.dyn_hb.netinfo().num_nodes());
             let proposal = self.queue.choose(rng, amount, self.batch_size);
-            step.extend(
-                self.dyn_hb
-                    .handle_input(Input::User(proposal), rng)
-                    .map_err(Error::Propose)?,
-            );
+            let propose_step = self
+                .dyn_hb
+                .handle_input(Input::User(proposal), rng)
+                .map_err(Error::Propose)?;
+            self.queue
+                .remove_multiple(propose_step.output.iter().flat_map(Batch::iter));
+            step.extend(propose_step);
         }
         Ok(step)
     }
