@@ -8,7 +8,7 @@ use hex_fmt::{HexFmt, HexList};
 use log::{debug, warn};
 use rand::Rng;
 use reed_solomon_erasure as rse;
-use reed_solomon_erasure::ReedSolomon;
+use reed_solomon_erasure::{galois_8::Field as Field8, ReedSolomon};
 
 use super::merkle::{Digest, MerkleTree, Proof};
 use super::message::HexProof;
@@ -638,7 +638,7 @@ impl<N: NodeIdT> fmt::Display for Broadcast<N> {
 #[derive(Debug)]
 enum Coding {
     /// A `ReedSolomon` instance with at least one parity shard.
-    ReedSolomon(Box<ReedSolomon>),
+    ReedSolomon(Box<ReedSolomon<Field8>>),
     /// A no-op replacement that doesn't encode or decode anything.
     Trivial(usize),
 }
@@ -681,7 +681,7 @@ impl Coding {
     /// If enough shards are present, reconstructs the missing ones.
     fn reconstruct_shards(&self, shards: &mut [Option<Box<[u8]>>]) -> RseResult<()> {
         match *self {
-            Coding::ReedSolomon(ref rs) => rs.reconstruct_shards(shards),
+            Coding::ReedSolomon(ref rs) => rs.reconstruct(shards),
             Coding::Trivial(_) => {
                 if shards.iter().all(Option::is_some) {
                     Ok(())

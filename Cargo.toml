@@ -23,7 +23,7 @@ travis-ci = { repository = "poanetwork/hbbft" }
 [dependencies]
 bincode = "1.2.0"
 byteorder = "1.3.2"
-derivative = "1.0.3"
+derivative = "2.0.2"
 env_logger = "0.7.1"
 failure = "0.1.6"
 hex_fmt = "0.3"
@@ -31,7 +31,7 @@ init_with = "1.1.0"
 log = "0.4.8"
 rand = "0.6.5"
 rand_derive = "0.5.0"
-reed-solomon-erasure = "3.1.1"
+reed-solomon-erasure = "4.0.1"
 serde = { version = "1.0.102", features = ["derive", "rc"] }
 threshold_crypto = { rev = "624eeee", git = "https://github.com/poanetwork/threshold_crypto" }
 tiny-keccak = { version = "2.0.1", features = ["sha3"]}
@@ -42,8 +42,8 @@ crossbeam = "0.7.3"
 crossbeam-channel = "0.4.0"
 docopt = "1.1.0"
 hbbft_testing = { path = "hbbft_testing", features = ["use-insecure-test-only-mock-crypto"] }
-itertools = "0.8.1"
-signifix = "0.10.0"
+itertools = "0.9.0"
+number_prefix = "0.3.0"
 proptest = "0.9.4"
 
 [[example]]
@@ -60,6 +60,4 @@ overflow-checks = true
 
 [features]
 use-insecure-test-only-mock-crypto = ["threshold_crypto/use-insecure-test-only-mock-crypto"]
-# TODO: Remove this feature once https://github.com/darrenldl/reed-solomon-erasure/issues/28 is
-#       resolved.
-no-simd = ["reed-solomon-erasure/pure-rust"]
+simd-accel = ["reed-solomon-erasure/simd-accel"]

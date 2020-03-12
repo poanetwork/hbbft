@@ -1,3 +1,4 @@
+use std::cmp::Ordering;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::{fmt, result};
@@ -235,8 +236,12 @@ where
         message: Message<N>,
         rng: &mut R,
     ) -> Result<Step<C, N>> {
-        if message.era() == self.era {
-            match message {
+        match message.era().cmp(&self.era) {
+            Ordering::Greater => {
+                Ok(Fault::new(sender_id.clone(), FaultKind::UnexpectedDhbMessageEra).into())
+            }
+            Ordering::Less => Ok(Step::default()), // The message is late; discard it.
+            Ordering::Equal => match message {
                 Message::HoneyBadger(_, hb_msg) => {
                     self.handle_honey_badger_message(sender_id, hb_msg, rng)
                 }
@@ -247,12 +252,7 @@ where
                     .vote_counter
                     .add_pending_vote(sender_id, signed_vote)
                     .map(FaultLog::into),
-            }
-        } else if message.era() > self.era {
-            Ok(Fault::new(sender_id.clone(), FaultKind::UnexpectedDhbMessageEra).into())
-        } else {
-            // The message is late; discard it.
-            Ok(Step::default())
+            },
         }
     }
 

@@ -9,21 +9,18 @@
 //! use std::net::SocketAddr;
 //! use std::vec::Vec;
 //!
-//! fn main() {
-//!     let bind_address = "127.0.0.1:10001".parse().unwrap();
-//!     let remote_addresses = vec!["192.168.1.2:10002",
-//!                                 "192.168.1.3:10003",
-//!                                 "192.168.1.4:10004"]
-//!         .iter()
-//!         .map(|s| s.parse().unwrap())
-//!         .collect();
+//! let bind_address = "127.0.0.1:10001".parse().unwrap();
+//! let remote_addresses = vec!["192.168.1.2:10002",
+//!                             "192.168.1.3:10003",
+//!                             "192.168.1.4:10004"]
+//!     .iter()
+//!     .map(|s| s.parse().unwrap())
+//!     .collect();
 //!
-//!     let value = "Value #1".as_bytes().to_vec();
+//! let value = "Value #1".as_bytes().to_vec();
 //!
-//!     let result = Node::new(bind_address, remote_addresses, Some(value))
-//!         .run();
-//!     println!("Consensus result {:?}", result);
-//! }
+//! let result = Node::new(bind_address, remote_addresses, Some(value)).run();
+//! println!("Consensus result {:?}", result);
 //! ```
 //!
 //! Similar code shall then run on hosts 192.168.1.2, 192.168.1.3 and

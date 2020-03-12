@@ -40,7 +40,7 @@ fn test_subset<A>(
     //       or drop this TODO if we decide to abandon that concept.
     let expected_value: BTreeSet<_> = net
         .correct_nodes()
-        .nth(0)
+        .next()
         .unwrap()
         .outputs()
         .iter()
