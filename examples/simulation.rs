@@ -1,15 +1,14 @@
 use std::collections::{BTreeMap, VecDeque};
-use std::convert::TryFrom;
 use std::time::{Duration, Instant};
 use std::{cmp, u64};
 
 use colored::*;
 use docopt::Docopt;
 use itertools::Itertools;
+use number_prefix::{NumberPrefix, Prefixed, Standalone};
 use rand::{distributions::Standard, rngs::OsRng, seq::SliceRandom, Rng};
 use rand_derive::Rand;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
-use signifix::metric;
 
 use hbbft::crypto::SecretKey;
 use hbbft::dynamic_honey_badger::DynamicHoneyBadger;
@@ -362,8 +361,11 @@ impl EpochInfo {
             max_t.as_secs() * 1000 + u64::from(max_t.subsec_nanos()) / 1_000_000,
             txs,
             network.message_count() / network.nodes.len(),
-            metric::Signifix::try_from(network.message_size() / network.nodes.len() as u64)
-                .unwrap(),
+            match NumberPrefix::decimal(network.message_size() as f64 / network.nodes.len() as f64)
+            {
+                Standalone(bytes) => format!("{:3.0}  ", bytes),
+                Prefixed(prefix, n) => format!("{:3.0} {}", n, prefix),
+            }
         );
     }
 }

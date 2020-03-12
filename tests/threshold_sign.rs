@@ -66,7 +66,7 @@ where
         while !net.nodes().all(|node| node.algorithm().terminated()) {
             let _ = net.crank_expect(&mut rng);
         }
-        let node0 = net.correct_nodes().nth(0).unwrap();
+        let node0 = net.correct_nodes().next().unwrap();
         // Verify that all instances output the same value.
         assert_eq!(1, node0.outputs().len());
         assert!(net.nodes().all(|node| node.outputs() == node0.outputs()));
@@ -136,7 +136,7 @@ where
             while !net.nodes().all(|node| node.algorithm().terminated()) {
                 let _ = net.crank_expect(&mut rng);
             }
-            let node0 = net.correct_nodes().nth(0).unwrap();
+            let node0 = net.correct_nodes().next().unwrap();
             // Verify that all instances output the same value.
             assert_eq!(1, node0.outputs().len());
             assert!(net.nodes().all(|node| node.outputs() == node0.outputs()));

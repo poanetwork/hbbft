@@ -41,7 +41,7 @@ where
     // Make two copies of all public keys.
     let pub_keys_add = net
         .correct_nodes()
-        .nth(0)
+        .next()
         .expect("At least one correct node needs to exist")
         .algorithm()
         .algo()
@@ -52,7 +52,7 @@ where
     let mut pub_keys_rm = pub_keys_add.clone();
 
     // Get the first correct node id as candidate for removal/re-adding.
-    let first_correct_node = *net.correct_nodes().nth(0).unwrap().id();
+    let first_correct_node = *net.correct_nodes().next().unwrap().id();
 
     // Remove the first correct node, which is to be removed.
     Arc::make_mut(&mut pub_keys_rm).remove(&first_correct_node);

@@ -125,7 +125,7 @@ fn test_broadcast<A: Adversary<Broadcast<NodeId>>>(
             // verify that all other correct nodes have empty output as well.
             let first = net
                 .correct_nodes()
-                .nth(0)
+                .next()
                 .expect("At least one correct node needs to exist");
             assert!(first.outputs().is_empty());
             break;
@@ -136,7 +136,7 @@ fn test_broadcast<A: Adversary<Broadcast<NodeId>>>(
 
     if proposer_is_faulty {
         // If the proposer was faulty it is sufficient for all correct nodes having the same value.
-        let first = net.correct_nodes().nth(0).unwrap().outputs();
+        let first = net.correct_nodes().next().unwrap().outputs();
         assert!(net.nodes().all(|node| node.outputs() == first));
     } else {
         // In the case where the proposer was valid it must be the value it proposed.
