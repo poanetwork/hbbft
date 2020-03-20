@@ -139,7 +139,7 @@ pub mod threshold_sign;
 pub mod transaction_queue;
 pub mod util;
 
-pub use crate::crypto::pairing;
+pub use crate::crypto::{group, pairing};
 pub use crate::fault_log::{Fault, FaultLog};
 pub use crate::messaging::{SourcedMessage, Target, TargetedMessage};
 pub use crate::network_info::{NetworkInfo, ValidatorSet};

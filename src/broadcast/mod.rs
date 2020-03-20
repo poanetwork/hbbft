@@ -150,8 +150,6 @@
 //!     const NUM_NODES: u64 = 7;
 //!     const PROPOSER_ID: u64 = 3;
 //!
-//!     let mut rng = OsRng::new().expect("Could not initialize OS random number generator.");
-//!
 //!     let validators = Arc::new(ValidatorSet::from(0..NUM_NODES));
 //!
 //!     // Create initial nodes by instantiating a `Broadcast` for each.
@@ -163,7 +161,7 @@
 //!
 //!     // First we generate a random payload.
 //!     let mut payload: Vec<_> = vec![0; 128];
-//!     rng.fill_bytes(&mut payload[..]);
+//!     OsRng.fill_bytes(&mut payload[..]);
 //!
 //!     // Define a function for handling one step of a `Broadcast` instance. This function appends
 //!     // new messages onto the message queue and checks whether each node outputs at most once
