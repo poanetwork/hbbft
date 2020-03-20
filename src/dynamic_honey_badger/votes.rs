@@ -209,7 +209,7 @@ mod tests {
     /// the vote by node `i` for making `j` the only validator. Each node signed this for nodes
     /// `0`, `1`, ... in order.
     fn setup(node_num: usize, era: u64) -> (Vec<VoteCounter<usize>>, Vec<Vec<SignedVote<usize>>>) {
-        let mut rng = rngs::OsRng::new().expect("could not initialize OsRng");
+        let mut rng = rngs::OsRng;
 
         // Generate keys for signing and encrypting messages.
         let sec_keys: BTreeMap<_, SecretKey> = (0..node_num).map(|id| (id, rng.gen())).collect();

@@ -399,7 +399,7 @@ fn parse_args() -> Result<Args, docopt::Error> {
 
 fn main() {
     env_logger::init();
-    let mut rng = OsRng::new().expect("Could not initialize OS random number generator.");
+    let mut rng = OsRng;
 
     let args = parse_args().unwrap_or_else(|e| e.exit());
     if args.flag_n <= 3 * args.flag_f {

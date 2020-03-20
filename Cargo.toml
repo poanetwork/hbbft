@@ -1,6 +1,6 @@
 [package]
 name = "hbbft"
-version = "0.1.1"
+version = "0.2.0"
 authors = [
     "Vladimir Komendantskiy <komendantsky@gmail.com>",
     "Andreas Fackler <AndreasFackler@gmx.de>",
@@ -29,11 +29,12 @@ failure = "0.1.6"
 hex_fmt = "0.3"
 init_with = "1.1.0"
 log = "0.4.8"
-rand = "0.6.5"
+rand = "0.7.3"
 rand_derive = "0.5.0"
 reed-solomon-erasure = "4.0.1"
 serde = { version = "1.0.102", features = ["derive", "rc"] }
-threshold_crypto = { rev = "624eeee", git = "https://github.com/poanetwork/threshold_crypto" }
+# TODO: Version 0.4.0
+threshold_crypto = { rev = "d4a500ce75002fca761c88adc7f4f9b28fded987", git = "https://github.com/poanetwork/threshold_crypto" }
 tiny-keccak = { version = "2.0.1", features = ["sha3"]}
 
 [dev-dependencies]
@@ -44,7 +45,8 @@ docopt = "1.1.0"
 hbbft_testing = { path = "hbbft_testing", features = ["use-insecure-test-only-mock-crypto"] }
 itertools = "0.9.0"
 number_prefix = "0.3.0"
-proptest = "0.9.4"
+# TODO: Update once there is a release that uses rand 0.7.
+proptest = { rev = "2f5062a", git = "https://github.com/AltSysrq/proptest" }
 
 [[example]]
 name = "consensus-node"
