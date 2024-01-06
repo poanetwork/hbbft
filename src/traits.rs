@@ -1,11 +1,11 @@
 //! Common supertraits for consensus protocols.
 
 use std::collections::BTreeMap;
+use std::error::Error as StdError;
 use std::fmt::{Debug, Display};
 use std::hash::Hash;
 use std::iter::once;
 
-use failure::Fail;
 use rand::Rng;
 use serde::{de::DeserializeOwned, Serialize};
 
@@ -22,8 +22,8 @@ pub trait NodeIdT: Eq + Ord + Clone + Debug + Hash + Send + Sync {}
 impl<N> NodeIdT for N where N: Eq + Ord + Clone + Debug + Hash + Send + Sync {}
 
 /// A consensus protocol fault.
-pub trait FaultT: Clone + Debug + Fail + PartialEq {}
-impl<N> FaultT for N where N: Clone + Debug + Fail + PartialEq {}
+pub trait FaultT: Clone + Debug + StdError + PartialEq {}
+impl<N> FaultT for N where N: Clone + Debug + StdError + PartialEq {}
 
 /// Messages.
 pub trait Message: Debug + Send + Sync {}
@@ -61,7 +61,7 @@ impl<E> EpochT for E where E: Copy + Message + Default + Eq + Ord + Serialize + 
 /// catch it, instead of potentially stalling the algorithm.
 #[must_use = "The algorithm step result must be used."]
 #[derive(Debug)]
-pub struct Step<M, O, N, F: Fail> {
+pub struct Step<M, O, N, F: StdError> {
     /// The algorithm's output, after consensus has been reached. This is guaranteed to be the same
     /// in all nodes.
     pub output: Vec<O>,
@@ -75,7 +75,7 @@ pub struct Step<M, O, N, F: Fail> {
 
 impl<M, O, N, F> Default for Step<M, O, N, F>
 where
-    F: Fail,
+    F: StdError,
 {
     fn default() -> Self {
         Step {
@@ -88,7 +88,7 @@ where
 
 impl<M, O, N, F> Step<M, O, N, F>
 where
-    F: Fail,
+    F: StdError,
 {
     /// Returns the same step, with the given additional output.
     pub fn with_output<T: Into<Option<O>>>(mut self, output: T) -> Self {
@@ -105,7 +105,7 @@ where
         mut f_msg: FM,
     ) -> Step<M2, O2, N, F2>
     where
-        F2: Fail,
+        F2: StdError,
         FO: FnMut(O) -> O2,
         FF: FnMut(F) -> F2,
         FM: FnMut(M) -> M2,
@@ -130,7 +130,7 @@ where
         mut f_msg: FM,
     ) -> Vec<O2>
     where
-        F2: Fail,
+        F2: StdError,
         FF: FnMut(F2) -> F,
         FM: FnMut(M2) -> M,
     {
@@ -162,7 +162,7 @@ where
 
 impl<M, O, N, F> From<FaultLog<N, F>> for Step<M, O, N, F>
 where
-    F: Fail,
+    F: StdError,
 {
     fn from(fault_log: FaultLog<N, F>) -> Self {
         Step {
@@ -174,7 +174,7 @@ where
 
 impl<M, O, N, F> From<Fault<N, F>> for Step<M, O, N, F>
 where
-    F: Fail,
+    F: StdError,
 {
     fn from(fault: Fault<N, F>) -> Self {
         Step {
@@ -186,7 +186,7 @@ where
 
 impl<M, O, N, F> From<TargetedMessage<M, N>> for Step<M, O, N, F>
 where
-    F: Fail,
+    F: StdError,
 {
     fn from(msg: TargetedMessage<M, N>) -> Self {
         Step {
@@ -199,7 +199,7 @@ where
 impl<I, M, O, N, F> From<I> for Step<M, O, N, F>
 where
     I: IntoIterator<Item = TargetedMessage<M, N>>,
-    F: Fail,
+    F: StdError,
 {
     fn from(msgs: I) -> Self {
         Step {
@@ -232,7 +232,7 @@ impl<'i, M, O, N, F> Step<M, O, N, F>
 where
     N: NodeIdT,
     M: 'i + Clone + SenderQueueableMessage,
-    F: Fail,
+    F: StdError,
 {
     /// Removes and returns any messages that are not yet accepted by remote nodes according to the
     /// mapping `remote_epochs`. This way the returned messages are postponed until later, and the
@@ -300,7 +300,7 @@ pub trait ConsensusProtocol: Send + Sync {
     /// The messages that need to be exchanged between the instances in the participating nodes.
     type Message: Message;
     /// The errors that can occur during execution.
-    type Error: Fail;
+    type Error: StdError;
     /// The kinds of message faults that can be detected during execution.
     type FaultKind: FaultT;
 

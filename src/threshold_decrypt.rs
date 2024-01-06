@@ -15,31 +15,31 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use crate::crypto::{self, Ciphertext, DecryptionShare};
-use failure::Fail;
 use rand::Rng;
 use rand_derive::Rand;
 use serde::{Deserialize, Serialize};
+use thiserror::Error as ThisError;
 
 use crate::fault_log::{self, Fault};
 use crate::{ConsensusProtocol, NetworkInfo, NodeIdT, Target};
 
 /// A threshold decryption error.
-#[derive(Clone, Eq, PartialEq, Debug, Fail)]
+#[derive(Clone, Eq, PartialEq, Debug, ThisError)]
 pub enum Error {
     /// Redundant input provided.
-    #[fail(display = "Redundant input provided: {:?}", _0)]
+    #[error("Redundant input provided: {0:?}")]
     MultipleInputs(Box<Ciphertext>),
     /// Invalid ciphertext.
-    #[fail(display = "Invalid ciphertext: {:?}", _0)]
+    #[error("Invalid ciphertext: {0:?}")]
     InvalidCiphertext(Box<Ciphertext>),
     /// Unknown sender.
-    #[fail(display = "Unknown sender")]
+    #[error("Unknown sender")]
     UnknownSender,
     /// Decryption failed.
-    #[fail(display = "Decryption failed: {:?}", _0)]
+    #[error("Decryption failed: {0:?}")]
     Decryption(crypto::error::Error),
     /// Tried to decrypt before setting a cipherext.
-    #[fail(display = "Tried to decrypt before setting ciphertext")]
+    #[error("Tried to decrypt before setting ciphertext")]
     CiphertextIsNone,
 }
 
@@ -47,13 +47,13 @@ pub enum Error {
 pub type Result<T> = ::std::result::Result<T, Error>;
 
 /// A threshold decryption message fault
-#[derive(Clone, Debug, Fail, PartialEq)]
+#[derive(Clone, Debug, ThisError, PartialEq)]
 pub enum FaultKind {
     /// `ThresholdDecrypt` received multiple shares from the same sender.
-    #[fail(display = "`ThresholdDecrypt` received multiple shares from the same sender.")]
+    #[error("`ThresholdDecrypt` received multiple shares from the same sender.")]
     MultipleDecryptionShares,
     /// `HoneyBadger` received a decryption share from an unverified sender.
-    #[fail(display = "`HoneyBadger` received a decryption share from an unverified sender.")]
+    #[error("`HoneyBadger` received a decryption share from an unverified sender.")]
     UnverifiedDecryptionShareSender,
 }
 

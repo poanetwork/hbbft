@@ -51,7 +51,9 @@ struct Args {
 }
 
 /// A node identifier. In the simulation, nodes are simply numbered.
-#[derive(Serialize, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Clone, Copy, Rand)]
+#[derive(
+    Serialize, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Clone, Copy, Rand,
+)]
 pub struct NodeId(pub usize);
 
 /// A transaction.

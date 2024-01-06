@@ -3,7 +3,6 @@
 use std::fmt::{self, Debug, Display};
 use std::time;
 
-use failure;
 use threshold_crypto as crypto;
 
 use hbbft::ConsensusProtocol;
@@ -162,20 +161,6 @@ where
             CrankError::InitialKeyGeneration(err) => {
                 f.debug_tuple("InitialKeyGeneration").field(err).finish()
             }
-        }
-    }
-}
-
-impl<D> failure::Fail for CrankError<D>
-where
-    D: ConsensusProtocol + 'static,
-{
-    fn cause(&self) -> Option<&dyn failure::Fail> {
-        match self {
-            CrankError::HandleInput(err) | CrankError::HandleInputAll(err) => Some(err),
-            CrankError::HandleMessage { err, .. } => Some(err),
-            CrankError::InitialKeyGeneration(err) => Some(err),
-            _ => None,
         }
     }
 }

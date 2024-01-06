@@ -22,12 +22,12 @@ edition = "2018"
 travis-ci = { repository = "poanetwork/hbbft" }
 
 [dependencies]
-failure = "0.1.6"
 hbbft = { path = ".." }
 integer-sqrt = "0.1.2"
 proptest = "0.10.1"
 rand = "0.7.3"
 rand_xorshift = "0.2.0"
+thiserror = "1.0"
 threshold_crypto = { rev = "a7fbfa4", git = "https://github.com/poanetwork/threshold_crypto" }
 
 [features]
