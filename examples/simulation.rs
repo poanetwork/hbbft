@@ -51,7 +51,9 @@ struct Args {
 }
 
 /// A node identifier. In the simulation, nodes are simply numbered.
-#[derive(Serialize, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Clone, Copy, Rand)]
+#[derive(
+    Serialize, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Clone, Copy, Rand,
+)]
 pub struct NodeId(pub usize);
 
 /// A transaction.
@@ -399,7 +401,7 @@ fn parse_args() -> Result<Args, docopt::Error> {
 
 fn main() {
     env_logger::init();
-    let mut rng = OsRng::new().expect("Could not initialize OS random number generator.");
+    let mut rng = OsRng;
 
     let args = parse_args().unwrap_or_else(|e| e.exit());
     if args.flag_n <= 3 * args.flag_f {

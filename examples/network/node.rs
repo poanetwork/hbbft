@@ -89,7 +89,7 @@ impl<T: Clone + Debug + AsRef<[u8]> + PartialEq + Send + Sync + From<Vec<u8>> + 
         let tx_from_algo = messaging.tx_from_algo();
         let stop_tx = messaging.stop_tx();
 
-        let mut rng = rand::rngs::OsRng::new().unwrap();
+        let mut rng = rand::rngs::OsRng;
 
         // All spawned threads will have exited by the end of the scope.
         crossbeam::scope(|scope| {

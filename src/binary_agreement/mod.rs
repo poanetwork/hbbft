@@ -69,11 +69,11 @@ pub mod bool_set;
 mod sbv_broadcast;
 
 use bincode;
-use failure::Fail;
 use rand::distributions::{Distribution, Standard};
 use rand::{seq::SliceRandom, Rng};
 use rand_derive::Rand;
 use serde::{Deserialize, Serialize};
+use thiserror::Error as ThisError;
 
 use self::bool_set::BoolSet;
 use crate::threshold_sign;
@@ -82,17 +82,17 @@ pub use self::binary_agreement::BinaryAgreement;
 pub use self::sbv_broadcast::Message as SbvMessage;
 
 /// A `BinaryAgreement` error.
-#[derive(Clone, Eq, PartialEq, Debug, Fail)]
+#[derive(Clone, Eq, PartialEq, Debug, ThisError)]
 pub enum Error {
     /// Error handling a `ThresholdSign` message.
-    #[fail(display = "Error handling ThresholdSign message: {}", _0)]
+    #[error("Error handling ThresholdSign message: {0}")]
     HandleThresholdSign(threshold_sign::Error),
     /// Error invoking the common coin.
-    #[fail(display = "Error invoking the common coin: {}", _0)]
+    #[error("Error invoking the common coin: {0}")]
     InvokeCoin(threshold_sign::Error),
     // String because `io` and `bincode` errors lack `Eq` and `Clone`.
     /// Error serializing the session ID for the common coin.
-    #[fail(display = "Error serializing session ID for coin: {}", _0)]
+    #[error("Error serializing session ID for coin: {0}")]
     Serialize(String),
 }
 
@@ -106,25 +106,25 @@ impl From<bincode::Error> for Error {
 pub type Result<T> = ::std::result::Result<T, Error>;
 
 /// A faulty Binary Agreement message received from a peer.
-#[derive(Clone, Debug, Fail, PartialEq)]
+#[derive(Clone, Debug, ThisError, PartialEq)]
 pub enum FaultKind {
     /// `BinaryAgreement` received a duplicate `BVal` message.
-    #[fail(display = "`BinaryAgreement` received a duplicate `BVal` message.")]
+    #[error("`BinaryAgreement` received a duplicate `BVal` message.")]
     DuplicateBVal,
     /// `BinaryAgreement` received a duplicate `Aux` message.
-    #[fail(display = "`BinaryAgreement` received a duplicate `Aux` message.")]
+    #[error("`BinaryAgreement` received a duplicate `Aux` message.")]
     DuplicateAux,
     /// `BinaryAgreement` received multiple `Conf` messages.
-    #[fail(display = "`BinaryAgreement` received multiple `Conf` messages.")]
+    #[error("`BinaryAgreement` received multiple `Conf` messages.")]
     MultipleConf,
     /// `BinaryAgreement` received multiple `Term` messages.
-    #[fail(display = "`BinaryAgreement` received multiple `Term` messages.")]
+    #[error("`BinaryAgreement` received multiple `Term` messages.")]
     MultipleTerm,
     /// `BinaryAgreement` received a message with an epoch too far ahead.
-    #[fail(display = "`BinaryAgreement` received a message with an epoch too far ahead.")]
+    #[error("`BinaryAgreement` received a message with an epoch too far ahead.")]
     AgreementEpoch,
     /// `BinaryAgreement` received a Coin Fault.
-    #[fail(display = "`BinaryAgreement` received a Coin Fault.")]
+    #[error("`BinaryAgreement` received a Coin Fault.")]
     CoinFault(threshold_sign::FaultKind),
 }
 /// A `BinaryAgreement` step, containing at most one output.

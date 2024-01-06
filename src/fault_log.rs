@@ -4,13 +4,13 @@
 //! Each algorithm can propagate their faulty node logs upwards to a calling algorithm via
 //! `ConsensusProtocol`'s `.handle_input()` and `.handle_message()` trait methods.
 
-pub use failure::Fail;
+use std::error::Error as StdError;
 
 /// A structure representing the context of a faulty node. This structure
 /// describes which node is faulty (`node_id`) and which faulty behavior
 /// that the node exhibited (`kind`).
 #[derive(Clone, Debug, PartialEq)]
-pub struct Fault<N, F: Fail> {
+pub struct Fault<N, F: StdError> {
     /// The faulty node's ID.
     pub node_id: N,
     /// The kind of fault the node is blamed for.
@@ -19,7 +19,7 @@ pub struct Fault<N, F: Fail> {
 
 impl<N, F> Fault<N, F>
 where
-    F: Fail,
+    F: StdError,
 {
     /// Creates a new fault, blaming `node_id` for the `kind`.
     pub fn new(node_id: N, kind: F) -> Self {
@@ -29,7 +29,7 @@ where
     /// Applies `f_fault` to `kind`, leaves `node_id` unchanged
     pub fn map<F2, FF>(self, f_fault: FF) -> Fault<N, F2>
     where
-        F2: Fail,
+        F2: StdError,
         FF: FnOnce(F) -> F2,
     {
         Fault {
@@ -43,7 +43,7 @@ where
 /// vector.
 impl<N, F> Into<FaultLog<N, F>> for Fault<N, F>
 where
-    F: Fail,
+    F: StdError,
 {
     fn into(self) -> FaultLog<N, F> {
         FaultLog(vec![self])
@@ -52,11 +52,11 @@ where
 
 /// A structure used to contain reports of faulty node behavior.
 #[derive(Debug, PartialEq)]
-pub struct FaultLog<N, F: Fail>(pub Vec<Fault<N, F>>);
+pub struct FaultLog<N, F: StdError>(pub Vec<Fault<N, F>>);
 
 impl<N, F> FaultLog<N, F>
 where
-    F: Fail,
+    F: StdError,
 {
     /// Creates an empty `FaultLog`.
     pub fn new() -> Self {
@@ -96,7 +96,7 @@ where
     /// Applies `f_fault` to each element in log, modifying its `kind` only
     pub fn map<F2, FF>(self, mut f_fault: FF) -> FaultLog<N, F2>
     where
-        F2: Fail,
+        F2: StdError,
         FF: FnMut(F) -> F2,
     {
         FaultLog(self.into_iter().map(|f| f.map(&mut f_fault)).collect())
@@ -105,7 +105,7 @@ where
 
 impl<N, F> Default for FaultLog<N, F>
 where
-    F: Fail,
+    F: StdError,
 {
     fn default() -> Self {
         FaultLog(vec![])
@@ -114,7 +114,7 @@ where
 
 impl<N, F> IntoIterator for FaultLog<N, F>
 where
-    F: Fail,
+    F: StdError,
 {
     type Item = Fault<N, F>;
     type IntoIter = std::vec::IntoIter<Fault<N, F>>;
@@ -126,7 +126,7 @@ where
 
 impl<N, F> std::iter::FromIterator<Fault<N, F>> for FaultLog<N, F>
 where
-    F: Fail,
+    F: StdError,
 {
     fn from_iter<I: IntoIterator<Item = Fault<N, F>>>(iter: I) -> Self {
         let mut log = FaultLog::new();
